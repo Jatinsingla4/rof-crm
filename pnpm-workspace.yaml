@@ -1,0 +1,5 @@
+packages:
+  - 'packages/design-system'
+  - 'packages/types'
+  - 'packages/web'
+  - 'packages/api'

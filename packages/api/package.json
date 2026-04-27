@@ -1,0 +1,39 @@
+{
+  "name": "@rof-crm/api",
+  "version": "1.0.0",
+  "description": "ROF CRM - Backend API (Node.js + Express + PostgreSQL)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "db:migrate": "node dist/db/migrations.js",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "pg": "^8.11.3",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "9.0.3",
+    "bull": "^4.11.5",
+    "redis": "^4.6.12",
+    "puppeteer": "^21.6.1",
+    "handlebars": "^4.7.7",
+    "twilio": "^4.10.0",
+    "dotenv": "^16.3.1",
+    "@rof-crm/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.5",
+    "@types/pg": "^8.11.2",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.3.3",
+    "tsx": "^4.7.0",
+    "eslint": "^8.55.0",
+    "prettier": "^3.1.1"
+  }
+}
