@@ -219,4 +219,128 @@ router.post('/calculate-interest', async (req: AuthRequest, res: Response, next:
   }
 });
 
+// GET /api/payments/draw-refunds - List all draw refunds
+router.get('/draw-refunds', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { status, projectId, page = 1, pageSize = 20 } = req.query;
+
+    let query = `SELECT
+                  id, consumer_id, project_id, draw_result,
+                  booking_amount_paid_inr, refund_amount_inr,
+                  refund_due_by, refund_status,
+                  refund_initiated_at, refund_completed_at,
+                  refund_reference, created_at
+                 FROM draw_refunds WHERE 1=1`;
+    const params: any[] = [];
+
+    if (status) {
+      query += ` AND refund_status = $${params.length + 1}`;
+      params.push(status);
+    }
+
+    if (projectId) {
+      query += ` AND project_id = $${params.length + 1}`;
+      params.push(projectId);
+    }
+
+    query += ` ORDER BY refund_due_by ASC
+              LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/payments/draw-refunds/overdue - Get overdue draw refunds
+router.get('/draw-refunds/overdue', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await db.query(
+      `SELECT
+        id, consumer_id, project_id, draw_result,
+        booking_amount_paid_inr, refund_amount_inr,
+        refund_due_by, refund_status,
+        refund_initiated_at, created_at,
+        EXTRACT(DAY FROM (NOW() - refund_due_by))::INT as days_overdue
+       FROM draw_refunds
+       WHERE refund_due_by < CURRENT_DATE
+       AND refund_status NOT IN ('completed')
+       ORDER BY refund_due_by ASC`
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund
+router.patch('/draw-refunds/:id/initiate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { refundReference, notes } = req.body;
+
+    const result = await db.query(
+      `UPDATE draw_refunds
+       SET refund_status = 'initiated',
+           refund_initiated_at = NOW(),
+           refund_reference = $1,
+           notes = COALESCE($2, notes),
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, consumer_id, refund_status, refund_initiated_at`,
+      [refundReference, notes || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Draw refund not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund
+router.patch('/draw-refunds/:id/complete', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { refundReference } = req.body;
+
+    const result = await db.query(
+      `UPDATE draw_refunds
+       SET refund_status = 'completed',
+           refund_completed_at = NOW(),
+           refund_reference = COALESCE($1, refund_reference),
+           updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, consumer_id, refund_status, refund_completed_at`,
+      [refundReference || null, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Draw refund not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

@@ -182,9 +182,9 @@ describe('Cancellation & Forfeiture', () => {
   });
 
   it('should include 18% GST in base ₹25,000 forfeiture', () => {
-    const baseForf eiture = 25000;
-    const gst = baseForfiture * 0.18;
-    const totalForfeiture = Math.round(baseForfiture + gst);
+    const baseForfeiture = 25000;
+    const gst = baseForfeiture * 0.18;
+    const totalForfeiture = Math.round(baseForfeiture + gst);
 
     expect(totalForfeiture).toBe(29500);
   });

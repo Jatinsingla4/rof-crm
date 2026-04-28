@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useConsumers, useCreateConsumer } from '../hooks';
 import { DataTable, SearchFilter, Button, Card, LoadingSkeleton } from '@rof-crm/design-system';
 import { colors, spacing } from '@rof-crm/design-system/theme';
@@ -21,7 +22,20 @@ export function ConsumerListPage() {
   const createConsumerMutation = useCreateConsumer();
 
   const columns = [
-    { key: 'name', header: 'Name', render: (item: any) => item.name },
+    {
+      key: 'name',
+      header: 'Name',
+      render: (item: any) => (
+        <Link
+          to={`/consumers/${item.id}`}
+          style={{ color: colors.primary[600], textDecoration: 'none', fontWeight: 500 }}
+          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+          onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+        >
+          {item.name}
+        </Link>
+      ),
+    },
     { key: 'mobile', header: 'Mobile', render: (item: any) => item.mobile },
     { key: 'email', header: 'Email', render: (item: any) => item.email },
     { key: 'lead_stage', header: 'Lead Stage', render: (item: any) => item.lead_stage },

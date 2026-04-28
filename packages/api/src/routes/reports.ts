@@ -131,9 +131,22 @@ router.get('/project-dashboard', async (req: AuthRequest, res: Response, next: N
       [projectId]
     );
 
+    // Get construction milestone progress
+    const milestonesResult = await db.query(
+      `SELECT
+        COUNT(*) as total_milestones,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_milestones,
+        ROUND(AVG(CASE WHEN status = 'completed' THEN completion_percentage ELSE 0 END), 1) as avg_completion
+       FROM construction_milestones
+       WHERE project_id = $1`,
+      [projectId]
+    );
+
     const payment = paymentResult.rows[0];
     const collectionPercentage =
       payment.total_receivables > 0 ? Math.round((payment.total_collected / payment.total_receivables) * 100) : 0;
+
+    const milestones = milestonesResult.rows[0];
 
     res.json({
       success: true,
@@ -142,6 +155,11 @@ router.get('/project-dashboard', async (req: AuthRequest, res: Response, next: N
         payment: {
           ...payment,
           collectionPercentage,
+        },
+        milestones: {
+          total: parseInt(milestones.total_milestones) || 0,
+          completed: parseInt(milestones.completed_milestones) || 0,
+          progressPercentage: milestones.avg_completion || 0,
         },
       },
     });
@@ -344,6 +362,155 @@ router.get('/custom-reports', async (req: AuthRequest, res: Response, next: Next
     res.json({
       success: true,
       data: result.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/reports/allotment-dashboard - Allotment metrics dashboard
+router.get('/allotment-dashboard', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+
+    // Get summary metrics (all projects or filtered)
+    let summaryQuery = `SELECT
+      COUNT(DISTINCT c.id) FILTER (WHERE c.lead_stage != 'enquiry') as total_applications,
+      COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'allotted') as total_allotted,
+      COUNT(DISTINCT w.id) as total_waitlisted,
+      COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'cancelled') as total_cancelled,
+      COUNT(DISTINCT c.id) FILTER (WHERE c.lead_stage = 'cancelled') as total_unsuccessful
+     FROM consumers c
+     LEFT JOIN allocations a ON c.id = a.consumer_id
+     LEFT JOIN waitlists w ON c.id = w.consumer_id`;
+
+    const summaryParams: any[] = [];
+
+    if (projectId) {
+      summaryQuery += ` WHERE c.project_id = $${summaryParams.length + 1}`;
+      summaryParams.push(projectId);
+    }
+
+    const summaryResult = await db.query(summaryQuery, summaryParams);
+    const summary = summaryResult.rows[0];
+
+    // Get by-project metrics
+    let byProjectQuery = `SELECT
+      p.id as project_id,
+      p.name as project_name,
+      p.rera_number,
+      p.total_units,
+      COUNT(DISTINCT c.id) FILTER (WHERE c.lead_stage NOT IN ('enquiry')) as applications,
+      COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'allotted') as allotted,
+      COUNT(DISTINCT w.id) as waitlist_depth,
+      COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'cancelled') as cancellations,
+      ROUND(
+        COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'cancelled') * 100.0 /
+        NULLIF(COUNT(DISTINCT a.id), 0), 2
+      ) as cancellation_rate,
+      ROUND(
+        COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'allotted') * 100.0 /
+        NULLIF(p.total_units, 0), 2
+      ) as fill_percentage
+     FROM projects p
+     LEFT JOIN consumers c ON c.project_id = p.id
+     LEFT JOIN allocations a ON a.project_id = p.id
+     LEFT JOIN waitlists w ON w.project_id = p.id`;
+
+    const byProjectParams: any[] = [];
+
+    if (projectId) {
+      byProjectQuery += ` WHERE p.id = $${byProjectParams.length + 1}`;
+      byProjectParams.push(projectId);
+    }
+
+    byProjectQuery += ` GROUP BY p.id, p.name, p.rera_number, p.total_units
+     ORDER BY p.name`;
+
+    const byProjectResult = await db.query(byProjectQuery, byProjectParams);
+
+    // Get by-unit-type metrics
+    let byUnitTypeQuery = `SELECT
+      u.project_id,
+      u.bhk_type,
+      COUNT(*) as total_units,
+      COUNT(CASE WHEN u.status = 'allotted' THEN 1 END) as allotted,
+      COUNT(CASE WHEN u.status = 'available' THEN 1 END) as available,
+      ROUND(
+        COUNT(CASE WHEN u.status = 'allotted' THEN 1 END) * 100.0 / COUNT(*), 2
+      ) as fill_percentage
+     FROM units u`;
+
+    const byUnitTypeParams: any[] = [];
+
+    if (projectId) {
+      byUnitTypeQuery += ` WHERE u.project_id = $${byUnitTypeParams.length + 1}`;
+      byUnitTypeParams.push(projectId);
+    }
+
+    byUnitTypeQuery += ` GROUP BY u.project_id, u.bhk_type
+     ORDER BY u.project_id, u.bhk_type`;
+
+    const byUnitTypeResult = await db.query(byUnitTypeQuery, byUnitTypeParams);
+
+    // Get waitlist summary
+    let waitlistQuery = `SELECT
+      p.id as project_id,
+      p.name as project_name,
+      COUNT(DISTINCT w.id) as waitlist_count,
+      MIN(w.created_at) as oldest_waitlist_date
+     FROM projects p
+     LEFT JOIN waitlists w ON w.project_id = p.id`;
+
+    const waitlistParams: any[] = [];
+
+    if (projectId) {
+      waitlistQuery += ` WHERE p.id = $${waitlistParams.length + 1}`;
+      waitlistParams.push(projectId);
+    }
+
+    waitlistQuery += ` GROUP BY p.id, p.name
+     ORDER BY p.name`;
+
+    const waitlistResult = await db.query(waitlistQuery, waitlistParams);
+
+    res.json({
+      success: true,
+      data: {
+        summary: {
+          totalApplications: parseInt(summary.total_applications) || 0,
+          totalAllotted: parseInt(summary.total_allotted) || 0,
+          totalWaitlisted: parseInt(summary.total_waitlisted) || 0,
+          totalCancelled: parseInt(summary.total_cancelled) || 0,
+          totalUnsuccessful: parseInt(summary.total_unsuccessful) || 0,
+        },
+        byProject: byProjectResult.rows.map((row: any) => ({
+          projectId: row.project_id,
+          projectName: row.project_name,
+          reraNumber: row.rera_number,
+          totalUnits: row.total_units,
+          applications: parseInt(row.applications) || 0,
+          allotted: parseInt(row.allotted) || 0,
+          waitlistDepth: parseInt(row.waitlist_depth) || 0,
+          cancellations: parseInt(row.cancellations) || 0,
+          cancellationRate: parseFloat(row.cancellation_rate) || 0,
+          fillPercentage: parseFloat(row.fill_percentage) || 0,
+        })),
+        byUnitType: byUnitTypeResult.rows.map((row: any) => ({
+          projectId: row.project_id,
+          bhkType: row.bhk_type,
+          totalUnits: parseInt(row.total_units),
+          allotted: parseInt(row.allotted),
+          available: parseInt(row.available),
+          fillPercentage: parseFloat(row.fill_percentage),
+        })),
+        waitlistSummary: waitlistResult.rows.map((row: any) => ({
+          projectId: row.project_id,
+          projectName: row.project_name,
+          waitlistCount: parseInt(row.waitlist_count) || 0,
+          oldestWaitlistDate: row.oldest_waitlist_date,
+        })),
+      },
     });
   } catch (error) {
     next(error);

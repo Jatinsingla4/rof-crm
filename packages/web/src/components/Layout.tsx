@@ -23,10 +23,20 @@ export default function Layout() {
     { path: '/', label: 'Dashboard', icon: '📊' },
     { path: '/consumers', label: 'Consumers', icon: '👥' },
     { path: '/units', label: 'Units', icon: '🏢' },
-    { path: '/allotments/new', label: 'Allotments', icon: '📋' },
+    { path: '/allocations', label: 'Allocations', icon: '📋' },
+    { path: '/allotments/new', label: 'Create Allotment', icon: '➕' },
+    { path: '/allocations/import', label: 'Import E-Draw', icon: '📥' },
+    { path: '/allocations/waitlist', label: 'Waitlist', icon: '⏳' },
     { path: '/payments', label: 'Payments', icon: '💰' },
+    { path: '/payments/draw-refunds', label: 'Draw Refunds', icon: '↩️' },
+    { path: '/payments/reconciliation', label: 'Bank Reconciliation', icon: '🏦' },
     { path: '/documents', label: 'Documents', icon: '📄' },
     { path: '/communications', label: 'Communications', icon: '💬' },
+    { path: '/tickets', label: 'Support Tickets', icon: '🎫' },
+    { path: '/projects/milestones', label: 'Construction Progress', icon: '🏗️' },
+    { path: '/reports/allotment', label: 'Allotment Dashboard', icon: '📈' },
+    { path: '/faq', label: 'FAQ', icon: '❓' },
+    { path: '/settings/roles', label: 'Role Management', icon: '⚙️' },
   ];
 
   return (
@@ -69,20 +79,45 @@ export default function Layout() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: spacing.sm,
-                padding: spacing.sm,
+                padding: `${spacing.sm} ${spacing.md}`,
                 width: '100%',
+                height: '40px',
                 border: 'none',
                 background: location.pathname === item.path ? '#0050B3' : 'transparent',
                 color: '#FFFFFF',
                 cursor: 'pointer',
                 borderRadius: '4px',
                 marginBottom: spacing.xs,
-                transition: 'background 150ms',
+                transition: 'background 150ms, color 150ms',
                 fontSize: '14px',
+                fontWeight: 500,
+                overflow: 'hidden',
+              }}
+              onMouseEnter={(e) => {
+                if (location.pathname !== item.path) {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (location.pathname !== item.path) {
+                  e.currentTarget.style.background = 'transparent';
+                }
               }}
             >
-              <span>{item.icon}</span>
-              {sidebarOpen && <span>{item.label}</span>}
+              <span style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</span>
+              {sidebarOpen && (
+                <span
+                  style={{
+                    flex: 1,
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {item.label}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -94,17 +129,40 @@ export default function Layout() {
             display: 'flex',
             alignItems: 'center',
             gap: spacing.sm,
-            padding: spacing.sm,
+            padding: `${spacing.sm} ${spacing.md}`,
             width: '100%',
+            height: '40px',
             border: 'none',
             background: 'transparent',
             color: '#FFFFFF',
             cursor: 'pointer',
             fontSize: '14px',
+            fontWeight: 500,
+            borderRadius: '4px',
+            transition: 'background 150ms, color 150ms',
+            overflow: 'hidden',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 0, 0, 0.2)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'transparent';
           }}
         >
-          <LogOut size={16} />
-          {sidebarOpen && <span>Logout</span>}
+          <LogOut size={18} style={{ flexShrink: 0 }} />
+          {sidebarOpen && (
+            <span
+              style={{
+                flex: 1,
+                textAlign: 'left',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              Logout
+            </span>
+          )}
         </button>
       </aside>
 

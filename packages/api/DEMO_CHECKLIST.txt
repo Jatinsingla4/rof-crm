@@ -1,0 +1,246 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   ROF CRM DEMO - ONE-PAGE CHECKLIST                           ║
+║                          (Print & Keep Handy)                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─ PRE-DEMO (5 minutes before) ─────────────────────────────────────────────────┐
+
+  [ ] 1. Terminal: npm run seed:active
+        ✓ Check: "✅ Seed completed successfully!"
+
+  [ ] 2. Browser: http://localhost:5173/payments
+        ✓ Check: All data loaded (no blank screens)
+
+  [ ] 3. Network: WiFi/Ethernet stable
+
+  [ ] 4. Browser: Clear cache (Ctrl+Shift+R)
+
+  [ ] 5. Tabs Pre-loaded:
+        [ ] /payments
+        [ ] /allocations
+        [ ] /consumers
+        [ ] /projects/milestones
+        [ ] /payments/reconciliation
+
+  [ ] 6. This checklist visible for reference
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ DEMO SCRIPT (15 minutes) ────────────────────────────────────────────────────┐
+
+  ⏱️  MINUTE 0-2: PAYMENT DASHBOARD (/payments)
+  ─────────────────────────────────────────
+  Say: "Let me show you the complete payment pipeline."
+
+  Point out:
+    📊 Total Receivables    → ₹80 Crores
+    ✅ Total Collected      → ₹40 Crores (50%)
+    ⚠️  Outstanding         → ₹40 Crores
+    🔴 Overdue             → ₹8 Crores (10%)
+
+  Say: "These 8 crores in overdue are auto-flagged, calculated with penal interest,
+       and trigger automated follow-ups."
+
+  ✅ CHECKPOINT: Audience nods, understands the problem
+
+
+  ⏱️  MINUTE 2-4: ALLOCATIONS DASHBOARD (/allocations)
+  ─────────────────────────────────────────────────────
+  Say: "Our allocation success is 80%."
+
+  Point out:
+    📋 Allocations        → 32
+    ⏳ Waitlist           → 8
+    📈 Success Rate       → 80%
+
+  Say: "The 8 on waitlist are automatically promoted as new units become available."
+
+  ✅ CHECKPOINT: Audience sees full pipeline
+
+
+  ⏱️  MINUTE 4-6: CONSUMER PROFILES (/consumers)
+  ──────────────────────────────────────────────
+  Say: "Each consumer has a complete 360° profile."
+
+  Action: Click on any consumer, show:
+    👤 Name, Mobile, Email, Income Category
+    🏠 Allocated Unit (with details)
+    💰 Payment History (all receipts)
+    📄 Documents (KYC, agreements, etc.)
+    📊 Lead Stage progression
+
+  Say: "Everything in one place. No more searching spreadsheets."
+
+  ✅ CHECKPOINT: Audience impressed by data completeness
+
+
+  ⏱️  MINUTE 6-9: CONSTRUCTION PROGRESS (/projects/milestones)
+  ────────────────────────────────────────────────────────────
+  Say: "Real-time construction tracking."
+
+  Point out:
+    📈 Overall Progress  → 38% Complete
+    🏗️  Milestones      → 4/13 Completed
+    📅 Timeline         → Planned vs Actual dates
+
+  Walk through milestones (just list, don't deep dive):
+    ✅ Foundation Complete
+    ✅ Plinth Level Complete
+    ✅ Structural Frame Complete
+    ✅ MEP Rough Work Complete
+    🟡 MEP Final (In Progress - 60%)
+    ⚪ Internal Finishing (Pending)
+    ... and 7 more
+
+  Say: "Customers know exactly where their project stands. Transparency at scale."
+
+  ✅ CHECKPOINT: Audience understands real-time visibility
+
+
+  ⏱️  MINUTE 9-12: PAYMENT SCHEDULE & COMPLIANCE
+  ──────────────────────────────────────────────
+  Say: "Our payment system follows AHP (Haryana Affordable Housing Policy)."
+
+  Show on whiteboard / mention verbally:
+
+    Payment Schedule:
+    ├─ Booking:        10% (₹3.5L)   ✓ Day 0
+    ├─ Allotment:      20% (₹7L)     ✓ Within 15 days
+    ├─ Installment 1:  12.5% (₹4.375L)
+    ├─ Installment 2:  12.5% (₹4.375L)
+    ├─ Installment 3:  12.5% (₹4.375L) ← OVERDUE
+    └─ ... (3 more)
+
+    Penal Interest: 11.10% p.a. (HRERA Rule 15)
+    Auto-calculated. Auto-applied.
+
+  Say: "This isn't manual anymore. System calculates, flags, and notifies."
+
+  ✅ CHECKPOINT: Audience sees regulatory compliance automation
+
+
+  ⏱️  MINUTE 12-14: BANK RECONCILIATION (/payments/reconciliation)
+  ───────────────────────────────────────────────────────────────
+  Say: "Bank statements? Just upload them."
+
+  Click: "Import Statement" tab
+
+  Point out:
+    📤 CSV Upload feature
+    🔄 Auto-matching algorithm
+    ✅ Status: auto_matched (40+)
+    ⚠️  Unmatched (if any - rare)
+    📊 Confidence scores
+
+  Say: "No more manual reconciliation. System learns your patterns."
+
+  ✅ CHECKPOINT: Audience sees time-saving automation
+
+
+  ⏱️  MINUTE 14-15: QUICK FEATURE TOUR (Mention)
+  ──────────────────────────────────────────
+  Say: "Beyond payments, we have integrated..."
+
+  Quick mention (no deep dive):
+    👥 /consumers       → Full CRM database
+    📋 /allocations     → E-Draw import, one-click allotment
+    ⏳ /allocations/waitlist → Ordered queue
+    📄 /documents       → Document vault with templates
+    💬 /communications  → WhatsApp, Email, SMS in one inbox
+    🎫 /tickets         → Support ticketing
+
+  ✅ CHECKPOINT: Audience sees full feature scope
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ HANDLING KEY QUESTIONS ──────────────────────────────────────────────────────┐
+
+  Q: "How do we know which payment is overdue?"
+  A: "Exactly what you see in the Overdue section - each payment tracked
+     with due date, amount, and penal interest. Auto-flagged for follow-up."
+
+  Q: "Is this HRERA compliant?"
+  A: "100%. Penal interest (11.10% p.a.), demand letters, audit trail - all per HRERA Rule 15."
+
+  Q: "What about the 8 waitlisted customers?"
+  A: "They're in queue. As new units complete construction, they auto-promote.
+     No manual intervention needed."
+
+  Q: "Can customers see their own status?"
+  A: "Not in this phase, but we're building a customer portal for Phase 2.
+     Right now, you have 100% visibility as ROF management."
+
+  Q: "How long to implement this?"
+  A: "Data migration: 2 weeks. Training: 1 week. Soft launch: 1 week.
+     Full go-live: 4 weeks from today."
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ IF SOMETHING BREAKS ─────────────────────────────────────────────────────────┐
+
+  🔴 Blank/White Screen?
+     → Hard refresh: Ctrl+Shift+R (Chrome/Firefox)
+     → Clear cookies: Settings > Clear browsing data
+
+  🔴 No Data Visible?
+     → Check backend running: Terminal shows "API running on 3000" ✓
+     → Re-run seed: npm run seed:active
+     → Wait 10 seconds for UI to reload
+
+  🔴 Slow Loading?
+     → Say: "Real-world performance with 40+ consumers and complex calculations.
+            We'll implement caching for production."
+     → Click something else meanwhile
+
+  🔴 Complete Failure?
+     → Have DEMO_QUICK_START.md open to re-explain features
+     → Or show screenshots of dashboards (keep on backup USB)
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ KEY NUMBERS TO REMEMBER ─────────────────────────────────────────────────────┐
+
+  📊 ACTIVE_PROJECT Metrics:
+     • Total Receivables:     ₹80 Crores
+     • Amount Collected:      ₹40 Crores (50%)
+     • Outstanding:          ₹40 Crores (50%)
+     • Overdue:              ₹8 Crores (10%) ← KEY ISSUE TO HIGHLIGHT
+     • Consumers:            40
+     • Allocations:          32 (80%)
+     • Waitlist:             8 (20%)
+     • Milestones Complete:  4/13 (38% progress)
+     • Payment Stages:       6 (booking → final installment)
+     • Collection Efficiency: 50% (mid-project is normal)
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─ YOUR KEY MESSAGE ────────────────────────────────────────────────────────────┐
+
+  "ROF currently manages allotment letters, payment tracking, and construction
+   updates across SPREADSHEETS and EMAIL. This CRM brings it ALL into ONE
+   SYSTEM with COMPLETE VISIBILITY.
+
+   In 4 weeks, you'll have:
+   ✅ 80 Crores tracked automatically
+   ✅ 10% overdue identified instantly
+   ✅ HRERA compliance built-in
+   ✅ 40 customers, automated end-to-end
+   ✅ Scales to 400+ seamlessly"
+
+└─────────────────────────────────────────────────────────────────────────────┘
+
+TIME CHECK:
+⏰ 0-2:   Payments       ← Should be here by 2 min mark
+⏰ 2-4:   Allocations    ← Should be here by 4 min mark
+⏰ 4-6:   Consumers      ← Should be here by 6 min mark
+⏰ 6-9:   Milestones     ← Should be here by 9 min mark
+⏰ 9-12:  Explanation    ← Should be here by 12 min mark
+⏰ 12-14: Reconciliation ← Should be here by 14 min mark
+⏰ 14-15: Feature tour   ← Wrap up by 15 min
+
+GOOD LUCK! 🚀
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  Need help? Check: DEMO_QUICK_START.md (detailed script)                     ║
+║  Need specs? Check: SEED_DATA_GUIDE.md (complete documentation)              ║
+╚══════════════════════════════════════════════════════════════════════════════╝

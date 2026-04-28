@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePaymentDashboard, useOverduePayments, useRecordReceipt } from '../hooks';
 import { DashboardKPICard, DataTable, Button, Card, LoadingSkeleton } from '@rof-crm/design-system';
 import { colors, spacing } from '@rof-crm/design-system/theme';
@@ -6,16 +6,16 @@ import { colors, spacing } from '@rof-crm/design-system/theme';
 export function PaymentDashboardPage({ projectId }: { projectId: string }) {
   const [showReceiptForm, setShowReceiptForm] = useState(false);
 
-  const { data: dashboard, isLoading: dashboardLoading } = usePaymentDashboard(projectId);
-  const { data: overduePayments, isLoading: overdueLoading } = useOverduePayments();
+  const { data: dashboard, isLoading: dashboardLoading, error: dashboardError } = usePaymentDashboard(projectId);
+  const { data: overduePayments, isLoading: overdueLoading, error: overdueError } = useOverduePayments();
   const recordReceiptMutation = useRecordReceipt();
 
   const overdueColumns = [
-    { id: 'consumerId', header: 'Consumer Name', accessorKey: 'consumer_name' },
-    { id: 'mobile', header: 'Mobile', accessorKey: 'mobile' },
-    { id: 'amountDue', header: 'Amount Due (₹)', accessorKey: 'amount_due_inr' },
-    { id: 'daysOverdue', header: 'Days Overdue', accessorKey: 'days_overdue' },
-    { id: 'penalInterest', header: 'Penal Interest (₹)', accessorKey: 'penalInterestInr' },
+    { key: 'consumer_name', header: 'Consumer Name', render: (item: any) => item.consumer_name },
+    { key: 'mobile', header: 'Mobile', render: (item: any) => item.mobile },
+    { key: 'amount_due_inr', header: 'Amount Due (₹)', render: (item: any) => `₹${item.amount_due_inr?.toLocaleString('en-IN') || 0}` },
+    { key: 'days_overdue', header: 'Days Overdue', render: (item: any) => item.days_overdue },
+    { key: 'penalInterestInr', header: 'Penal Interest (₹)', render: (item: any) => `₹${item.penalInterestInr?.toLocaleString('en-IN') || 0}` },
   ];
 
   const handleRecordReceipt = async (data: any) => {
@@ -34,6 +34,12 @@ export function PaymentDashboardPage({ projectId }: { projectId: string }) {
       {/* KPI Cards */}
       {dashboardLoading ? (
         <LoadingSkeleton height={150} />
+      ) : dashboardError ? (
+        <Card style={{ background: '#FFF1F0', border: '1px solid #FFCCC7' }}>
+          <div style={{ padding: spacing.lg, color: '#820014' }}>
+            Error loading payment dashboard. Please try again.
+          </div>
+        </Card>
       ) : dashboard ? (
         <div
           style={{
@@ -78,7 +84,13 @@ export function PaymentDashboardPage({ projectId }: { projectId: string }) {
             variant="error"
           />
         </div>
-      ) : null}
+      ) : (
+        <Card>
+          <div style={{ padding: spacing.lg, textAlign: 'center', color: colors.neutral[600] }}>
+            No payment data available
+          </div>
+        </Card>
+      )}
 
       {/* Record Receipt Button */}
       <div style={{ marginBottom: spacing.lg }}>
@@ -92,7 +104,11 @@ export function PaymentDashboardPage({ projectId }: { projectId: string }) {
         <h2 style={{ marginTop: 0 }}>Overdue Payments (HRERA Rule 15)</h2>
         {overdueLoading ? (
           <LoadingSkeleton height={300} />
-        ) : overduePayments && overduePayments.length > 0 ? (
+        ) : overdueError ? (
+          <div style={{ padding: spacing.lg, background: '#FFF1F0', color: '#820014', borderRadius: '4px' }}>
+            Error loading overdue payments. Please try again.
+          </div>
+        ) : (overduePayments || []).length > 0 ? (
           <div>
             <div style={{ marginBottom: spacing.md, fontSize: '12px', color: colors.neutral[600] }}>
               Includes calculated penal interest at 11.10% per annum (SBI MCLR + 2%)

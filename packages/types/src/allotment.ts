@@ -52,7 +52,7 @@ export interface EDraw {
   drawPosition?: number; // Position in draw result
 }
 
-export interface EDra wImportResult {
+export interface EDrawImportResult {
   totalResults: number;
   matched: number; // Successfully matched to consumers
   mismatched: number; // Could not auto-match

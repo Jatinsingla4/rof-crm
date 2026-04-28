@@ -132,3 +132,15 @@ export const useCustomReports = (projectId: string) => {
     staleTime: 10 * 60 * 1000,
   });
 };
+
+// Hook for allotment dashboard (Phase 4)
+export const useAllotmentDashboard = () => {
+  return useQuery({
+    queryKey: ['allotmentDashboard'],
+    queryFn: async () => {
+      const response = await apiClient.get('/reports/allotment-dashboard');
+      return response.data.data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+};

@@ -14,6 +14,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   try {
     const { consumerId, unitId, projectId } = req.body;
 
+    const isValidUUID = (str: string): boolean => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+    };
+
+    const uuidFields = { consumerId, unitId, projectId };
+    for (const [field, value] of Object.entries(uuidFields)) {
+      if (!value || !isValidUUID(value)) {
+        return res.status(400).json({
+          error: 'INVALID_INPUT',
+          message: `${field} must be a valid UUID`,
+        });
+      }
+    }
+
     // Validate eligibility (SERIALIZABLE transaction)
     const client = await db.connect();
 
@@ -70,6 +84,47 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     } finally {
       client.release();
     }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/allocations/waitlist - List waitlist entries
+router.get('/waitlist', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+
+    let query = `SELECT
+                  w.id,
+                  w.consumer_id,
+                  w.project_id,
+                  w.position_ordered as position,
+                  CASE WHEN w.promoted_to_allocation_id IS NOT NULL THEN 'promoted' ELSE 'waiting' END as status,
+                  w.created_at as applied_date,
+                  c.name as consumer_name,
+                  c.mobile as consumer_mobile,
+                  p.name as project_name
+                 FROM waitlists w
+                 JOIN consumers c ON w.consumer_id = c.id
+                 JOIN projects p ON w.project_id = p.id
+                 WHERE 1=1`;
+
+    const params: any[] = [];
+
+    if (projectId) {
+      params.push(projectId);
+      query += ` AND w.project_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY w.position_ordered ASC`;
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      total: result.rowCount,
+    });
   } catch (error) {
     next(error);
   }
@@ -197,22 +252,59 @@ router.post('/import-edraw', async (req: AuthRequest, res: Response, next: NextF
     // Parse e-draw CSV results and match to consumers
     let matched = 0;
     let mismatched = 0;
+    let refundsCreated = 0;
     const mismatches = [];
 
     for (const row of results) {
       // Try to find consumer by Aadhaar
       const consumerResult = await db.query(
-        `SELECT id FROM consumers WHERE aadhaar_hash = $1 AND project_id = $2`,
+        `SELECT id, lead_stage FROM consumers WHERE aadhaar_hash = $1 AND project_id = $2`,
         [row.applicantId, projectId]
       );
 
       if (consumerResult.rows.length > 0) {
-        // Update consumer based on result
-        if (row.result === 'allotted') {
+        const consumerId = consumerResult.rows[0].id;
+        const currentLeadStage = consumerResult.rows[0].lead_stage;
+
+        // Auto-advance from application_filed to draw_entered
+        if (currentLeadStage === 'application_filed') {
           await db.query(
             `UPDATE consumers SET lead_stage = 'draw_entered' WHERE id = $1`,
-            [consumerResult.rows[0].id]
+            [consumerId]
           );
+        }
+
+        // Handle unsuccessful draw applicants - create refund record
+        if (row.result === 'unsuccessful' || row.result === 'unsuccessful_draw') {
+          // Get booking amount from receipts
+          const bookingResult = await db.query(
+            `SELECT COALESCE(SUM(r.amount_received_inr), 0) as total_paid
+             FROM receipts r
+             WHERE r.consumer_id = $1`,
+            [consumerId]
+          );
+
+          const bookingAmountPaid = bookingResult.rows[0].total_paid || 0;
+
+          if (bookingAmountPaid > 0) {
+            // Create draw refund record (due within 30 days per AHP policy)
+            await db.query(
+              `INSERT INTO draw_refunds (
+                consumer_id, project_id, draw_result,
+                booking_amount_paid_inr, refund_amount_inr,
+                refund_due_by, refund_status, created_by_user_id
+               ) VALUES ($1, $2, 'unsuccessful', $3, $4, CURRENT_DATE + INTERVAL '30 days', 'pending', $5)`,
+              [consumerId, projectId, bookingAmountPaid, bookingAmountPaid, req.userId]
+            );
+
+            // Update consumer lead_stage to cancelled
+            await db.query(
+              `UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`,
+              [consumerId]
+            );
+
+            refundsCreated++;
+          }
         }
 
         matched++;
@@ -229,6 +321,7 @@ router.post('/import-edraw', async (req: AuthRequest, res: Response, next: NextF
         matched,
         mismatched,
         mismatches,
+        refundsCreated,
       },
     });
   } catch (error) {

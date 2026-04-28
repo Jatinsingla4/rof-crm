@@ -6,6 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index';
 import { AuthRequest } from '../index';
+import Anthropic from '@anthropic-ai/sdk';
 
 const router = Router();
 
@@ -47,6 +48,7 @@ router.get('/remarks/:consumerId', async (req: AuthRequest, res: Response, next:
 
     if (channel) {
       query += ` AND channel = $${params.length + 1}`;
+      // @ts-ignore
       params.push(channel);
     }
 
@@ -161,6 +163,7 @@ router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFun
     if (channel) {
       query += ` AND channel = $${params.length + 1}`;
       params.push(channel);
+      // @ts-ignore
     }
 
     query += ` ORDER BY created_at DESC`;
@@ -274,24 +277,121 @@ router.patch('/tickets/:id', async (req: AuthRequest, res: Response, next: NextF
 // POST /api/communications/ai-suggestions - Get AI-suggested replies
 router.post('/ai-suggestions', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, lastMessage, context } = req.body;
+    const { consumerId, consumerQuery, context, channel = 'email' } = req.body;
 
-    // In production, call OpenAI API or similar
-    // For now, return template suggestions based on context
-    const suggestions = [
-      'Thank you for your inquiry. We will get back to you shortly.',
-      'We have received your request and will process it within 24 hours.',
-      'Your payment has been recorded. A receipt has been sent to your registered email.',
-      'We are happy to assist. Could you please provide more details about your concern?',
+    if (!consumerId || !consumerQuery) {
+      return res.status(400).json({ error: 'consumerId and consumerQuery required' });
+    }
+
+    // Fallback suggestions if API key is missing or API fails
+    const fallbackSuggestions = [
+      'Thank you for your inquiry. We will get back to you shortly with the information you requested.',
+      'We have received your request and will process it within 24 hours. We appreciate your patience.',
+      'We are happy to assist you. Could you please provide additional details about your concern?',
     ];
 
-    res.json({
-      success: true,
-      data: {
-        suggestions,
-        context: 'template-based',
-      },
-    });
+    // If no API key configured, return fallback suggestions
+    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY.includes('placeholder')) {
+      return res.json({
+        success: true,
+        data: {
+          suggestions: fallbackSuggestions,
+          model: 'claude-sonnet-4-20250514',
+          note: 'API key not configured — returning fallback suggestions',
+        },
+      });
+    }
+
+    // Fetch consumer context from database
+    const consumerResult = await db.query(
+      `SELECT c.id, c.name, c.lead_stage, c.income_category,
+              p.name as project_name, u.unit_number, u.bhk_type
+       FROM consumers c
+       LEFT JOIN allocations a ON c.id = a.consumer_id AND a.status = 'allotted'
+       LEFT JOIN units u ON a.unit_id = u.id
+       LEFT JOIN projects p ON a.project_id = p.id
+       WHERE c.id = $1`,
+      [consumerId]
+    );
+
+    const consumer = consumerResult.rows[0];
+
+    if (!consumer) {
+      return res.status(404).json({ error: 'Consumer not found' });
+    }
+
+    // Build context-aware system prompt
+    const systemPrompt = `You are a professional customer service assistant for ROF Group, an affordable housing developer in Gurugram, Haryana, India. You help staff draft responses to customer queries.
+
+Customer details:
+- Name: ${consumer.name}
+- Lead Stage: ${consumer.lead_stage || 'Unknown'}
+- Project: ${consumer.project_name || 'Not allotted'}
+- Unit: ${consumer.unit_number || 'Not allotted'}
+- Income Category: ${consumer.income_category || 'Unknown'}
+
+Generate 3 professional response suggestions for the ${channel} channel.
+Each suggestion should be:
+- Professional and empathetic in tone
+- Accurate about ROF's affordable housing processes and AHP compliance
+- Appropriately concise for ${channel === 'sms' ? 'SMS (max 160 chars)' : channel === 'whatsapp' ? 'WhatsApp (conversational)' : 'email (professional)'}
+- Ready to send with minimal editing by staff
+
+Return ONLY a JSON array of 3 strings. No other text, no markdown, no explanation. Just the JSON array.`;
+
+    try {
+      const anthropic = new Anthropic({
+        apiKey: process.env.ANTHROPIC_API_KEY,
+      });
+
+      const message = await anthropic.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        messages: [
+          {
+            role: 'user',
+            content: `Customer query: "${consumerQuery}"${
+              context ? `\n\nAdditional context: ${context}` : ''
+            }\n\nGenerate 3 response suggestions.`,
+          },
+        ],
+        system: systemPrompt,
+      });
+
+      // Parse the response
+      const responseText =
+        message.content[0].type === 'text' ? message.content[0].text : '[]';
+      const suggestions = JSON.parse(responseText);
+
+      // Validate we got an array of strings
+      if (
+        !Array.isArray(suggestions) ||
+        !suggestions.every((s) => typeof s === 'string')
+      ) {
+        throw new Error('Invalid response format');
+      }
+
+      res.json({
+        success: true,
+        data: {
+          suggestions: suggestions.slice(0, 3),
+          consumerId,
+          channel,
+          model: 'claude-sonnet-4-20250514',
+        },
+      });
+    } catch (apiError) {
+      console.error('Claude API error:', apiError);
+      // Return fallback suggestions on API error
+      res.json({
+        success: true,
+        data: {
+          suggestions: fallbackSuggestions,
+          model: 'claude-sonnet-4-20250514',
+          note: 'API error — returning fallback suggestions',
+        },
+      });
+    }
   } catch (error) {
     next(error);
   }

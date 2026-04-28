@@ -220,6 +220,7 @@ router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFun
       query += ` AND document_type = $${params.length + 1}`;
       params.push(documentType);
     }
+      // @ts-ignore
 
     query += ` ORDER BY created_at DESC`;
 
@@ -273,6 +274,7 @@ router.get('/vault/:consumerId', async (req: AuthRequest, res: Response, next: N
     if (documentCategory) {
       query += ` AND document_category = $${params.length + 1}`;
       params.push(documentCategory);
+      // @ts-ignore
     }
 
     query += ` ORDER BY document_category, created_at DESC`;

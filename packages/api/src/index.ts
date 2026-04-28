@@ -18,6 +18,8 @@ import documentRoutes from './routes/documents';
 import communicationRoutes from './routes/communications';
 import userRoutes from './routes/users';
 import reportRoutes from './routes/reports';
+import milestonesRoutes from './routes/milestones';
+import reconciliationRoutes from './routes/reconciliation';
 
 dotenv.config();
 
@@ -117,6 +119,8 @@ app.use('/api/documents', authenticateToken, documentRoutes);
 app.use('/api/communications', authenticateToken, communicationRoutes);
 app.use('/api/users', authenticateToken, userRoutes);
 app.use('/api/reports', authenticateToken, reportRoutes);
+app.use('/api/milestones', authenticateToken, milestonesRoutes);
+app.use('/api/reconciliation', authenticateToken, reconciliationRoutes);
 
 // ============================================
 // ERROR HANDLING
