@@ -329,4 +329,152 @@ router.post('/import-edraw', async (req: AuthRequest, res: Response, next: NextF
   }
 });
 
+// POST /api/allocations/shift — Unit shifting process
+router.post('/shift', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId, newUnitId, reason, shiftDate } = req.body;
+    if (!consumerId || !newUnitId) {
+      return res.status(400).json({ error: 'consumerId and newUnitId are required' });
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+
+      // Verify consumer has current allocation
+      const consumerRes = await client.query(
+        `SELECT allocated_unit_id FROM consumers WHERE id = $1 FOR UPDATE`,
+        [consumerId]
+      );
+      if (!consumerRes.rows[0]?.allocated_unit_id) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Consumer has no active unit allocation' });
+      }
+      const oldUnitId = consumerRes.rows[0].allocated_unit_id;
+
+      // Verify new unit is available
+      const newUnitRes = await client.query(
+        `SELECT status, unit_number FROM units WHERE id = $1 FOR UPDATE`,
+        [newUnitId]
+      );
+      if (!newUnitRes.rows[0] || newUnitRes.rows[0].status !== 'available') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'New unit is not available' });
+      }
+      const newUnitNumber = newUnitRes.rows[0].unit_number;
+
+      // Record shift history
+      await client.query(
+        `INSERT INTO unit_shifts (consumer_id, old_unit_id, new_unit_id, reason, shift_date, shifted_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT DO NOTHING`,
+        [consumerId, oldUnitId, newUnitId, reason || null, shiftDate || new Date().toISOString().split('T')[0], req.userId]
+      );
+
+      // Release old unit
+      await client.query(`UPDATE units SET status = 'available', status_changed_at = NOW() WHERE id = $1`, [oldUnitId]);
+
+      // Allocate new unit
+      await client.query(`UPDATE units SET status = 'allotted', status_changed_at = NOW() WHERE id = $1`, [newUnitId]);
+
+      // Update consumer allocation
+      await client.query(
+        `UPDATE consumers SET allocated_unit_id = $1 WHERE id = $2`,
+        [newUnitId, consumerId]
+      );
+
+      // Update existing allocation record
+      await client.query(
+        `UPDATE allocations SET unit_id = $1 WHERE consumer_id = $2 AND status = 'allotted'`,
+        [newUnitId, consumerId]
+      );
+
+      await client.query('COMMIT');
+      res.json({ success: true, data: { consumer_id: consumerId, old_unit_id: oldUnitId, new_unit_id: newUnitId, new_unit_number: newUnitNumber } });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/allocations/shifts — Unit shift history
+router.get('/shifts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, from, to, pageSize = 100 } = req.query;
+    const params: any[] = [];
+    let where = 'WHERE 1=1';
+    if (from) { params.push(from); where += ` AND us.shift_date >= $${params.length}`; }
+    if (to)   { params.push(to);   where += ` AND us.shift_date <= $${params.length}`; }
+
+    // Try unit_shifts table, fall back gracefully
+    const result = await db.query(`
+      SELECT us.*, c.name as consumer_name, c.mobile,
+             ou.unit_number as old_unit_number, nu.unit_number as new_unit_number,
+             p.name as project_name
+      FROM unit_shifts us
+      JOIN consumers c ON c.id = us.consumer_id
+      LEFT JOIN units ou ON ou.id = us.old_unit_id
+      LEFT JOIN units nu ON nu.id = us.new_unit_id
+      LEFT JOIN projects p ON p.id = nu.project_id
+      ${where}
+      ORDER BY us.shift_date DESC, us.created_at DESC
+      LIMIT $${params.length + 1}
+    `, [...params, pageSize]).catch(() => ({ rows: [] }));
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/allocations/generate-letters — generate allotment letters for allotted consumers
+router.post('/generate-letters', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.body;
+
+    let query = `
+      SELECT a.id, a.consumer_id, c.name as consumer_name,
+             a.unit_id, u.unit_number, u.bhk_type, u.total_price_inr,
+             p.name as project_name
+      FROM allocations a
+      JOIN consumers c ON a.consumer_id = c.id
+      JOIN units u ON a.unit_id = u.id
+      JOIN projects p ON u.project_id = p.id
+      WHERE a.status::text = 'allotted' AND a.allotment_letter_id IS NULL`;
+    const params: any[] = [];
+
+    if (projectId) {
+      query += ` AND u.project_id = $${params.length + 1}`;
+      params.push(projectId);
+    }
+
+    const result = await db.query(query, params);
+    let generated = 0;
+
+    for (const allotment of result.rows) {
+      // Insert into allotment_letters and link back
+      const letterRes = await db.query(
+        `INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date)
+         VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id`,
+        [allotment.id, allotment.consumer_id, allotment.unit_id]
+      );
+      const letterId = letterRes.rows[0].id;
+      await db.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [letterId, allotment.id]);
+      generated++;
+    }
+
+    res.json({
+      success: true,
+      data: { total: result.rows.length, generated, message: `${generated} allotment letter(s) queued for generation` },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

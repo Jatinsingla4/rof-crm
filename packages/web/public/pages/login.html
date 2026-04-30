@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROF Group CRM — Login</title>
+<link rel="stylesheet" href="/css/rof.css">
+<style>
+body {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+}
+.login-topbar {
+  position:fixed; top:0; left:0; right:0;
+  height:44px; background:var(--nav-bg);
+  border-bottom:1px solid rgba(0,0,0,0.3);
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 20px; z-index:100;
+  box-shadow:0 1px 0 rgba(255,255,255,0.04);
+}
+.login-topbar .logo-zone { display:flex; align-items:center; gap:10px }
+.login-topbar .logo-box {
+  width:30px; height:30px; background:var(--accent); border-radius:6px;
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:10px; color:#fff; letter-spacing:-0.5px;
+}
+.login-topbar .logo-name { font-size:13px; font-weight:600; color:#fff; line-height:1.2 }
+.login-topbar .logo-tagline { font-size:9px; color:rgba(255,255,255,0.5) }
+.login-wrap { width:100%; max-width:400px; padding:20px; margin-top:44px }
+.login-card { background:var(--surface); border:1px solid var(--border2); border-radius:14px; box-shadow:var(--shadow); overflow:hidden }
+.login-card-header {
+  background:var(--nav-bg); padding:28px 32px 24px; text-align:center;
+  border-bottom:2px solid var(--accent); position:relative;
+}
+.login-card-header::after {
+  content:''; position:absolute; bottom:-1px; left:50%; transform:translateX(-50%);
+  width:60px; height:2px; background:var(--teal);
+}
+.login-logo-box {
+  width:52px; height:52px; background:var(--accent); border-radius:12px;
+  display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:15px; color:#fff; letter-spacing:-0.5px;
+  margin:0 auto 14px; box-shadow:0 4px 16px rgba(224,90,31,0.4);
+}
+.login-title { font-size:17px; font-weight:700; color:#fff; line-height:1.3; margin-bottom:4px }
+.login-subtitle { font-size:10.5px; color:rgba(255,255,255,0.5); letter-spacing:.3px }
+.login-rera {
+  display:inline-block; margin-top:10px;
+  font-size:9px; color:rgba(255,255,255,0.35);
+  font-family:'JetBrains Mono',monospace;
+  background:rgba(255,255,255,0.05); padding:3px 8px; border-radius:4px;
+}
+.login-body { padding:28px 32px }
+.alert-error {
+  background:var(--red-bg); border:1px solid rgba(232,64,64,0.25);
+  border-radius:8px; padding:10px 14px; margin-bottom:20px;
+  display:flex; align-items:center; gap:8px;
+  font-size:12px; color:var(--red);
+}
+.form-group { margin-bottom:18px }
+.form-label {
+  display:block; font-size:11px; font-weight:600;
+  color:var(--text2); margin-bottom:6px;
+  text-transform:uppercase; letter-spacing:.5px;
+}
+.form-control {
+  width:100%; padding:10px 12px;
+  background:var(--input-bg); border:1px solid var(--border2);
+  border-radius:8px; color:var(--text); font-size:13px;
+  font-family:'Inter',sans-serif; transition:var(--transition); outline:none;
+}
+.form-control:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+.form-control::placeholder { color:var(--text3) }
+.pw-wrap { position:relative }
+.pw-wrap .form-control { padding-right:40px }
+.pw-toggle {
+  position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  background:none; border:none; color:var(--text3); cursor:pointer;
+  font-size:14px; padding:2px; line-height:1; transition:color 0.15s;
+}
+.pw-toggle:hover { color:var(--teal) }
+.btn-login {
+  width:100%; padding:11px 20px;
+  background:var(--accent); color:#fff; font-size:13px; font-weight:600;
+  border:none; border-radius:8px; cursor:pointer; transition:var(--transition);
+  letter-spacing:.2px; position:relative; overflow:hidden;
+}
+.btn-login:hover { background:var(--accent2); transform:translateY(-1px); box-shadow:0 4px 16px rgba(224,90,31,0.35) }
+.btn-login:active { transform:translateY(0) }
+.btn-login:disabled { opacity:0.7; cursor:not-allowed }
+.login-footer {
+  text-align:center; padding:16px 32px;
+  border-top:1px solid var(--border); background:var(--surface2);
+}
+.login-footer p { font-size:10px; color:var(--text3) }
+.login-footer b { color:var(--teal) }
+.version-badge { text-align:center; margin-top:16px; font-size:10px; color:var(--text3) }
+.version-badge span { background:var(--surface); border:1px solid var(--border2); padding:3px 10px; border-radius:20px }
+</style>
+</head>
+<body>
+
+<div class="login-topbar">
+  <div class="logo-zone">
+    <div class="logo-box">ROF</div>
+    <div>
+      <div class="logo-name">Real Estate Manager</div>
+      <div class="logo-tagline">ROF Group CRM Platform</div>
+    </div>
+  </div>
+  <div class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">
+    <span class="theme-icon" id="theme-icon">🌙</span>
+    <div class="toggle-track on" id="toggle-track"><div class="toggle-thumb"></div></div>
+    <span id="theme-label">Dark</span>
+  </div>
+</div>
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-card-header">
+      <div class="login-logo-box">ROF</div>
+      <div class="login-title">ROF Group CRM</div>
+      <div class="login-subtitle">Real Estate Management Platform</div>
+      <div class="login-rera">HRERA Registered Developer · Gurugram</div>
+    </div>
+
+    <div class="login-body">
+      <div id="error-msg" class="alert-error" style="display:none">
+        <span>⚠</span>
+        <span id="error-text">Invalid credentials</span>
+      </div>
+
+      <form id="login-form" autocomplete="off">
+        <div class="form-group">
+          <label class="form-label" for="email">Email Address</label>
+          <input type="email" id="email" name="email" class="form-control"
+            placeholder="you@rof.co.in" required autofocus>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="password">Password</label>
+          <div class="pw-wrap">
+            <input type="password" id="password" name="password" class="form-control"
+              placeholder="Enter your password" required>
+            <button type="button" class="pw-toggle" onclick="togglePw()">👁</button>
+          </div>
+        </div>
+        <button type="submit" class="btn-login" id="login-btn">Sign In to CRM →</button>
+      </form>
+    </div>
+
+    <div class="login-footer">
+      <p>Authorised access only &nbsp;·&nbsp; <b>ROF Group</b> Internal Platform</p>
+    </div>
+  </div>
+  <div class="version-badge"><span>CRM v2.0 &nbsp;·&nbsp; Node.js Backend</span></div>
+</div>
+
+<script>
+// Theme
+(function(){
+  const saved = localStorage.getItem('rof-theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  syncToggle(saved);
+})();
+
+function toggleTheme() {
+  const curr = document.documentElement.getAttribute('data-theme');
+  const next = curr === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('rof-theme', next);
+  syncToggle(next);
+}
+
+function syncToggle(theme) {
+  const isDark = theme === 'dark';
+  const track = document.getElementById('toggle-track');
+  const icon  = document.getElementById('theme-icon');
+  const label = document.getElementById('theme-label');
+  if (!track) return;
+  if (isDark) { track.classList.add('on'); icon.textContent = '🌙'; label.textContent = 'Dark'; }
+  else { track.classList.remove('on'); icon.textContent = '☀️'; label.textContent = 'Light'; }
+}
+
+function togglePw() {
+  const inp = document.getElementById('password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// Login form
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('login-btn');
+  const errEl = document.getElementById('error-msg');
+  const errText = document.getElementById('error-text');
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+  errEl.style.display = 'none';
+
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || data.message || 'Login failed');
+
+    const token = data.token || (data.data && data.data.token);
+    if (!token) throw new Error('No token received from server');
+
+    localStorage.setItem('rof-jwt', token);
+    window.location.href = '/';
+  } catch (err) {
+    errText.textContent = err.message;
+    errEl.style.display = 'flex';
+    btn.disabled = false;
+    btn.textContent = 'Sign In to CRM →';
+  }
+});
+
+// If already logged in, redirect to app
+const token = localStorage.getItem('rof-jwt');
+if (token && token !== 'mock-jwt-token') {
+  try {
+    const parts = token.split('.');
+    if (parts.length === 3) {
+      const payload = JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+      if (!payload.exp || payload.exp * 1000 > Date.now()) {
+        window.location.href = '/';
+      }
+    }
+  } catch {}
+}
+</script>
+</body>
+</html>

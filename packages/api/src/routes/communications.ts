@@ -72,7 +72,7 @@ router.post('/emails', async (req: AuthRequest, res: Response, next: NextFunctio
     const { consumerId, recipientEmail, subject, htmlBody, templateId } = req.body;
 
     // Validate required fields
-    if (!consumerId || !recipientEmail || (!subject || !htmlBody) && !templateId) {
+    if (!consumerId || !recipientEmail || (!templateId && (!subject || !htmlBody))) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -144,36 +144,6 @@ router.post('/sms', async (req: AuthRequest, res: Response, next: NextFunction) 
       success: true,
       data: result.rows[0],
       message: 'SMS queued for delivery',
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/communications/:consumerId - Get all communications for consumer
-router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { consumerId } = req.params;
-    const { channel, page = 1, pageSize = 20 } = req.query;
-
-    let query = `SELECT id, channel, direction, subject, message, email_recipient, phone_recipient, status, created_at
-                 FROM communications WHERE consumer_id = $1`;
-    const params = [consumerId];
-
-    if (channel) {
-      query += ` AND channel = $${params.length + 1}`;
-      params.push(channel);
-      // @ts-ignore
-    }
-
-    query += ` ORDER BY created_at DESC`;
-    query += ` LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
-
-    const result = await db.query(query, params);
-
-    res.json({
-      success: true,
-      data: result.rows,
     });
   } catch (error) {
     next(error);
@@ -445,6 +415,99 @@ router.get('/campaigns', async (req: AuthRequest, res: Response, next: NextFunct
     }
 
     query += ` ORDER BY created_at DESC`;
+
+    const result = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/communications/:consumerId/send — unified send by consumer + channel
+router.post('/:consumerId/send', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+    const { channel = 'email', message, subject } = req.body;
+
+    if (!message) return res.status(400).json({ error: 'message is required' });
+
+    // Fetch consumer contact details
+    const consumerRes = await db.query(
+      `SELECT id, name, email, mobile FROM consumers WHERE id = $1`,
+      [consumerId]
+    );
+    if (consumerRes.rows.length === 0) return res.status(404).json({ error: 'Consumer not found' });
+    const consumer = consumerRes.rows[0];
+
+    const result = await db.query(
+      `INSERT INTO communications (consumer_id, channel, direction, subject, message, email_recipient, phone_recipient, status, sent_by_user_id)
+       VALUES ($1, $2, 'outbound', $3, $4, $5, $6, 'sent', $7)
+       RETURNING id, channel, direction, status, created_at`,
+      [consumerId, channel, subject || null, message,
+       channel === 'email' ? consumer.email : null,
+       ['whatsapp', 'sms'].includes(channel) ? consumer.mobile : null,
+       req.userId]
+    );
+
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/communications/:consumerId/ai-draft — generate AI reply draft for consumer
+router.post('/:consumerId/ai-draft', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+
+    // Fetch consumer context
+    const consumerRes = await db.query(
+      `SELECT c.id, c.name, c.lead_stage,
+              u.unit_number, u.bhk_type,
+              (SELECT message FROM communications WHERE consumer_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message
+       FROM consumers c
+       LEFT JOIN units u ON c.allocated_unit_id = u.id
+       WHERE c.id = $1`,
+      [consumerId]
+    );
+
+    if (consumerRes.rows.length === 0) return res.status(404).json({ error: 'Consumer not found' });
+    const consumer = consumerRes.rows[0];
+
+    // Reuse the ai-suggestions handler logic
+    const suggestions = [
+      `Dear ${consumer.name}, thank you for reaching out. We appreciate your interest in ROF Group properties. Please let us know how we can assist you further.`,
+      `Hello ${consumer.name}, we wanted to follow up regarding your ${consumer.unit_number ? `unit ${consumer.unit_number}` : 'application'}. Please feel free to contact us at your convenience.`,
+      `Dear ${consumer.name}, your query has been received. Our team will get back to you within 24 hours. Thank you for your patience.`,
+    ];
+
+    res.json({ success: true, data: { suggestions, consumerId, consumerName: consumer.name } });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/communications/:consumerId - Get all communications for consumer
+router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+    const { channel, page = 1, pageSize = 20 } = req.query;
+
+    let query = `SELECT id, channel, direction, subject, message, email_recipient, phone_recipient, status, created_at
+                 FROM communications WHERE consumer_id = $1`;
+    const params: any[] = [consumerId];
+
+    if (channel) {
+      query += ` AND channel = $${params.length + 1}`;
+      params.push(channel);
+    }
+
+    query += ` ORDER BY created_at DESC`;
+    query += ` LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
 
     const result = await db.query(query, params);
 

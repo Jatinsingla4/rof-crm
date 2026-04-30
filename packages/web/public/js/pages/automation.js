@@ -1,0 +1,208 @@
+// ROF CRM — Automation Rules Page
+
+Pages.automation = async function(params = {}) {
+  const content = document.getElementById('content');
+  content.innerHTML = `
+    <div class="page-hdr">
+      <h1>Automation</h1>
+      <div class="breadcrumb">CRM / <b>Automation Rules</b></div>
+    </div>
+
+    <div class="tbl-hdr" style="margin-bottom:12px">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <div class="tbl-title">Automation Rules</div>
+        <div style="font-size:11px;color:var(--text3)">Rules run automatically when triggers fire. Active rules execute in order.</div>
+      </div>
+      <div class="tbl-actions">
+        <button class="btn btn-teal btn-sm" onclick="AutomationPage.showCreateModal()">+ Create Rule</button>
+        <button class="btn btn-ghost btn-sm" onclick="AutomationPage.runAll()">Run All Active</button>
+        <button class="btn btn-ghost btn-sm" onclick="AutomationPage.load()">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Built-in rules summary -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:16px">
+      <div class="sp" style="border-left:3px solid var(--teal)">
+        <div class="sp-body" style="padding:10px 12px">
+          <div style="font-size:11px;font-weight:600">Demand Reminders</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Auto-send demand letters 15/7/3 days before due</div>
+          <span class="chip ch-green" style="margin-top:6px;display:inline-block">System</span>
+        </div>
+      </div>
+      <div class="sp" style="border-left:3px solid var(--accent)">
+        <div class="sp-body" style="padding:10px 12px">
+          <div style="font-size:11px;font-weight:600">Overdue Escalation</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Escalate to manager after 7 days overdue</div>
+          <span class="chip ch-green" style="margin-top:6px;display:inline-block">System</span>
+        </div>
+      </div>
+      <div class="sp" style="border-left:3px solid var(--blue)">
+        <div class="sp-body" style="padding:10px 12px">
+          <div style="font-size:11px;font-weight:600">Welcome Message</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Send welcome WhatsApp on new lead capture</div>
+          <span class="chip ch-green" style="margin-top:6px;display:inline-block">System</span>
+        </div>
+      </div>
+      <div class="sp" style="border-left:3px solid var(--warn)">
+        <div class="sp-body" style="padding:10px 12px">
+          <div style="font-size:11px;font-weight:600">Allotment Letter</div>
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px">Auto-generate allotment letter on unit allotment</div>
+          <span class="chip ch-green" style="margin-top:6px;display:inline-block">System</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Custom rules table -->
+    <div class="tbl-wrap">
+      <div class="tbl-hdr"><div class="tbl-title">Custom Rules</div></div>
+      <div id="automation-body"><div class="page-loading"><div class="spinner"></div> Loading…</div></div>
+    </div>
+
+    <!-- Create Rule Modal -->
+    <div class="overlay" id="auto-overlay" onclick="closeOverlay('auto-overlay')"></div>
+    <div class="modal" id="auto-modal" style="max-width:560px">
+      <div class="modal-hdr">
+        <div class="modal-title">Create Automation Rule</div>
+        <button class="modal-close" onclick="closeOverlay('auto-overlay');document.getElementById('auto-modal').style.display='none'">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="fg" style="margin-bottom:8px"><label class="fl"><span class="r">*</span>Rule Name</label>
+          <input class="fc" id="auto-name" placeholder="e.g. Send welcome SMS on enquiry">
+        </div>
+        <div class="fg" style="margin-bottom:8px"><label class="fl"><span class="r">*</span>Trigger</label>
+          <select class="fc" id="auto-trigger">
+            <option value="">— Select Trigger —</option>
+            <option value="lead_created">New Lead Created</option>
+            <option value="lead_stage_changed">Lead Stage Changed</option>
+            <option value="payment_received">Payment Received</option>
+            <option value="payment_overdue">Payment Overdue</option>
+            <option value="unit_allotted">Unit Allotted</option>
+            <option value="document_uploaded">Document Uploaded</option>
+            <option value="task_due">Task Due Today</option>
+          </select>
+        </div>
+        <div class="fg" style="margin-bottom:8px"><label class="fl"><span class="r">*</span>Action</label>
+          <select class="fc" id="auto-action">
+            <option value="">— Select Action —</option>
+            <option value="send_whatsapp">Send WhatsApp Message</option>
+            <option value="send_email">Send Email</option>
+            <option value="send_sms">Send SMS</option>
+            <option value="create_task">Create Task</option>
+            <option value="update_stage">Update Lead Stage</option>
+            <option value="generate_document">Generate Document</option>
+            <option value="notify_manager">Notify Manager</option>
+          </select>
+        </div>
+        <div class="fg" style="margin-bottom:8px"><label class="fl">Message Template</label>
+          <textarea class="fc" id="auto-template" rows="3" placeholder="Use {{consumer_name}}, {{unit_number}}, {{amount}} as variables"></textarea>
+        </div>
+        <div class="fg" style="margin-bottom:12px"><label class="fl">Delay (minutes)</label>
+          <input type="number" class="fc" id="auto-delay" value="0" placeholder="0 = immediate">
+        </div>
+        <button class="btn btn-teal" style="width:100%" onclick="AutomationPage.create()">Create Rule</button>
+      </div>
+    </div>
+  `;
+
+  await AutomationPage.load();
+};
+
+const AutomationPage = {
+  _list: [],
+
+  async load() {
+    const el = document.getElementById('automation-body');
+    if (!el) return;
+    try {
+      const res = await Api.get('/automation', { params: { pageSize: 100 } });
+      const list = res.data || res || [];
+      this._list = list;
+
+      el.innerHTML = list.length === 0
+        ? '<div class="empty-state"><h3>No custom rules yet</h3><p>Create a rule to automate repetitive tasks.</p></div>'
+        : `<table>
+            <thead><tr><th>Rule Name</th><th>Trigger</th><th>Action</th><th>Executions</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+              ${list.map(r => `<tr>
+                <td class="td-bold">${r.name||r.rule_name||'—'}</td>
+                <td style="font-size:10.5px">${(r.trigger||r.trigger_event||'—').replace(/_/g,' ')}</td>
+                <td style="font-size:10.5px">${(r.action||r.action_type||'—').replace(/_/g,' ')}</td>
+                <td style="text-align:center">${r.execution_count||r.executionCount||0}</td>
+                <td>
+                  <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+                    <input type="checkbox" ${r.is_active||r.isActive?'checked':''} onchange="AutomationPage.toggle('${r.id}',this.checked)">
+                    <span style="font-size:11px">${r.is_active||r.isActive?'Active':'Inactive'}</span>
+                  </label>
+                </td>
+                <td><div style="display:flex;gap:4px">
+                  <button class="btn btn-ghost btn-sm" onclick="AutomationPage.run('${r.id}')">Run Now</button>
+                  <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="AutomationPage.delete('${r.id}')">Delete</button>
+                </div></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`;
+    } catch (err) {
+      el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
+  },
+
+  showCreateModal() {
+    showOverlay('auto-overlay');
+    document.getElementById('auto-modal').style.display = 'block';
+  },
+
+  async create() {
+    const name = document.getElementById('auto-name')?.value?.trim();
+    const trigger = document.getElementById('auto-trigger')?.value;
+    const action = document.getElementById('auto-action')?.value;
+    const template = document.getElementById('auto-template')?.value?.trim();
+    const delay = parseInt(document.getElementById('auto-delay')?.value || '0');
+
+    if (!name) { Utils.warn('Please enter a rule name'); return; }
+    if (!trigger) { Utils.warn('Please select a trigger'); return; }
+    if (!action) { Utils.warn('Please select an action'); return; }
+
+    try {
+      await Api.post('/automation', { name, triggerEvent: trigger, actionType: action, messageTemplate: template, delayMinutes: delay });
+      Utils.success('Automation rule created');
+      closeOverlay('auto-overlay');
+      document.getElementById('auto-modal').style.display = 'none';
+      await this.load();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async toggle(ruleId, active) {
+    try {
+      await Api.patch(`/automation/${ruleId}`, { isActive: active });
+    } catch (err) { Utils.error(err.message); await this.load(); }
+  },
+
+  async run(ruleId) {
+    try {
+      await Api.post(`/automation/${ruleId}/run`, {});
+      Utils.success('Rule executed successfully');
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async runAll() {
+    const active = this._list.filter(r => r.is_active || r.isActive);
+    if (!active.length) { Utils.info('No active rules to run'); return; }
+    Utils.confirm(`Run all ${active.length} active rules now?`, async () => {
+      let ok = 0;
+      for (const r of active) {
+        try { await Api.post(`/automation/${r.id}/run`, {}); ok++; } catch {}
+      }
+      Utils.success(`${ok} of ${active.length} rules executed`);
+    });
+  },
+
+  async delete(ruleId) {
+    Utils.confirm('Delete this automation rule?', async () => {
+      try {
+        await Api.delete(`/automation/${ruleId}`);
+        Utils.success('Rule deleted');
+        await this.load();
+      } catch (err) { Utils.error(err.message); }
+    });
+  },
+};

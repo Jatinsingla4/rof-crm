@@ -12,18 +12,20 @@ const router = Router();
 // POST /api/documents/templates - Create document template
 router.post('/templates', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, documentType, title, htmlContent, mergeFields } = req.body;
+    const { projectId, documentType, title, name, htmlContent, bodyHtml, mergeFields } = req.body;
+    const templateName = name || title;
+    const templateBody = bodyHtml || htmlContent;
 
     // Validate required fields
-    if (!projectId || !documentType || !title || !htmlContent) {
+    if (!projectId || !documentType || !templateName || !templateBody) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     const result = await db.query(
-      `INSERT INTO document_templates (project_id, document_type, title, html_content, merge_fields, created_by_user_id)
+      `INSERT INTO document_templates (project_id, document_type, name, body_html, merge_fields, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, document_type, title, created_at`,
-      [projectId, documentType, title, htmlContent, JSON.stringify(mergeFields || []), req.userId]
+       RETURNING id, document_type, name, created_at`,
+      [projectId, documentType, templateName, templateBody, JSON.stringify(mergeFields || []), req.userId]
     );
 
     res.status(201).json({
@@ -40,7 +42,7 @@ router.get('/templates', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const { projectId, documentType } = req.query;
 
-    let query = `SELECT id, project_id, document_type, title, created_at, updated_at
+    let query = `SELECT id, project_id, document_type, name, created_at, updated_at
                  FROM document_templates WHERE 1=1`;
     const params: any[] = [];
 
@@ -73,7 +75,7 @@ router.get('/templates/:id', async (req: AuthRequest, res: Response, next: NextF
     const { id } = req.params;
 
     const result = await db.query(
-      `SELECT id, project_id, document_type, title, html_content, merge_fields, created_at, updated_at
+      `SELECT id, project_id, document_type, name, body_html, merge_fields, created_at, updated_at
        FROM document_templates WHERE id = $1`,
       [id]
     );
@@ -95,17 +97,17 @@ router.get('/templates/:id', async (req: AuthRequest, res: Response, next: NextF
 router.patch('/templates/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { title, htmlContent, mergeFields } = req.body;
+    const { title, name, htmlContent, bodyHtml, mergeFields } = req.body;
 
     const result = await db.query(
       `UPDATE document_templates
-       SET title = COALESCE($1, title),
-           html_content = COALESCE($2, html_content),
+       SET name = COALESCE($1, name),
+           body_html = COALESCE($2, body_html),
            merge_fields = COALESCE($3, merge_fields),
            updated_at = NOW()
        WHERE id = $4
-       RETURNING id, document_type, title, updated_at`,
-      [title, htmlContent, mergeFields ? JSON.stringify(mergeFields) : null, id]
+       RETURNING id, document_type, name, updated_at`,
+      [name || title, bodyHtml || htmlContent, mergeFields ? JSON.stringify(mergeFields) : null, id]
     );
 
     if (result.rows.length === 0) {
@@ -141,7 +143,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     const template = templateResult.rows[0];
 
     // Simple merge: replace {{fieldName}} with values
-    let htmlContent = template.html_content;
+    let htmlContent = template.body_html || template.html_content || '';
     for (const [key, value] of Object.entries(mergeData)) {
       htmlContent = htmlContent.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
     }
@@ -206,6 +208,32 @@ router.post('/:id/send', async (req: AuthRequest, res: Response, next: NextFunct
   }
 });
 
+// GET /api/documents/search - Full-text search documents (MUST be before /:consumerId)
+router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { query: searchQuery, q, projectId } = req.query;
+    const term = (searchQuery || q) as string;
+
+    if (!term) {
+      return res.status(400).json({ error: 'Search query required' });
+    }
+
+    const result = await db.query(
+      `SELECT id, consumer_id, document_type, html_content, created_at
+       FROM documents
+       WHERE html_content ILIKE $1
+       ${projectId ? `AND allocation_id IN (SELECT id FROM allocations WHERE project_id = $2)` : ''}
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      projectId ? [`%${term}%`, projectId] : [`%${term}%`]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/documents/:consumerId - Get documents for consumer
 router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -214,13 +242,12 @@ router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFun
 
     let query = `SELECT id, document_type, delivery_method, delivery_status, created_at, sent_at
                  FROM documents WHERE consumer_id = $1`;
-    const params = [consumerId];
+    const params: any[] = [consumerId];
 
     if (documentType) {
       query += ` AND document_type = $${params.length + 1}`;
-      params.push(documentType);
+      params.push(documentType as string);
     }
-      // @ts-ignore
 
     query += ` ORDER BY created_at DESC`;
 
@@ -269,12 +296,11 @@ router.get('/vault/:consumerId', async (req: AuthRequest, res: Response, next: N
 
     let query = `SELECT id, document_category, file_url, file_name, created_at
                  FROM document_vault WHERE consumer_id = $1`;
-    const params = [consumerId];
+    const params: any[] = [consumerId];
 
     if (documentCategory) {
       query += ` AND document_category = $${params.length + 1}`;
-      params.push(documentCategory);
-      // @ts-ignore
+      params.push(documentCategory as string);
     }
 
     query += ` ORDER BY document_category, created_at DESC`;
@@ -290,34 +316,6 @@ router.get('/vault/:consumerId', async (req: AuthRequest, res: Response, next: N
   }
 });
 
-// GET /api/documents/search - Full-text search documents
-router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { query: searchQuery, projectId } = req.query;
-
-    if (!searchQuery) {
-      return res.status(400).json({ error: 'Search query required' });
-    }
-
-    // Simple search in documents (in production, use PostgreSQL full-text search)
-    const result = await db.query(
-      `SELECT id, consumer_id, document_type, html_content, created_at
-       FROM documents
-       WHERE html_content ILIKE $1
-       ${projectId ? `AND allocation_id IN (SELECT id FROM allocations WHERE project_id = $2)` : ''}
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      projectId ? [`%${searchQuery}%`, projectId] : [`%${searchQuery}%`]
-    );
-
-    res.json({
-      success: true,
-      data: result.rows,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
 
 // DELETE /api/documents/:id - Delete document (marks as deleted, not hard delete)
 router.delete('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {

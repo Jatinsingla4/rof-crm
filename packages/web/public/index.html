@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROF Group — Real Estate Manager</title>
+<link rel="stylesheet" href="/css/rof.css">
+</head>
+<body>
+
+<!-- ═══ TOP HEADER ═══ -->
+<div id="topbar">
+  <div class="logo-zone">
+    <div class="logo-box">ROF</div>
+    <div>
+      <div class="logo-name">Real Estate Manager</div>
+      <div class="logo-tagline">ROF Group CRM Platform</div>
+    </div>
+  </div>
+  <div class="ip-notice">ROF Group CRM &mdash; <b>Internal Use Only</b></div>
+  <div class="topbar-right">
+    <div class="theme-toggle" onclick="toggleTheme()" id="theme-toggle-btn">
+      <span class="theme-icon" id="theme-icon">🌙</span>
+      <div class="toggle-track on" id="toggle-track"><div class="toggle-thumb"></div></div>
+      <span id="theme-label">Dark</span>
+    </div>
+    <div class="tb-date" id="tb-date"></div>
+    <div class="tb-user" id="tb-user">Welcome, User</div>
+    <button class="tb-link" onclick="Router.navigate('/dashboard')">Home</button>
+    <button class="tb-link" onclick="Auth.logout()" style="color:#f87171">Logout</button>
+  </div>
+</div>
+
+<!-- ═══ MEGA NAVIGATION ═══ -->
+<div id="navbar">
+
+  <!-- ── SET MASTER ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Set Master <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:210px">
+
+      <div class="dd-link has-sub">Set Up <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'country'})">Country Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'state'})">State Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'city'})">City Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'salutation'})">Salutation</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'profession'})">Profession</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'nationality'})">Nationality</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'bank'})">Bank Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'source'})">Source Of Enquiry</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Employee Login Creation <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'create'})">Create Login</a>
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'edit'})">Edit Login</a>
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'view'})">View Logins</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Documents <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'doctype'})">Document Type Creation</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'dispatch'})">Document Dispatch Master</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Security <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'permissions'})">User Permissions</a>
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'roles'})">Roles</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Role and Menu <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'role-menu'})">Role Menu Access</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── SET PROJECTS ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Set Projects <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:210px">
+
+      <div class="dd-link has-sub">Create Project <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'new-project'})">New Project</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'edit-project'})">Edit Project</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Payment Plan Setup <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:230px">
+          <div class="dd-link has-sub">New <span class="arr">▶</span>
+            <div class="sub-sub-dd">
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-installment'})">Installment</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-plc'})">PLC Charge</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-other'})">Other Charge</a>
+            </div>
+          </div>
+          <div class="dd-link has-sub">Edit <span class="arr">▶</span>
+            <div class="sub-sub-dd">
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-installment'})">Installment</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-plc'})">PLC Charge</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-other'})">Other Charge</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-personal'})">Edit Personal Installment</a>
+              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-personalise'})">Personalise Installment</a>
+            </div>
+          </div>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-view'})">View</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-setup'})">Setup</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Project Set Up <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'add-tower'})">Add Tower / Plot</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'add-unit'})">Add Unit</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'unit-address'})">Unit Address</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'unit-location'})">Unit Location Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'reminder-master'})">Reminder Master</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Set Rate <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'rate-report'})">Rate Report</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── BROKER ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Broker <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:200px">
+      <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'form'})">Broker Application Form</a>
+      <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'list'})">Broker List</a>
+      <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'commission'})">Commission Setup</a>
+      <div class="dd-link has-sub">Broker Reports <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'sold-unit-report'})">Broker Sold-Unit Report</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── APPLICATION ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Application <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:200px">
+
+      <div class="dd-link has-sub">Booking <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/booking')">Booking Form</a>
+          <a class="dd-link" onclick="Router.navigate('/consumers')">Customer Register</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Allotment of Unit <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:230px">
+          <a class="dd-link" onclick="Router.navigate('/allotment')">Allotment</a>
+          <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'shifting'})">Unit Shifting Process</a>
+          <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'shifting-report'})">Customer Unit Shifting Report</a>
+          <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'cancel'})">Cancel Allotment</a>
+          <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'waitlist'})">Waitlist</a>
+          <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'edit-address'})">Edit Customer Address</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Receipt Process <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/receipts')">Receipt Entry</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'approval'})">Pending Approval</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'head-wise-cost'})">Head Wise Cost</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'duplicate'})">Duplicate Receipt</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Demand Raise <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/demand-raise')">Demand Raise</a>
+          <a class="dd-link" onclick="Router.navigate('/demands',{tab:'status'})">Demand Status</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Printing of Document <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:220px">
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'print-welcome'})">Print Welcome</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'demand-printing'})">Demand Printing</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'ats'})">Agreement To Sale (ATS)</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'tpa'})">TPA</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'applicant-ledger'})">Applicant Ledger</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'user-letters'})">User Define Letters</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'address-labels'})">Address Labels</a>
+          <a class="dd-link" onclick="Router.navigate('/documents',{tab:'conveyance-deed'})">Conveyance Deed</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">GST Invoicing <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:210px">
+          <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'setup'})">Setup</a>
+          <div class="dd-link has-sub">Transaction <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:230px">
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'invoice-gen'})">Invoice Generation</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'manual-invoice'})">Manual Invoice Generation</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'invoice-reversal'})">Invoice Reversal</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'invoice-cancel'})">Invoice Cancellation</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'invoice-advance'})">Invoice Against Advance</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'credit-debit'})">Credit/Debit Against Invoice</a>
+              <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'pending-invoice'})">Pending Invoice</a>
+            </div>
+          </div>
+          <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'report'})">Report</a>
+          <a class="dd-link" onclick="Router.navigate('/gst-invoicing',{tab:'user-rights'})">GST Process User Rights</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Surrender / Cancellation <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/surrender')">Surrender Applicant</a>
+          <a class="dd-link" onclick="Router.navigate('/surrender',{tab:'report'})">Surrender Report</a>
+          <a class="dd-link" onclick="Router.navigate('/consumers')">Customer Register</a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── REPORTS ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Reports <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:195px">
+
+      <div class="dd-link has-sub">Inventory <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:230px">
+          <a class="dd-link" onclick="Router.navigate('/unit-status')">Unit Status</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'inventory'})">Inventory Report</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'date-booking-status'})">Date Wise Booking Status</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'date-edit-applicant'})">Date Wise Edit Applicant Status</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Applicant Detail <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:240px">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-wise'})">Customer Wise Report</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'payment-file'})">Applicant Payment File</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'opening-details'})">Opening Details</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'booking-auth'})">Booking Authentication</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'tds-status'})">TDS Status Report</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Collection <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'project-collection'})">Project Wise Collection</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-balance'})">Customer Wise Balance</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Dues <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:250px">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-dues'})">Customer Wise Dues</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'due-report'})">Due Report</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'date-wise-dues'})">Date Wise Dues</a>
+          <div class="dd-link has-sub">Stage Wise Dues <span class="arr">▶</span>
+            <div class="sub-sub-dd">
+              <a class="dd-link" onclick="Router.navigate('/reports',{tab:'stage-wise-dues'})">Stage Wise Dues</a>
+            </div>
+          </div>
+          <div class="dd-link has-sub">Percentage Wise <span class="arr">▶</span>
+            <div class="sub-sub-dd">
+              <a class="dd-link" onclick="Router.navigate('/reports',{tab:'percentage-wise'})">Percentage Wise Report</a>
+            </div>
+          </div>
+          <div class="dd-link has-sub">Due Ageing Report <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:280px">
+              <a class="dd-link" onclick="Router.navigate('/reports',{tab:'ageing-project'})">Project/Tower/Plan/Customer Wise Ageing</a>
+              <a class="dd-link" onclick="Router.navigate('/reports',{tab:'ageing-installment'})">Installment Wise Dues Report</a>
+            </div>
+          </div>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'month-wise-dues'})">Month Wise Dues</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-forecasting'})">Customer Forecasting Details</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-dues-detail'})">Customer Dues Details</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'project-wise-dues'})">Project Wise Dues</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'conveyance-deed-date'})">Conveyance Deed Date</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Charge Detail <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'other-charge-report'})">Other Charge Report</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'extra-addon-charge'})">Add Extra Addon Charge</a>
+        </div>
+      </div>
+
+      <div class="dd-sep"></div>
+      <a class="dd-link" onclick="Router.navigate('/analytics')">📊 Analytics Dashboard</a>
+
+    </div>
+  </div>
+
+  <!-- ── PARKING ── -->
+  <div class="nav-item">
+    <button class="nav-btn">Parking <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:200px">
+      <a class="dd-link" onclick="Router.navigate('/parking',{tab:'type-master'})">Parking Type Master</a>
+      <a class="dd-link" onclick="Router.navigate('/parking',{tab:'inventory-master'})">Inventory Master</a>
+      <div class="dd-link has-sub">Report <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="Router.navigate('/parking',{tab:'assign'})">Assign Parking</a>
+          <a class="dd-link" onclick="Router.navigate('/parking',{tab:'inventory-report'})">Inventory Report</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CRM ── -->
+  <div class="nav-item">
+    <button class="nav-btn">CRM <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:220px">
+      <a class="dd-link" onclick="Router.navigate('/leads')">Sales Pipeline / Leads</a>
+      <a class="dd-link" onclick="Router.navigate('/tasks')">Tasks &amp; Reminders</a>
+      <a class="dd-link" onclick="Router.navigate('/campaigns')">Campaign Marketing</a>
+      <a class="dd-link" onclick="Router.navigate('/automation')">Automation &amp; Workflows</a>
+      <a class="dd-link" onclick="Router.navigate('/email-templates')">Email Templates</a>
+      <a class="dd-link" onclick="Router.navigate('/whatsapp-inbox')">WhatsApp Inbox</a>
+      <a class="dd-link" onclick="Router.navigate('/instagram-inbox')">Instagram DM Inbox</a>
+      <a class="dd-link" onclick="Router.navigate('/facebook-inbox')">Facebook Messenger Inbox</a>
+      <a class="dd-link" onclick="Router.navigate('/communications')">Communications &amp; FAQ</a>
+    </div>
+  </div>
+
+  <!-- ── RIGHT NAV ── -->
+  <div class="nav-right">
+    <button class="nav-btn" onclick="Router.navigate('/dashboard')">⊞ Dashboard</button>
+    <button class="nav-btn" onclick="Router.navigate('/unit-status')">⬜ Unit Status</button>
+    <button class="nav-btn" onclick="Router.navigate('/import')">⬆ Import</button>
+    <button class="nav-btn" onclick="Router.navigate('/customer-folders')">📁 Folders</button>
+    <button class="nav-btn" onclick="Router.navigate('/unit-documents')">📦 Unit Docs</button>
+    <button class="nav-btn" onclick="Router.navigate('/help')" style="color:var(--teal)">? Help</button>
+  </div>
+
+</div>
+
+<!-- ═══ MAIN CONTENT ═══ -->
+<div id="content">
+  <div class="page-loading"><div class="spinner"></div> Loading…</div>
+</div>
+
+<!-- ═══ TOAST CONTAINER ═══ -->
+<div id="toast-container"></div>
+
+<!-- ═══ SCRIPTS (load order matters) ═══ -->
+<script src="/js/constants.js"></script>
+<script src="/js/auth.js"></script>
+<script src="/js/api-client.js"></script>
+<script src="/js/utils.js"></script>
+<script src="/js/router.js"></script>
+
+<!-- Page modules -->
+<script src="/js/pages/dashboard.js"></script>
+<script src="/js/pages/consumers.js"></script>
+<script src="/js/pages/consumer-detail.js"></script>
+<script src="/js/pages/booking.js"></script>
+<script src="/js/pages/allotment.js"></script>
+<script src="/js/pages/receipts.js"></script>
+<script src="/js/pages/demands.js"></script>
+<script src="/js/pages/demand-raise.js"></script>
+<script src="/js/pages/documents.js"></script>
+<script src="/js/pages/customer-folders.js"></script>
+<script src="/js/pages/unit-documents.js"></script>
+<script src="/js/pages/unit-status.js"></script>
+<script src="/js/pages/communications.js"></script>
+<script src="/js/pages/whatsapp-inbox.js"></script>
+<script src="/js/pages/email-templates.js"></script>
+<script src="/js/pages/facebook-inbox.js"></script>
+<script src="/js/pages/instagram-inbox.js"></script>
+<script src="/js/pages/reports.js"></script>
+<script src="/js/pages/analytics.js"></script>
+<script src="/js/pages/leads.js"></script>
+<script src="/js/pages/set-master.js"></script>
+<script src="/js/pages/set-projects.js"></script>
+<script src="/js/pages/automation.js"></script>
+<script src="/js/pages/import.js"></script>
+<script src="/js/pages/users.js"></script>
+<script src="/js/pages/tasks.js"></script>
+<script src="/js/pages/help.js"></script>
+<script src="/js/pages/gst-invoicing.js"></script>
+<script src="/js/pages/surrender.js"></script>
+<script src="/js/pages/parking.js"></script>
+<script src="/js/pages/brokers.js"></script>
+<script src="/js/pages/campaigns.js"></script>
+
+<!-- App entry point (must be last) -->
+<script src="/js/app.js"></script>
+
+</body>
+</html>

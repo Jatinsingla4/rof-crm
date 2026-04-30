@@ -113,27 +113,29 @@ router.patch('/:id/complete', async (req: AuthRequest, res: Response, next: Next
 
       const notificationMessage = `Construction Update: ${milestoneName} completed for ${projectName}. Progress: ${completionPercentage || 0}%`;
 
-      // Queue notifications for each allottee
+      // Queue notifications for each allottee via unified communications table
       for (const allottee of allotteesResult.rows) {
-        // Queue email
-        await db.query(
-          `INSERT INTO emails (consumer_id, from_email, to_email, subject, body, sent_at)
-           VALUES ($1, $2, $3, $4, $5, NULL)`,
-          [
-            allottee.id,
-            'noreply@rof.co.in',
-            allottee.email || 'no-email@invalid.com',
-            `Construction Update: ${milestoneName}`,
-            notificationMessage,
-          ]
-        );
+        // Queue email notification
+        if (allottee.email) {
+          await db.query(
+            `INSERT INTO communications (consumer_id, channel, direction, subject, message, email_recipient, status, sent_by_user_id)
+             VALUES ($1, 'email', 'outbound', $2, $3, $4, 'sent', $5)`,
+            [
+              allottee.id,
+              `Construction Update: ${milestoneName}`,
+              notificationMessage,
+              allottee.email,
+              req.userId,
+            ]
+          );
+        }
 
-        // Queue SMS (if mobile exists)
+        // Queue WhatsApp notification (if mobile exists)
         if (allottee.mobile) {
           await db.query(
-            `INSERT INTO whatsapps (consumer_id, direction, message_body, timestamp)
-             VALUES ($1, 'outbound', $2, NOW())`,
-            [allottee.id, notificationMessage]
+            `INSERT INTO communications (consumer_id, channel, direction, message, phone_recipient, status, sent_by_user_id)
+             VALUES ($1, 'whatsapp', 'outbound', $2, $3, 'sent', $4)`,
+            [allottee.id, notificationMessage, allottee.mobile, req.userId]
           );
         }
       }

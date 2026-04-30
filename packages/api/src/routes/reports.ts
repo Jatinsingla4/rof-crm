@@ -113,11 +113,10 @@ router.get('/project-dashboard', async (req: AuthRequest, res: Response, next: N
     const inventoryResult = await db.query(
       `SELECT
         COUNT(*) as total_units,
-        COUNT(CASE WHEN status = 'available' THEN 1 END) as available,
-        COUNT(CASE WHEN status = 'allotted' THEN 1 END) as allotted,
-        COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
-        COUNT(CASE WHEN status = 'possession_handed_over' THEN 1 END) as possession_handed_over,
-        ROUND(100.0 * COUNT(CASE WHEN status = 'allotted' THEN 1 END) / COUNT(*), 2) as fill_percentage
+        COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
+        COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
+        COUNT(CASE WHEN status::text = 'possession_handed_over' THEN 1 END) as possession_handed_over,
+        ROUND(100.0 * COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as fill_percentage
        FROM units WHERE project_id = $1`,
       [projectId]
     );
@@ -126,7 +125,9 @@ router.get('/project-dashboard', async (req: AuthRequest, res: Response, next: N
     const paymentResult = await db.query(
       `SELECT
         COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
-        COALESCE((SELECT SUM(amount_received_inr) FROM receipts r JOIN demands d ON r.payment_plan_id = d.payment_plan_id WHERE d.payment_plan_id = pp.id), 0) as total_collected
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r
+                  JOIN payment_plans pp2 ON r.payment_plan_id = pp2.id
+                  WHERE pp2.project_id = $1), 0) as total_collected
        FROM payment_plans pp WHERE pp.project_id = $1`,
       [projectId]
     );
@@ -215,12 +216,13 @@ router.get('/lead-source-analysis', async (req: AuthRequest, res: Response, next
     const { projectId } = req.query;
 
     let query = `SELECT
-                  lead_source,
+                  COALESCE(cam.channel, 'direct') as lead_source,
                   COUNT(*) as total_leads,
-                  COUNT(CASE WHEN lead_stage = 'allotted' THEN 1 END) as converted_count,
-                  ROUND(100.0 * COUNT(CASE WHEN lead_stage = 'allotted' THEN 1 END) / COUNT(*), 2) as conversion_rate,
-                  AVG(CASE WHEN lead_stage = 'allotted' THEN total_price_inr ELSE NULL END) as avg_deal_value
+                  COUNT(CASE WHEN c.lead_stage = 'allotted' THEN 1 END) as converted_count,
+                  ROUND(100.0 * COUNT(CASE WHEN c.lead_stage = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as conversion_rate,
+                  AVG(CASE WHEN c.lead_stage = 'allotted' THEN u.total_price_inr ELSE NULL END) as avg_deal_value
                  FROM consumers c
+                 LEFT JOIN campaigns cam ON c.campaign_id = cam.id
                  LEFT JOIN units u ON c.allocated_unit_id = u.id
                  WHERE 1=1`;
     const params: any[] = [];
@@ -230,7 +232,7 @@ router.get('/lead-source-analysis', async (req: AuthRequest, res: Response, next
       params.push(projectId);
     }
 
-    query += ` GROUP BY lead_source ORDER BY total_leads DESC`;
+    query += ` GROUP BY COALESCE(cam.channel, 'direct') ORDER BY total_leads DESC`;
 
     const result = await db.query(query, params);
 
@@ -248,32 +250,35 @@ router.get('/payment-ageing', async (req: AuthRequest, res: Response, next: Next
   try {
     const { projectId } = req.query;
 
-    let query = `SELECT
-                  CASE
-                    WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 30 THEN '1-30 days'
-                    WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 90 THEN '31-90 days'
-                    WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 180 THEN '91-180 days'
-                    ELSE '180+ days'
-                  END as ageing_bucket,
-                  COUNT(*) as count_demands,
-                  SUM(d.amount_due_inr) as total_due_inr
-                 FROM demands d
-                 JOIN payment_plans pp ON d.payment_plan_id = pp.id
-                 WHERE d.due_date < NOW()`;
+    let baseWhere = `d.due_date < NOW()`;
     const params: any[] = [];
 
     if (projectId) {
-      query += ` AND pp.project_id = $${params.length + 1}`;
+      baseWhere += ` AND pp.project_id = $${params.length + 1}`;
       params.push(projectId);
     }
 
-    query += ` GROUP BY ageing_bucket ORDER BY
-                 CASE ageing_bucket
-                   WHEN '1-30 days' THEN 1
-                   WHEN '31-90 days' THEN 2
-                   WHEN '91-180 days' THEN 3
-                   ELSE 4
-                 END`;
+    const query = `SELECT bucket as ageing_bucket, count_demands, total_due_inr FROM (
+                    SELECT
+                      CASE
+                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 30 THEN '1-30 days'
+                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 90 THEN '31-90 days'
+                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 180 THEN '91-180 days'
+                        ELSE '180+ days'
+                      END as bucket,
+                      COUNT(*) as count_demands,
+                      SUM(d.amount_due_inr) as total_due_inr
+                     FROM demands d
+                     JOIN payment_plans pp ON d.payment_plan_id = pp.id
+                     WHERE ${baseWhere}
+                     GROUP BY bucket
+                   ) sub
+                   ORDER BY CASE bucket
+                     WHEN '1-30 days' THEN 1
+                     WHEN '31-90 days' THEN 2
+                     WHEN '91-180 days' THEN 3
+                     ELSE 4
+                   END`;
 
     const result = await db.query(query, params);
 

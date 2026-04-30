@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import bcrypt from 'bcryptjs';
 import { db } from '../index';
 import { AuthRequest } from '../index';
 
@@ -22,23 +23,26 @@ const ROLES = {
 // POST /api/users - Create user
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, email, mobile, role, assignedProjectIds } = req.body;
+    const { name, email, mobile, role, assignedProjectIds, password } = req.body;
 
-    // Validate required fields
     if (!name || !email || !role) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Verify role exists
     if (!Object.values(ROLES).includes(role)) {
       return res.status(400).json({ error: 'Invalid role' });
     }
 
+    let passwordHash: string | null = null;
+    if (password && typeof password === 'string' && password.length >= 8) {
+      passwordHash = await bcrypt.hash(password, 12);
+    }
+
     const result = await db.query(
-      `INSERT INTO users (name, email, mobile, role, assigned_project_ids, is_active, created_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, true, $6)
+      `INSERT INTO users (name, email, mobile, role, password_hash, assigned_project_ids, is_active, created_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7)
        RETURNING id, name, email, role, assigned_project_ids, created_at`,
-      [name, email, mobile || null, role, JSON.stringify(assignedProjectIds || []), req.userId]
+      [name, email, mobile || null, role, passwordHash, JSON.stringify(assignedProjectIds || []), req.userId]
     );
 
     res.status(201).json({
@@ -78,104 +82,6 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     res.json({
       success: true,
       data: result.rows,
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/users/:id - Get user detail
-router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { id } = req.params;
-
-    const result = await db.query(
-      `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
-       FROM users WHERE id = $1`,
-      [id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PATCH /api/users/:id - Update user
-router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { id } = req.params;
-    const { name, email, mobile, role, assignedProjectIds, isActive } = req.body;
-
-    const result = await db.query(
-      `UPDATE users
-       SET name = COALESCE($1, name),
-           email = COALESCE($2, email),
-           mobile = COALESCE($3, mobile),
-           role = COALESCE($4, role),
-           assigned_project_ids = COALESCE($5, assigned_project_ids),
-           is_active = COALESCE($6, is_active),
-           updated_at = NOW()
-       WHERE id = $7
-       RETURNING id, name, email, role, is_active, updated_at`,
-      [
-        name,
-        email,
-        mobile,
-        role,
-        assignedProjectIds ? JSON.stringify(assignedProjectIds) : null,
-        isActive,
-        id,
-      ]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/users/:id/change-password - Change user password
-router.post('/:id/change-password', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { id } = req.params;
-    const { newPassword } = req.body;
-
-    // Validate password
-    if (!newPassword || newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
-
-    // In production, use bcrypt to hash password
-    const hashedPassword = Buffer.from(newPassword).toString('base64');
-
-    const result = await db.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2
-       RETURNING id, name, email`,
-      [hashedPassword, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
     });
   } catch (error) {
     next(error);
@@ -269,9 +175,9 @@ router.post('/permissions', async (req: AuthRequest, res: Response, next: NextFu
 // GET /api/users/audit-logs - Get system audit logs
 router.get('/audit-logs', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { userId, action, entityType, page = 1, pageSize = 50 } = req.query;
+    const { userId, action, resourceType, page = 1, pageSize = 50 } = req.query;
 
-    let query = `SELECT id, user_id, action, entity_type, entity_id, changes, timestamp
+    let query = `SELECT id, user_id, action, resource_type, resource_id, previous_values, new_values, timestamp
                  FROM audit_logs WHERE 1=1`;
     const params: any[] = [];
 
@@ -285,9 +191,9 @@ router.get('/audit-logs', async (req: AuthRequest, res: Response, next: NextFunc
       params.push(action);
     }
 
-    if (entityType) {
-      query += ` AND entity_type = $${params.length + 1}`;
-      params.push(entityType);
+    if (resourceType) {
+      query += ` AND resource_type = $${params.length + 1}`;
+      params.push(resourceType);
     }
 
     query += ` ORDER BY timestamp DESC`;
@@ -307,12 +213,12 @@ router.get('/audit-logs', async (req: AuthRequest, res: Response, next: NextFunc
 // POST /api/users/audit-logs - Log action (internal)
 router.post('/audit-logs', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { action, entityType, entityId, changes } = req.body;
+    const { action, resourceType, resourceId, newValues, previousValues } = req.body;
 
     await db.query(
-      `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, changes, timestamp)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [req.userId, action, entityType, entityId, JSON.stringify(changes || {})]
+      `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values, previous_values)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [req.userId, action, resourceType, resourceId || null, JSON.stringify(newValues || {}), JSON.stringify(previousValues || {})]
     );
 
     res.json({
@@ -335,7 +241,7 @@ router.get('/activity', async (req: AuthRequest, res: Response, next: NextFuncti
               MAX(timestamp) as last_activity
        FROM audit_logs
        WHERE timestamp > NOW() - INTERVAL '${period} days'
-       ${projectId ? `AND entity_type = 'project' AND entity_id = $1` : ''}
+       ${projectId ? `AND resource_type = 'project' AND resource_id = $1` : ''}
        GROUP BY user_id
        ORDER BY action_count DESC`,
       projectId ? [projectId] : []
@@ -344,6 +250,125 @@ router.get('/activity', async (req: AuthRequest, res: Response, next: NextFuncti
     res.json({
       success: true,
       data: result.rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/users/:id - Get user detail
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const result = await db.query(
+      `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
+       FROM users WHERE id = $1`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/users/:id - Update user
+router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { name, email, mobile, role, assignedProjectIds, isActive } = req.body;
+
+    const result = await db.query(
+      `UPDATE users
+       SET name = COALESCE($1, name),
+           email = COALESCE($2, email),
+           mobile = COALESCE($3, mobile),
+           role = COALESCE($4, role),
+           assigned_project_ids = COALESCE($5, assigned_project_ids),
+           is_active = COALESCE($6, is_active),
+           updated_at = NOW()
+       WHERE id = $7
+       RETURNING id, name, email, role, is_active, updated_at`,
+      [
+        name,
+        email,
+        mobile,
+        role,
+        assignedProjectIds ? JSON.stringify(assignedProjectIds) : null,
+        isActive,
+        id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/users/:id/change-password - Change user password
+router.post('/:id/change-password', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { newPassword, currentPassword } = req.body;
+
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    // Non-admins can only change their own password
+    if (req.userRole !== 'super_admin' && req.userId !== id) {
+      return res.status(403).json({ error: 'Forbidden: can only change your own password' });
+    }
+
+    // Require current password when user is changing their own password
+    if (req.userId === id && req.userRole !== 'super_admin') {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password is required' });
+      }
+      const userRes = await db.query(`SELECT password_hash FROM users WHERE id = $1`, [id]);
+      const existingHash = userRes.rows[0]?.password_hash;
+      let currentValid = false;
+      if (existingHash?.startsWith('$2')) {
+        currentValid = await bcrypt.compare(currentPassword, existingHash);
+      } else {
+        currentValid = Buffer.from(currentPassword).toString('base64') === existingHash;
+      }
+      if (!currentValid) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    const result = await db.query(
+      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2
+       RETURNING id, name, email`,
+      [hashedPassword, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
     });
   } catch (error) {
     next(error);
