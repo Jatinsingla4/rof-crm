@@ -96,6 +96,33 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           errors.push({ row: row.unitNumber, reason: err.message.split('\n')[0] });
         }
       }
+    } else if (importType === 'edraw' && projectId) {
+      for (const row of rows) {
+        try {
+          // 1. Update consumer lead stage
+          const stage = row.result === 'allotted' ? 'allotted' : 'draw_refund_pending';
+          const updateRes = await db.query(
+            `UPDATE consumers SET lead_stage = $1, updated_at = NOW() 
+             WHERE (id = $2 OR mobile = $3) AND project_id = $4
+             RETURNING id`,
+            [stage, row.consumerId || null, row.mobile, projectId]
+          );
+
+          if (updateRes.rowCount > 0 && row.result !== 'allotted') {
+            // 2. Create refund entry if not allotted
+            await db.query(
+              `INSERT INTO draw_refunds (consumer_id, project_id, draw_result, refund_status, refund_due_by)
+               VALUES ($1, $2, $3, 'pending', NOW() + INTERVAL '30 days')
+               ON CONFLICT DO NOTHING`,
+              [updateRes.rows[0].id, projectId, row.result]
+            );
+          }
+          created++;
+        } catch (err: any) {
+          skipped++;
+          errors.push({ row: row.mobile || 'unknown', reason: err.message.split('\n')[0] });
+        }
+      }
     } else {
       // Unsupported type — log as-is
       skipped = rows.length;

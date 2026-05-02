@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db } from '../index';
+import { db } from '../db/pool';
 import { AuthRequest } from '../index';
 
 const router = Router();
@@ -23,7 +23,7 @@ router.get('/sales-dashboard', async (req: AuthRequest, res: Response, next: Nex
     }
 
     if (dateFrom && dateTo) {
-      whereClause += ` AND c.created_at >= $${params.length + 1} AND c.created_at <= $${params.length + 2}`;
+      whereClause += ` AND c.created_at::date >= $${params.length + 1} AND c.created_at::date <= $${params.length + 2}`;
       params.push(dateFrom, dateTo);
     }
 
@@ -37,16 +37,24 @@ router.get('/sales-dashboard', async (req: AuthRequest, res: Response, next: Nex
         COUNT(CASE WHEN c.lead_stage = 'draw_entered' THEN 1 END) as draw_entered,
         COUNT(CASE WHEN c.lead_stage = 'allotted' THEN 1 END) as allotted,
         COUNT(CASE WHEN c.lead_stage = 'cancelled' THEN 1 END) as cancelled,
-        ROUND(100.0 * COUNT(CASE WHEN c.lead_stage = 'allotted' THEN 1 END) / COUNT(*), 2) as conversion_rate
+        ROUND(100.0 * COUNT(CASE WHEN c.lead_stage = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as conversion_rate
        FROM consumers c
        ${whereClause}`,
       params
     );
 
+    // Convert string counts to numbers
+    const metrics = result.rows[0];
+    if (metrics) {
+      Object.keys(metrics).forEach((key) => {
+        metrics[key] = parseFloat(metrics[key]) || 0;
+      });
+    }
+
     res.json({
       success: true,
       data: {
-        metrics: result.rows[0],
+        metrics: metrics || {},
         period: { from: dateFrom, to: dateTo },
       },
     });
@@ -83,8 +91,14 @@ router.get('/financial-dashboard', async (req: AuthRequest, res: Response, next:
     );
 
     const row = result.rows[0];
+    if (row) {
+      Object.keys(row).forEach((key) => {
+        row[key] = parseFloat(row[key]) || 0;
+      });
+    }
+
     const collectionPercentage =
-      row.total_receivables > 0 ? Math.round((row.total_collected / row.total_receivables) * 100) : 0;
+      row && row.total_receivables > 0 ? Math.round((row.total_collected / row.total_receivables) * 100) : 0;
 
     res.json({
       success: true,
@@ -442,7 +456,7 @@ router.get('/allotment-dashboard', async (req: AuthRequest, res: Response, next:
       COUNT(CASE WHEN u.status = 'allotted' THEN 1 END) as allotted,
       COUNT(CASE WHEN u.status = 'available' THEN 1 END) as available,
       ROUND(
-        COUNT(CASE WHEN u.status = 'allotted' THEN 1 END) * 100.0 / COUNT(*), 2
+        COUNT(CASE WHEN u.status = 'allotted' THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0), 2
       ) as fill_percentage
      FROM units u`;
 
@@ -520,6 +534,185 @@ router.get('/allotment-dashboard', async (req: AuthRequest, res: Response, next:
   } catch (error) {
     next(error);
   }
+});
+
+// GET /api/reports/inventory-full - Detailed inventory status with summary
+router.get('/inventory-full', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const summary = await db.query(
+      `SELECT 
+        COUNT(*) as total_units,
+        COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
+        COUNT(CASE WHEN status::text = 'booked' THEN 1 END) as booked,
+        COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
+        COUNT(CASE WHEN registry_status = true THEN 1 END) as registry,
+        COUNT(CASE WHEN mortgage_status = true THEN 1 END) as mortgage,
+        COUNT(CASE WHEN status::text = 'held' OR hold_status = true THEN 1 END) as hold,
+        SUM(super_area_sqft) as total_area
+       FROM units WHERE project_id = $1`,
+      [projectId]
+    );
+
+    const units = await db.query(
+      `SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name
+       FROM units u
+       JOIN towers t ON u.tower_id = t.id
+       LEFT JOIN allocations a ON u.id = a.unit_id AND a.status = 'allotted'
+       LEFT JOIN consumers c ON a.consumer_id = c.id
+       LEFT JOIN booking_records br ON c.id = br.consumer_id
+       LEFT JOIN brokers b ON br.broker_id = b.id
+       WHERE u.project_id = $1
+       ORDER BY t.tower_name, u.floor, u.unit_number`,
+      [projectId]
+    );
+
+    res.json({ success: true, data: { summary: summary.rows[0], units: units.rows } });
+  } catch (error) { next(error); }
+});
+
+// GET /api/reports/applicant-payment-file - Advanced financial ledger
+router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { 
+      projectId, towerId, floor, unitType, registrationNo, name, unitNo, 
+      classification, bookingDateFrom, bookingDateTo, dueAsOnDate 
+    } = req.query;
+
+    let query = `
+      SELECT 
+        -- Customer Info
+        c.registration_no, c.name, c.mobile, c.email, c.booking_date, a.allocated_date as allotment_date,
+        -- Unit Details
+        u.unit_number, t.tower_name, u.floor, u.bhk_type, u.super_area_sqft, u.carpet_area_sqft,
+        -- Sales Info
+        b.name as broker_name, u2.name as sales_employee, c.finance_bank as bank_name,
+        CASE WHEN c.loan_amount > 0 THEN 'Sanctioned' ELSE 'Pending' END as loan_status,
+        -- Pricing & Taxation
+        u.base_price_inr as rate,
+        (u.base_price_inr * u.super_area_sqft) as basic_price,
+        0 as discount, -- Placeholder
+        (u.base_price_inr * u.super_area_sqft) as net_basic_price,
+        5000000 as plc, -- Placeholder for PLC
+        COALESCE(SUM(d.amount_due_inr), 0) as total_cost_with_tax,
+        -- Ledger
+        COALESCE(SUM(d.amount_due_inr), 0) as amount_due,
+        COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = c.id), 0) as received_amount,
+        c.form_no, c.customer_classification
+      FROM consumers c
+      JOIN units u ON c.allocated_unit_id = u.id
+      JOIN towers t ON u.tower_id = t.id
+      LEFT JOIN allocations a ON u.id = a.unit_id AND a.status = 'allotted'
+      LEFT JOIN booking_records br ON c.id = br.consumer_id
+      LEFT JOIN brokers b ON br.broker_id = b.id
+      LEFT JOIN users u2 ON br.sales_employee_id = u2.id
+      LEFT JOIN demands d ON c.id = d.consumer_id
+      WHERE 1=1
+    `;
+    const params: any[] = [];
+
+    if (projectId) { params.push(projectId); query += ` AND c.project_id = $${params.length}`; }
+    if (towerId) { params.push(towerId); query += ` AND u.tower_id = $${params.length}`; }
+    if (floor) { params.push(floor); query += ` AND u.floor = $${params.length}`; }
+    if (unitType) { params.push(unitType); query += ` AND u.bhk_type = $${params.length}`; }
+    if (registrationNo) { params.push(`%${registrationNo}%`); query += ` AND c.registration_no ILIKE $${params.length}`; }
+    if (name) { params.push(`%${name}%`); query += ` AND c.name ILIKE $${params.length}`; }
+    if (unitNo) { params.push(`%${unitNo}%`); query += ` AND u.unit_number ILIKE $${params.length}`; }
+    if (classification) { params.push(classification); query += ` AND c.customer_classification = $${params.length}`; }
+    
+    if (bookingDateFrom) { params.push(bookingDateFrom); query += ` AND c.booking_date >= $${params.length}`; }
+    if (bookingDateTo) { params.push(bookingDateTo); query += ` AND c.booking_date <= $${params.length}`; }
+
+    query += ` GROUP BY c.id, u.id, t.id, a.id, b.id, u2.id`;
+
+    const result = await db.query(query, params);
+    
+    const enriched = result.rows.map(row => {
+      const due = parseFloat(row.amount_due || 0);
+      const rec = parseFloat(row.received_amount || 0);
+      const arrears = Math.max(0, due - rec);
+      const interest = arrears > 0 ? (arrears * 0.15 * (30/365)) : 0; 
+      
+      return {
+        ...row,
+        cgst: (due * 0.025),
+        sgst: (due * 0.025),
+        outstanding_balance: arrears,
+        interest_calculated: interest,
+        total_outstanding: arrears + interest
+      };
+    });
+
+    res.json({ success: true, data: enriched });
+  } catch (error) { next(error); }
+});
+
+// GET /api/reports/collection-pivot - Horizontal monthly dues vs outstanding
+router.get('/collection-pivot', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, towerId, dateFrom, dateTo } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    let query = `
+      SELECT 
+        c.registration_no, c.name, u.unit_number,
+        d.due_date, d.amount_due_inr, d.status,
+        COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE demand_id = d.id), 0) as paid
+      FROM demands d
+      JOIN consumers c ON d.consumer_id = c.id
+      JOIN units u ON c.allocated_unit_id = u.id
+      WHERE c.project_id = $1
+      AND c.status IN ('booked', 'allotted')
+    `;
+    const params: any[] = [projectId];
+
+    if (towerId) { params.push(towerId); query += ` AND u.tower_id = $${params.length}`; }
+    if (dateFrom) { params.push(dateFrom); query += ` AND d.due_date >= $${params.length}`; }
+    if (dateTo) { params.push(dateTo); query += ` AND d.due_date <= $${params.length}`; }
+
+    query += ` ORDER BY c.registration_no, d.due_date`;
+
+    const result = await db.query(query, params);
+    
+    // Group by Consumer and Pivot by Month
+    const consumers: any = {};
+    const monthsSet = new Set<string>();
+
+    result.rows.forEach(row => {
+      const key = row.registration_no || 'NA';
+      if (!consumers[key]) {
+        consumers[key] = {
+          registration_no: row.registration_no,
+          name: row.name,
+          unit_number: row.unit_number,
+          months: {}
+        };
+      }
+
+      const d = new Date(row.due_date);
+      const mLabel = `${d.toLocaleString('default', { month: 'short' })}-${d.getFullYear()}`.toUpperCase();
+      monthsSet.add(mLabel);
+
+      if (!consumers[key].months[mLabel]) {
+        consumers[key].months[mLabel] = { due: 0, os: 0 };
+      }
+
+      const due = parseFloat(row.amount_due_inr);
+      const os = Math.max(0, due - parseFloat(row.paid));
+      consumers[key].months[mLabel].due += due;
+      consumers[key].months[mLabel].os += os;
+    });
+
+    const sortedMonths = Array.from(monthsSet).sort((a,b) => {
+      const parse = (s:string) => new Date(s.split('-')[1], ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(s.split('-')[0]));
+      // @ts-ignore
+      return parse(a) - parse(b);
+    });
+
+    res.json({ success: true, data: { consumers: Object.values(consumers), months: sortedMonths } });
+  } catch (error) { next(error); }
 });
 
 export default router;

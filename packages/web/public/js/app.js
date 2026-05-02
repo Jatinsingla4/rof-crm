@@ -70,10 +70,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/help',              (p) => Pages.help(p));
   Router.register('/gst-invoicing',     (p) => Pages.gstInvoicing(p));
   Router.register('/surrender',         (p) => Pages.surrender(p));
+  Router.register('/transfers',         (p) => Pages.transfers(p));
+  Router.register('/registry',          (p) => Pages.registry(p));
+  Router.register('/loans',             (p) => Pages.loans(p));
   Router.register('/parking',           (p) => Pages.parking(p));
   Router.register('/brokers',           (p) => Pages.brokers(p));
+  Router.register('/broker-setup',      (p) => Pages.brokerSetup(p));
+  Router.register('/inventory-hold',    (p) => Pages.inventoryHold(p));
   Router.register('/campaigns',         (p) => Pages.campaigns(p));
   Router.register('/employees',         (p) => Pages.employees(p));
+  Router.register('/calling',           (p) => Pages.calling(p));
+  Router.register('/collection-setup',  (p) => Pages.collectionSetup(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();
@@ -128,7 +135,8 @@ function initNavDropdowns() {
 
   // Top-level nav buttons toggle their dropdown
   document.querySelectorAll('.nav-item > .nav-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
       const item = btn.closest('.nav-item');
       const alreadyOpen = item.classList.contains('open');
       closeAllNavDropdowns();
@@ -138,7 +146,8 @@ function initNavDropdowns() {
 
   // Level-1 parent links (inside .dd, have .sub-dd inside)
   document.querySelectorAll('.dd > .dd-link.has-sub').forEach(link => {
-    link.addEventListener('click', () => {
+    link.addEventListener('click', (e) => {
+      e.stopPropagation();
       const alreadyOpen = link.classList.contains('open');
       // Close siblings at same level
       link.closest('.dd').querySelectorAll(':scope > .dd-link.open')
@@ -149,7 +158,8 @@ function initNavDropdowns() {
 
   // Level-2 parent links (inside .sub-dd, have .sub-sub-dd inside)
   document.querySelectorAll('.sub-dd > .dd-link.has-sub').forEach(link => {
-    link.addEventListener('click', () => {
+    link.addEventListener('click', (e) => {
+      e.stopPropagation();
       const alreadyOpen = link.classList.contains('open');
       link.closest('.sub-dd').querySelectorAll(':scope > .dd-link.open')
           .forEach(el => el.classList.remove('open'));

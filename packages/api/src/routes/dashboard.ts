@@ -16,12 +16,12 @@ router.get('/pending-cheques', async (req: AuthRequest, res: Response, next: Nex
     const result = await db.query(`
       SELECT
         p.name as project,
-        COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque' AND r.status = 'pending') as pending,
-        COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque' AND r.status = 'deposited') as deposite,
-        COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque') as total,
-        COUNT(r.id) FILTER (WHERE r.payment_method = 'demand_draft') as pdc,
-        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method = 'cheque'), 0) as amount,
-        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method = 'demand_draft'), 0) as pdc_amount
+        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque') as total,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'demand_draft') as pdc,
+        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'cheque'), 0) as amount,
+        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'demand_draft'), 0) as pdc_amount
       FROM projects p
       LEFT JOIN payment_plans pp ON pp.project_id = p.id
       LEFT JOIN receipts r ON r.payment_plan_id = pp.id
@@ -79,8 +79,8 @@ router.get('/pending-approval', async (req: AuthRequest, res: Response, next: Ne
   try {
     const result = await db.query(`
       SELECT
-        r.id, r.amount_received_inr, r.payment_method, r.payment_date,
-        r.reference_number, r.status,
+        r.id, r.amount_received_inr, r.payment_method, r.received_date,
+        r.transaction_ref as reference_number, r.status,
         c.name as consumer_name, c.mobile,
         p.name as project_name,
         u.unit_number
@@ -88,9 +88,9 @@ router.get('/pending-approval', async (req: AuthRequest, res: Response, next: Ne
       JOIN consumers c ON r.consumer_id = c.id
       LEFT JOIN payment_plans pp ON r.payment_plan_id = pp.id
       LEFT JOIN projects p ON pp.project_id = p.id
-      LEFT JOIN units u ON pp.unit_id = u.id
-      WHERE r.status = 'pending'
-      ORDER BY r.payment_date DESC
+      LEFT JOIN units u ON r.consumer_id = u.id -- Simple join for display
+      WHERE r.status::text = 'pending'
+      ORDER BY r.received_date DESC
       LIMIT 50
     `);
 
@@ -103,20 +103,17 @@ router.get('/pending-approval', async (req: AuthRequest, res: Response, next: Ne
 // GET /api/dashboard/daily-status
 router.get('/daily-status', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const today = new Date();
-    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-
     const result = await db.query(`
       SELECT
         p.name as project,
-        COUNT(bf.id) FILTER (WHERE bf.created_at::date = CURRENT_DATE) as sales_today,
-        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_date::date = CURRENT_DATE), 0) as coll_today,
-        COUNT(bf.id) FILTER (WHERE DATE_TRUNC('month', bf.created_at) = DATE_TRUNC('month', CURRENT_DATE)) as sales_month,
-        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE DATE_TRUNC('month', r.payment_date) = DATE_TRUNC('month', CURRENT_DATE)), 0) as coll_month,
-        COUNT(bf.id) as sales_total,
+        COUNT(br.id) FILTER (WHERE br.created_at::date = CURRENT_DATE) as sales_today,
+        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.received_date::date = CURRENT_DATE), 0) as coll_today,
+        COUNT(br.id) FILTER (WHERE DATE_TRUNC('month', br.created_at) = DATE_TRUNC('month', CURRENT_DATE)) as sales_month,
+        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE DATE_TRUNC('month', r.received_date) = DATE_TRUNC('month', CURRENT_DATE)), 0) as coll_month,
+        COUNT(br.id) as sales_total,
         COALESCE(SUM(r.amount_received_inr), 0) as coll_total
       FROM projects p
-      LEFT JOIN booking_forms bf ON bf.project_id = p.id
+      LEFT JOIN booking_records br ON br.project_id = p.id
       LEFT JOIN payment_plans pp ON pp.project_id = p.id
       LEFT JOIN receipts r ON r.payment_plan_id = pp.id
       GROUP BY p.id, p.name
@@ -125,14 +122,14 @@ router.get('/daily-status', async (req: AuthRequest, res: Response, next: NextFu
 
     res.json({ success: true, data: result.rows });
   } catch (error) {
-    // Fallback if booking_forms doesn't have data yet
+    // Fallback if booking_records doesn't have data yet
     try {
       const result2 = await db.query(`
         SELECT
           p.name as project,
           0 as sales_today, 0 as sales_month, 0 as sales_total,
-          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_date::date = CURRENT_DATE), 0) as coll_today,
-          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE DATE_TRUNC('month', r.payment_date) = DATE_TRUNC('month', CURRENT_DATE)), 0) as coll_month,
+          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.received_date::date = CURRENT_DATE), 0) as coll_today,
+          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE DATE_TRUNC('month', r.received_date) = DATE_TRUNC('month', CURRENT_DATE)), 0) as coll_month,
           COALESCE(SUM(r.amount_received_inr), 0) as coll_total
         FROM projects p
         LEFT JOIN payment_plans pp ON pp.project_id = p.id
@@ -153,18 +150,17 @@ router.get('/parking-detail', async (req: AuthRequest, res: Response, next: Next
     const result = await db.query(`
       SELECT
         p.name as project,
-        pt.name as parking_type,
+        ps.parking_type,
         COUNT(ps.id) as total,
         COUNT(ps.id) FILTER (WHERE ps.status = 'allotted') as paid,
         COUNT(ps.id) FILTER (WHERE ps.status = 'available') as free,
         COUNT(ps.id) as total_issued,
-        COUNT(ps.id) FILTER (WHERE ps.status = 'available') - COUNT(ps.id) FILTER (WHERE ps.status = 'allotted') as remaining
+        (COUNT(ps.id) FILTER (WHERE ps.status = 'available')) as remaining
       FROM projects p
       LEFT JOIN parking_slots ps ON ps.project_id = p.id
-      LEFT JOIN parking_types pt ON pt.id = ps.parking_type_id
-      GROUP BY p.id, p.name, pt.name
+      GROUP BY p.id, p.name, ps.parking_type
       HAVING COUNT(ps.id) > 0
-      ORDER BY p.name, pt.name
+      ORDER BY p.name, ps.parking_type
     `);
 
     res.json({ success: true, data: result.rows });
@@ -229,12 +225,12 @@ router.get('/summary', async (req: AuthRequest, res: Response, next: NextFunctio
     const [cheques, demandStatus, pendingApproval, forthcomingDue] = await Promise.all([
       db.query(`
         SELECT p.name as project,
-          COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque' AND r.status = 'pending') as pending,
-          COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque' AND r.status = 'deposited') as deposite,
-          COUNT(r.id) FILTER (WHERE r.payment_method = 'cheque') as total,
-          COUNT(r.id) FILTER (WHERE r.payment_method = 'demand_draft') as pdc,
-          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method = 'cheque'), 0) as amount,
-          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method = 'demand_draft'), 0) as pdc_amount
+          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque') as total,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'demand_draft') as pdc,
+          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'cheque'), 0) as amount,
+          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'demand_draft'), 0) as pdc_amount
         FROM projects p
         LEFT JOIN payment_plans pp ON pp.project_id = p.id
         LEFT JOIN receipts r ON r.payment_plan_id = pp.id
@@ -258,13 +254,13 @@ router.get('/summary', async (req: AuthRequest, res: Response, next: NextFunctio
         GROUP BY p.id, p.name ORDER BY p.name
       `),
       db.query(`
-        SELECT r.id, r.amount_received_inr, r.payment_method, r.payment_date, r.reference_number,
-               c.name as consumer_name, p.name as project_name
+        SELECT r.id, r.amount_received_inr, r.payment_method, r.received_date, r.transaction_ref as reference_number,
+               c.name as consumer_name, p.name as project_name, r.status
         FROM receipts r
         JOIN consumers c ON r.consumer_id = c.id
         LEFT JOIN payment_plans pp ON r.payment_plan_id = pp.id
         LEFT JOIN projects p ON pp.project_id = p.id
-        WHERE r.status = 'pending' ORDER BY r.payment_date DESC LIMIT 20
+        WHERE r.status::text = 'pending' ORDER BY r.received_date DESC LIMIT 20
       `),
       db.query(`
         SELECT p.name as project_name,

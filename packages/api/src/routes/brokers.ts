@@ -97,19 +97,108 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // POST /api/brokers
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, firmName, mobile, email, reraNumber, pan, address, commissionPct = 2.00 } = req.body;
+    const { name, firmName, mobile, email, reraNumber, pan, address, commissionPct = 2.00, parentBrokerId, bankAccountDetails, gstNo } = req.body;
 
-    if (!name || !mobile) return res.status(400).json({ error: 'name and mobile are required' });
+    if (!name || !mobile || !firmName) return res.status(400).json({ error: 'name, firmName, and mobile are required' });
 
     const result = await db.query(
-      `INSERT INTO brokers (name, firm_name, mobile, email, rera_number, pan, address, commission_pct, status, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active', $9)
+      `INSERT INTO brokers (name, firm_name, mobile, email, rera_number, pan, address, commission_pct, status, created_by, parent_broker_id, tax_id_gst, tax_id_pan, bank_account_details)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $12, $13)
        RETURNING id, name, firm_name, mobile, status, commission_pct, created_at`,
-      [name, firmName || null, mobile, email || null, reraNumber || null, pan || null,
-       address || null, commissionPct, req.userId]
+      [name, firmName, mobile, email || null, reraNumber || null, pan || null,
+       address || null, commissionPct, req.userId, parentBrokerId || null, gstNo || null, pan || null, bankAccountDetails ? JSON.stringify(bankAccountDetails) : null]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/brokers/:id
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(`SELECT * FROM brokers WHERE id = $1`, [id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Broker not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/brokers/:id/approve
+router.patch('/:id/approve', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const result = await db.query(
+      `UPDATE brokers SET status = 'active', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`,
+      [notes || null, req.userId, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Broker not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/brokers/:id/reject
+router.patch('/:id/reject', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { notes } = req.body;
+    const result = await db.query(
+      `UPDATE brokers SET status = 'rejected', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`,
+      [notes || null, req.userId, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Broker not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/brokers/:id/projects
+router.get('/:id/projects', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `SELECT p.id, p.name FROM projects p JOIN broker_project_mapping bpm ON p.id = bpm.project_id WHERE bpm.broker_id = $1`,
+      [id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/brokers/:id/projects
+router.post('/:id/projects', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { projectIds } = req.body; // Array of UUIDs
+    
+    await db.query(`DELETE FROM broker_project_mapping WHERE broker_id = $1`, [id]);
+    
+    if (projectIds && projectIds.length > 0) {
+      const values = projectIds.map((pid: string, idx: number) => `($1, $${idx + 3}, $2)`).join(',');
+      const params = [id, req.userId, ...projectIds];
+      await db.query(`INSERT INTO broker_project_mapping (broker_id, mapped_by, project_id) VALUES ${values}`, params);
+    }
+    
+    res.json({ success: true, message: 'Projects mapped successfully' });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/brokers/:id/sub-brokers
+router.get('/:id/sub-brokers', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(`SELECT id, name, firm_name, status, commission_pct FROM brokers WHERE parent_broker_id = $1`, [id]);
+    res.json({ success: true, data: result.rows });
   } catch (error) {
     next(error);
   }

@@ -8,7 +8,6 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Pool } from 'pg';
 import jwt from 'jsonwebtoken';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -28,6 +27,7 @@ import userRoutes from './routes/users';
 import reportRoutes from './routes/reports';
 import milestonesRoutes from './routes/milestones';
 import reconciliationRoutes from './routes/reconciliation';
+import smtpRoutes from './routes/smtp_config';
 import faqRoutes from './routes/faq';
 import tasksRoutes from './routes/tasks';
 import automationRoutes from './routes/automation';
@@ -35,10 +35,18 @@ import brokersRoutes from './routes/brokers';
 import parkingRoutes from './routes/parking';
 import importRoutes from './routes/import';
 import projectsRoutes from './routes/projects';
+import brokerSetupRoutes from './routes/broker_setup';
+import inventoryHoldRoutes from './routes/inventory_hold';
 import dashboardRoutes from './routes/dashboard';
 import masterRoutes from './routes/master';
 import bookingRoutes from './routes/booking';
 import employeesRoutes from './routes/employees';
+import operationsRoutes from './routes/operations';
+import transfersRoutes from './routes/transfers';
+import registryRoutes from './routes/registry';
+import loansRoutes from './routes/loans';
+import receiptProcessRoutes from './routes/receipt-process';
+import testDataImportRoutes from './routes/test-data-import';
 import { requirePermission } from './middleware/rbac';
 import { logAudit } from './middleware/auditLogger';
 
@@ -48,14 +56,8 @@ const app: Express = express();
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
 
-// Database connection pool
-export const db = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT || '5432'),
-  database: process.env.DB_NAME || 'rof_crm',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
-});
+import { db } from './db/pool';
+export { db } from './db/pool';
 
 // ============================================
 // SECURITY HEADERS (helmet)
@@ -198,7 +200,7 @@ const autoAudit = (req: AuthRequest, res: Response, next: NextFunction) => {
 };
 
 // ============================================
-// STATIC FILES — SPA frontend
+// STATIC FILES — Static HTML frontend
 // ============================================
 
 const webPublicDir = path.join(__dirname, '../../web/public');
@@ -296,6 +298,7 @@ app.use('/api/users',          authenticateToken, rbac('users'),          userRo
 app.use('/api/reports',        authenticateToken, rbac('reports'),        reportRoutes);
 app.use('/api/milestones',     authenticateToken, rbac('payments'),       milestonesRoutes);
 app.use('/api/reconciliation', authenticateToken, rbac('payments'),       reconciliationRoutes);
+app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRoutes);
 app.use('/api/faq',            authenticateToken,                         faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
 app.use('/api/automation',    authenticateToken, rbac('reports'),         automationRoutes);
@@ -303,10 +306,18 @@ app.use('/api/brokers',       authenticateToken, rbac('consumers'),       broker
 app.use('/api/parking',       authenticateToken, rbac('units'),           parkingRoutes);
 app.use('/api/import',        authenticateToken, rbac('units'),           importRoutes);
 app.use('/api/projects',      authenticateToken, rbac('units'),           projectsRoutes);
+app.use('/api/broker-setup',  authenticateToken, rbac('broker_setup'),    brokerSetupRoutes);
+app.use('/api/inventory-hold',authenticateToken, rbac('inventory_hold'),  inventoryHoldRoutes);
 app.use('/api/dashboard',     authenticateToken,                          dashboardRoutes);
 app.use('/api/master',        authenticateToken,                          masterRoutes);
 app.use('/api/booking',       authenticateToken,                          bookingRoutes);
-app.use('/api/employees',     authenticateToken,                          employeesRoutes);
+app.use('/api/employees', authenticateToken, employeesRoutes);
+app.use('/api/operations', authenticateToken, operationsRoutes);
+app.use('/api/transfers', authenticateToken, transfersRoutes);
+app.use('/api/registry', authenticateToken, registryRoutes);
+app.use('/api/loans', authenticateToken, loansRoutes);
+app.use('/api/payments', authenticateToken, receiptProcessRoutes);
+app.use('/api/test-data', authenticateToken, testDataImportRoutes);
 
 // ============================================
 // SPA FALLBACK

@@ -4,10 +4,42 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { db } from '../index';
 import { AuthRequest } from '../index';
 
 const router = Router();
+
+// AES-256 Encryption Configuration
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
+const IV_LENGTH = 16;
+
+function encrypt(text: string): string {
+  if (!text) return text;
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString('hex') + ':' + encrypted.toString('hex');
+}
+
+function decrypt(text: string): string {
+  if (!text) return text;
+  if (!text.includes(':')) return text; // Fallback for unencrypted legacy data
+  try {
+    const textParts = text.split(':');
+    const iv = Buffer.from(textParts.shift() as string, 'hex');
+    const encryptedText = Buffer.from(textParts.join(':'), 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+    return decrypted.toString();
+  } catch (error) {
+    console.error('Decryption failed:', error);
+    return text;
+  }
+}
+
 
 // POST /api/documents/templates - Create document template
 router.post('/templates', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -124,50 +156,150 @@ router.patch('/templates/:id', async (req: AuthRequest, res: Response, next: Nex
 });
 
 // POST /api/documents/generate - Generate document from template with merge fields
+// POST /api/documents/generate - Generate document from template
 router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, allocationId, templateId, mergeData, deliveryMethod } = req.body;
+    let { consumerId, allocationId, templateId, documentType, mergeData, deliveryMethod } = req.body;
 
-    // Validate required fields
-    if (!consumerId || !templateId || !mergeData) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!consumerId && !allocationId) {
+      return res.status(400).json({ error: 'consumerId or allocationId is required' });
     }
 
-    // Get template
-    const templateResult = await db.query(`SELECT * FROM document_templates WHERE id = $1`, [templateId]);
-
-    if (templateResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Template not found' });
+    // 1. Resolve Template
+    let template;
+    if (templateId) {
+      const tRes = await db.query(`SELECT * FROM document_templates WHERE id = $1`, [templateId]);
+      template = tRes.rows[0];
+    } else if (documentType) {
+      const tRes = await db.query(
+        `SELECT * FROM document_templates WHERE document_type = $1 ORDER BY created_at DESC LIMIT 1`,
+        [documentType]
+      );
+      template = tRes.rows[0];
     }
 
-    const template = templateResult.rows[0];
-
-    // Simple merge: replace {{fieldName}} with values
-    let htmlContent = template.body_html || template.html_content || '';
-    for (const [key, value] of Object.entries(mergeData)) {
-      htmlContent = htmlContent.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
+    if (!template) {
+      return res.status(404).json({ error: 'Document template not found' });
     }
 
-    // Generate document record
+    // 2. Auto-Merge Logic (if mergeData missing)
+    if (!mergeData) {
+      const dataRes = await db.query(
+        `SELECT c.*, u.unit_number, u.carpet_area, u.unit_category, p.name as project_name, p.sector as project_sector, p.rera_number as project_rera
+         FROM consumers c
+         LEFT JOIN units u ON c.allocated_unit_id = u.id
+         LEFT JOIN projects p ON u.project_id = p.id
+         WHERE c.id = $1`,
+        [consumerId]
+      );
+      
+      const d = dataRes.rows[0];
+      if (d) {
+        mergeData = {
+          consumerName: d.name || `${d.first_name} ${d.last_name}`,
+          fatherName: d.father_name || '—',
+          address: d.present_address || '—',
+          mobile: d.mobile || '—',
+          email: d.email || '—',
+          customerId: d.registration_no || '—',
+          reraNo: d.project_rera || '75 OF 2019 Dated 09.12.19',
+          projectName: d.project_name || '—',
+          projectSector: d.project_sector || '—',
+          unitNumber: d.unit_number || '—',
+          unitCategory: d.unit_category || '—',
+          carpetArea: d.carpet_area || '0',
+          currentDate: new Date().toLocaleDateString('en-IN'),
+          day: new Date().getDate(),
+          month: new Date().toLocaleString('en-IN', { month: 'long' }),
+          year: new Date().getFullYear(),
+        };
+
+        // Special logic for Demand Letter Rows
+        if (template.document_type === 'demand_letter') {
+          const includeInterest = req.body.includeInterest === true;
+          const demandsRes = await db.query(
+            `SELECT d.*, 
+              (SELECT COALESCE(SUM(amount_received_inr),0) FROM receipts WHERE payment_plan_id = d.payment_plan_id AND installment_index = d.installment_index) as amount_paid,
+              EXTRACT(DAY FROM NOW() - d.due_date)::INT as days_overdue
+             FROM demands d 
+             WHERE consumer_id = $1 AND status != 'pending'
+             ORDER BY installment_index ASC`,
+            [consumerId]
+          );
+          
+          let totalDue = 0;
+          let totalPaid = 0;
+          let totalInterest = 0;
+          
+          const rows = demandsRes.rows.map((dm, idx) => {
+            const installment = parseFloat(dm.amount_due_inr);
+            const cgst = parseFloat(dm.cgst_amount || 0);
+            const sgst = parseFloat(dm.sgst_amount || 0);
+            const totalGst = cgst + sgst;
+            const amtDue = installment + totalGst;
+            const amtPaid = parseFloat(dm.amount_paid || 0);
+            
+            let interest = 0;
+            if (includeInterest && dm.days_overdue > 0 && (amtDue - amtPaid) > 0) {
+              interest = Math.round(((amtDue - amtPaid) * 0.15 * dm.days_overdue) / 365);
+            }
+            
+            const amtPayable = Math.max(0, amtDue - amtPaid + interest);
+            
+            totalDue += amtDue;
+            totalPaid += amtPaid;
+            totalInterest += interest;
+            
+            return `
+              <tr>
+                <td style="border: 1px solid #000; padding: 6px; text-align: center;">${idx + 1}</td>
+                <td style="border: 1px solid #000; padding: 6px;">${dm.demand_type || 'Installment'}</td>
+                <td style="border: 1px solid #000; padding: 6px;">${new Date(dm.due_date).toLocaleDateString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${installment.toLocaleString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${cgst.toLocaleString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${sgst.toLocaleString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${totalGst.toLocaleString('en-IN')}</td>
+                ${includeInterest ? `<td style="border: 1px solid #000; padding: 6px; text-align: right; color: #d63031;">${interest.toLocaleString('en-IN')}</td>` : ''}
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${amtDue.toLocaleString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right;">${amtPaid.toLocaleString('en-IN')}</td>
+                <td style="border: 1px solid #000; padding: 6px; text-align: right; font-weight: 700;">${amtPayable.toLocaleString('en-IN')}</td>
+              </tr>
+            `;
+          }).join('');
+
+          const totalPayable = totalDue - totalPaid + totalInterest;
+          mergeData.demandRows = rows;
+          mergeData.totalDue = totalDue.toLocaleString('en-IN');
+          mergeData.totalPaid = totalPaid.toLocaleString('en-IN');
+          mergeData.totalPayable = totalPayable.toLocaleString('en-IN');
+          mergeData.totalPayableWords = 'Rupees ' + totalPayable.toLocaleString('en-IN') + ' Only';
+          
+          // Dynamically adjust header based on interest toggle
+          if (includeInterest) {
+            htmlContent = htmlContent.replace('Amount Due</th>', 'Interest</th><th style="border: 1px solid #000; padding: 6px;">Amount Due</th>');
+            htmlContent = htmlContent.replace('colspan="7"', 'colspan="8"');
+          }
+        }
+      }
+    }
+
+    // 3. Perform Merge
+    let htmlContent = template.body_html || '';
+    if (mergeData) {
+      for (const [key, value] of Object.entries(mergeData)) {
+        htmlContent = htmlContent.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
+      }
+    }
+
+    // 4. Save and return
     const result = await db.query(
       `INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-       RETURNING id, document_type, delivery_method, delivery_status, created_at`,
-      [
-        consumerId,
-        allocationId || null,
-        templateId,
-        template.document_type,
-        htmlContent,
-        deliveryMethod || 'email',
-        req.userId,
-      ]
+       RETURNING id`,
+      [consumerId, allocationId || null, template.id, template.document_type, htmlContent, deliveryMethod || 'none', req.userId]
     );
 
-    res.status(201).json({
-      success: true,
-      data: result.rows[0],
-    });
+    res.status(201).json({ success: true, data: { documentId: result.rows[0].id } });
   } catch (error) {
     next(error);
   }
@@ -234,22 +366,32 @@ router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction
   }
 });
 
-// GET /api/documents/:consumerId - Get documents for consumer
-router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// GET /api/documents - List all documents (with filters)
+router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
-    const { documentType } = req.query;
+    const { documentType, from, to, page = 1, pageSize = 50 } = req.query;
 
-    let query = `SELECT id, document_type, delivery_method, delivery_status, created_at, sent_at
-                 FROM documents WHERE consumer_id = $1`;
-    const params: any[] = [consumerId];
+    let query = `SELECT d.id, d.document_type, d.delivery_method, d.delivery_status, d.created_at, d.sent_at,
+                        c.name as consumer_name
+                 FROM documents d
+                 LEFT JOIN consumers c ON d.consumer_id = c.id
+                 WHERE 1=1`;
+    const params: any[] = [];
 
     if (documentType) {
-      query += ` AND document_type = $${params.length + 1}`;
       params.push(documentType as string);
+      query += ` AND d.document_type = $${params.length}`;
+    }
+    if (from) {
+      params.push(from);
+      query += ` AND d.created_at >= $${params.length}::date`;
+    }
+    if (to) {
+      params.push(to);
+      query += ` AND d.created_at <= $${params.length}::date + interval '1 day'`;
     }
 
-    query += ` ORDER BY created_at DESC`;
+    query += ` ORDER BY d.created_at DESC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
 
     const result = await db.query(query, params);
 
@@ -262,6 +404,7 @@ router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFun
   }
 });
 
+
 // POST /api/documents/vault - Upload scanned contract/document to vault
 router.post('/vault', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -272,21 +415,64 @@ router.post('/vault', async (req: AuthRequest, res: Response, next: NextFunction
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Encrypt the file URL before storing (AES-256)
+    const encryptedFileUrl = encrypt(fileUrl);
+
     const result = await db.query(
       `INSERT INTO document_vault (consumer_id, allocation_id, document_category, file_url, file_name, uploaded_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, document_category, file_url, created_at`,
-      [consumerId, allocationId || null, documentCategory, fileUrl, fileName || null, req.userId]
+      [consumerId, allocationId || null, documentCategory, encryptedFileUrl, fileName || null, req.userId]
     );
+
+    const data = result.rows[0];
+    data.file_url = decrypt(data.file_url);
 
     res.status(201).json({
       success: true,
-      data: result.rows[0],
+      data: data,
     });
   } catch (error) {
     next(error);
   }
 });
+
+// GET /api/documents/vault - List all vault documents
+router.get('/vault', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { documentCategory, page = 1, pageSize = 50 } = req.query;
+
+    let query = `SELECT dv.id, dv.document_category as doc_category, dv.file_url, dv.file_name, dv.created_at,
+                        c.name as consumer_name
+                 FROM document_vault dv
+                 LEFT JOIN consumers c ON dv.consumer_id = c.id
+                 WHERE 1=1`;
+    const params: any[] = [];
+
+    if (documentCategory) {
+      params.push(documentCategory as string);
+      query += ` AND dv.document_category = $${params.length}`;
+    }
+
+    query += ` ORDER BY dv.created_at DESC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
+
+    const result = await db.query(query, params);
+
+    // Decrypt URLs for client
+    const decryptedRows = result.rows.map(row => ({
+      ...row,
+      file_url: decrypt(row.file_url)
+    }));
+
+    res.json({
+      success: true,
+      data: decryptedRows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 
 // GET /api/documents/vault/:consumerId - List documents in vault
 router.get('/vault/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -304,6 +490,40 @@ router.get('/vault/:consumerId', async (req: AuthRequest, res: Response, next: N
     }
 
     query += ` ORDER BY document_category, created_at DESC`;
+
+    const result = await db.query(query, params);
+
+    // Decrypt URLs for client
+    const decryptedRows = result.rows.map(row => ({
+      ...row,
+      file_url: decrypt(row.file_url)
+    }));
+
+    res.json({
+      success: true,
+      data: decryptedRows,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/documents/:consumerId - Get documents for consumer
+router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+    const { documentType } = req.query;
+
+    let query = `SELECT id, document_type, delivery_method, delivery_status, created_at, sent_at
+                 FROM documents WHERE consumer_id = $1`;
+    const params: any[] = [consumerId];
+
+    if (documentType) {
+      query += ` AND document_type = $${params.length + 1}`;
+      params.push(documentType as string);
+    }
+
+    query += ` ORDER BY created_at DESC`;
 
     const result = await db.query(query, params);
 

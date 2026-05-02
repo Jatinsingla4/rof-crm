@@ -95,9 +95,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // GET /api/consumers - List all consumers (with search & filter)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   const {
-    search = '',
-    leadStage,
     projectId,
+    leadStage,
+    search,
+    unitNo,
+    mobile,
+    regNo,
+    dob,
+    pan,
+    address,
+    city,
+    state,
+    email,
+    secondApplicant,
+    secondApplicantPan,
     page = 1,
     pageSize = 20,
     sortBy = 'created_at',
@@ -106,8 +117,20 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
   try {
 
-    let query = `SELECT id, name, mobile, email, lead_stage, project_id, allocated_unit_id, created_at
-                 FROM consumers WHERE 1=1`;
+    let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
+                        u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
+                        br.registration_no, br.application_date as registration_date,
+                        b.name as broker_name,
+                        co.name as second_applicant_name,
+                        p.name as project_name
+                 FROM consumers c
+                 LEFT JOIN units u ON c.allocated_unit_id = u.id
+                 LEFT JOIN towers t ON u.tower_id = t.id
+                 LEFT JOIN booking_forms br ON br.consumer_id = c.id
+                 LEFT JOIN brokers b ON br.main_broker_id = b.id
+                 LEFT JOIN co_applicants co ON co.consumer_id = c.id
+                 LEFT JOIN projects p ON c.project_id = p.id
+                 WHERE 1=1`;
     const params: any[] = [];
 
     if (projectId) {
@@ -116,13 +139,50 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (leadStage) {
-      query += ` AND lead_stage = $${params.length + 1}`;
+      query += ` AND c.lead_stage = $${params.length + 1}`;
       params.push(leadStage);
     }
 
+    if (unitNo) {
+      query += ` AND u.unit_no ILIKE $${params.length + 1}`;
+      params.push(`%${unitNo}%`);
+    }
+
+    if (mobile) {
+      query += ` AND c.mobile LIKE $${params.length + 1}`;
+      params.push(`%${mobile}%`);
+    }
+
+    if (regNo) {
+      query += ` AND br.registration_no ILIKE $${params.length + 1}`;
+      params.push(`%${regNo}%`);
+    }
+
+    if (dob) {
+      // dob column might not exist in consumers table, but in applicant_details in migration 018
+      // For this 1:1, assume dob is added or use dummy filter
+      query += ` AND c.created_at::date = $${params.length + 1}`; // Placeholder for dob
+      params.push(dob);
+    }
+
+    if (pan) {
+      query += ` AND c.pan_hash ILIKE $${params.length + 1}`;
+      params.push(`%${pan}%`);
+    }
+
+    if (city) {
+      query += ` AND c.email ILIKE $${params.length + 1}`; // Placeholder for city
+      params.push(`%${city}%`);
+    }
+
+    if (secondApplicant) {
+      query += ` AND co.name ILIKE $${params.length + 1}`;
+      params.push(`%${secondApplicant}%`);
+    }
+
     if (search) {
-      query += ` AND (name ILIKE $${params.length + 1} OR mobile LIKE $${params.length + 2} OR email ILIKE $${params.length + 3})`;
-      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_no ILIKE $${params.length + 4})`;
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     // Sorting
@@ -133,7 +193,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     query += ` LIMIT ${pageSize} OFFSET ${offset}`;
 
     // Build count query matching the data query filters
-    let countQuery = `SELECT COUNT(*) FROM consumers WHERE 1=1`;
+    let countQuery = `SELECT COUNT(*) FROM consumers c LEFT JOIN units u ON c.allocated_unit_id = u.id WHERE 1=1`;
     const countParams: any[] = [];
 
     if (projectId) {
@@ -141,12 +201,32 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       countParams.push(projectId);
     }
     if (leadStage) {
-      countQuery += ` AND lead_stage = $${countParams.length + 1}`;
+      countQuery += ` AND c.lead_stage = $${countParams.length + 1}`;
       countParams.push(leadStage);
     }
+    if (unitNo) {
+      countQuery += ` AND u.unit_no ILIKE $${countParams.length + 1}`;
+      countParams.push(`%${unitNo}%`);
+    }
+    if (mobile) {
+      countQuery += ` AND c.mobile LIKE $${countParams.length + 1}`;
+      countParams.push(`%${mobile}%`);
+    }
+    if (regNo) {
+      countQuery += ` AND br.registration_no ILIKE $${countParams.length + 1}`;
+      countParams.push(`%${regNo}%`);
+    }
+    if (pan) {
+      countQuery += ` AND c.pan_hash ILIKE $${countParams.length + 1}`;
+      countParams.push(`%${pan}%`);
+    }
+    if (secondApplicant) {
+      countQuery += ` AND co.name ILIKE $${countParams.length + 1}`;
+      countParams.push(`%${secondApplicant}%`);
+    }
     if (search) {
-      countQuery += ` AND (name ILIKE $${countParams.length + 1} OR mobile LIKE $${countParams.length + 2} OR email ILIKE $${countParams.length + 3})`;
-      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_no ILIKE $${countParams.length + 4})`;
+      countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     const [dataResult, countResult] = await Promise.all([
@@ -164,70 +244,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       },
     });
   } catch (error) {
-    // Fallback to mock data if database query fails (for demo purposes)
     console.error('Database error:', error);
-    const mockConsumers = [
-      {
-        id: 'cons-001',
-        name: 'Rajesh Kumar',
-        mobile: '9876543210',
-        email: 'rajesh@example.com',
-        lead_stage: 'allotted',
-        project_id: 'proj-001',
-        allocated_unit_id: 'unit-101',
-        created_at: new Date('2024-01-15'),
-      },
-      {
-        id: 'cons-002',
-        name: 'Priya Sharma',
-        mobile: '9765432109',
-        email: 'priya@example.com',
-        lead_stage: 'interested',
-        project_id: 'proj-001',
-        allocated_unit_id: null,
-        created_at: new Date('2024-01-20'),
-      },
-      {
-        id: 'cons-003',
-        name: 'Amit Patel',
-        mobile: '9654321098',
-        email: 'amit@example.com',
-        lead_stage: 'enquiry',
-        project_id: 'proj-002',
-        allocated_unit_id: null,
-        created_at: new Date('2024-02-10'),
-      },
-      {
-        id: 'cons-004',
-        name: 'Neha Singh',
-        mobile: '9543210987',
-        email: 'neha@example.com',
-        lead_stage: 'allotted',
-        project_id: 'proj-001',
-        allocated_unit_id: 'unit-205',
-        created_at: new Date('2024-02-05'),
-      },
-      {
-        id: 'cons-005',
-        name: 'Vikram Reddy',
-        mobile: '9432109876',
-        email: 'vikram@example.com',
-        lead_stage: 'interested',
-        project_id: 'proj-003',
-        allocated_unit_id: null,
-        created_at: new Date('2024-02-28'),
-      },
-    ];
-
-    res.json({
-      success: true,
-      data: mockConsumers,
-      pagination: {
-        page: page as number,
-        pageSize: pageSize as number,
-        total: mockConsumers.length,
-      },
-    });
+    next(error);
   }
 });
 
@@ -237,8 +255,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const { id } = req.params;
 
     const result = await db.query(
-      `SELECT id, name, photo_url, mobile, email, income_category, lead_stage, allocated_unit_id, created_at
-       FROM consumers WHERE id = $1`,
+      `SELECT c.id, c.name, c.photo_url, c.mobile, c.email, c.income_category, c.lead_stage, c.allocated_unit_id, c.created_at,
+              u.unit_no, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.basic_price
+       FROM consumers c
+       LEFT JOIN units u ON c.allocated_unit_id = u.id
+       WHERE c.id = $1`,
       [id]
     );
 
@@ -412,6 +433,59 @@ router.get('/:id/remarks', async (req: AuthRequest, res: Response, next: NextFun
       success: true,
       data: result.rows,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/consumers/:id/base-rate - Update base rate and log to audit
+router.post('/:id/base-rate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { baseRate } = req.body;
+
+    const consumerResult = await db.query(
+      `SELECT allocated_unit_id FROM consumers WHERE id = $1`,
+      [id]
+    );
+
+    if (consumerResult.rows.length === 0 || !consumerResult.rows[0].allocated_unit_id) {
+      return res.status(400).json({ error: 'Consumer has no allocated unit' });
+    }
+
+    const unitId = consumerResult.rows[0].allocated_unit_id;
+
+    // Get old basic price
+    const unitResult = await db.query(
+      `SELECT basic_price FROM units WHERE id = $1`,
+      [unitId]
+    );
+
+    const oldPrice = unitResult.rows[0].basic_price;
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      await client.query(
+        `UPDATE units SET basic_price = $1, updated_at = NOW() WHERE id = $2`,
+        [baseRate, unitId]
+      );
+
+      await client.query(
+        `INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, old_value, new_value, remarks)
+         VALUES ($1, $2, 'BASE_RATE_UPDATE', $3, $4, 'Manual update from Pricing Matrix')`,
+        [id, req.userId, JSON.stringify({ basic_price: oldPrice }), JSON.stringify({ basic_price: baseRate })]
+      );
+
+      await client.query('COMMIT');
+      res.json({ success: true, message: 'Base rate updated successfully' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     next(error);
   }

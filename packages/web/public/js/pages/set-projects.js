@@ -7,20 +7,21 @@ Pages.setProjects = async function(params = {}) {
   const tabBtn = (key, label, active) =>
     `<button class="tab-line${active?' active':''}" data-group="spj" data-tab="${key}"
        onclick="switchTab('spj','${key}');SPJPage.load('${key}')">${label}</button>`;
-
   content.innerHTML = `
     <div class="page-hdr">
       <h1>Set Projects</h1>
       <div class="breadcrumb">Settings / <b>Project Configuration</b></div>
     </div>
+
     <div class="tabs-line" style="flex-wrap:wrap">
       ${tabBtn('new-project',      'New Project',         tab==='new-project')}
       ${tabBtn('edit-project',     'Edit Project',        tab==='edit-project')}
       ${tabBtn('add-tower',        'Add Tower/Plot',      tab==='add-tower')}
       ${tabBtn('add-unit',         'Add Unit',            tab==='add-unit')}
+      ${tabBtn('unit-address',     'Unit Address',        tab==='unit-address')}
       ${tabBtn('unit-location',    'Unit Location',       tab==='unit-location')}
       ${tabBtn('reminder-master',  'Reminder Master',     tab==='reminder-master')}
-      ${tabBtn('plan-setup',       'Payment Plan Setup',  tab==='plan-setup')}
+      ${tabBtn('plan-setup',       'Payment Plan Setup',  tab.startsWith('plan-') && tab !== 'plan-view')}
       ${tabBtn('plan-view',        'View Plans',          tab==='plan-view')}
       ${tabBtn('rate-report',      'Rate Report',         tab==='rate-report')}
     </div>
@@ -234,6 +235,49 @@ Pages.setProjects = async function(params = {}) {
       </div>
     </div>
 
+    <!-- UNIT ADDRESS (UNIT TYPES) -->
+    <div data-panel-group="spj" data-panel="unit-address" ${tab!=='unit-address'?'style="display:none"':''}>
+      <div class="sp">
+        <div class="sp-hdr"><div class="sp-title">Define Unit Types (Addresses)</div></div>
+        <div class="sp-body">
+          <form id="spj-unit-type-form" onsubmit="SPJPage.createUnitType(event)">
+            <div class="sp-grid">
+              <div class="fg">
+                <label class="fl"><span class="r">*</span>Project</label>
+                <select class="fc" id="spj-ut-project" name="project_id" required onchange="SPJPage.loadUnitTypes()">
+                  <option value="">Select Project</option>
+                </select>
+              </div>
+              <div class="fg">
+                <label class="fl"><span class="r">*</span>Type Name</label>
+                <input class="fc" name="name" placeholder="e.g. 2BHK Type-A" required>
+              </div>
+              <div class="fg">
+                <label class="fl">Description</label>
+                <input class="fc" name="description" placeholder="Optional details">
+              </div>
+              <div class="fg">
+                <label class="fl">Carpet Area (sqft)</label>
+                <input type="number" class="fc" name="carpet_area_sqft" placeholder="0">
+              </div>
+              <div class="fg">
+                <label class="fl">Balcony Area (sqft)</label>
+                <input type="number" class="fc" name="balcony_area_sqft" placeholder="0">
+              </div>
+              <div class="fg">
+                <label class="fl">Base Rate (₹/sqft)</label>
+                <input type="number" class="fc" name="base_rate_sqft" placeholder="0">
+              </div>
+            </div>
+            <div style="margin-top:14px">
+              <button type="submit" class="btn btn-teal">Add Unit Type</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div id="spj-unit-types-list" style="margin-top:16px"></div>
+    </div>
+
     <!-- UNIT LOCATION MASTER -->
     <div data-panel-group="spj" data-panel="unit-location" ${tab!=='unit-location'?'style="display:none"':''}>
       <div class="g2" style="gap:16px;align-items:start">
@@ -309,17 +353,17 @@ Pages.setProjects = async function(params = {}) {
     </div>
 
     <!-- PAYMENT PLAN SETUP -->
-    <div data-panel-group="spj" data-panel="plan-setup" ${tab!=='plan-setup'?'style="display:none"':''}>
+    <div data-panel-group="spj" data-panel="plan-setup" ${(!tab.startsWith('plan-') || tab === 'plan-view') ? 'style="display:none"' : ''}>
       <!-- Sub-tabs use group "plan-sub" (NOT "spj") so they never hide this parent panel -->
       <div class="tabs-line" style="margin-bottom:14px">
-        <button class="tab-line active" data-group="plan-sub" data-tab="plan-new"
+        <button class="tab-line${tab.startsWith('plan-new') || tab==='plan-setup' ? ' active' : ''}" data-group="plan-sub" data-tab="plan-new"
           onclick="switchTab('plan-sub','plan-new')">New</button>
-        <button class="tab-line" data-group="plan-sub" data-tab="plan-edit"
+        <button class="tab-line${tab.startsWith('plan-edit') || tab==='plan-personalise' ? ' active' : ''}" data-group="plan-sub" data-tab="plan-edit"
           onclick="switchTab('plan-sub','plan-edit');SPJPage.loadPlanTemplates()">Edit</button>
       </div>
 
       <!-- ── NEW sub-panel ────────────────────────────────────── -->
-      <div data-panel-group="plan-sub" data-panel="plan-new">
+      <div data-panel-group="plan-sub" data-panel="plan-new" ${(tab.startsWith('plan-edit') || tab==='plan-personalise') ? 'style="display:none"' : ''}>
         <div class="sp">
           <div class="sp-hdr">
             <div class="sp-title">Add Installment to Schedule</div>
@@ -393,7 +437,7 @@ Pages.setProjects = async function(params = {}) {
       </div>
 
       <!-- ── EDIT sub-panel ───────────────────────────────────── -->
-      <div data-panel-group="plan-sub" data-panel="plan-edit" style="display:none">
+      <div data-panel-group="plan-sub" data-panel="plan-edit" ${(!tab.startsWith('plan-edit') && tab!=='plan-personalise') ? 'style="display:none"' : ''}>
         <div class="sp" style="margin-bottom:12px">
           <div class="sp-body" style="padding:10px 14px">
             <div style="display:flex;gap:8px;align-items:center">
@@ -446,32 +490,60 @@ Object.assign(SPJPage, {
 
   async initProjectDropdowns() {
     try {
-      const res = await Api.get('/projects');
-      this._projects = res.data || [];
-      const opts = this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-      ['spj-tower-project','spj-tower-list-project','spj-unit-project','spj-bulk-project',
-       'spj-uloc-project','spj-uloc-list-project','spj-plan-project','spj-plan-edit-project',
-       'spj-planview-project','spj-edit-project-sel'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-          const hasBlank = el.options[0]?.value === '';
-          el.innerHTML = (hasBlank ? `<option value="">${el.options[0]?.text||'All Projects'}</option>` : '') + opts;
-        }
-      });
-    } catch {}
+      console.log('[SPJ] Initializing project dropdowns...');
+      if (!this._projects || this._projects.length === 0) {
+        const res = await Api.get('/projects');
+        this._projects = res.data || [];
+      }
+      this.populateAllDropdowns();
+      console.log(`[SPJ] Populated ${this._projects.length} projects into dropdowns`);
+    } catch (err) {
+      console.error('[SPJ] initProjectDropdowns failed:', err);
+    }
+  },
+
+  populateAllDropdowns() {
+    if (!this._projects || this._projects.length === 0) return;
+    const opts = this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    ['spj-tower-project','spj-tower-list-project','spj-unit-project','spj-bulk-project',
+     'spj-ut-project','spj-uloc-project','spj-uloc-list-project','spj-plan-project',
+     'spj-plan-edit-project','spj-planview-project','spj-edit-project-sel'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        const hasBlank = el.options.length > 0 && el.options[0].value === '';
+        const blankText = hasBlank ? el.options[0].text : 'Select Project';
+        el.innerHTML = (hasBlank || el.options.length === 0 ? `<option value="">${blankText}</option>` : '') + opts;
+      }
+    });
   },
 
   async load(tab) {
+    this.populateAllDropdowns(); // Ensure dropdowns are populated for the current tab
     const map = {
       'edit-project':   () => this.loadProjectsList(),
       'add-tower':      () => this.loadTowers(),
+      'unit-address':   () => this.loadUnitTypes(),
       'unit-location':  () => this.loadUnitLocations(),
       'reminder-master':() => this.loadReminders(),
-      'plan-setup':     () => { switchTab('plan-sub', 'plan-new'); },
+      'plan-setup':     () => { },
       'plan-view':      () => this.loadPaymentPlans(),
       'rate-report':    () => this.loadRateReport(),
+
+      // Sub-tabs for Payment Plan Setup (New)
+      'plan-new-installment': () => { SPJPage.setInstallmentType('installment'); },
+      'plan-new-plc':         () => { SPJPage.setInstallmentType('plc'); },
+      'plan-new-other':       () => { SPJPage.setInstallmentType('other_charge'); },
+      'plan-new-personal':    () => { },
+
+      // Sub-tabs for Payment Plan Setup (Edit)
+      'plan-edit-installment':() => { SPJPage.loadPlanTemplates(); },
+      'plan-edit-plc':        () => { SPJPage.loadPlanTemplates(); },
+      'plan-edit-other':      () => { SPJPage.loadPlanTemplates(); },
+      'plan-edit-personal':   () => { SPJPage.loadPlanTemplates(); },
+      'plan-personalise':     () => { SPJPage.loadPlanTemplates(); },
     };
     if (map[tab]) await map[tab]();
+    else if (tab.startsWith('plan-edit') || tab==='plan-personalise') { await this.loadPlanTemplates(); }
   },
 
   // ── Projects list for edit tab
@@ -1053,5 +1125,65 @@ Object.assign(SPJPage, {
             </tbody>
           </table>`;
     } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+  },
+
+  setInstallmentType(type) {
+    const el = document.getElementById('spj-plan-type');
+    if (el) {
+      el.value = type;
+      this.onTypeChange(type);
+    }
+  },
+
+  // ── Unit Address (Unit Types) ────────────────
+  async loadUnitTypes() {
+    const projectId = document.getElementById('spj-ut-project')?.value;
+    const el = document.getElementById('spj-unit-types-list');
+    if (!el) return;
+    el.innerHTML = `<div class="page-loading"><div class="spinner"></div></div>`;
+    try {
+      const res = await Api.get('/master/unit-types', projectId ? { project_id: projectId } : {});
+      const rows = res.data || [];
+      el.innerHTML = `
+        <div class="sp">
+          <div class="sp-hdr"><div class="sp-title">Existing Unit Types</div></div>
+          <div class="sp-body" style="padding:0">
+            <table class="dash-tbl">
+              <thead><tr><th>Project</th><th>Name</th><th>Carpet</th><th>Balcony</th><th>Base Rate</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${rows.map(r => `<tr>
+                  <td>${Utils.esc(r.project_name)}</td>
+                  <td class="td-bold">${Utils.esc(r.name)}</td>
+                  <td>${r.carpet_area_sqft || 0} sqft</td>
+                  <td>${r.balcony_area_sqft || 0} sqft</td>
+                  <td>₹${r.base_rate_sqft || 0}/sqft</td>
+                  <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteUnitType('${r.id}')">✕</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+            ${rows.length === 0 ? '<div style="padding:20px;text-align:center;color:var(--text3)">No unit types defined yet</div>' : ''}
+          </div>
+        </div>`;
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+  },
+
+  async createUnitType(e) {
+    e.preventDefault();
+    const data = Utils.formData(e.target);
+    try {
+      await Api.post('/master/unit-types', data);
+      Utils.success('Unit type added');
+      e.target.reset();
+      await this.loadUnitTypes();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async deleteUnitType(id) {
+    if (!confirm('Delete this unit type?')) return;
+    try {
+      await Api.delete(`/master/unit-types/${id}`);
+      Utils.success('Deleted');
+      await this.loadUnitTypes();
+    } catch (err) { Utils.error(err.message); }
   },
 });

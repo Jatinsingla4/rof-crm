@@ -301,8 +301,10 @@ const BrkPage = {
                 <td class="txt-right">${b.commission_rate||b.commission||0}%</td>
                 <td>${Utils.chip(b.status||'active')}</td>
                 <td>
-                  <button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
-                  <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="BrkPage.deactivate('${b.id}',this)">Deactivate</button>
+                  ${b.status==='pending' ? `<button class="btn btn-teal btn-sm" onclick="BrkPage.approve('${b.id}')">Approve</button>
+                                          <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="BrkPage.reject('${b.id}')">Reject</button>` : ''}
+                  ${b.status==='active' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
+                                           <button class="btn btn-ghost btn-sm" style="color:var(--red)" onclick="BrkPage.deactivate('${b.id}',this)">Deact</button>` : ''}
                 </td>
               </tr>`).join('')}
             </tbody>
@@ -342,6 +344,24 @@ const BrkPage = {
     try {
       await Api.patch(`/brokers/${id}`, { status: 'inactive' });
       Utils.success('Broker deactivated');
+      await this.loadList();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async approve(id) {
+    if (!confirm('Approve this broker application?')) return;
+    try {
+      await Api.patch(`/brokers/${id}/approve`);
+      Utils.success('Broker approved');
+      await this.loadList();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async reject(id) {
+    if (!confirm('Reject this broker application?')) return;
+    try {
+      await Api.patch(`/brokers/${id}/reject`);
+      Utils.success('Broker rejected');
       await this.loadList();
     } catch (err) { Utils.error(err.message); }
   },

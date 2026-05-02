@@ -8,13 +8,12 @@ Pages.allotment = async function(params = {}) {
       <div class="breadcrumb">Application / <b>Allotment</b></div>
     </div>
     <div class="tabs-line">
-      <button class="tab-line active" data-group="allot" data-tab="allot" onclick="switchTab('allot','allot')">Allotment</button>
+      <button class="tab-line active" data-group="allot" data-tab="allot" onclick="switchTab('allot','allot')">Allotment Form</button>
+      <button class="tab-line" data-group="allot" data-tab="letter" onclick="switchTab('allot','letter');AllotmentPage.loadAllotmentList('letter-search-body')">Allotment Letter</button>
       <button class="tab-line" data-group="allot" data-tab="search" onclick="switchTab('allot','search');AllotmentPage.loadAllotmentList()">Search Allotment</button>
       <button class="tab-line" data-group="allot" data-tab="shifting" onclick="switchTab('allot','shifting');AllotmentPage.loadShiftingList()">Unit Shifting</button>
-      <button class="tab-line" data-group="allot" data-tab="shifting-report" onclick="switchTab('allot','shifting-report');AllotmentPage.loadShiftingReport()">Shifting Report</button>
       <button class="tab-line" data-group="allot" data-tab="cancel" onclick="switchTab('allot','cancel');AllotmentPage.loadCancellations()">Cancel Allotment</button>
       <button class="tab-line" data-group="allot" data-tab="waitlist" onclick="switchTab('allot','waitlist');AllotmentPage.loadWaitlist()">Waitlist</button>
-      <button class="tab-line" data-group="allot" data-tab="edit-address" onclick="switchTab('allot','edit-address')">Edit Address</button>
       <button class="tab-line" data-group="allot" data-tab="edraw" onclick="switchTab('allot','edraw')">E-Draw Import</button>
     </div>
 
@@ -42,23 +41,39 @@ Pages.allotment = async function(params = {}) {
             <div class="fg"><label class="fl">Allotment Date</label>
               <input type="date" class="fc" id="allot-date" value="${Utils.today()}">
             </div>
+            <div class="fg" style="grid-column:span 4">
+              <label class="fl">Remarks</label>
+              <textarea class="fc" id="allot-remarks" placeholder="Add administrative notes or backdating reasons..." style="height:60px"></textarea>
+            </div>
           </div>
           <div style="margin-top:10px;display:flex;gap:8px">
-            <button class="btn btn-teal btn-lg" onclick="AllotmentPage.allot()">Allot Unit</button>
-            <button class="btn btn-ghost" onclick="AllotmentPage.generateLetters()">Generate All Letters</button>
+            <button class="btn btn-teal btn-lg" onclick="AllotmentPage.allot()">CREATE ALLOTMENT/AGREEMENT</button>
+            <button class="btn btn-ghost" onclick="AllotmentPage.generateLetters()">Bulk Generate Letters</button>
           </div>
         </div>
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <div class="tbl-title">Current Allotments</div>
-          <div class="tbl-actions">
-            <button class="btn btn-ghost btn-sm" onclick="AllotmentPage.loadAllotmentList('allot-list-body')">Refresh</button>
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('Export coming soon')">Export</button>
-          </div>
+          <div class="tbl-title">Pending Allotments (Applied Consumers)</div>
         </div>
         <div id="allot-list-body"><div class="page-loading"><div class="spinner"></div> Loading…</div></div>
       </div>
+    </div>
+
+    <!-- ALLOTMENT LETTER TAB (Legacy Transaction Replica) -->
+    <div data-panel-group="allot" data-panel="letter" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Search Unit for Allotment Letter</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Project</label><select class="fc" id="letter-proj-sel"><option value="">— All —</option></select></div>
+            <div class="fg"><label class="fl">Unit Address</label><input class="fc" id="letter-unit-search" placeholder="e.g. B-706"></div>
+            <div class="fg"><label class="fl">Registration No</label><input class="fc" id="letter-reg-search" placeholder="Search…"></div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:10px" onclick="AllotmentPage.loadAllotmentList('letter-search-body')">FETCH</button>
+        </div>
+      </div>
+      <div id="letter-search-body"></div>
     </div>
 
     <!-- SEARCH ALLOTMENT TAB -->
@@ -322,7 +337,7 @@ const AllotmentPage = {
     try {
       const res = await Api.get('/projects', { params: { pageSize: 100 } });
       const list = res.data || res || [];
-      ['allot-project-sel','edraw-project','sr-project'].forEach(id => {
+      ['allot-project-sel','edraw-project','sr-project','letter-proj-sel'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— Select Project —</option>' +
           list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -396,14 +411,20 @@ const AllotmentPage = {
     const consumerId = document.getElementById('allot-consumer-sel')?.value;
     const unitId = document.getElementById('allot-unit-sel')?.value;
     const projectId = document.getElementById('allot-project-sel')?.value;
+    const allotmentDate = document.getElementById('allot-date')?.value;
+    const remarks = document.getElementById('allot-remarks')?.value;
+
     if (!consumerId) { Utils.warn('Please select a consumer'); return; }
     if (!unitId) { Utils.warn('Please select a unit'); return; }
     if (!projectId) { Utils.warn('Please select a project'); return; }
 
     try {
-      await Api.post('/allocations', { consumerId, unitId, projectId });
+      await Api.post('/allocations', { consumerId, unitId, projectId, allotmentDate, remarks });
       Utils.success('Unit allotted successfully');
       await Promise.allSettled([this.loadAllotmentList('allot-list-body'), this.loadAvailableUnits()]);
+      
+      // Clear form
+      document.getElementById('allot-remarks').value = '';
     } catch (err) { Utils.error(err.message); }
   },
 

@@ -453,6 +453,41 @@ tfoot td { padding:8px 11px; font-size:11.5px; font-weight:600; color:var(--text
 .dash-tbl .grp-hdr{background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);font-size:10px}
 .dash-tbl .sub-hdr{background:rgba(255,255,255,.02);font-size:10px;font-weight:500;color:var(--text3)}
 
+/* ═══════════════════════════════════════════════
+   LEGACY PARITY STYLES
+═══════════════════════════════════════════════ */
+.tbl-legacy {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.tbl-legacy th {
+  background: #1e3a5f;
+  color: #fff;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid rgba(255,255,255,0.1);
+  white-space: nowrap;
+}
+.tbl-legacy td {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  white-space: nowrap;
+}
+.tbl-legacy tr:hover td {
+  background: var(--surface2);
+}
+.legacy-link {
+  color: var(--teal);
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 500;
+}
+.legacy-link:hover {
+  color: var(--teal2);
+}
+
 /* Utility sizes */
 .btn-xs{padding:3px 8px;font-size:10.5px}
 .mb8{margin-bottom:8px}
@@ -475,3 +510,70 @@ tfoot td { padding:8px 11px; font-size:11.5px; font-weight:600; color:var(--text
 
 /* Card grid for team head detail */
 .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+
+/* ── PIVOT TABLE & COLLECTION UI ── */
+.table-pivot {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+}
+.table-pivot th, .table-pivot td {
+  padding: 10px;
+  border: 1px solid var(--border);
+  text-wrap: nowrap;
+}
+.table-pivot thead tr:first-child th {
+  background: var(--bg2);
+  text-align: center;
+  font-weight: 700;
+  color: var(--teal);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.table-pivot thead tr:last-child th {
+  background: var(--bg3);
+  font-size: 10px;
+  color: var(--text3);
+}
+.table-pivot tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+.table-pivot .tfoot-total td {
+  background: var(--bg2);
+  font-weight: 700;
+}
+
+.history-item {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  background: rgba(255,255,255,0.01);
+  border-radius: 4px;
+}
+.history-item:last-child { border-bottom: none; }
+
+.status-chip {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg3);
+  color: var(--text2);
+}
+
+.form-group-sm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-group-sm label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+}
+.form-group-sm .form-control {
+  padding: 4px 8px;
+  font-size: 12px;
+  height: 32px;
+}

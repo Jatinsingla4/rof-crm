@@ -47,10 +47,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
       // Create allocation
       const allocationResult = await client.query(
-        `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, allocated_date`,
-        [consumerId, unitId, projectId, req.userId]
+        `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks)
+         VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE), $6)
+         RETURNING id, allocated_date, allotment_date, remarks`,
+        [consumerId, unitId, projectId, req.userId, allotmentDate || null, remarks || null]
       );
 
       // Update unit status
@@ -215,13 +215,62 @@ router.post('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFun
       // Update allocation status
       await client.query(`UPDATE allocations SET status = 'cancelled' WHERE id = $1`, [id]);
 
-      // Reset unit status
-      await client.query(
-        `UPDATE units SET status = 'available', status_changed_at = NOW() WHERE id = $1`,
+      // Check for waitlist
+      const waitlistResult = await client.query(
+        `SELECT id, consumer_id FROM waitlists 
+         WHERE project_id = (SELECT project_id FROM units WHERE id = $1)
+         AND promoted_to_allocation_id IS NULL
+         ORDER BY position_ordered ASC LIMIT 1`,
         [unitId]
       );
 
-      // Update consumer lead stage
+      if (waitlistResult.rows.length > 0) {
+        const promotedWaitlistId = waitlistResult.rows[0].id;
+        const promotedConsumerId = waitlistResult.rows[0].consumer_id;
+
+        // Create new allocation for waitlisted consumer
+        const newAllocation = await client.query(
+          `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id)
+           VALUES ($1, $2, (SELECT project_id FROM units WHERE id = $2), $3)
+           RETURNING id`,
+          [promotedConsumerId, unitId, req.userId]
+        );
+        const newAllocId = newAllocation.rows[0].id;
+
+        // Update waitlist entry
+        await client.query(
+          `UPDATE waitlists SET promoted_to_allocation_id = $1 WHERE id = $2`,
+          [newAllocId, promotedWaitlistId]
+        );
+
+        // Unit stays 'allotted' but to the new consumer
+        await client.query(
+          `UPDATE units SET status = 'allotted', status_changed_at = NOW() WHERE id = $1`,
+          [unitId]
+        );
+
+        // Update consumer lead stage
+        await client.query(
+          `UPDATE consumers SET lead_stage = 'allotted', allocated_unit_id = $1 WHERE id = $2`,
+          [unitId, promotedConsumerId]
+        );
+
+        // Log status change
+        await client.query(
+          `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason)
+           VALUES ($1, 'allotted', 'allotted', $2, 'Auto-promoted from waitlist on cancellation')`,
+          [unitId, req.userId]
+        );
+
+      } else {
+        // No waitlist, reset unit status to available
+        await client.query(
+          `UPDATE units SET status = 'available', status_changed_at = NOW() WHERE id = $1`,
+          [unitId]
+        );
+      }
+
+      // Update cancelled consumer lead stage
       await client.query(
         `UPDATE consumers SET lead_stage = 'cancelled', allocated_unit_id = NULL WHERE id = $1`,
         [consumerId]
@@ -440,7 +489,7 @@ router.post('/generate-letters', async (req: AuthRequest, res: Response, next: N
     let query = `
       SELECT a.id, a.consumer_id, c.name as consumer_name,
              a.unit_id, u.unit_number, u.bhk_type, u.total_price_inr,
-             p.name as project_name
+             p.name as project_name, a.allotment_date
       FROM allocations a
       JOIN consumers c ON a.consumer_id = c.id
       JOIN units u ON a.unit_id = u.id
@@ -460,8 +509,8 @@ router.post('/generate-letters', async (req: AuthRequest, res: Response, next: N
       // Insert into allotment_letters and link back
       const letterRes = await db.query(
         `INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date)
-         VALUES ($1, $2, $3, CURRENT_DATE) RETURNING id`,
-        [allotment.id, allotment.consumer_id, allotment.unit_id]
+         VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE)) RETURNING id`,
+        [allotment.id, allotment.consumer_id, allotment.unit_id, allotment.allotment_date || null]
       );
       const letterId = letterRes.rows[0].id;
       await db.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [letterId, allotment.id]);

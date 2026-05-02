@@ -9,12 +9,14 @@ Pages.receipts = async function(params = {}) {
       <div class="breadcrumb">Application / Receipt Process / <b>Receipt Entry</b></div>
     </div>
     <div class="tabs-line">
-      <button class="tab-line active" data-group="rec" data-tab="entry" onclick="switchTab('rec','entry')">Receipt Entry</button>
+      <button class="tab-line active" data-group="rec" data-tab="entry" onclick="switchTab('rec','entry')">Receipt Generation</button>
       <button class="tab-line" data-group="rec" data-tab="list" onclick="switchTab('rec','list');ReceiptsPage.loadList()">Receipt List</button>
-      <button class="tab-line" data-group="rec" data-tab="approval" onclick="switchTab('rec','approval');ReceiptsPage.loadApproval()">Pending Approval</button>
-      <button class="tab-line" data-group="rec" data-tab="head-wise-cost" onclick="switchTab('rec','head-wise-cost');ReceiptsPage.loadHeadWiseCost()">Head Wise Cost</button>
-      <button class="tab-line" data-group="rec" data-tab="duplicate" onclick="switchTab('rec','duplicate')">Duplicate Receipt</button>
-      <button class="tab-line" data-group="rec" data-tab="overdue" onclick="switchTab('rec','overdue');ReceiptsPage.loadOverdue()">Overdue</button>
+      <button class="tab-line" data-group="rec" data-tab="journal" onclick="switchTab('rec','journal');ReceiptsPage.loadJournals()">Journal Entry</button>
+      <button class="tab-line" data-group="rec" data-tab="edit" onclick="switchTab('rec','edit');ReceiptsPage.loadEditSearch()">Edit Receipt</button>
+      <button class="tab-line" data-group="rec" data-tab="cancel" onclick="switchTab('rec','cancel');ReceiptsPage.loadCancelSearch()">Cancel Receipt</button>
+      <button class="tab-line" data-group="rec" data-tab="tds-report" onclick="switchTab('rec','tds-report');ReceiptsPage.loadTDSReport()">TDS Challan Report</button>
+      <button class="tab-line" data-group="rec" data-tab="assign-tds" onclick="switchTab('rec','assign-tds');ReceiptsPage.loadAssignTDS()">Assign Receipt Challan</button>
+      <button class="tab-line" data-group="rec" data-tab="upload-tds" onclick="switchTab('rec','upload-tds')">Upload Tds Challan</button>
     </div>
 
     <!-- RECEIPT ENTRY TAB -->
@@ -86,15 +88,27 @@ Pages.receipts = async function(params = {}) {
           <div class="sp-hdr"><div class="sp-title">Payment Amount</div></div>
           <div class="sp-body">
             <div class="sp-grid">
-              <div class="fg"><label class="fl">Amount <span class="r">*</span></label>
-                <input type="number" class="fc" id="rec-amount" placeholder="0.00" min="0">
+              <div class="fg"><label class="fl">Base Amount <span class="r">*</span></label>
+                <input type="number" class="fc rec-amt-input" id="rec-amount" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">PLC (Optional)</label>
+                <input type="number" class="fc rec-amt-input" id="rec-plc" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">EDC (Optional)</label>
+                <input type="number" class="fc rec-amt-input" id="rec-edc" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">IDC (Optional)</label>
+                <input type="number" class="fc rec-amt-input" id="rec-idc" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">Total Amount</label>
+                <input type="number" class="fc" id="rec-total-amount" placeholder="0.00" disabled style="background:var(--surface2);font-weight:bold;color:var(--teal)">
               </div>
               <div class="fg"><label class="fl">Instalment</label>
                 <select class="fc" id="rec-instalment">
                   <option value="">— Select Instalment —</option>
                 </select>
               </div>
-              <div class="fg"><label class="fl">Remarks</label>
+              <div class="fg" style="grid-column: span 2"><label class="fl">Remarks</label>
                 <input class="fc" id="rec-remarks" placeholder="Optional remarks">
               </div>
             </div>
@@ -219,11 +233,91 @@ Pages.receipts = async function(params = {}) {
       <div id="dup-body"></div>
     </div>
 
+    <!-- EDIT RECEIPT TAB -->
+    <div data-panel-group="rec" data-panel="edit" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">EDIT RECEIPT</div></div>
+        <div id="edit-receipt-body"></div>
+      </div>
+    </div>
+
+    <!-- CANCEL RECEIPT TAB -->
+    <div data-panel-group="rec" data-panel="cancel" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">CANCEL RECEIPT</div></div>
+        <div id="cancel-receipt-body"></div>
+      </div>
+    </div>
+
     <!-- OVERDUE TAB -->
     <div data-panel-group="rec" data-panel="overdue" style="display:none">
       <div class="tbl-wrap">
         <div class="tbl-hdr"><div class="tbl-title">Overdue Payments</div></div>
         <div id="overdue-list-body"><div class="page-loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+    <!-- JOURNAL ENTRY TAB -->
+    <div data-panel-group="rec" data-panel="journal" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">NEW JOURNAL ENTRY</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg" style="grid-column:span 2"><label class="fl">Consumer</label>
+              <select class="fc" id="jou-consumer-sel"><option value="">— Select —</option></select>
+            </div>
+            <div class="fg"><label class="fl">Entry Date</label><input type="date" class="fc" id="jou-date" value="${Utils.today()}"></div>
+            <div class="fg"><label class="fl">Ledger Head</label>
+              <select class="fc" id="jou-head">
+                <option>Waiver</option><option>Discount</option><option>Transfer Fee</option><option>Admin Charge</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Debit Amount</label><input type="number" class="fc" id="jou-debit" placeholder="0.00"></div>
+            <div class="fg"><label class="fl">Credit Amount</label><input type="number" class="fc" id="jou-credit" placeholder="0.00"></div>
+            <div class="fg" style="grid-column:span 2"><label class="fl">Remarks</label><input class="fc" id="jou-remarks"></div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.submitJournal()">POST ENTRY</button>
+        </div>
+      </div>
+      <div id="jou-list"></div>
+    </div>
+
+    <!-- TDS REPORT TAB -->
+    <div data-panel-group="rec" data-panel="tds-report" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">TDS CHALLAN REPORT</div></div>
+        <div id="tds-report-body"></div>
+      </div>
+    </div>
+
+    <!-- UPLOAD TDS TAB -->
+    <div data-panel-group="rec" data-panel="upload-tds" style="display:none">
+      <div class="sp">
+        <div class="sp-hdr"><div class="sp-title">UPLOAD TDS CHALLAN</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Challan Number</label><input class="fc" id="tds-no"></div>
+            <div class="fg"><label class="fl">Challan Date</label><input type="date" class="fc" id="tds-date"></div>
+            <div class="fg"><label class="fl">Amount</label><input type="number" class="fc" id="tds-amount" placeholder="0.00"></div>
+            <div class="fg"><label class="fl">Bank Name</label><input class="fc" id="tds-bank"></div>
+            <div class="fg"><label class="fl">File (PDF/Image)</label><input type="file" class="fc" id="tds-file"></div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.uploadTDS()">UPLOAD CHALLAN</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ASSIGN TDS TAB -->
+    <div data-panel-group="rec" data-panel="assign-tds" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">ASSIGN TDS TO RECEIPT</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Select Challan</label><select class="fc" id="ass-challan-sel"><option>— Select —</option></select></div>
+            <div class="fg"><label class="fl">Receipt No.</label><input class="fc" id="ass-receipt-no" placeholder="Search Receipt"></div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.assignTDS()">ASSIGN TDS</button>
+        </div>
       </div>
     </div>
   `;
@@ -258,11 +352,11 @@ const ReceiptsPage = {
     try {
       const res = await Api.get('/consumers', { params: { page: 1, pageSize: 300 } });
       const list = res.data || res || [];
-      ['rec-consumer-sel','dup-consumer'].forEach(id => {
+      ['rec-consumer-sel', 'dup-consumer', 'jou-consumer-sel'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel) return;
         sel.innerHTML = '<option value="">— Select Consumer —</option>' +
-          list.map(c => `<option value="${c.id}">${c.name||`${c.first_name||''} ${c.last_name||''}`} · ${c.mobile||''}</option>`).join('');
+          list.map(c => `<option value="${c.id}">${c.name || (c.first_name + ' ' + (c.last_name || ''))} · ${c.mobile || ''}</option>`).join('');
       });
 
       if (this._pendingConsumerId) {
@@ -341,18 +435,37 @@ const ReceiptsPage = {
     this._payType = type;
   },
 
+  calcTotal() {
+    const base = parseFloat(document.getElementById('rec-amount')?.value || 0);
+    const plc = parseFloat(document.getElementById('rec-plc')?.value || 0);
+    const edc = parseFloat(document.getElementById('rec-edc')?.value || 0);
+    const idc = parseFloat(document.getElementById('rec-idc')?.value || 0);
+    const total = base + plc + edc + idc;
+    const totalEl = document.getElementById('rec-total-amount');
+    if (totalEl) totalEl.value = total > 0 ? total.toFixed(2) : '';
+  },
+
   async submit() {
     const consumerId = document.getElementById('rec-consumer-id')?.value;
-    const amount = document.getElementById('rec-amount')?.value;
+    const baseAmount = document.getElementById('rec-amount')?.value;
     const date = document.getElementById('rec-date')?.value;
+    
+    const plc = parseFloat(document.getElementById('rec-plc')?.value || 0);
+    const edc = parseFloat(document.getElementById('rec-edc')?.value || 0);
+    const idc = parseFloat(document.getElementById('rec-idc')?.value || 0);
+    const totalAmount = (parseFloat(baseAmount || 0) + plc + edc + idc) || 0;
 
     if (!consumerId) { Utils.warn('Please select a consumer'); return; }
-    if (!amount || parseFloat(amount) <= 0) { Utils.warn('Please enter amount'); return; }
+    if (totalAmount <= 0) { Utils.warn('Please enter an amount'); return; }
     if (!date) { Utils.warn('Please select receipt date'); return; }
 
     const body = {
       consumerId,
-      amount: parseFloat(amount),
+      amountReceivedInr: totalAmount,
+      baseAmount: parseFloat(baseAmount || 0),
+      plcAmount: plc,
+      edcAmount: edc,
+      idcAmount: idc,
       paymentDate: date,
       paymentMode: this._payType,
       referenceNumber: document.getElementById('rec-txn')?.value || undefined,
@@ -371,7 +484,7 @@ const ReceiptsPage = {
     document.getElementById('rec-consumer-sel').value = '';
     document.getElementById('rec-fin-hdr').style.display = 'none';
     document.getElementById('receipt-form').style.display = 'none';
-    ['rec-amount','rec-txn','rec-bank','rec-branch','rec-remarks'].forEach(id => {
+    ['rec-amount','rec-plc','rec-edc','rec-idc','rec-total-amount','rec-txn','rec-bank','rec-branch','rec-remarks'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     document.getElementById('rec-date').value = Utils.today();
@@ -405,16 +518,27 @@ const ReceiptsPage = {
               <tr><th>Receipt No.</th><th>Consumer</th><th>Amount</th><th>Mode</th><th>Ref No.</th><th>Date</th><th>Status</th><th>Action</th></tr>
             </thead>
             <tbody>
-              ${list.map(r => `<tr>
+              ${list.map(r => {
+                const amt = parseFloat(r.amount || 0);
+                const cgst = amt * 0.05;
+                const sgst = amt * 0.05;
+                const total = amt + cgst + sgst;
+                return `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
                 <td class="td-bold">${r.consumer_name||r.consumerName||'—'}</td>
-                <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
+                <td style="font-weight:600;color:var(--teal)">
+                  ${Utils.currency(amt)} <br>
+                  <span style="font-size:10px;color:var(--text3)">+ CGST: ${Utils.currency(cgst)} | SGST: ${Utils.currency(sgst)}</span>
+                </td>
                 <td>${r.payment_mode||r.paymentMode||'—'}</td>
                 <td class="td-mono">${r.reference_number||r.referenceNumber||'—'}</td>
                 <td>${Utils.date(r.payment_date||r.paymentDate||r.created_at)}</td>
                 <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
-                <td><button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print</button></td>
-              </tr>`).join('')}
+                <td style="display:flex;gap:4px">
+                  <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print</button>
+                  <button class="btn btn-ghost btn-sm" onclick="Utils.info('SMS Triggered')">SMS</button>
+                </td>
+              </tr>`}).join('')}
             </tbody>
             <tfoot>
               <tr class="tfoot-total">
@@ -630,4 +754,179 @@ const ReceiptsPage = {
           </table>`;
     } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
   },
+  async loadJournals() {
+    const el = document.getElementById('jou-list');
+    if (!el) return;
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const res = await Api.get('/payments/journals');
+      const list = res.data || res || [];
+      el.innerHTML = `
+        <div class="tbl-wrap" style="margin-top:20px">
+          <div class="tbl-hdr"><div class="tbl-title">Journal History</div></div>
+          <table>
+            <thead><tr><th>Ref No.</th><th>Date</th><th>Consumer</th><th>Head</th><th>Debit</th><th>Credit</th></tr></thead>
+            <tbody>
+              ${list.map(j => `<tr>
+                <td class="td-mono">${j.entry_number}</td>
+                <td>${Utils.date(j.entry_date)}</td>
+                <td class="td-bold">${j.consumer_name}</td>
+                <td>${j.ledger_head}</td>
+                <td style="color:var(--red)">${Utils.currency(j.debit_amount)}</td>
+                <td style="color:var(--teal)">${Utils.currency(j.credit_amount)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = err.message; }
+  },
+
+  async submitJournal() {
+    const data = {
+      consumerId: document.getElementById('jou-consumer-sel').value,
+      entryDate: document.getElementById('jou-date').value,
+      ledgerHead: document.getElementById('jou-head').value,
+      debitAmount: document.getElementById('jou-debit').value || 0,
+      creditAmount: document.getElementById('jou-credit').value || 0,
+      remarks: document.getElementById('jou-remarks').value
+    };
+    if (!data.consumerId) return Utils.warn('Select consumer');
+    try {
+      await Api.post('/payments/journals', data);
+      Utils.success('Journal entry posted');
+      this.loadJournals();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async loadTDSReport() {
+    const el = document.getElementById('tds-report-body');
+    if (!el) return;
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const res = await Api.get('/payments/tds/challans');
+      const list = res.data || res || [];
+      el.innerHTML = `
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Challan No</th><th>Date</th><th>Bank</th><th>Amount</th><th>Status</th></tr></thead>
+            <tbody>
+              ${list.map(t => `<tr>
+                <td class="td-mono">${t.challan_number}</td>
+                <td>${Utils.date(t.challan_date)}</td>
+                <td>${t.bank_name || '—'}</td>
+                <td class="td-bold">${Utils.currency(t.amount)}</td>
+                <td>${Utils.chip(t.status)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = err.message; }
+  },
+
+  async uploadTDS() {
+    const data = {
+      challanNumber: document.getElementById('tds-no').value,
+      challanDate: document.getElementById('tds-date').value,
+      amount: document.getElementById('tds-amount').value,
+      bankName: document.getElementById('tds-bank').value
+    };
+    if (!data.challanNumber || !data.amount) return Utils.error('Challan No and Amount required');
+    try {
+      await Api.post('/payments/tds/challans', data);
+      Utils.success('TDS Challan Uploaded');
+      switchTab('rec', 'tds-report');
+      this.loadTDSReport();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async loadEditSearch() {
+    const el = document.getElementById('edit-receipt-body');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    this.renderSearchList('edit', 'edit-receipt-body');
+  },
+
+  async loadCancelSearch() {
+    const el = document.getElementById('cancel-receipt-body');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    this.renderSearchList('cancel', 'cancel-receipt-body');
+  },
+
+  async renderSearchList(mode, targetId) {
+    const el = document.getElementById(targetId);
+    if (!el) return;
+    try {
+      const res = await Api.get('/payments/receipts', { params: { pageSize: 50 } });
+      const list = res.data || res || [];
+      el.innerHTML = `
+        <div class="tbl-wrap" style="margin-top:15px">
+          <table>
+            <thead><tr><th>Receipt No</th><th>Consumer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+            <tbody>
+              ${list.map(r => `<tr>
+                <td class="td-mono">${r.receipt_number}</td>
+                <td class="td-bold">${r.consumer_name}</td>
+                <td class="td-bold">${Utils.currency(r.amount)}</td>
+                <td>${Utils.chip(r.status)}</td>
+                <td>
+                  <button class="btn btn-sm ${mode==='edit'?'btn-teal':'btn-danger'}" onclick="ReceiptsPage.${mode}Receipt('${r.id}')">${mode==='edit'?'Edit':'Cancel'}</button>
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = err.message; }
+  },
+
+  async editReceipt(id) {
+    Utils.info('Opening receipt editor for: ' + id);
+    // Logic for loading receipt into the main form for editing
+    switchTab('rec', 'entry');
+    this._selectedReceiptId = id;
+    this.loadReceiptForEdit(id);
+  },
+
+  async cancelReceipt(id) {
+    if (!confirm('Are you sure you want to cancel this receipt? This will reverse the ledger impact.')) return;
+    try {
+      await Api.post(`/payments/receipts/${id}/cancel`, { reason: 'Cancelled by user' });
+      Utils.success('Receipt cancelled');
+      this.loadCancelSearch();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async loadAssignTDS() {
+    try {
+      const res = await Api.get('/payments/tds/challans');
+      const list = res.data || res || [];
+      const sel = document.getElementById('ass-challan-sel');
+      if (sel) {
+        sel.innerHTML = '<option value="">— Select Challan —</option>' + 
+          list.filter(t => t.status === 'available').map(t => `<option value="${t.id}">${t.challan_number} (Bal: ${Utils.currency(t.amount)})</option>`).join('');
+      }
+    } catch {}
+  },
+
+  async init(params = {}) {
+    const consumers = await Api.get('/consumers', { params: { pageSize: 1000 } });
+    const cList = consumers.data || consumers || [];
+    this._consumers = cList;
+    
+    const sels = ['rec-consumer-sel', 'dup-consumer', 'jou-consumer-sel'];
+    sels.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.innerHTML = '<option value="">— Select Consumer —</option>' + 
+          cList.map(c => `<option value="${c.id}">${c.name || (c.first_name + ' ' + c.last_name)} (${c.registration_no || 'No Reg'})</option>`).join('');
+      }
+    });
+
+    if (params.tab) switchTab('rec', params.tab);
+    if (params.tab === 'approval') this.loadApproval();
+    if (params.tab === 'list') this.loadList();
+    if (params.tab === 'journal') this.loadJournals();
+    if (params.tab === 'edit') this.loadEditSearch();
+    if (params.tab === 'cancel') this.loadCancelSearch();
+    if (params.tab === 'assign-tds') this.loadAssignTDS();
+    if (params.tab === 'tds-report') this.loadTDSReport();
+  }
 };

@@ -16,6 +16,10 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     communications: ['view', 'create', 'edit', 'delete'],
     reports: ['view', 'create', 'edit', 'delete'],
     users: ['view', 'create', 'edit', 'delete'],
+    broker_setup: ['view', 'create', 'edit', 'delete'],
+    inventory_hold: ['view', 'create', 'edit', 'delete'],
+    smtp_configs: ['view', 'create', 'edit', 'delete'],
+    calling: ['view', 'create', 'edit', 'delete'],
   },
   project_manager: {
     consumers: ['view', 'create', 'edit'],
@@ -26,6 +30,7 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     communications: ['view', 'create', 'edit'],
     reports: ['view'],
     users: ['view'],
+    inventory_hold: ['view', 'create', 'edit'],
   },
   sales_executive: {
     consumers: ['view', 'create', 'edit'],
@@ -36,6 +41,7 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     communications: ['view', 'create'],
     reports: ['view'],
     users: [],
+    inventory_hold: ['view', 'create', 'edit'],
   },
   accounts_finance: {
     consumers: ['view'],
@@ -46,6 +52,9 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     communications: ['view'],
     reports: ['view', 'create'],
     users: [],
+    broker_setup: ['view', 'create', 'edit'],
+    smtp_configs: ['view', 'create', 'edit'],
+    calling: ['view', 'create', 'edit'],
   },
   support_agent: {
     consumers: ['view'],

@@ -36,7 +36,7 @@ Pages.booking = async function(params = {}) {
       <div class="breadcrumb">Application / Booking / <b>New Booking</b></div>
     </div>
 
-    <form id="booking-form" onsubmit="BookingPage.submit(event)">
+    <form id="booking-form" onsubmit="BookingPage.preview(event)">
 
     <!-- ── SECTION 1: UNIT INFORMATION ──────────────────────── -->
     <div class="sp" style="margin-bottom:14px">
@@ -481,12 +481,26 @@ Pages.booking = async function(params = {}) {
 
     <!-- ── ACTIONS ───────────────────────────────────────────── -->
     <div style="display:flex;gap:10px;padding:14px 0;align-items:center">
-      <button type="submit" class="btn btn-teal btn-lg" id="bk-submit-btn">💾 Save Booking</button>
+      <button type="submit" class="btn btn-teal btn-lg" id="bk-submit-btn">👁 Preview Application</button>
       <button type="reset" class="btn btn-ghost btn-lg" onclick="BookingPage.onReset()">Clear Form</button>
       <button type="button" class="btn btn-ghost" onclick="Router.navigate('/consumers')">Cancel</button>
     </div>
-
     </form>
+
+    <!-- ── PREVIEW MODAL ─────────────────────────────────────── -->
+    <div id="bk-preview-modal" class="modal" style="display:none">
+      <div class="modal-content" style="max-width:600px">
+        <div class="modal-hdr">
+          <h2>Application Preview</h2>
+          <button class="btn-close" onclick="document.getElementById('bk-preview-modal').style.display='none'">×</button>
+        </div>
+        <div class="modal-body" id="bk-preview-body"></div>
+        <div class="modal-ftr">
+          <button class="btn btn-ghost" onclick="document.getElementById('bk-preview-modal').style.display='none'">Edit Details</button>
+          <button class="btn btn-teal" onclick="BookingPage.confirmSubmit()">Save and Process</button>
+        </div>
+      </div>
+    </div>
   `;
 
   // Load sources and banks dynamically
@@ -598,12 +612,52 @@ const BookingPage = {
 
   onReset() { this._units = []; },
 
-  async submit(e) {
+  async preview(e) {
     e.preventDefault();
     const form = document.getElementById('booking-form');
     const fd = new FormData(form);
-    const body = {};
-    fd.forEach((v, k) => { if (v) body[k] = v; });
+    this._bookingData = {};
+    fd.forEach((v, k) => { if (v) this._bookingData[k] = v; });
+
+    // Validation Popup Logic
+    if (this._bookingData.discount_value > 0 && !this._bookingData.discount_authorized_by) {
+      Utils.warn('Validation Error: Discount Authorized By is missing.');
+      return;
+    }
+
+    // Granular Cost Breakdown
+    const basicPrice = parseFloat(this._bookingData.basic_price || 0);
+    const carpetArea = parseFloat(this._bookingData.carpet_area_sqft || 0);
+    const basicCost = basicPrice * carpetArea;
+    const plc = basicCost * 0.05; // Dummy 5% PLC for demo
+    const balcony = 50000; // Flat balcony charge
+    const scooterParking = 25000; // Flat scooter parking
+    const totalUnitCost = basicCost + plc + balcony + scooterParking;
+
+    const modalBody = document.getElementById('bk-preview-body');
+    modalBody.innerHTML = `
+      <div style="margin-bottom:16px;font-size:13px;line-height:1.6;color:var(--text2)">
+        Please verify the granular cost breakdown and application details before final processing.
+      </div>
+      <div style="background:var(--bg2);padding:16px;border-radius:8px;border:1px solid var(--border)">
+        <h3 style="margin-bottom:12px;font-size:14px;color:var(--text)">Unit Cost Breakdown</h3>
+        <table style="width:100%;font-size:13px;border-collapse:collapse">
+          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Basic Cost</td><td style="text-align:right;font-weight:600">${Utils.currency(basicCost)}</td></tr>
+          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">PLC (Preferential Location)</td><td style="text-align:right;font-weight:600">${Utils.currency(plc)}</td></tr>
+          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Balcony Charges</td><td style="text-align:right;font-weight:600">${Utils.currency(balcony)}</td></tr>
+          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Scooter Parking</td><td style="text-align:right;font-weight:600">${Utils.currency(scooterParking)}</td></tr>
+          <tr><td style="padding:10px 0;font-weight:700;color:var(--teal)">Total Unit Cost</td><td style="text-align:right;font-weight:700;font-size:15px;color:var(--teal)">${Utils.currency(totalUnitCost)}</td></tr>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('bk-preview-modal').style.display = 'flex';
+  },
+
+  async confirmSubmit() {
+    document.getElementById('bk-preview-modal').style.display = 'none';
+    const body = this._bookingData;
+
 
     const btn = document.getElementById('bk-submit-btn');
     btn.disabled = true;
@@ -621,7 +675,7 @@ const BookingPage = {
         pan_no: body.pan_no,
         aadhaar_no: body.aadhaar_no,
         ppp_id: body.ppp_id,
-        lead_stage: 'application_filed',
+        lead_stage: 'pending_verification',
         source_of_enquiry: body.source_of_enquiry,
         nationality: body.nationality,
         profession: body.profession,

@@ -23,35 +23,62 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
 
-    const result = await db.query(
-      `INSERT INTO booking_records (
-         consumer_id, project_id, unit_id, booking_date, booking_amount,
-         payment_mode, payment_ref, bank_name, cheque_date,
-         discount_value, discount_reason, discount_authorized_by,
-         broker_id, broker_commission, broker_commission_type,
-         sales_employee_id, nominee_name, nominee_relation,
-         loan_amount, finance_bank, remarks, created_by
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-       RETURNING *`,
-      [
-        consumer_id, project_id||null, unit_id||null,
-        booking_date||new Date().toISOString().split('T')[0],
-        parseFloat(booking_amount||0),
-        payment_mode||null, payment_ref||null, bank_name||null, cheque_date||null,
-        parseFloat(discount_value||0), discount_reason||null, discount_authorized_by||null,
-        broker_id||null, parseFloat(broker_commission||0), broker_commission_type||'flat',
-        sales_employee_id||null, nominee_name||null, nominee_relation||null,
-        loan_amount?parseFloat(loan_amount):null, finance_bank||null, remarks||null,
-        req.userId,
-      ]
-    );
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
 
-    // If unit was selected, update unit status to 'booked'
-    if (unit_id) {
-      await db.query(`UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`, [unit_id]);
+      // Prevent Double Booking: Check if unit is available
+      if (unit_id) {
+        const unitCheck = await client.query(
+          `SELECT status FROM units WHERE id = $1 FOR UPDATE`,
+          [unit_id]
+        );
+        
+        if (unitCheck.rows.length === 0) {
+          throw new Error('Selected unit does not exist');
+        }
+        
+        if (unitCheck.rows[0].status !== 'available') {
+          throw new Error('Double Booking Prevented: Unit is no longer available');
+        }
+      }
+
+      const result = await client.query(
+        `INSERT INTO booking_records (
+           consumer_id, project_id, unit_id, booking_date, booking_amount,
+           payment_mode, payment_ref, bank_name, cheque_date,
+           discount_value, discount_reason, discount_authorized_by,
+           broker_id, broker_commission, broker_commission_type,
+           sales_employee_id, nominee_name, nominee_relation,
+           loan_amount, finance_bank, remarks, created_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         RETURNING *`,
+        [
+          consumer_id, project_id||null, unit_id||null,
+          booking_date||new Date().toISOString().split('T')[0],
+          parseFloat(booking_amount||0),
+          payment_mode||null, payment_ref||null, bank_name||null, cheque_date||null,
+          parseFloat(discount_value||0), discount_reason||null, discount_authorized_by||null,
+          broker_id||null, parseFloat(broker_commission||0), broker_commission_type||'flat',
+          sales_employee_id||null, nominee_name||null, nominee_relation||null,
+          loan_amount?parseFloat(loan_amount):null, finance_bank||null, remarks||null,
+          req.userId,
+        ]
+      );
+
+      // If unit was selected, update unit status to 'booked'
+      if (unit_id) {
+        await client.query(`UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`, [unit_id]);
+      }
+
+      await client.query('COMMIT');
+      res.status(201).json({ success: true, data: result.rows[0] });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-
-    res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { next(err); }
 });
 

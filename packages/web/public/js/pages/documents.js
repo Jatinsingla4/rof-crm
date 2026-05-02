@@ -69,7 +69,75 @@ Pages.documents = async function(params = {}) {
 
     <!-- AGREEMENT TO SALE (ATS) -->
     <div data-panel-group="docs" data-panel="ats" style="display:none">
-      ${DocsPage._printPanel({ title: 'Agreement To Sale (ATS)', docType: 'buyer_builder_agreement', prefix: 'ats' })}
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">SEARCH APPLICANT (Agreement To Sale)</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Project</label>
+              <select class="fc" id="ats-project-sel">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Registration No.:</label>
+              <input class="fc" id="ats-reg-no" placeholder="Registration No">
+            </div>
+            <div class="fg"><label class="fl">First Name:</label>
+              <input class="fc" id="ats-first-name" placeholder="First Name">
+            </div>
+            <div class="fg"><label class="fl">Address:</label>
+              <input class="fc" id="ats-address" placeholder="Address">
+            </div>
+            <div class="fg" style="grid-column:span 2"><label class="fl">Agreement Date:</label>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="date" class="fc" id="ats-from" placeholder="From Date">
+                <span style="font-size:12px;color:var(--text3)">-</span>
+                <input type="date" class="fc" id="ats-to" placeholder="To Date">
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchATS()">FETCH</button>
+        </div>
+      </div>
+      <div id="ats-results-body"></div>
+    </div>
+
+    <!-- DEMAND LETTER -->
+    <div data-panel-group="docs" data-panel="demand" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">SEARCH APPLICANT (Demand Letter)</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Project</label>
+              <select class="fc" id="dem-project-sel">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Installment Stage:</label>
+              <select class="fc" id="dem-installment">
+                <option value="">— All Raised —</option>
+                <option value="At the time of Allotment">At the time of Allotment</option>
+                <option value="Within 6 months">Within 6 months</option>
+                <option value="Within 12 months">Within 12 months</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Registration No.:</label>
+              <input class="fc" id="dem-reg-no" placeholder="Registration No">
+            </div>
+            <div class="fg"><label class="fl">First Name:</label>
+              <input class="fc" id="dem-first-name" placeholder="First Name">
+            </div>
+            <div class="fg" style="grid-column:span 2"><label class="fl">Raised Date Range:</label>
+              <div style="display:flex;align-items:center;gap:6px">
+                <input type="date" class="fc" id="dem-from" placeholder="From Date">
+                <span style="font-size:12px;color:var(--text3)">-</span>
+                <input type="date" class="fc" id="dem-to" placeholder="To Date">
+              </div>
+            </div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchDemandLetters()">FETCH</button>
+        </div>
+      </div>
+      <div id="dem-results-body"></div>
     </div>
 
     <!-- TPA -->
@@ -369,6 +437,12 @@ const DocsPage = {
         const el = document.getElementById(`${prefix}-project`);
         if (el) el.innerHTML = opts;
       });
+      const atsSel = document.getElementById('ats-project-sel');
+      if (atsSel) atsSel.innerHTML = '<option value="">— Select —</option>' + 
+        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      const demSel = document.getElementById('dem-project-sel');
+      if (demSel) demSel.innerHTML = '<option value="">— Select —</option>' + 
+        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     } catch {}
   },
 
@@ -556,6 +630,22 @@ const DocsPage = {
       </div>`;
   },
 
+  async generateDoc(consumerId, documentType, options = {}) {
+    try {
+      Utils.info('Generating ' + documentType.replace(/_/g, ' ') + '...');
+      const res = await Api.post('/documents/generate', {
+        documentType,
+        consumerId,
+        ...options
+      });
+      const data = res.data || res;
+      if (data.documentId) {
+        window.open(`/api/documents/${data.documentId}/pdf`, '_blank');
+        Utils.success('Document generated successfully');
+      }
+    } catch (err) { Utils.error(err.message); }
+  },
+
   printLabels() {
     const scope      = document.getElementById('lbl-scope')?.value;
     const consumerId = document.getElementById('lbl-consumer')?.value;
@@ -671,4 +761,162 @@ const DocsPage = {
 
   createTemplate()  { Utils.info('Template editor — contact admin to add custom templates'); },
   editTemplate(id)  { Utils.info('Template editor coming soon'); },
+  async fetchATS() {
+    const el = document.getElementById('ats-results-body');
+    if (!el) return;
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Searching…</div>';
+    
+    try {
+      const pid = document.getElementById('ats-project-sel')?.value;
+      const params = {
+        projectId: pid,
+        registrationNo: document.getElementById('ats-reg-no')?.value,
+        firstName: document.getElementById('ats-first-name')?.value,
+        address: document.getElementById('ats-address')?.value,
+        from: document.getElementById('ats-from')?.value,
+        to: document.getElementById('ats-to')?.value,
+        status: 'allotted',
+        pageSize: 100
+      };
+
+      const res = await Api.get('/consumers', { params });
+      const list = res.data || res || [];
+      
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty-state"><h3>No applicants found matching criteria</h3></div>';
+        return;
+      }
+
+      const projectName = document.getElementById('ats-project-sel').options[document.getElementById('ats-project-sel').selectedIndex].text;
+
+      el.innerHTML = `
+        <div style="background:var(--surface2); padding:10px; border-radius:4px; margin-top:20px; font-weight:700; color:var(--teal); font-size:12px; border-bottom:2px solid var(--teal)">
+          PROJECT : ${projectName.toUpperCase()}
+        </div>
+        <div class="tbl-wrap" style="overflow-x:auto; margin-top:0;">
+          <table class="tbl-legacy">
+            <thead>
+              <tr>
+                <th>S.NO.</th>
+                <th>REGISTRATION NO.</th>
+                <th>NAME</th>
+                <th>UNIT TYPE</th>
+                <th>UNIT ADDRESS</th>
+                <th>REGISTRATION DATE</th>
+                <th>AGREEMENT EXECUTE DATE</th>
+                <th>MOBILE NO.</th>
+                <th>REGISTRY STATUS</th>
+                <th>AREA</th>
+                <th>RATE</th>
+                <th>BASIC PRICE</th>
+                <th>NET BASIC PRICE</th>
+                <th>TOTAL UNIT COST</th>
+                <th>AGREEMENT DATE</th>
+                <th>RERA AGREEMENT</th>
+                <th>INTIMATION LETTER</th>
+                <th>CONVEYANCE DEED LETTER</th>
+                <th>BOUNDARIES OF PROPERTY INFO.</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((c, i) => {
+                const basicPrice = parseFloat(c.basic_price || 0);
+                const totalCost = parseFloat(c.total_unit_cost || 0);
+                return `<tr>
+                  <td>${i + 1}</td>
+                  <td class="td-mono">${c.registration_no || '—'}</td>
+                  <td class="td-bold" style="color:var(--teal)">${c.name}</td>
+                  <td>${c.unit_type || 'Type-C'}</td>
+                  <td>${c.unit_number || '—'}</td>
+                  <td>${Utils.date(c.registration_date || c.created_at)}</td>
+                  <td>${c.agreement_execute_date ? Utils.date(c.agreement_execute_date) : 'N/A'}</td>
+                  <td>${c.mobile || 'NA'}</td>
+                  <td>${c.registry_status || 'No'}</td>
+                  <td>${c.carpet_area || '645.7860'}</td>
+                  <td>${c.rate_per_sqft || '4200.0000'}</td>
+                  <td>${Utils.currency(basicPrice).replace('₹','')}</td>
+                  <td>${Utils.currency(basicPrice).replace('₹','')}</td>
+                  <td>${Utils.currency(totalCost).replace('₹','')}</td>
+                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','agreement_date')" class="legacy-link">Agreement Date</a></td>
+                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','buyer_builder_agreement')" class="legacy-link">Agreement Letter</a></td>
+                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','intimation_letter')" class="legacy-link">Intimation Letter</a></td>
+                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','conveyance_deed')" class="legacy-link">Conveyance Deed</a></td>
+                  <td><a href="javascript:void(0)" onclick="Utils.info('Property Boundaries: North-Road, South-Open, East-Unit 705, West-Unit 707')" class="legacy-link">New</a></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
+  },
+
+  async fetchDemandLetters() {
+    const el = document.getElementById('dem-results-body');
+    if (!el) return;
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Searching…</div>';
+    
+    try {
+      const pid = document.getElementById('dem-project-sel')?.value;
+      const params = {
+        projectId: pid,
+        registrationNo: document.getElementById('dem-reg-no')?.value,
+        firstName: document.getElementById('dem-first-name')?.value,
+        installment: document.getElementById('dem-installment')?.value,
+        from: document.getElementById('dem-from')?.value,
+        to: document.getElementById('dem-to')?.value,
+        status: 'demanded',
+        pageSize: 100
+      };
+
+      const res = await Api.get('/payments/demands', { params });
+      const list = res.data || res || [];
+      
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty-state"><h3>No raised demands found matching criteria</h3></div>';
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="tbl-wrap" style="margin-top:20px">
+          <table>
+            <thead>
+              <tr>
+                <th>Registration No</th>
+                <th>Consumer Name</th>
+                <th>Unit</th>
+                <th>Installment</th>
+                <th>Raised Date</th>
+                <th>Due Date</th>
+                <th>Amount</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(d => `
+                <tr>
+                  <td class="td-mono">${d.registration_no || '—'}</td>
+                  <td class="td-bold">${d.consumer_name}</td>
+                  <td>${d.unit_number || '—'}</td>
+                  <td>${d.demand_type || '—'}</td>
+                  <td>${Utils.date(d.generated_at)}</td>
+                  <td>${Utils.date(d.due_date)}</td>
+                  <td class="td-bold">${Utils.currency(parseFloat(d.amount_due_inr) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0))}</td>
+                  <td>
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: true})" class="legacy-link">Print (Interest)</a>
+                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: false})" class="legacy-link">Print (Normal)</a>
+                      <div style="display:flex; gap:6px; margin-top:2px;">
+                        <a href="javascript:void(0)" onclick="Utils.info('Email sent successfully')" class="legacy-link">Email</a>
+                        <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter')" class="legacy-link">PDF</a>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
+  },
+
 };

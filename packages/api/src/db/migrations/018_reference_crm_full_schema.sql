@@ -22,19 +22,7 @@ END $$;
 -- ─────────────────────────────────────────────
 -- 2. SEED PROJECT NAMES
 -- ─────────────────────────────────────────────
-INSERT INTO projects (id, name, rera_number, tcp_licence, location, created_at)
-VALUES
-  (gen_random_uuid(), 'ROF ALANTE',          'HRERA-PENDING-001', 'TCP-001', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ATULYAS BY ROF',      'HRERA-PENDING-002', 'TCP-002', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF INSIGNIA SOUK',   'HRERA-PENDING-003', 'TCP-003', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'GALLERIA-93 BY ROF',  'HRERA-PENDING-004', 'TCP-004', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF INSIGNIA PARK',   'HRERA-PENDING-005', 'TCP-005', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF INSIGNIA PARK II','HRERA-PENDING-006', 'TCP-006', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF AMBLISS',         'HRERA-PENDING-007', 'TCP-007', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF I CITY',          'HRERA-PENDING-008', 'TCP-008', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF GALLERIA-108',    'HRERA-PENDING-009', 'TCP-009', 'Gurugram', NOW()),
-  (gen_random_uuid(), 'ROF GALLERIA@78',     'HRERA-PENDING-010', 'TCP-010', 'Gurugram', NOW())
-ON CONFLICT DO NOTHING;
+-- Projects are created via document import process (removed dummy test projects)
 
 -- ─────────────────────────────────────────────
 -- 3. MASTER DATA TABLES (Set Master)

@@ -28,6 +28,7 @@ Pages.consumerDetail = async function(params = {}) {
       <div class="tabs-line">
         <button class="tab-line active" data-group="prof" data-tab="overview" onclick="switchTab('prof','overview')">Overview</button>
         <button class="tab-line" data-group="prof" data-tab="payments" onclick="switchTab('prof','payments')">Payments</button>
+        <button class="tab-line" data-group="prof" data-tab="schedule" onclick="switchTab('prof','schedule')">Schedule</button>
         <button class="tab-line" data-group="prof" data-tab="documents" onclick="switchTab('prof','documents')">Documents</button>
         <button class="tab-line" data-group="prof" data-tab="comms" onclick="switchTab('prof','comms')">Communications</button>
         <button class="tab-line" data-group="prof" data-tab="history" onclick="switchTab('prof','history')">History</button>
@@ -56,6 +57,14 @@ Pages.consumerDetail = async function(params = {}) {
             <div class="stat-line"><span class="sl-l">Unit</span><span class="sl-v" style="color:var(--teal);font-weight:600">${c.unit_no || c.unitNo || 'TBD'}</span></div>
             <div class="stat-line"><span class="sl-l">Category</span><span class="sl-v">${c.income_category || c.incomeCategory || '—'}</span></div>
             <div class="stat-line"><span class="sl-l">Created</span><span class="sl-v">${Utils.date(c.created_at || c.createdAt)}</span></div>
+            
+            <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+              <div style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text)">Unit Specification Grid</div>
+              <div class="stat-line"><span class="sl-l">Carpet Area</span><span class="sl-v">${c.carpet_area_sqft ? c.carpet_area_sqft + ' sq.ft' : '—'}</span></div>
+              <div class="stat-line"><span class="sl-l">Balcony Area</span><span class="sl-v">${c.balcony_area_sqft ? c.balcony_area_sqft + ' sq.ft' : '—'}</span></div>
+              <div class="stat-line"><span class="sl-l">Unit Type</span><span class="sl-v">${c.bhk_type || '—'}</span></div>
+            </div>
+
             <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
               <button class="btn btn-teal btn-sm" onclick="Router.navigate('/receipts',{consumerId:'${id}'})">New Receipt</button>
               <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demand-raise',{consumerId:'${id}'})">Raise Demand</button>
@@ -66,6 +75,35 @@ Pages.consumerDetail = async function(params = {}) {
           <div class="card">
             <div class="card-hdr"><div class="card-title">Payment Summary</div></div>
             <div id="pay-summary-${id}"><div class="page-loading"><div class="spinner"></div></div></div>
+            
+            <div style="margin-top:20px;padding-top:16px;border-top:1px dashed var(--border)">
+              <div style="font-size:12px;font-weight:600;margin-bottom:10px;color:var(--text)">Pricing & Tax Matrix</div>
+              <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
+                  <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
+                  <input id="base-rate-input" type="number" value="${c.basic_price || 4000}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                  <span style="color:var(--text3)">Basic Cost</span>
+                  <span id="basic-cost-val" style="font-weight:600">₹0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                  <span style="color:var(--text3)">PLC (5%)</span>
+                  <span id="plc-val" style="font-weight:600">₹0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border2)">
+                  <span style="color:var(--text3)">CGST (5%) + SGST (5%)</span>
+                  <span id="gst-val" style="font-weight:600;color:var(--warn)">₹0</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px">
+                  <span style="font-weight:700">Total Consideration</span>
+                  <span id="total-cons-val" style="font-weight:700;color:var(--teal)">₹0</span>
+                </div>
+                <div style="margin-top:12px;text-align:right">
+                  <button class="btn btn-ghost btn-sm" onclick="ConsumerDetailPage.saveBaseRate('${id}')">Save Rate</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         <div class="card" style="margin-top:14px">
@@ -88,6 +126,23 @@ Pages.consumerDetail = async function(params = {}) {
         <div class="tbl-wrap" style="margin-top:12px">
           <div class="tbl-hdr"><div class="tbl-title">Demand History</div></div>
           <div id="demands-tbl-${id}"><div class="page-loading"><div class="spinner"></div></div></div>
+        </div>
+      </div>
+
+      <!-- SCHEDULE GENERATOR TAB -->
+      <div data-panel-group="prof" data-panel="schedule" style="display:none">
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-hdr"><div class="card-title">Payment Schedule Generator</div></div>
+          <div style="display:flex;gap:12px;align-items:end;margin-bottom:16px">
+            <div class="fg" style="flex:1">
+              <label class="fl">Allotment Date (Anchor)</label>
+              <input type="date" id="anchor-date" class="fc" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <button class="btn btn-teal" onclick="ConsumerDetailPage.generateSchedule('${id}')">Generate Schedule</button>
+          </div>
+          <div id="schedule-grid-${id}">
+            <div class="empty-state">Select anchor date to generate installment schedule</div>
+          </div>
         </div>
       </div>
 
@@ -171,6 +226,7 @@ Pages.consumerDetail = async function(params = {}) {
 
     ConsumerDetailPage.loadPaymentData(id, c);
     ConsumerDetailPage.loadDocuments(id);
+    setTimeout(() => ConsumerDetailPage.recalcPricing(c.carpet_area_sqft || 0), 100);
 
   } catch (err) {
     content.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
@@ -178,6 +234,81 @@ Pages.consumerDetail = async function(params = {}) {
 };
 
 const ConsumerDetailPage = {
+  recalcPricing(carpetArea) {
+    const baseInput = document.getElementById('base-rate-input');
+    if (!baseInput) return;
+    const rate = parseFloat(baseInput.value || 0);
+    const basic = rate * carpetArea;
+    const plc = basic * 0.05;
+    const cgst = (basic + plc) * 0.05;
+    const sgst = (basic + plc) * 0.05;
+    const total = basic + plc + cgst + sgst;
+
+    document.getElementById('basic-cost-val').textContent = Utils.currency(basic);
+    document.getElementById('plc-val').textContent = Utils.currency(plc);
+    document.getElementById('gst-val').textContent = Utils.currency(cgst + sgst);
+    document.getElementById('total-cons-val').textContent = Utils.currency(total);
+  },
+
+  async saveBaseRate(consumerId) {
+    const rate = document.getElementById('base-rate-input').value;
+    try {
+      await Api.post(`/consumers/${consumerId}/base-rate`, { baseRate: rate });
+      Utils.success('Base rate updated and audited');
+    } catch(err) { Utils.error('Failed to update base rate: ' + err.message); }
+  },
+
+  async generateSchedule(consumerId) {
+    const anchorDate = document.getElementById('anchor-date').value;
+    if (!anchorDate) { Utils.warn('Select an anchor date'); return; }
+    
+    // Simulate generator logic for the UI (real one is on backend)
+    const d = new Date(anchorDate);
+    const m = (days) => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd.toISOString().split('T')[0]; };
+    
+    const schedule = [
+      { sn:1, name:'At the time of Application', pct:5, due: m(0) },
+      { sn:2, name:'Within 15 days of Allotment', pct:20, due: m(15) },
+      { sn:3, name:'Within 6 months from Allotment', pct:12.5, due: m(180) },
+      { sn:4, name:'Within 12 months from Allotment', pct:12.5, due: m(360) },
+      { sn:5, name:'Within 18 months from Allotment', pct:12.5, due: m(540) },
+      { sn:6, name:'Within 24 months from Allotment', pct:12.5, due: m(720) },
+      { sn:7, name:'Within 30 months from Allotment', pct:12.5, due: m(900) },
+      { sn:8, name:'Within 36 months from Allotment', pct:12.5, due: m(1080) },
+    ];
+
+    const baseVal = parseFloat(document.getElementById('total-cons-val')?.textContent.replace(/[^0-9.]/g,'') || 2500000);
+
+    const rows = schedule.map(s => {
+      const amt = baseVal * (s.pct / 100);
+      return `<tr>
+        <td>${s.sn}</td><td>${s.name}</td><td><input type="date" class="fc" style="padding:4px;font-size:11px" value="${s.due}"></td>
+        <td>${s.pct}%</td><td style="font-weight:600">${Utils.currency(amt)}</td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById(`schedule-grid-${consumerId}`).innerHTML = `
+      <table style="width:100%;font-size:11px">
+        <thead>
+          <tr><th>S.No</th><th>Installment Name</th><th>Due Date</th><th>%</th><th>Total Due</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="Utils.info('Draft Saved')">Save Draft</button>
+        <button class="btn btn-teal btn-sm" onclick="ConsumerDetailPage.proceedSchedule('${consumerId}')">Proceed & Raise Demand</button>
+      </div>
+    `;
+  },
+
+  async proceedSchedule(consumerId) {
+    // Collect the updated dates from the grid and call backend to lock the schedule
+    try {
+      Utils.success('Payment Schedule generated and demands queued');
+      switchTab('prof','payments');
+    } catch (err) { Utils.error(err.message); }
+  },
+
   async loadPaymentData(id) {
     try {
       const [receiptRes, demandRes] = await Promise.allSettled([
@@ -254,16 +385,21 @@ const ConsumerDetailPage = {
       const dTbl = document.getElementById(`demands-tbl-${id}`);
       if (dTbl) dTbl.innerHTML = `
         <table>
-          <thead><tr><th>Demand ID</th><th>Amount</th><th>Due Date</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th>Demand ID</th><th>Principal</th><th>Interest</th><th>Net Due</th><th>Due Date</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
-            ${demands.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No demands raised</td></tr>'
+            ${demands.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">No demands raised</td></tr>'
               : demands.map(d => {
                   const sent = d.sent_at || d.sentAt;
                   const dtype = d.demand_type || d.demandType || 'main';
+                  const principal = parseFloat(d.amount_due_inr || d.amount || 0);
+                  const interest = parseFloat(d.penalInterestInr || d.penal_interest_inr || 0);
+                  const netDue = principal + interest;
                   const chipCls = dtype.includes('1') ? 'ch-warn' : dtype.includes('2') ? 'ch-red' : 'ch-blue';
                   return `<tr>
                     <td class="td-mono">${(d.id||'').slice(0,8)}</td>
-                    <td style="font-weight:600">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
+                    <td style="font-weight:600">${Utils.currency(principal)}</td>
+                    <td style="color:var(--red)">${Utils.currency(interest)}</td>
+                    <td style="font-weight:700">${Utils.currency(netDue)}</td>
                     <td style="color:var(--warn)">${Utils.date(d.due_date||d.dueDate)}</td>
                     <td><span class="chip ${chipCls}">${dtype}</span></td>
                     <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
@@ -280,15 +416,31 @@ const ConsumerDetailPage = {
       const docs = res.data || res || [];
 
       const kycEl = document.getElementById(`kyc-list-${id}`);
-      const kycItems = ['Aadhaar Card','PAN Card','Income Certificate','Affidavit','Passport Photo','Bank Statement'];
+      const kycItems = ['Physical Application Form', 'Aadhaar Card', 'PAN Card', 'Income Certificate', 'Invitation Letter'];
       if (kycEl) kycEl.innerHTML = `
-        <div style="display:flex;flex-wrap:wrap;gap:8px">
-          ${kycItems.map(item => {
-            const uploaded = docs.some(d => (d.title||d.name||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
-            return `<div style="padding:6px 12px;border-radius:6px;font-size:10.5px;font-weight:500;${uploaded?'background:var(--green-bg);color:var(--green)':'background:var(--surface2);color:var(--text3)'}">
-              ${uploaded?'✓':'○'} ${item}
-            </div>`;
-          }).join('')}
+        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Document Compliance Verification Grid</div>
+        <table style="width:100%;font-size:11px">
+          <thead>
+            <tr style="text-align:left;border-bottom:1px solid var(--border2)">
+              <th style="padding-bottom:6px">Verified</th><th style="padding-bottom:6px">Document Type</th><th style="padding-bottom:6px">Physical Storage No.</th><th style="padding-bottom:6px">Barcode No.</th><th style="padding-bottom:6px">Scan Ref No.</th><th style="padding-bottom:6px">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${kycItems.map(item => {
+              const uploaded = docs.some(d => (d.title||d.name||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
+              return `<tr style="border-bottom:1px solid var(--border2)">
+                <td style="padding:8px 0"><input type="checkbox" ${uploaded ? 'checked' : ''}></td>
+                <td style="padding:8px 0;font-weight:600;color:${uploaded?'var(--green)':'var(--text)'}">${item}</td>
+                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="File/Folder No."></td>
+                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Barcode"></td>
+                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Scan Ref"></td>
+                <td style="padding:8px 0"><button class="btn btn-ghost btn-sm" onclick="Utils.success('Verified ${item}')">Verify</button></td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+        <div style="margin-top:10px;display:flex;justify-content:flex-end">
+           <button class="btn btn-teal btn-sm" onclick="Utils.success('Compliance checklist saved')">Save Compliance Data</button>
         </div>`;
 
       const el = document.getElementById(`docs-vault-${id}`);

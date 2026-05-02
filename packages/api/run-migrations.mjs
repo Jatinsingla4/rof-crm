@@ -31,6 +31,7 @@ const migrations = [
   'src/db/migrations/022_add_unit_locations_reminder_master.sql',
   'src/db/migrations/023_add_plan_schedule_templates.sql',
   'src/db/migrations/024_add_employee_org_tables.sql',
+  'src/db/migrations/025_add_legacy_bridge_masters.sql',
 ];
 
 const dbConfig = {

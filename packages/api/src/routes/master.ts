@@ -202,4 +202,44 @@ router.post('/reminder-master', async (req: AuthRequest, res: Response, next: Ne
 });
 router.delete('/reminder-master/:id', deleteRoute('reminder_master'));
 
+// ─── UNIT TYPES ───────────────────────────────────────────────────────────────
+router.get('/unit-types',           async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id } = req.query;
+    const where = project_id ? `WHERE ut.project_id = $1` : '';
+    const params = project_id ? [project_id] : [];
+    const result = await db.query(
+      `SELECT ut.*, p.name as project_name FROM unit_types ut JOIN projects p ON p.id = ut.project_id ${where} ORDER BY ut.name`,
+      params
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+router.post('/unit-types',          addRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
+router.put('/unit-types/:id',       updateRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
+router.delete('/unit-types/:id',    deleteRoute('unit_types'));
+
+// ─── FLOORS ───────────────────────────────────────────────────────────────────
+router.get('/floors',               async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { tower_id } = req.query;
+    const where = tower_id ? `WHERE f.tower_id = $1` : '';
+    const params = tower_id ? [tower_id] : [];
+    const result = await db.query(
+      `SELECT f.*, t.tower_name FROM floors f JOIN towers t ON t.id = f.tower_id ${where} ORDER BY f.floor_number`,
+      params
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+router.post('/floors',               addRoute('floors', ['tower_id', 'floor_number', 'floor_name']));
+router.put('/floors/:id',            updateRoute('floors', ['tower_id', 'floor_number', 'floor_name']));
+router.delete('/floors/:id',         deleteRoute('floors'));
+
+// ─── TAX SLABS ────────────────────────────────────────────────────────────────
+router.get('/tax-slabs',             listRoute('tax_slabs', 'name'));
+router.post('/tax-slabs',            addRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
+router.put('/tax-slabs/:id',         updateRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
+router.delete('/tax-slabs/:id',      deleteRoute('tax_slabs'));
+
 export default router;

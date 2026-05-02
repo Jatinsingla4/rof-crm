@@ -4,11 +4,97 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db } from '../index';
+import { db } from '../db/pool';
 import { AuthRequest } from '../index';
 import Anthropic from '@anthropic-ai/sdk';
 
 const router = Router();
+
+// GET /api/communications/status-codes - Get calling status codes
+router.get('/status-codes', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await db.query('SELECT code, category FROM communication_status_codes WHERE is_active = TRUE');
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// GET /api/communications/calling-list - Selection Free Calling List
+router.get('/calling-list', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { 
+      minOsAmount = 0, statusCode, subStatusCode, 
+      projectId, towerId, paymentPlan, customerStatus,
+      regNo, customerName, unitNo, employeeId
+    } = req.query;
+
+    const minAmt = parseFloat(minOsAmount as string) || 0;
+
+    let query = `
+      SELECT 
+        c.id, c.name, c.mobile, c.registration_no, c.total_overdue_amt,
+        c.last_call_status, c.last_call_sub_status, c.promise_to_pay_date, c.next_call_date,
+        c.lead_stage as customer_status,
+        u.unit_number, p.name as project_name, t.tower_name
+      FROM consumers c
+      LEFT JOIN projects p ON c.project_id = p.id
+      LEFT JOIN units u ON c.allocated_unit_id = u.id
+      LEFT JOIN towers t ON u.tower_id = t.id
+      WHERE (c.total_overdue_amt >= $1 OR $1 = 0)
+    `;
+    const params: any[] = [minAmt];
+
+    if (projectId && projectId !== '') { params.push(projectId); query += ` AND p.id = $${params.length}`; }
+    if (towerId && towerId !== '') { params.push(towerId); query += ` AND t.id = $${params.length}`; }
+    if (customerStatus && customerStatus !== '') { params.push(customerStatus); query += ` AND c.lead_stage = $${params.length}`; }
+    if (statusCode && statusCode !== '') { params.push(statusCode); query += ` AND c.last_call_status = $${params.length}`; }
+    if (subStatusCode && subStatusCode !== '') { params.push(subStatusCode); query += ` AND c.last_call_sub_status = $${params.length}`; }
+    if (regNo && regNo !== '') { params.push(`%${regNo}%`); query += ` AND c.registration_no ILIKE $${params.length}`; }
+    if (customerName && customerName !== '') { params.push(`%${customerName}%`); query += ` AND c.name ILIKE $${params.length}`; }
+    if (unitNo && unitNo !== '') { params.push(`%${unitNo}%`); query += ` AND u.unit_number ILIKE $${params.length}`; }
+
+    query += ` ORDER BY c.total_overdue_amt DESC`;
+
+    const result = await db.query(query, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// POST /api/communications/log-call - Log a debt recovery call
+router.post('/log-call', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
+  try {
+    const { consumerId, statusCode, subStatusCode, ptpDate, remarks, nextCallDate } = req.body;
+
+    await client.query('BEGIN');
+
+    // 1. Log the call
+    await client.query(
+      `INSERT INTO call_logs (consumer_id, user_id, status_code, sub_status_code, ptp_date, remarks, next_call_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [consumerId, req.userId, statusCode, subStatusCode, ptpDate || null, remarks, nextCallDate || null]
+    );
+
+    // 2. Update Consumer Master
+    await client.query(
+      `UPDATE consumers 
+       SET last_call_status = $1, 
+           last_call_sub_status = $2, 
+           promise_to_pay_date = $3, 
+           next_call_date = $4,
+           updated_at = NOW()
+       WHERE id = $5`,
+      [statusCode, subStatusCode, ptpDate || null, nextCallDate || null, consumerId]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'Call logged successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
 
 // POST /api/communications/remarks - Create remark (duplicate endpoint for clarity)
 router.post('/remarks', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -519,5 +605,6 @@ router.get('/:consumerId', async (req: AuthRequest, res: Response, next: NextFun
     next(error);
   }
 });
+
 
 export default router;

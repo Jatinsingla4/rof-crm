@@ -86,6 +86,8 @@
         </div>
       </div>
 
+
+
       <div class="dd-link has-sub">Role and Menu <span class="arr">▶</span>
         <div class="sub-dd">
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'role-menu'})">Role Menu Access</a>
@@ -156,11 +158,19 @@
       <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'form'})">Broker Application Form</a>
       <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'list'})">Broker List</a>
       <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'commission'})">Commission Setup</a>
+      <a class="dd-link" onclick="Router.navigate('/broker-setup')">Broker Setup (Tax Masters)</a>
       <div class="dd-link has-sub">Broker Reports <span class="arr">▶</span>
         <div class="sub-dd">
           <a class="dd-link" onclick="Router.navigate('/brokers',{tab:'sold-unit-report'})">Broker Sold-Unit Report</a>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="nav-item">
+    <button class="nav-btn">Investor / Hold <span class="caret">▼</span></button>
+    <div class="dd" style="min-width:200px">
+      <a class="dd-link" onclick="Router.navigate('/inventory-hold')">Inventory Governance</a>
     </div>
   </div>
 
@@ -178,7 +188,12 @@
 
       <div class="dd-link has-sub">Allotment of Unit <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:230px">
-          <a class="dd-link" onclick="Router.navigate('/allotment')">Allotment</a>
+          <div class="dd-link has-sub">Transaction <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:200px">
+              <a class="dd-link" onclick="Router.navigate('/allotment')">Allotment Form</a>
+              <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'letter'})">Allotment Letter</a>
+            </div>
+          </div>
           <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'shifting'})">Unit Shifting Process</a>
           <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'shifting-report'})">Customer Unit Shifting Report</a>
           <a class="dd-link" onclick="Router.navigate('/allotment',{tab:'cancel'})">Cancel Allotment</a>
@@ -188,11 +203,15 @@
       </div>
 
       <div class="dd-link has-sub">Receipt Process <span class="arr">▶</span>
-        <div class="sub-dd">
-          <a class="dd-link" onclick="Router.navigate('/receipts')">Receipt Entry</a>
-          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'approval'})">Pending Approval</a>
-          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'head-wise-cost'})">Head Wise Cost</a>
-          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'duplicate'})">Duplicate Receipt</a>
+        <div class="sub-dd" style="min-width:220px">
+          <a class="dd-link" onclick="Router.navigate('/receipts')">Receipt Generation</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'print'})">Receipt Print</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'journal'})">Journal Entry</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'edit'})">Edit Receipt</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'cancel'})">Cancel Receipt</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'tds-report'})">TDS Challan Report</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'assign-tds'})">Assign Receipt Challan</a>
+          <a class="dd-link" onclick="Router.navigate('/receipts',{tab:'upload-tds'})">Upload Tds Challan</a>
         </div>
       </div>
 
@@ -215,6 +234,19 @@
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'conveyance-deed'})">Conveyance Deed</a>
         </div>
       </div>
+
+      <div class="dd-link has-sub">Collection Process <span class="arr">▶</span>
+        <div class="sub-dd" style="min-width:220px">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'month-wise-dues'})">Month Wise Dues Report</a>
+          <a class="dd-link" onclick="Router.navigate('/calling')">Selection Free Calling List</a>
+          <a class="dd-link" onclick="Router.navigate('/collection-setup')">Communication Setup</a>
+        </div>
+      </div>
+
+      <a class="dd-link" onclick="Router.navigate('/loans')">Loan Process</a>
+      <a class="dd-link" onclick="Router.navigate('/surrender')">Surrender / Cancellation</a>
+      <a class="dd-link" onclick="Router.navigate('/transfers')">Transfer</a>
+      <a class="dd-link" onclick="Router.navigate('/registry')">Registry Report Date Wise</a>
 
       <div class="dd-link has-sub">GST Invoicing <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:210px">
@@ -252,11 +284,12 @@
     <div class="dd" style="min-width:195px">
 
       <div class="dd-link has-sub">Inventory <span class="arr">▶</span>
-        <div class="sub-dd" style="min-width:230px">
-          <a class="dd-link" onclick="Router.navigate('/unit-status')">Unit Status</a>
-          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'inventory'})">Inventory Report</a>
-          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'date-booking-status'})">Date Wise Booking Status</a>
-          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'date-edit-applicant'})">Date Wise Edit Applicant Status</a>
+        <div class="sub-dd" style="min-width:240px">
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'project-details'})">Project Details</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'inventory'})">Unit Status</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-wise-plc'})">Unit Wise PLC</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-sold-area'})">Unit Sold/Availb. Area Wise</a>
+          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-cost'})">Unit Cost</a>
         </div>
       </div>
 
@@ -407,10 +440,17 @@
 <script src="/js/pages/help.js"></script>
 <script src="/js/pages/gst-invoicing.js"></script>
 <script src="/js/pages/surrender.js"></script>
+<script src="/js/pages/transfers.js"></script>
+<script src="/js/pages/registry.js"></script>
+<script src="/js/pages/loans.js"></script>
 <script src="/js/pages/parking.js"></script>
 <script src="/js/pages/brokers.js"></script>
+<script src="/js/pages/broker-setup.js"></script>
+<script src="/js/pages/inventory-hold.js"></script>
 <script src="/js/pages/campaigns.js"></script>
 <script src="/js/pages/employees.js"></script>
+<script src="/js/pages/calling.js"></script>
+<script src="/js/pages/collection-setup.js"></script>
 
 <!-- App entry point (must be last) -->
 <script src="/js/app.js"></script>
