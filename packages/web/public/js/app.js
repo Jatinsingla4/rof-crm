@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/parking',           (p) => Pages.parking(p));
   Router.register('/brokers',           (p) => Pages.brokers(p));
   Router.register('/campaigns',         (p) => Pages.campaigns(p));
+  Router.register('/employees',         (p) => Pages.employees(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();

@@ -30,6 +30,7 @@ const migrations = [
   'src/db/migrations/021_add_unit_shifts_table.sql',
   'src/db/migrations/022_add_unit_locations_reminder_master.sql',
   'src/db/migrations/023_add_plan_schedule_templates.sql',
+  'src/db/migrations/024_add_employee_org_tables.sql',
 ];
 
 const dbConfig = {

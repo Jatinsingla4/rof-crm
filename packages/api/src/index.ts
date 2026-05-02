@@ -38,6 +38,7 @@ import projectsRoutes from './routes/projects';
 import dashboardRoutes from './routes/dashboard';
 import masterRoutes from './routes/master';
 import bookingRoutes from './routes/booking';
+import employeesRoutes from './routes/employees';
 import { requirePermission } from './middleware/rbac';
 import { logAudit } from './middleware/auditLogger';
 
@@ -305,6 +306,7 @@ app.use('/api/projects',      authenticateToken, rbac('units'),           projec
 app.use('/api/dashboard',     authenticateToken,                          dashboardRoutes);
 app.use('/api/master',        authenticateToken,                          masterRoutes);
 app.use('/api/booking',       authenticateToken,                          bookingRoutes);
+app.use('/api/employees',     authenticateToken,                          employeesRoutes);
 
 // ============================================
 // SPA FALLBACK

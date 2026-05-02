@@ -79,3 +79,4 @@ const Pages = {};
 // Page-scoped namespaces — declared early so modules can reference them
 const SMPage  = {};   // Set Master
 const SPJPage = {};   // Set Projects
+const EmpPage = {};   // Employees

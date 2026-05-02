@@ -53,10 +53,22 @@
       </div>
 
       <div class="dd-link has-sub">Employee Login Creation <span class="arr">▶</span>
-        <div class="sub-dd">
+        <div class="sub-dd" style="min-width:220px">
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'create'})">Create Login</a>
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'edit'})">Edit Login</a>
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'view'})">View Logins</a>
+          <div class="dd-link has-sub">Employee <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:220px">
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'department'})">Department</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'info'})">Employee Information</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'report'})">Report</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'set-manager'})">Set Manager</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'team-master'})">Team Master</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'set-team-head'})">Set Team Head</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'team-head-detail'})">Team Head Detail</a>
+              <a class="dd-link" onclick="Router.navigate('/employees',{tab:'tree'})">Employee Tree</a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -398,6 +410,7 @@
 <script src="/js/pages/parking.js"></script>
 <script src="/js/pages/brokers.js"></script>
 <script src="/js/pages/campaigns.js"></script>
+<script src="/js/pages/employees.js"></script>
 
 <!-- App entry point (must be last) -->
 <script src="/js/app.js"></script>
