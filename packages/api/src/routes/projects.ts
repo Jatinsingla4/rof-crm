@@ -99,6 +99,26 @@ router.post('/:id/plan-templates', async (req: AuthRequest, res: Response, next:
     const { plan_name, installment_name, installment_type, percentage, flat_amount_inr,
             due_date_offset_days, installment_index, notes } = req.body;
     if (!installment_name) return res.status(400).json({ error: 'installment_name is required' });
+
+    // Enforce 100% cap — only applies when a percentage is being set
+    if (percentage !== null && percentage !== undefined && parseFloat(percentage) > 0) {
+      const resolvedPlanName = plan_name || 'Standard AHP Plan';
+      const totalResult = await db.query(
+        `SELECT COALESCE(SUM(percentage), 0) as current_total
+         FROM plan_schedule_templates
+         WHERE project_id = $1 AND plan_name = $2`,
+        [req.params.id, resolvedPlanName]
+      );
+      const currentTotal = parseFloat(totalResult.rows[0].current_total);
+      const newTotal = currentTotal + parseFloat(percentage);
+      if (newTotal > 100) {
+        return res.status(400).json({
+          success: false,
+          error: `Adding ${percentage}% would bring plan total to ${newTotal.toFixed(3)}%. Maximum allowed is 100%. Current total: ${currentTotal.toFixed(3)}%.`
+        });
+      }
+    }
+
     const result = await db.query(
       `INSERT INTO plan_schedule_templates
          (project_id, plan_name, installment_name, installment_type, percentage,
@@ -256,6 +276,17 @@ router.get('/:id/towers/:towerId', async (req: AuthRequest, res: Response, next:
 // DELETE /api/projects/:id/towers/:towerId
 router.delete('/:id/towers/:towerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const unitCheck = await db.query(
+      `SELECT COUNT(*) as count FROM units WHERE tower_id = $1`,
+      [req.params.towerId]
+    );
+    const unitCount = parseInt(unitCheck.rows[0].count);
+    if (unitCount > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Cannot delete tower. It has ${unitCount} unit(s) linked to it. Please remove all units first.`
+      });
+    }
     await db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
     res.json({ success: true });
   } catch (err) { next(err); }

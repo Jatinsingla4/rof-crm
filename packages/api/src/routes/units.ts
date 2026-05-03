@@ -42,7 +42,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: 'A unit with this number already exists in this tower. Please use a different unit number.'
+      });
+    }
     next(error);
   }
 });

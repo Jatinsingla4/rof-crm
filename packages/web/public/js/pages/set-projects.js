@@ -450,7 +450,7 @@ Pages.setProjects = async function(params = {}) {
           </div>
         </div>
         <div class="alert alert-info" style="margin-top:12px">
-          <b>AHP Standard Schedule:</b> 5% Booking → 20% On Allotment (within 15 days) → 6 × 12.5% half-yearly → 5% On Possession = 100%
+          <b>AHP Standard Schedule:</b> 5% Booking → 20% On Allotment (within 15 days) → 6 × 12.5% half-yearly → 0% On Possession milestone = 100%
           &nbsp;<button class="btn btn-ghost btn-sm" onclick="SPJPage.loadAHPTemplate()">↻ Auto-fill this template</button>
         </div>
         <!-- Live schedule preview for selected project/plan -->
@@ -900,6 +900,27 @@ Object.assign(SPJPage, {
     if (projectId) await this.loadPlanPreview(projectId, planName);
   },
 
+  showPercentageWarning(currentTotal, adding, newTotal) {
+    const modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
+    modal.innerHTML = `
+      <div style="background:white;border-radius:12px;padding:40px;max-width:420px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="width:60px;height:60px;background:#ef4444;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:28px;color:white;">⚠</div>
+        <h2 style="color:#1e293b;font-size:20px;margin-bottom:12px;">Payment Plan Limit Exceeded</h2>
+        <p style="color:#64748b;margin-bottom:24px;line-height:1.6;">
+          Total installment percentage cannot exceed <strong>100%</strong>.<br><br>
+          Current total: <strong>${currentTotal}%</strong><br>
+          Attempting to add: <strong>${adding}%</strong><br>
+          This would result in: <strong style="color:#ef4444">${newTotal}%</strong>
+        </p>
+        <p style="color:#475569;font-size:14px;margin-bottom:24px;">
+          Please reduce the percentage to <strong>${(100 - currentTotal).toFixed(3)}%</strong> or less to complete this plan at exactly 100%.
+        </p>
+        <button onclick="this.closest('[style*=fixed]').remove()" style="background:#2563eb;color:white;border:none;padding:12px 32px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600;">OK, I Understand</button>
+      </div>`;
+    document.body.appendChild(modal);
+  },
+
   async addInstallment(e) {
     e.preventDefault();
     const form = e.target;
@@ -907,6 +928,27 @@ Object.assign(SPJPage, {
     if (!projectId) { Utils.warn('Please select a project first'); return; }
     const fd = new FormData(form);
     const body = Object.fromEntries(fd.entries());
+
+    // Enforce 100% cap before sending to backend
+    const newPercentage = parseFloat(body.percentage) || 0;
+    if (newPercentage > 0) {
+      try {
+        const planName = body.plan_name || 'Standard AHP Plan';
+        const existing = await Api.get(`/projects/${projectId}/plan-templates?planName=${encodeURIComponent(planName)}`);
+        const rows = existing.data || existing || [];
+        const currentTotal = rows.reduce((s, r) => s + (parseFloat(r.percentage) || 0), 0);
+        const newTotal = currentTotal + newPercentage;
+        if (currentTotal >= 100) {
+          this.showPercentageWarning(parseFloat(currentTotal.toFixed(3)), newPercentage, parseFloat((currentTotal + newPercentage).toFixed(3)));
+          return;
+        }
+        if (newTotal > 100) {
+          this.showPercentageWarning(parseFloat(currentTotal.toFixed(3)), newPercentage, parseFloat(newTotal.toFixed(3)));
+          return;
+        }
+      } catch { /* if pre-check fails, let backend validate */ }
+    }
+
     try {
       await Api.post(`/projects/${projectId}/plan-templates`, body);
       Utils.success(`"${body.installment_name}" added`);
@@ -991,7 +1033,7 @@ Object.assign(SPJPage, {
       { installment_name: '4th Half-Yearly',   installment_type: 'installment', percentage: '12.5', installment_index: 6, due_date_offset_days: 720 },
       { installment_name: '5th Half-Yearly',   installment_type: 'installment', percentage: '12.5', installment_index: 7, due_date_offset_days: 900 },
       { installment_name: '6th Half-Yearly',   installment_type: 'installment', percentage: '12.5', installment_index: 8, due_date_offset_days: 1080 },
-      { installment_name: 'On Possession',     installment_type: 'possession',  percentage: '5',    installment_index: 9, due_date_offset_days: 0 },
+      { installment_name: 'On Possession',     installment_type: 'possession',  percentage: '0',    installment_index: 9, due_date_offset_days: 0 },
     ];
     if (!confirm(`Load standard AHP schedule (9 items, 100%) for "${planName}"? Existing items with same plan name will coexist.`)) return;
     try {
