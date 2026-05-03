@@ -6,7 +6,7 @@ Pages.booking = async function(params = {}) {
 
   // Load all master data in parallel
   const [projectsRes, salutsRes, profsRes, natsRes, brokersRes, usersRes] = await Promise.allSettled([
-    Api.get('/projects'),
+    window.ProjectCache.load(),
     Api.get('/master/salutations'),
     Api.get('/master/professions'),
     Api.get('/master/nationalities'),
@@ -14,7 +14,7 @@ Pages.booking = async function(params = {}) {
     Api.get('/users'),
   ]);
 
-  const projects     = projectsRes.status==='fulfilled'  ? (projectsRes.value.data||[])  : [];
+  const projects     = projectsRes.status==='fulfilled'  ? (projectsRes.value.data||projectsRes.value||[])  : [];
   const salutations  = salutsRes.status==='fulfilled'    ? (salutsRes.value.data||[])    : [{name:'Mr.'},{name:'Mrs.'},{name:'Ms.'},{name:'Dr.'}];
   const professions  = profsRes.status==='fulfilled'     ? (profsRes.value.data||[])     : [{name:'Business'},{name:'Service'},{name:'Professional'}];
   const nationalities= natsRes.status==='fulfilled'      ? (natsRes.value.data||[])      : [{name:'Indian'},{name:'NRI'}];
@@ -45,9 +45,9 @@ Pages.booking = async function(params = {}) {
         <div style="display:flex;align-items:center;gap:10px">
           <span style="font-size:11px;color:var(--text3)">Applicant Type:</span>
           <div class="btg">
-            <button type="button" class="btg-item on" onclick="btgSelect(this,'accent')" id="bk-type-individual">Individual</button>
-            <button type="button" class="btg-item" onclick="btgSelect(this,'accent')">Multiple</button>
-            <button type="button" class="btg-item" onclick="btgSelect(this,'accent')">Company</button>
+            <button type="button" class="btg-item on" onclick="BookingPage.setApplicantType('individual')" id="bk-type-individual">Individual</button>
+            <button type="button" class="btg-item" onclick="BookingPage.setApplicantType('multiple')" id="bk-type-multiple">Multiple</button>
+            <button type="button" class="btg-item" onclick="BookingPage.setApplicantType('company')" id="bk-type-company">Company</button>
           </div>
         </div>
       </div>
@@ -187,6 +187,9 @@ Pages.booking = async function(params = {}) {
     <div class="sp" style="margin-bottom:14px">
       <div class="sp-hdr"><div class="sp-title">4. First Applicant Details</div></div>
       <div class="sp-body">
+
+        <!-- Individual fields (shown for Individual + Multiple, hidden for Company) -->
+        <div id="bk-indiv-fields">
         <div style="margin-bottom:10px">
           <label class="fl"><span class="r">*</span>Full Name</label>
           <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -256,6 +259,94 @@ Pages.booking = async function(params = {}) {
               <option value="">— Select —</option>
               <option>Below 10th</option><option>10th</option><option>12th</option>
               <option>Graduate</option><option>Post Graduate</option><option>PhD</option>
+            </select>
+          </div>
+        </div>
+        </div><!-- end #bk-indiv-fields -->
+
+        <!-- Company fields (shown only for Company type) -->
+        <div id="bk-company-fields" style="display:none">
+          <div class="sp-grid">
+            <div class="fg">
+              <label class="fl"><span class="r">*</span>Company Name</label>
+              <input class="fc" name="company_name" placeholder="Registered company name">
+            </div>
+            <div class="fg">
+              <label class="fl">Company Registration No.</label>
+              <input class="fc" name="company_reg_no" placeholder="CIN / Registration No.">
+            </div>
+            <div class="fg">
+              <label class="fl">GSTIN</label>
+              <input class="fc" name="company_gstin" placeholder="GST Identification No." maxlength="15">
+            </div>
+            <div class="fg">
+              <label class="fl"><span class="r">*</span>Authorized Person Name</label>
+              <input class="fc" name="authorized_person" placeholder="Full name of authorized signatory">
+            </div>
+            <div class="fg">
+              <label class="fl">Designation</label>
+              <input class="fc" name="authorized_designation" placeholder="e.g. Director, MD">
+            </div>
+            <div class="fg">
+              <label class="fl"><span class="r">*</span>Email ID</label>
+              <input type="email" class="fc" name="email" placeholder="company@example.com">
+            </div>
+            <div class="fg">
+              <label class="fl"><span class="r">*</span>Mobile No.</label>
+              <input class="fc" name="mobile" placeholder="9XXXXXXXXX" maxlength="10">
+            </div>
+          </div>
+        </div><!-- end #bk-company-fields -->
+
+      </div>
+    </div>
+
+    <!-- ── SECTION 4B: CO-APPLICANT DETAILS ─────────────────── -->
+    <div id="bk-coapplicant-section" class="sp" style="margin-bottom:14px;display:none">
+      <div class="sp-hdr"><div class="sp-title">4B. Co-Applicant Details</div></div>
+      <div class="sp-body">
+        <div style="margin-bottom:10px">
+          <label class="fl">Full Name</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <select class="fc" name="co_salutation" style="width:80px">${salutOpts}</select>
+            <input class="fc" style="flex:1;min-width:120px" placeholder="First Name" name="co_first_name">
+            <input class="fc" style="flex:1;min-width:100px" placeholder="Middle Name" name="co_middle_name">
+            <input class="fc" style="flex:1;min-width:120px" placeholder="Last Name" name="co_last_name">
+          </div>
+        </div>
+        <div class="sp-grid">
+          <div class="fg">
+            <label class="fl">Date of Birth</label>
+            <input type="date" class="fc" name="co_dob">
+          </div>
+          <div class="fg">
+            <label class="fl">Gender</label>
+            <select class="fc" name="co_gender">
+              <option value="">— Select —</option>
+              <option>Male</option><option>Female</option><option>Other</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">PAN No.</label>
+            <input class="fc" name="co_pan_no" placeholder="ABCDE1234F" maxlength="10" style="text-transform:uppercase">
+          </div>
+          <div class="fg">
+            <label class="fl">Aadhaar No.</label>
+            <input class="fc" name="co_aadhaar_no" placeholder="XXXX XXXX XXXX" maxlength="14">
+          </div>
+          <div class="fg">
+            <label class="fl">Email ID</label>
+            <input type="email" class="fc" name="co_email" placeholder="email@example.com">
+          </div>
+          <div class="fg">
+            <label class="fl">Mobile No.</label>
+            <input class="fc" name="co_mobile" placeholder="9XXXXXXXXX" maxlength="10">
+          </div>
+          <div class="fg">
+            <label class="fl">Relation to First Applicant</label>
+            <select class="fc" name="co_relation">
+              <option value="">— Select —</option>
+              <option>Spouse</option><option>Parent</option><option>Child</option><option>Sibling</option><option>Other</option>
             </select>
           </div>
         </div>
@@ -647,7 +738,28 @@ const BookingPage = {
     if (srcState && dstState) dstState.value = srcState.value;
   },
 
-  onReset() { this._units = []; },
+  onReset() { this._units = []; this._applicantType = 'individual'; },
+
+  setApplicantType(type) {
+    // Update button visual state
+    ['individual','multiple','company'].forEach(t => {
+      const btn = document.getElementById(`bk-type-${t}`);
+      if (btn) btn.classList.toggle('on', t === type);
+    });
+    // Toggle section visibility
+    const indiv = document.getElementById('bk-indiv-fields');
+    const company = document.getElementById('bk-company-fields');
+    const coapp = document.getElementById('bk-coapplicant-section');
+    if (indiv)   indiv.style.display   = (type === 'company') ? 'none' : '';
+    if (company) company.style.display = (type === 'company') ? ''     : 'none';
+    if (coapp)   coapp.style.display   = (type === 'multiple') ? ''    : 'none';
+    // Toggle required attributes: first_name/last_name required only for individual/multiple
+    const firstName = document.querySelector('[name="first_name"]');
+    const lastName  = document.querySelector('[name="last_name"]');
+    if (firstName) firstName.required = (type !== 'company');
+    if (lastName)  lastName.required  = (type !== 'company');
+    this._applicantType = type;
+  },
 
   async preview(e) {
     e.preventDefault();
@@ -701,11 +813,16 @@ const BookingPage = {
     btn.textContent = 'Saving…';
 
     try {
+      const applicantType = this._applicantType || 'individual';
+
       // Step 1: Create consumer
       const consumerRes = await Api.post('/consumers', {
+        applicant_type: applicantType,
         first_name: body.first_name,
         last_name: body.last_name,
-        name: `${body.first_name||''} ${body.last_name||''}`.trim(),
+        name: applicantType === 'company'
+          ? (body.company_name || 'Company')
+          : `${body.first_name||''} ${body.last_name||''}`.trim(),
         email: body.email,
         mobile: body.mobile,
         project_id: body.project_id || null,
@@ -721,6 +838,22 @@ const BookingPage = {
         annual_income: body.annual_income ? parseFloat(body.annual_income) : null,
         company: body.company,
         form_no: body.form_no || null,
+        // Company applicant fields
+        company_name: body.company_name || null,
+        company_reg_no: body.company_reg_no || null,
+        company_gstin: body.company_gstin || null,
+        authorized_person: body.authorized_person || null,
+        authorized_designation: body.authorized_designation || null,
+        // Co-applicant fields (for multiple type)
+        co_applicant_first_name: body.co_first_name || null,
+        co_applicant_last_name: body.co_last_name || null,
+        co_applicant_salutation: body.co_salutation || null,
+        co_applicant_pan_no: body.co_pan_no || null,
+        co_applicant_aadhaar_no: body.co_aadhaar_no || null,
+        co_applicant_mobile: body.co_mobile || null,
+        co_applicant_email: body.co_email || null,
+        co_applicant_dob: body.co_dob || null,
+        co_applicant_relation: body.co_relation || null,
       });
       const consumer = consumerRes.data || consumerRes;
 
@@ -774,6 +907,12 @@ const BookingPage = {
   },
 
   showBookingConfirmation(data) {
+    const formatDate = (dateStr) => {
+      if (!dateStr) return 'N/A';
+      const d = new Date(dateStr + 'T00:00:00');
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    };
+
     const modal = document.createElement('div');
     modal.style.cssText = `
       position: fixed;
@@ -786,6 +925,8 @@ const BookingPage = {
       z-index: 9999;
     `;
 
+    const consumerIdSafe = (data.consumer_id || '').replace(/'/g, '');
+
     modal.innerHTML = `
       <div style="
         background: white;
@@ -795,7 +936,27 @@ const BookingPage = {
         width: 90%;
         text-align: center;
         box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        position: relative;
       ">
+        <button id="bk-confirm-close" style="
+          position: absolute;
+          top: 16px;
+          right: 16px;
+          background: none;
+          border: none;
+          font-size: 24px;
+          color: #94a3b8;
+          cursor: pointer;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          transition: background 0.2s;
+          line-height: 1;
+        " onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='none'">&#x2715;</button>
+
         <div style="
           width: 60px; height: 60px;
           background: #22c55e;
@@ -826,72 +987,26 @@ const BookingPage = {
           margin-bottom: 24px;
           text-align: left;
         ">
-          <div style="
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-          ">
-            <span style="color:#64748b;font-weight:500">
-              Registration No.
-            </span>
-            <span style="
-              color:#0f172a;
-              font-weight:700;
-              font-size:18px;
-              color:#2563eb;
-            ">${data.registration_no || 'N/A'}</span>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#64748b;font-weight:500">Registration No.</span>
+            <span style="color:#2563eb;font-weight:700;font-size:18px;">${data.registration_no || 'N/A'}</span>
           </div>
-          <div style="
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-          ">
-            <span style="color:#64748b;font-weight:500">
-              Form No.
-            </span>
-            <span style="color:#0f172a;font-weight:600">
-              ${data.form_no || 'N/A'}
-            </span>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#64748b;font-weight:500">Form No.</span>
+            <span style="color:#0f172a;font-weight:600;">${data.form_no || 'N/A'}</span>
           </div>
-          <div style="
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-          ">
-            <span style="color:#64748b;font-weight:500">
-              Applicant Name
-            </span>
-            <span style="color:#0f172a;font-weight:600">
-              ${data.consumer_name || 'N/A'}
-            </span>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#64748b;font-weight:500">Applicant Name</span>
+            <span style="color:#0f172a;font-weight:600;">${data.consumer_name || 'N/A'}</span>
           </div>
-          <div style="
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #e2e8f0;
-          ">
-            <span style="color:#64748b;font-weight:500">
-              Booking Date
-            </span>
-            <span style="color:#0f172a;font-weight:600">
-              ${data.booking_date || 'N/A'}
-            </span>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;">
+            <span style="color:#64748b;font-weight:500">Booking Date</span>
+            <span style="color:#0f172a;font-weight:600;">${formatDate(data.booking_date)}</span>
           </div>
         </div>
 
-        <div style="
-          display: flex;
-          gap: 12px;
-          justify-content: center;
-        ">
-          <button onclick="
-            window.location.hash = '#/consumer?id=${data.consumer_id}';
-            this.closest('[style*=fixed]').remove();
-          " style="
+        <div style="display:flex;gap:12px;justify-content:center;">
+          <button id="bk-view-profile-btn" data-id="${consumerIdSafe}" style="
             background: #2563eb;
             color: white;
             border: none;
@@ -902,10 +1017,7 @@ const BookingPage = {
             font-weight: 600;
           ">View Consumer Profile</button>
 
-          <button onclick="
-            this.closest('[style*=fixed]').remove();
-            window.location.hash = '#/booking';
-          " style="
+          <button id="bk-new-booking-btn" style="
             background: #f1f5f9;
             color: #475569;
             border: none;
@@ -919,6 +1031,33 @@ const BookingPage = {
       </div>
     `;
 
+    const closeModal = () => {
+      modal.remove();
+      document.removeEventListener('keydown', escHandler);
+    };
+
+    const escHandler = (e) => {
+      if (e.key === 'Escape') closeModal();
+    };
+
+    document.addEventListener('keydown', escHandler);
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
     document.body.appendChild(modal);
+
+    document.getElementById('bk-confirm-close').addEventListener('click', closeModal);
+
+    document.getElementById('bk-view-profile-btn').addEventListener('click', () => {
+      closeModal();
+      window.location.hash = `#/consumer?id=${consumerIdSafe}`;
+    });
+
+    document.getElementById('bk-new-booking-btn').addEventListener('click', () => {
+      closeModal();
+      window.location.hash = '#/booking';
+    });
   },
 };

@@ -52,7 +52,7 @@ const ReportsPage = {
   async _loadLookups() {
     try {
       const [pr, cr] = await Promise.allSettled([
-        Api.get('/units/projects'),
+        window.ProjectCache.load(),
         Api.get('/consumers', { params: { pageSize: 500 } }),
       ]);
       this._projects = pr.status === 'fulfilled' ? (pr.value.data || pr.value || []) : [];

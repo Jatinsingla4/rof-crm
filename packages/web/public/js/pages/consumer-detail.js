@@ -22,7 +22,7 @@ Pages.consumerDetail = async function(params = {}) {
     content.innerHTML = `
       <div class="page-hdr">
         <h1>${fullName}</h1>
-        <div class="breadcrumb">Consumers / <b>${c.id || id}</b></div>
+        <div class="breadcrumb">Consumers / <b>${(c.registration_no || c.id) + ' — ' + fullName}</b></div>
       </div>
 
       <div class="tabs-line">
@@ -42,7 +42,7 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0;color:#fff">${initials}</div>
               <div style="flex:1">
                 <div style="font-size:15px;font-weight:700;color:var(--text)">${fullName}</div>
-                <div style="font-size:10px;color:var(--text3)">${c.id || ''} · ${c.project_name || c.projectName || '—'}</div>
+                <div style="font-size:10px;color:var(--text3)">${c.registration_no || c.id || ''} · ${c.project_name || c.projectName || '—'}</div>
                 <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
                   ${Utils.chip(c.lead_stage || c.leadStage || 'enquiry')}
                   ${Utils.chip(c.income_category || c.incomeCategory || 'EWS')}
@@ -54,7 +54,7 @@ Pages.consumerDetail = async function(params = {}) {
             <div class="stat-line"><span class="sl-l">Aadhaar</span><span class="sl-v">${c.aadhaar_no || c.aadhaarNo ? '••••••••' + (c.aadhaar_no || c.aadhaarNo).slice(-4) : '—'}</span></div>
             <div class="stat-line"><span class="sl-l">PAN</span><span class="sl-v">${c.pan_no || c.panNo || '—'}</span></div>
             <div class="stat-line"><span class="sl-l">Project</span><span class="sl-v">${c.project_name || c.projectName || '—'}</span></div>
-            <div class="stat-line"><span class="sl-l">Unit</span><span class="sl-v" style="color:var(--teal);font-weight:600">${c.unit_no || c.unitNo || 'TBD'}</span></div>
+            <div class="stat-line"><span class="sl-l">Unit</span><span class="sl-v" style="color:var(--teal);font-weight:600">${c.unit_number || c.unit_no || c.unitNo || 'TBD'}</span></div>
             <div class="stat-line"><span class="sl-l">Category</span><span class="sl-v">${c.income_category || c.incomeCategory || '—'}</span></div>
             <div class="stat-line"><span class="sl-l">Created</span><span class="sl-v">${Utils.date(c.created_at || c.createdAt)}</span></div>
             
@@ -418,34 +418,39 @@ const ConsumerDetailPage = {
       const kycEl = document.getElementById(`kyc-list-${id}`);
       const kycItems = ['Physical Application Form', 'Aadhaar Card', 'PAN Card', 'Income Certificate', 'Invitation Letter'];
       if (kycEl) kycEl.innerHTML = `
-        <div style="font-size:11px;color:var(--text3);margin-bottom:10px">Document Compliance Verification Grid</div>
-        <table style="width:100%;font-size:11px">
+        <p style="color:#64748b;font-size:13px;margin-bottom:16px;">Document Compliance Verification Grid</p>
+        <table style="width:100%;border-collapse:collapse;">
           <thead>
-            <tr style="text-align:left;border-bottom:1px solid var(--border2)">
-              <th style="padding-bottom:6px">Verified</th><th style="padding-bottom:6px">Document Type</th><th style="padding-bottom:6px">Physical Storage No.</th><th style="padding-bottom:6px">Document Number</th><th style="padding-bottom:6px">Remarks</th><th style="padding-bottom:6px">Action</th>
+            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+              <th style="width:50px;padding:12px 16px;text-align:center;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">VERIFIED</th>
+              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT TYPE</th>
+              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT NUMBER</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody id="kyc-checklist-body">
             ${kycItems.map(item => {
               const uploaded = docs.some(d => (d.title||d.name||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
               let isPopulated = false;
               let docNumber = '';
               if (item === 'Aadhaar Card' && consumer.aadhaar_no) { isPopulated = true; docNumber = consumer.aadhaar_no; }
               if (item === 'PAN Card' && consumer.pan_no) { isPopulated = true; docNumber = consumer.pan_no; }
-              const isChecked = uploaded || isPopulated;
-              return `<tr style="border-bottom:1px solid var(--border2)">
-                <td style="padding:8px 0"><input type="checkbox" ${isChecked ? 'checked' : ''}></td>
-                <td style="padding:8px 0;font-weight:600;color:${isChecked?'var(--green)':'var(--text)'}">${item}</td>
-                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="File/Folder No."></td>
-                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Document Number" value="${docNumber}"></td>
-                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Remarks"></td>
-                <td style="padding:8px 0"><button class="btn btn-ghost btn-sm" onclick="Utils.success('Verified ${item}')">Verify</button></td>
+              const isVerified = uploaded || isPopulated;
+              return `<tr style="border-bottom:1px solid #f1f5f9;transition:background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+                <td style="padding:14px 16px;text-align:center;">
+                  <input type="checkbox" data-doc-type="${item}" ${isVerified ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;accent-color:#0d9488;">
+                </td>
+                <td style="padding:14px 16px;">
+                  <span style="font-weight:${isVerified?'600':'400'};color:${isVerified?'#0d9488':'#1e293b'};font-size:14px;">${item}</span>
+                </td>
+                <td style="padding:14px 16px;">
+                  <span style="font-size:14px;color:${docNumber?'#0f172a':'#94a3b8'};font-family:${docNumber?'monospace':'inherit'};">${docNumber || '—'}</span>
+                </td>
               </tr>`;
             }).join('')}
           </tbody>
         </table>
-        <div style="margin-top:10px;display:flex;justify-content:flex-end">
-           <button class="btn btn-teal btn-sm" onclick="Utils.success('Compliance checklist saved')">Save Compliance Data</button>
+        <div style="margin-top:16px;text-align:right;">
+          <button id="btn-save-kyc" class="btn btn-teal btn-sm" onclick="Utils.success('Compliance checklist saved')">Save Compliance Data</button>
         </div>`;
 
       const el = document.getElementById(`docs-vault-${id}`);

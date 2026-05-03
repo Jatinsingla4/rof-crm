@@ -1,6 +1,36 @@
 // ROF CRM — Application Entry Point
 // Initializes theme, auth guard, navigation, and router
 
+// ── GLOBAL PROJECT CACHE ─────────────────────────────────────────────────────
+// Single source of truth for project list. All pages use this instead of
+// making their own /projects API calls. Cached for 30s; force-refreshed
+// after any project create/update so all dropdowns stay in sync.
+window.ProjectCache = {
+  _data: [],
+  _lastFetched: null,
+  _listeners: [],
+
+  async load(force = false) {
+    const now = Date.now();
+    if (!force && this._lastFetched && (now - this._lastFetched) < 30000 && this._data.length > 0) {
+      return this._data;
+    }
+    try {
+      const res = await Api.get('/projects');
+      this._data = res.data || res || [];
+      this._lastFetched = now;
+      this._notify();
+    } catch (err) {
+      console.error('[ProjectCache] load failed:', err);
+    }
+    return this._data;
+  },
+
+  subscribe(fn) { this._listeners.push(fn); },
+  _notify() { this._listeners.forEach(fn => { try { fn(this._data); } catch(e) {} }); },
+  refresh() { return this.load(true); },
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
 
   // ── 1. THEME ─────────────────────────────────

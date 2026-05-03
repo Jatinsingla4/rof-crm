@@ -135,7 +135,7 @@ const DemandsPage = {
   async loadDropdowns() {
     try {
       const [projRes, consRes] = await Promise.allSettled([
-        Api.get('/projects', { params: { pageSize: 100 } }),
+        window.ProjectCache.load(),
         Api.get('/consumers', { params: { pageSize: 300 } }),
       ]);
 

@@ -4,16 +4,19 @@ Pages.demandRaise = async function(params = {}) {
   const content = document.getElementById('content');
   
   // Load initial data for filters
-  let projects = [];
+  let projects = []; // [{id, name}]
   let towers = [];
   try {
-    const [pRes, tRes] = await Promise.all([
-      Api.get('/units', { params: { page: 1, pageSize: 300 } }),
-      Api.get('/units', { params: { page: 1, pageSize: 300 } }) // Simplified tower fetch
-    ]);
+    const pRes = await Api.get('/units', { params: { page: 1, pageSize: 300 } });
     const units = pRes.data || pRes || [];
-    projects = [...new Set(units.map(u => u.project_name || u.projectName).filter(Boolean))];
-    towers = [...new Set(units.map(u => u.tower_id || u.towerName).filter(Boolean))];
+    const seen = new Set();
+    projects = units.reduce((acc, u) => {
+      const id = u.project_id || u.projectId;
+      const name = u.project_name || u.projectName;
+      if (id && name && !seen.has(id)) { seen.add(id); acc.push({ id, name }); }
+      return acc;
+    }, []);
+    towers = [...new Set(units.map(u => u.tower_name || u.towerName).filter(Boolean))];
   } catch {}
 
   content.innerHTML = `
@@ -31,7 +34,7 @@ Pages.demandRaise = async function(params = {}) {
             <label class="fl"><span class="r">*</span>Project:</label>
             <select class="fc" id="f-project">
               <option value="">— Select —</option>
-              ${projects.map(p => `<option>${p}</option>`).join('')}
+              ${projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
             </select>
           </div>
           <div class="fg">
@@ -44,20 +47,20 @@ Pages.demandRaise = async function(params = {}) {
             <label class="fl"><span class="r">*</span>Installment:</label>
             <select class="fc" id="f-installment">
               <option value="">— Select —</option>
-              <option value="At the time of Allotment">At the time of Allotment (20.00%)</option>
-              <option value="Within 6 months from Allotment">Within 6 months (12.50%)</option>
-              <option value="Within 12 months from Allotment">Within 12 months (12.50%)</option>
-              <option value="Within 18 months from Allotment">Within 18 months (12.50%)</option>
-              <option value="Within 24 months from Allotment">Within 24 months (12.50%)</option>
-              <option value="Within 30 months from Allotment">Within 30 months (12.50%)</option>
-              <option value="Within 36 months from Allotment">Within 36 months (12.50%)</option>
+              <option value="allotment">At the time of Allotment (20.00%)</option>
+              <option value="installment_1">Within 6 months (12.50%)</option>
+              <option value="installment_2">Within 12 months (12.50%)</option>
+              <option value="installment_3">Within 18 months (12.50%)</option>
+              <option value="installment_4">Within 24 months (12.50%)</option>
+              <option value="installment_5">Within 30 months (12.50%)</option>
+              <option value="installment_6">Within 36 months (12.50%)</option>
             </select>
           </div>
           <div class="fg">
             <label class="fl">Tower:</label>
             <select class="fc" id="f-tower">
               <option value="">— Select —</option>
-              ${towers.map(t => `<option>${t}</option>`).join('')}
+              ${towers.map(t => `<option value="${t}">${t}</option>`).join('')}
             </select>
           </div>
           <div class="fg">
@@ -171,6 +174,7 @@ const DemandRaisePage = {
       this._data = res.data || res || [];
       this.renderTable(this._data);
     } catch (err) {
+      document.getElementById('dr-table-body').innerHTML = `<tr><td colspan="10" style="text-align:center;padding:20px;color:#dc3545">Error: ${err.message}</td></tr>`;
       Utils.error(err.message);
     }
   },

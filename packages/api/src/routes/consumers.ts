@@ -20,6 +20,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       first_name, last_name, middle_name, salutation, dob, gender, profession, nationality,
       annual_income, education, company, ppp_id, pan_no, aadhaar_no, alt_mobile,
       source_of_enquiry, referred_by, lead_stage, form_no,
+      // Applicant type
+      applicant_type,
+      // Company applicant fields
+      company_name, company_reg_no, company_gstin, authorized_person, authorized_designation,
+      // Co-applicant fields
+      co_applicant_first_name, co_applicant_last_name, co_applicant_salutation,
+      co_applicant_pan_no, co_applicant_aadhaar_no, co_applicant_mobile,
+      co_applicant_email, co_applicant_dob, co_applicant_relation,
       // Addresses
       present_address_line1, present_address_line2, present_city, present_state, present_pin, present_country,
       perm_address_line1, perm_city, perm_state, perm_pin, perm_country,
@@ -45,9 +53,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const aadhaarHash = rawAadhaar ? createHash('sha256').update(rawAadhaar.replace(/\s/g,'')).digest('hex') : null;
     const panHash     = rawPan     ? createHash('sha256').update(rawPan.toUpperCase().trim()).digest('hex') : null;
 
-    // PARAM COUNT: 49 params
-    // If adding new fields, update this count
-    // Columns, placeholders and params must always match exactly
     const result = await db.query(
       `INSERT INTO consumers (
          name, mobile, email, aadhaar_hash, aadhaar_no, pan_hash, pan_no, parivar_pehchan_patra,
@@ -59,7 +64,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          perm_address, perm_city, perm_state, perm_pin, perm_country,
          office_address, office_city, office_state, office_pin,
          nominee_name, nominee_relation, nominee_dob, nominee_share,
-         finance_bank, loan_amount, loan_sanction_date, form_no
+         finance_bank, loan_amount, loan_sanction_date, form_no,
+         applicant_type, company_name, company_reg_no, company_gstin, authorized_person, authorized_designation
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
@@ -68,7 +74,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          $33,$34,$35,$36,$37,
          $38,$39,$40,$41,
          $42,$43,$44,$45,
-         $46,$47,$48,$49
+         $46,$47,$48,$49,
+         $50,$51,$52,$53,$54,$55
        )
        RETURNING id, name, mobile, email, lead_stage, project_id, created_at`,
       [
@@ -86,10 +93,32 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         nominee_name||null, nominee_relation||null, nominee_dob||null,
         nominee_share?parseFloat(nominee_share):100,
         finance_bank||null, loan_amount?parseFloat(loan_amount):null, loan_sanction_date||null, form_no||null,
+        applicant_type||'individual',
+        company_name||null, company_reg_no||null, company_gstin||null,
+        authorized_person||null, authorized_designation||null,
       ]
     );
 
-    res.status(201).json({ success: true, data: result.rows[0] });
+    const consumer = result.rows[0];
+
+    // If multiple applicant type and co-applicant data provided, insert co-applicant record
+    if ((applicant_type === 'multiple') && co_applicant_first_name) {
+      const coName = `${co_applicant_first_name||''} ${co_applicant_last_name||''}`.trim();
+      await db.query(
+        `INSERT INTO co_applicants
+           (consumer_id, name, first_name, last_name, salutation, relationship,
+            pan_no, aadhaar_no, mobile, email, dob)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [
+          consumer.id, coName, co_applicant_first_name||null, co_applicant_last_name||null,
+          co_applicant_salutation||null, co_applicant_relation||null,
+          co_applicant_pan_no||null, co_applicant_aadhaar_no||null,
+          co_applicant_mobile||null, co_applicant_email||null, co_applicant_dob||null,
+        ]
+      );
+    }
+
+    res.status(201).json({ success: true, data: consumer });
   } catch (error) {
     next(error);
   }
@@ -261,9 +290,11 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       `SELECT c.id, c.name, c.first_name, c.last_name, c.middle_name, c.photo_url, c.mobile, c.email,
               c.income_category, c.lead_stage, c.allocated_unit_id, c.created_at,
               c.aadhaar_no, c.aadhaar_hash, c.pan_no, c.parivar_pehchan_patra, c.registration_no, c.form_no, c.project_id,
-              u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr
+              u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
+              p.name as project_name
        FROM consumers c
        LEFT JOIN units u ON c.allocated_unit_id = u.id
+       LEFT JOIN projects p ON c.project_id = p.id
        WHERE c.id = $1`,
       [id]
     );

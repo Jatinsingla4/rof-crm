@@ -573,6 +573,95 @@ router.get('/inventory-full', async (req: AuthRequest, res: Response, next: Next
   } catch (error) { next(error); }
 });
 
+// GET /api/reports/unit-wise-plc - PLC breakdown per unit
+router.get('/unit-wise-plc', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const result = await db.query(
+      `SELECT
+         u.unit_number,
+         t.tower_name,
+         u.bhk_type,
+         u.floor,
+         u.carpet_area_sqft,
+         u.super_area_sqft,
+         u.base_price_inr,
+         u.status,
+         ROUND(u.base_price_inr * 0.05) AS plc_amount,
+         COALESCE(c.first_name || ' ' || COALESCE(c.last_name, ''), 'Available') AS consumer_name
+       FROM units u
+       JOIN towers t ON u.tower_id = t.id
+       LEFT JOIN allocations a ON a.unit_id = u.id AND a.status = 'allotted'
+       LEFT JOIN consumers c ON c.id = a.consumer_id
+       WHERE u.project_id = $1
+         AND t.deleted_at IS NULL
+       ORDER BY t.tower_name, u.unit_number`,
+      [projectId]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// GET /api/reports/unit-sold-area - Sold vs available area breakdown by carpet area range
+router.get('/unit-sold-area', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const result = await db.query(
+      `SELECT
+         CASE
+           WHEN u.carpet_area_sqft < 200  THEN 'Under 200 sqft'
+           WHEN u.carpet_area_sqft < 400  THEN '200–400 sqft'
+           WHEN u.carpet_area_sqft < 600  THEN '400–600 sqft'
+           WHEN u.carpet_area_sqft < 800  THEN '600–800 sqft'
+           ELSE '800+ sqft'
+         END AS area_range,
+         COUNT(CASE WHEN u.status = 'available' THEN 1 END) AS available_count,
+         COUNT(CASE WHEN u.status <> 'available' THEN 1 END) AS sold_count
+       FROM units u
+       JOIN towers t ON u.tower_id = t.id
+       WHERE u.project_id = $1
+         AND t.deleted_at IS NULL
+       GROUP BY area_range
+       ORDER BY MIN(u.carpet_area_sqft)`,
+      [projectId]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// GET /api/reports/unit-cost - Cost breakdown per unit
+router.get('/unit-cost', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const result = await db.query(
+      `SELECT
+         u.unit_number,
+         t.tower_name,
+         u.bhk_type,
+         u.carpet_area_sqft,
+         u.base_price_inr,
+         u.total_price_inr,
+         u.status
+       FROM units u
+       JOIN towers t ON u.tower_id = t.id
+       WHERE u.project_id = $1
+         AND t.deleted_at IS NULL
+       ORDER BY t.tower_name, u.unit_number`,
+      [projectId]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
 // GET /api/reports/applicant-payment-file - Advanced financial ledger
 router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

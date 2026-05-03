@@ -227,7 +227,7 @@ const ParkingPage = {
   async _loadLookups() {
     try {
       const [pRes, cRes] = await Promise.allSettled([
-        Api.get('/units/projects'),
+        window.ProjectCache.load(),
         Api.get('/consumers', { params: { leadStage: 'allotted', pageSize: 500 } }),
       ]);
       this._projects = pRes.status === 'fulfilled' ? (pRes.value.data || pRes.value || []) : [];

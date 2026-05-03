@@ -147,8 +147,9 @@ const InventoryHoldPage = {
     if (!pid) return;
 
     try {
-      const res = await Api.get('/master/towers', { params: { projectId: pid } });
-      tSelect.innerHTML = '<option value="">— Select —</option>' + res.data.map(t => `<option value="${t.id}">${t.tower_name}</option>`).join('');
+      const res = await Api.get(`/units/tower/${pid}`);
+      const towers = res.data || res || [];
+      tSelect.innerHTML = '<option value="">— Select —</option>' + towers.map(t => `<option value="${t.id}">${t.tower_name}</option>`).join('');
     } catch(e) { console.error(e); }
   },
 

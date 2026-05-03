@@ -486,7 +486,7 @@ router.get('/campaigns', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const { projectId, channel } = req.query;
 
-    let query = `SELECT id, project_id, channel, total_recipients, delivered_count, status, created_at
+    let query = `SELECT id, name, project_id, channel, message, total_recipients, delivered_count, status, created_at
                  FROM broadcast_campaigns WHERE 1=1`;
     const params: any[] = [];
 
@@ -511,6 +511,42 @@ router.get('/campaigns', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (error) {
     next(error);
   }
+});
+
+// POST /api/communications/campaigns - Create broadcast campaign
+router.post('/campaigns', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { name, channel, message, segment, projectId } = req.body;
+
+    if (!name || !channel || !message) {
+      return res.status(400).json({ error: 'name, channel and message are required' });
+    }
+
+    // project_id is NOT NULL in schema — use provided or fall back to first available project
+    let resolvedProjectId = projectId || null;
+    if (!resolvedProjectId) {
+      const pRes = await db.query(`SELECT id FROM projects LIMIT 1`);
+      if (pRes.rows.length === 0) return res.status(400).json({ error: 'No projects available' });
+      resolvedProjectId = pRes.rows[0].id;
+    }
+
+    const result = await db.query(
+      `INSERT INTO broadcast_campaigns (name, channel, message, project_id, status, created_by_user_id)
+       VALUES ($1, $2, $3, $4, 'draft', $5)
+       RETURNING id, name, channel, message, project_id, status, created_at`,
+      [name, channel, message, resolvedProjectId, req.userId]
+    );
+
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// DELETE /api/communications/campaigns/:id - Delete a campaign
+router.delete('/campaigns/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await db.query(`DELETE FROM broadcast_campaigns WHERE id = $1`, [req.params.id]);
+    res.json({ success: true });
+  } catch (error) { next(error); }
 });
 
 // POST /api/communications/:consumerId/send — unified send by consumer + channel

@@ -97,16 +97,21 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // POST /api/brokers
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, firmName, mobile, email, reraNumber, pan, address, commissionPct = 2.00, parentBrokerId, bankAccountDetails, gstNo } = req.body;
+    const { name, contact_person, firmName, firm_name, mobile, email, rera_no, reraNumber, pan, pan_no, address, commissionPct = 2.00, parentBrokerId, bankAccountDetails, gstNo, gst_no } = req.body;
+    const resolvedFirmName = firmName || firm_name;
+    const resolvedName = name || contact_person || resolvedFirmName;
+    const resolvedReraNo = reraNumber || rera_no;
+    const resolvedPan = pan || pan_no;
+    const resolvedGst = gstNo || gst_no;
 
-    if (!name || !mobile || !firmName) return res.status(400).json({ error: 'name, firmName, and mobile are required' });
+    if (!resolvedName || !mobile || !resolvedFirmName) return res.status(400).json({ error: 'name, firmName, and mobile are required' });
 
     const result = await db.query(
       `INSERT INTO brokers (name, firm_name, mobile, email, rera_number, pan, address, commission_pct, status, created_by, parent_broker_id, tax_id_gst, tax_id_pan, bank_account_details)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $12, $13)
        RETURNING id, name, firm_name, mobile, status, commission_pct, created_at`,
-      [name, firmName, mobile, email || null, reraNumber || null, pan || null,
-       address || null, commissionPct, req.userId, parentBrokerId || null, gstNo || null, pan || null, bankAccountDetails ? JSON.stringify(bankAccountDetails) : null]
+      [resolvedName, resolvedFirmName, mobile, email || null, resolvedReraNo || null, resolvedPan || null,
+       address || null, commissionPct, req.userId, parentBrokerId || null, resolvedGst || null, resolvedPan || null, bankAccountDetails ? JSON.stringify(bankAccountDetails) : null]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });

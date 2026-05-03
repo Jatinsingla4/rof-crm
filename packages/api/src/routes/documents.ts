@@ -44,20 +44,27 @@ function decrypt(text: string): string {
 // POST /api/documents/templates - Create document template
 router.post('/templates', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, documentType, title, name, htmlContent, bodyHtml, mergeFields } = req.body;
+    const { projectId, documentType, title, name, htmlContent, bodyHtml, body, mergeFields } = req.body;
     const templateName = name || title;
-    const templateBody = bodyHtml || htmlContent;
+    const templateBody = bodyHtml || htmlContent || body || '';
 
-    // Validate required fields
-    if (!projectId || !documentType || !templateName || !templateBody) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!templateName || !documentType) {
+      return res.status(400).json({ error: 'name and documentType are required' });
+    }
+
+    // project_id is NOT NULL — use provided value or fall back to first available project
+    let resolvedProjectId = projectId || null;
+    if (!resolvedProjectId) {
+      const pRes = await db.query(`SELECT id FROM projects LIMIT 1`);
+      if (pRes.rows.length === 0) return res.status(400).json({ error: 'No projects available' });
+      resolvedProjectId = pRes.rows[0].id;
     }
 
     const result = await db.query(
       `INSERT INTO document_templates (project_id, document_type, name, body_html, merge_fields, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, document_type, name, created_at`,
-      [projectId, documentType, templateName, templateBody, JSON.stringify(mergeFields || []), req.userId]
+      [resolvedProjectId, documentType, templateName, templateBody, mergeFields || [], req.userId]
     );
 
     res.status(201).json({
@@ -185,23 +192,23 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     // 2. Auto-Merge Logic (if mergeData missing)
     if (!mergeData) {
       const dataRes = await db.query(
-        `SELECT c.*, u.unit_number, u.carpet_area, u.unit_category, p.name as project_name, p.sector as project_sector, p.rera_number as project_rera
+        `SELECT c.*, u.unit_number, u.bhk_type as unit_category, u.carpet_area_sqft as carpet_area, p.name as project_name, p.location as project_sector, p.rera_number as project_rera
          FROM consumers c
          LEFT JOIN units u ON c.allocated_unit_id = u.id
          LEFT JOIN projects p ON u.project_id = p.id
          WHERE c.id = $1`,
         [consumerId]
       );
-      
+
       const d = dataRes.rows[0];
       if (d) {
         mergeData = {
-          consumerName: d.name || `${d.first_name} ${d.last_name}`,
+          consumerName: d.name || `${d.first_name || ''} ${d.last_name || ''}`.trim() || '—',
           fatherName: d.father_name || '—',
-          address: d.present_address || '—',
+          address: d.present_address || d.address || '—',
           mobile: d.mobile || '—',
           email: d.email || '—',
-          customerId: d.registration_no || '—',
+          customerId: d.registration_no || d.id?.slice(0, 8).toUpperCase() || '—',
           reraNo: d.project_rera || '75 OF 2019 Dated 09.12.19',
           projectName: d.project_name || '—',
           projectSector: d.project_sector || '—',

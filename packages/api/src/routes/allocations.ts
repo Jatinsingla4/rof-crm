@@ -12,7 +12,7 @@ const router = Router();
 // POST /api/allocations - Create allocation (one-click allotment)
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, unitId, projectId } = req.body;
+    const { consumerId, unitId, projectId, allotmentDate, remarks } = req.body;
 
     const isValidUUID = (str: string): boolean => {
       return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);

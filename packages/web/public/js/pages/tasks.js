@@ -194,7 +194,11 @@ const TasksPage = {
       try {
         await Api.delete(`/tasks/${taskId}`);
         Utils.success('Task deleted');
-        await this.load('all');
+        await Promise.all([
+          this.load('all'),
+          this.load('pending'),
+          this.load('completed'),
+        ]);
       } catch (err) { Utils.error(err.message); }
     });
   },

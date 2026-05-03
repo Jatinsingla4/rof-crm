@@ -335,8 +335,7 @@ const AllotmentPage = {
 
   async loadProjects() {
     try {
-      const res = await Api.get('/projects', { params: { pageSize: 100 } });
-      const list = res.data || res || [];
+      const list = await window.ProjectCache.load();
       ['allot-project-sel','edraw-project','sr-project','letter-proj-sel'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— Select Project —</option>' +

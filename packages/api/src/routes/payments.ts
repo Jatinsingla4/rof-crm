@@ -129,47 +129,54 @@ router.get('/overdue', async (req: AuthRequest, res: Response, next: NextFunctio
 // POST /api/payments/receipts - Record payment receipt
 router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { paymentPlanId, installmentIndex, amountReceivedInr, paymentMethod, transactionRef, receivedDate } =
-      req.body;
+    const {
+      consumerId, amountReceivedInr, paymentDate, paymentMode,
+      referenceNumber, bankName, branch, remarks,
+      baseAmount, plcAmount, edcAmount, idcAmount,
+      // legacy fields
+      paymentPlanId: legacyPlanId, installmentIndex: legacyIdx,
+      paymentMethod, transactionRef, receivedDate,
+    } = req.body;
 
-    // Get demand details
-    const demandResult = await db.query(
-      `SELECT consumer_id, amount_due_inr FROM demands
-       WHERE payment_plan_id = $1 AND installment_index = $2`,
-      [paymentPlanId, installmentIndex]
-    );
-
-    if (demandResult.rows.length === 0) {
-      return res.status(404).json({ error: 'Demand not found' });
+    const amount = amountReceivedInr || baseAmount;
+    if (!consumerId || !amount) {
+      return res.status(400).json({ error: 'consumerId and amount are required' });
     }
 
-    const { consumer_id, amount_due_inr } = demandResult.rows[0];
+    // Look up the consumer's payment plan
+    const planResult = await db.query(
+      `SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [consumerId]
+    );
+    const resolvedPlanId = legacyPlanId || (planResult.rows[0]?.id);
+    if (!resolvedPlanId) {
+      return res.status(400).json({ error: 'No payment plan found for this consumer. Please complete allotment first.' });
+    }
 
-    // Generate receipt number (format: YYYY-MM-XXXXX)
-    const receiptNumber = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+    // Get next installment_index for this plan
+    const idxResult = await db.query(
+      `SELECT COALESCE(MAX(installment_index), -1) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1`,
+      [resolvedPlanId]
+    );
+    const resolvedIdx = legacyIdx ?? idxResult.rows[0].next_idx;
 
-    // Insert receipt (default status: pending)
+    const receiptDate = paymentDate || receivedDate || new Date().toISOString().split('T')[0];
+    const method = paymentMode || paymentMethod || 'cash';
+    const ref = referenceNumber || transactionRef || null;
+
+    // Generate receipt number REC-YYYY-XXXXX
+    const receiptNumber = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+
     const result = await db.query(
-      `INSERT INTO receipts (payment_plan_id, installment_index, consumer_id, amount_received_inr, payment_method, transaction_ref, received_date, received_by_user_id, receipt_number, status)
+      `INSERT INTO receipts
+         (payment_plan_id, installment_index, consumer_id, amount_received_inr,
+          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
        RETURNING id, receipt_number, amount_received_inr, status`,
-      [
-        paymentPlanId,
-        installmentIndex,
-        consumer_id,
-        amountReceivedInr,
-        paymentMethod,
-        transactionRef,
-        receivedDate,
-        req.userId,
-        receiptNumber,
-      ]
+      [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber]
     );
 
-    res.status(201).json({
-      success: true,
-      data: result.rows[0],
-    });
+    res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
     next(error);
   }
@@ -225,7 +232,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
   try {
     const { consumerId, projectId, status, installmentType, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, page = 1, pageSize = 50 } = req.query;
 
-    let query = `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount, 
+    let query = `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
                         d.due_date, d.status, d.demand_type,
                         c.name as consumer_name, c.mobile,
                         br.registration_no,
@@ -236,6 +243,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
                  JOIN consumers c ON d.consumer_id = c.id
                  JOIN units u ON c.allocated_unit_id = u.id
                  JOIN projects p ON u.project_id = p.id
+                 LEFT JOIN towers tw ON u.tower_id = tw.id
                  LEFT JOIN booking_forms br ON br.consumer_id = c.id
                  WHERE 1=1`;
     const params: any[] = [];
@@ -245,7 +253,12 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       params.push(consumerId);
     }
     if (projectId) {
-      query += ` AND p.id = $${params.length + 1}`;
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidPattern.test(projectId as string)) {
+        query += ` AND p.id = $${params.length + 1}`;
+      } else {
+        query += ` AND p.name ILIKE $${params.length + 1}`;
+      }
       params.push(projectId);
     }
     if (installmentType) {
@@ -254,7 +267,12 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
     }
     const tId = tower || towerId;
     if (tId) {
-      query += ` AND u.tower_id = $${params.length + 1}`;
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (uuidPattern.test(tId as string)) {
+        query += ` AND u.tower_id = $${params.length + 1}`;
+      } else {
+        query += ` AND tw.name ILIKE $${params.length + 1}`;
+      }
       params.push(tId);
     }
     if (floor) {
@@ -350,9 +368,9 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
 
       // 3. Log Audit Trail
       await client.query(
-        `INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks)
-         VALUES ($1, $2, 'DEMAND_RAISE', $3, $4)`,
-        [consumer_id, req.userId, JSON.stringify({ installment_date: installmentDate, due_date: dueDate }), `Demand raised for installment ${installment_index}`]
+        `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values)
+         VALUES ($1, 'DEMAND_RAISE', 'demand', $2, $3)`,
+        [req.userId, id, JSON.stringify({ installment_date: installmentDate, due_date: dueDate, consumer_id, installment_index })]
       );
 
       activatedIds.push(updateResult.rows[0].id);

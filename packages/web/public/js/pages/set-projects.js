@@ -509,15 +509,10 @@ Pages.setProjects = async function(params = {}) {
 Object.assign(SPJPage, {
   _projects: [],
 
-  async initProjectDropdowns() {
+  async initProjectDropdowns(force = false) {
     try {
-      console.log('[SPJ] Initializing project dropdowns...');
-      if (!this._projects || this._projects.length === 0) {
-        const res = await Api.get('/projects');
-        this._projects = res.data || [];
-      }
+      this._projects = await window.ProjectCache.load(force);
       this.populateAllDropdowns();
-      console.log(`[SPJ] Populated ${this._projects.length} projects into dropdowns`);
     } catch (err) {
       console.error('[SPJ] initProjectDropdowns failed:', err);
     }
@@ -614,7 +609,7 @@ Object.assign(SPJPage, {
     try {
       await Api.patch(`/projects/${id}`, { name, location: loc, totalUnits: parseInt(units)||null });
       Utils.success('Project updated');
-      await this.initProjectDropdowns();
+      await this.initProjectDropdowns(true);
       await this.loadProjectsList();
     } catch (err) { Utils.error(err.message); }
   },
@@ -628,7 +623,7 @@ Object.assign(SPJPage, {
       await Api.post('/projects', body);
       Utils.success(`Project "${body.name}" created`);
       form.reset();
-      await this.initProjectDropdowns();
+      await this.initProjectDropdowns(true);
     } catch (err) { Utils.error(err.message); }
   },
 
