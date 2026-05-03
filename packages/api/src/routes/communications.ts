@@ -110,7 +110,7 @@ router.post('/remarks', async (req: AuthRequest, res: Response, next: NextFuncti
       `INSERT INTO remarks (consumer_id, user_id, channel, subject, notes, follow_up_date, tags)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, channel, subject, notes, follow_up_date, timestamp`,
-      [consumerId, req.userId, channel, subject || null, notes || null, followUpDate || null, JSON.stringify(tags || [])]
+      [consumerId, req.userId, channel, subject || null, notes || null, followUpDate || null, tags && tags.length ? tags : null]
     );
 
     res.status(201).json({

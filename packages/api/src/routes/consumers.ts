@@ -122,7 +122,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
-                        br.registration_no, br.application_date as registration_date,
+                        COALESCE(c.registration_no, br.registration_no) as registration_no, br.application_date as registration_date,
                         b.name as broker_name,
                         co.name as second_applicant_name,
                         p.name as project_name
@@ -137,7 +137,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const params: any[] = [];
 
     if (projectId) {
-      query += ` AND project_id = $${params.length + 1}`;
+      query += ` AND c.project_id = $${params.length + 1}`;
       params.push(projectId);
     }
 
@@ -147,7 +147,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (unitNo) {
-      query += ` AND u.unit_no ILIKE $${params.length + 1}`;
+      query += ` AND u.unit_number ILIKE $${params.length + 1}`;
       params.push(`%${unitNo}%`);
     }
 
@@ -157,7 +157,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (regNo) {
-      query += ` AND br.registration_no ILIKE $${params.length + 1}`;
+      query += ` AND c.registration_no ILIKE $${params.length + 1}`;
       params.push(`%${regNo}%`);
     }
 
@@ -169,7 +169,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (pan) {
-      query += ` AND c.pan_hash ILIKE $${params.length + 1}`;
+      query += ` AND c.pan_no ILIKE $${params.length + 1}`;
       params.push(`%${pan}%`);
     }
 
@@ -184,7 +184,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (search) {
-      query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_no ILIKE $${params.length + 4})`;
+      query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_number ILIKE $${params.length + 4})`;
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
@@ -196,11 +196,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     query += ` LIMIT ${pageSize} OFFSET ${offset}`;
 
     // Build count query matching the data query filters
-    let countQuery = `SELECT COUNT(*) FROM consumers c LEFT JOIN units u ON c.allocated_unit_id = u.id WHERE 1=1`;
+    let countQuery = `SELECT COUNT(*) FROM consumers c LEFT JOIN units u ON c.allocated_unit_id = u.id${secondApplicant ? ' LEFT JOIN co_applicants co ON co.consumer_id = c.id' : ''} WHERE 1=1`;
     const countParams: any[] = [];
 
     if (projectId) {
-      countQuery += ` AND project_id = $${countParams.length + 1}`;
+      countQuery += ` AND c.project_id = $${countParams.length + 1}`;
       countParams.push(projectId);
     }
     if (leadStage) {
@@ -208,7 +208,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       countParams.push(leadStage);
     }
     if (unitNo) {
-      countQuery += ` AND u.unit_no ILIKE $${countParams.length + 1}`;
+      countQuery += ` AND u.unit_number ILIKE $${countParams.length + 1}`;
       countParams.push(`%${unitNo}%`);
     }
     if (mobile) {
@@ -216,11 +216,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       countParams.push(`%${mobile}%`);
     }
     if (regNo) {
-      countQuery += ` AND br.registration_no ILIKE $${countParams.length + 1}`;
+      countQuery += ` AND c.registration_no ILIKE $${countParams.length + 1}`;
       countParams.push(`%${regNo}%`);
     }
     if (pan) {
-      countQuery += ` AND c.pan_hash ILIKE $${countParams.length + 1}`;
+      countQuery += ` AND c.pan_no ILIKE $${countParams.length + 1}`;
       countParams.push(`%${pan}%`);
     }
     if (secondApplicant) {
@@ -228,7 +228,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       countParams.push(`%${secondApplicant}%`);
     }
     if (search) {
-      countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_no ILIKE $${countParams.length + 4})`;
+      countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_number ILIKE $${countParams.length + 4})`;
       countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
