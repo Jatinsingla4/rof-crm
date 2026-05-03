@@ -192,15 +192,36 @@ Pages.setProjects = async function(params = {}) {
               </div>
               <div class="fg">
                 <label class="fl">Carpet Area (sqft)</label>
-                <input type="number" step="0.01" class="fc" name="carpet_area_sqft">
+                <input type="number" step="0.001" class="fc" id="spj-unit-carpet" name="carpet_area_sqft" oninput="SPJPage.calculateUnitPrice()">
               </div>
               <div class="fg">
                 <label class="fl">Super Area (sqft)</label>
-                <input type="number" step="0.01" class="fc" name="super_area_sqft">
+                <input type="number" step="0.001" class="fc" name="super_area_sqft">
               </div>
               <div class="fg">
+                <label class="fl">Balcony Area (sqft)</label>
+                <input type="number" step="0.001" class="fc" name="balcony_area_sqft" id="spj-unit-balcony" oninput="SPJPage.calculateUnitPrice()">
+              </div>
+              <div class="fg">
+                <label class="fl">Carpet Rate (₹/sqft)</label>
+                <input type="number" step="0.01" class="fc" id="spj-unit-carpet-rate" name="carpet_rate" placeholder="e.g. 5575" oninput="SPJPage.calculateUnitPrice()">
+              </div>
+            </div>
+            <div class="sp-grid">
+              <div class="fg">
+                <label class="fl">Balcony Rate (₹/sqft)</label>
+                <input type="number" step="0.01" class="fc" id="spj-unit-balcony-rate" name="balcony_rate" placeholder="e.g. 1300" oninput="SPJPage.calculateUnitPrice()">
+              </div>
+              <div class="fg">
+                <label class="fl">Balcony Rate Cap (₹)</label>
+                <input type="number" step="1" class="fc" id="spj-unit-balcony-cap" name="balcony_cap" placeholder="e.g. 130000" oninput="SPJPage.calculateUnitPrice()">
+              </div>
+            </div>
+            <div class="sp-grid">
+              <div class="fg">
                 <label class="fl">Base Price (₹)</label>
-                <input type="number" class="fc" name="base_price">
+                <input type="number" class="fc" id="spj-unit-base-price" name="base_price_inr" placeholder="Auto-calculated from rates" oninput="SPJPage.calculateUnitPrice()">
+                <div style="font-size:11px;color:var(--text3);margin-top:4px">Auto-calculated from carpet and balcony rates</div>
               </div>
               <div class="fg">
                 <label class="fl">Status</label>
@@ -262,7 +283,7 @@ Pages.setProjects = async function(params = {}) {
               </div>
               <div class="fg">
                 <label class="fl">Balcony Area (sqft)</label>
-                <input type="number" class="fc" name="balcony_area_sqft" placeholder="0">
+                <input type="number" step="0.001" class="fc" name="balcony_area_sqft" placeholder="0">
               </div>
               <div class="fg">
                 <label class="fl">Base Rate (₹/sqft)</label>
@@ -675,17 +696,59 @@ Object.assign(SPJPage, {
     } catch { towSel.innerHTML = `<option value="">No towers</option>`; }
   },
 
+  calculateUnitPrice() {
+    const carpetArea = parseFloat(document.getElementById('spj-unit-carpet')?.value || 0);
+    const balconyArea = parseFloat(document.getElementById('spj-unit-balcony')?.value || 0);
+    const carpetRate = parseFloat(document.getElementById('spj-unit-carpet-rate')?.value || 0);
+    const balconyRate = parseFloat(document.getElementById('spj-unit-balcony-rate')?.value || 0);
+    const balconyCap = parseFloat(document.getElementById('spj-unit-balcony-cap')?.value || 0);
+
+    if (carpetArea && carpetRate) {
+      const carpetPrice = carpetArea * carpetRate;
+      let balconyPrice = balconyArea * balconyRate;
+      if (balconyCap > 0 && balconyPrice > balconyCap) {
+        balconyPrice = balconyCap;
+      }
+      const total = Math.round(carpetPrice + balconyPrice);
+      const priceField = document.getElementById('spj-unit-base-price');
+      if (priceField) {
+        priceField.value = total;
+      }
+    }
+  },
+
   async addUnit(e) {
     e.preventDefault();
     const form = e.target;
     const fd = new FormData(form);
-    const body = Object.fromEntries(fd.entries());
-    body.project_id = document.getElementById('spj-unit-project')?.value;
-    body.tower_id   = document.getElementById('spj-unit-tower')?.value || undefined;
-    if (!body.project_id) { Utils.warn('Please select a project'); return; }
+    const formData = Object.fromEntries(fd.entries());
+
+    const projectId = document.getElementById('spj-unit-project')?.value;
+    const towerId = document.getElementById('spj-unit-tower')?.value;
+    const basePriceValue = formData.base_price_inr ? parseFloat(formData.base_price_inr) : null;
+
+    // Map form fields to API expected camelCase field names
+    const body = {
+      projectId: projectId,
+      towerId: towerId || undefined,
+      unitNumber: formData.unit_number,
+      floor: formData.floor ? parseInt(formData.floor) : null,
+      bhkType: formData.bhk_type,
+      carpetAreaSqft: formData.carpet_area_sqft ? parseFloat(formData.carpet_area_sqft) : null,
+      superAreaSqft: formData.super_area_sqft ? parseFloat(formData.super_area_sqft) : null,
+      balconyAreaSqft: formData.balcony_area_sqft ? parseFloat(formData.balcony_area_sqft) : null,
+      basePriceInr: basePriceValue,
+      totalPriceInr: basePriceValue,  // Set equal to base price at creation time
+      facing: formData.facing || undefined,
+      status: formData.status || 'available'
+    };
+
+    if (!projectId) { Utils.warn('Please select a project'); return; }
+    if (!towerId) { Utils.warn('Please select a tower'); return; }
+
     try {
       await Api.post('/units', body);
-      Utils.success(`Unit ${body.unit_number} added`);
+      Utils.success(`Unit ${body.unitNumber} added`);
       form.reset();
     } catch (err) { Utils.error(err.message); }
   },
@@ -696,14 +759,21 @@ Object.assign(SPJPage, {
     const result    = document.getElementById('spj-bulk-result');
     if (!file) { Utils.warn('Please select a CSV file'); return; }
     if (!projectId) { Utils.warn('Please select a project'); return; }
-    const fd = new FormData();
-    fd.append('file', file);
-    fd.append('projectId', projectId);
-    fd.append('dataType', 'units');
+    result.innerHTML = '<div class="page-loading"><div class="spinner"></div>Importing...</div>';
     try {
-      const res = await Api.uploadFile('/import', fd);
+      // Read CSV file as text
+      const csvText = await file.text();
+      // Send to import endpoint
+      const res = await Api.post('/import', {
+        csvText,
+        projectId,
+        importType: 'units',
+        fileName: file.name
+      });
       const data = res.data || res;
-      result.innerHTML = `<div class="alert alert-success">✓ ${data.created||0} units added · ${data.updated||0} updated · ${data.errors||0} errors</div>`;
+      result.innerHTML = `<div class="alert alert-success">✓ ${data.created||0} units added · ${data.skipped||0} skipped · ${data.errors?.length||0} errors</div>`;
+      // Reset file input
+      document.getElementById('spj-bulk-file').value = '';
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Import failed: ${err.message}</div>`;
     }
@@ -1063,30 +1133,50 @@ Object.assign(SPJPage, {
       const projects = projectId ? [{ id: projectId, name: this._projects.find(p=>p.id===projectId)?.name||'' }] : this._projects;
       let html = '';
       for (const proj of projects) {
-        const res = await Api.get(`/projects/${proj.id}/payment-plans`);
-        const plans = res.data || [];
+        const res = await Api.get(`/projects/${proj.id}/plan-templates`);
+        const templates = res.data || [];
+
+        // Group by plan_name
+        const planMap = {};
+        templates.forEach(t => {
+          if (!planMap[t.plan_name]) planMap[t.plan_name] = [];
+          planMap[t.plan_name].push(t);
+        });
+        const uniquePlans = Object.keys(planMap);
+
         html += `
           <div class="sp" style="margin-bottom:14px">
             <div class="sp-hdr">
               <div class="sp-title">${proj.name||'Project'}</div>
-              <span class="chip chip-blue">${plans.length} plans</span>
+              <span class="chip chip-blue">${uniquePlans.length} plans</span>
             </div>
-            ${plans.length === 0
+            ${uniquePlans.length === 0
               ? `<div class="sp-body"><div style="color:var(--text3);font-size:12px">No payment plans created yet</div></div>`
               : `<div class="sp-body">
-                  <table class="dash-tbl">
-                    <thead><tr><th>Consumer</th><th>Unit</th><th>Total Amount</th><th>Paid</th><th>Outstanding</th><th>Status</th></tr></thead>
-                    <tbody>
-                      ${plans.map(p=>`<tr>
-                        <td class="td-bold">${p.consumer_name||'—'}</td>
-                        <td>${p.unit_number||'—'}</td>
-                        <td>${Utils.currency(p.total_amount)}</td>
-                        <td style="color:var(--teal)">${Utils.currency(p.total_paid)}</td>
-                        <td style="color:var(--red)">${Utils.currency(p.outstanding)}</td>
-                        <td>${Utils.chip(p.status||'active')}</td>
-                      </tr>`).join('')}
-                    </tbody>
-                  </table>
+                  ${uniquePlans.map(planName => {
+                    const installments = planMap[planName];
+                    const total = installments.reduce((s, i) => s + (parseFloat(i.percentage) || 0), 0);
+                    const totalOk = Math.abs(total - 100) < 0.1;
+                    return `
+                      <div style="margin-bottom:16px;padding:12px;background:var(--bg2);border-radius:4px">
+                        <div style="font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+                          <span>${Utils.esc(planName)}</span>
+                          <span class="chip ${totalOk ? 'chip-teal' : 'chip-warn'}">${total.toFixed(1)}%</span>
+                        </div>
+                        <table class="dash-tbl" style="font-size:12px;margin:0">
+                          <thead><tr><th>#</th><th>Installment</th><th class="txt-right">%</th><th class="txt-right">Due (days)</th></tr></thead>
+                          <tbody>
+                            ${installments.map(i => `<tr>
+                              <td>${i.installment_index}</td>
+                              <td>${Utils.esc(i.installment_name)}</td>
+                              <td class="txt-right">${i.percentage}</td>
+                              <td class="txt-right">${i.due_date_offset_days}</td>
+                            </tr>`).join('')}
+                          </tbody>
+                        </table>
+                      </div>
+                    `;
+                  }).join('')}
                 </div>`}
           </div>`;
       }

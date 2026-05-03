@@ -99,10 +99,13 @@ Pages.booking = async function(params = {}) {
             <input class="fc" name="reg_no" placeholder="Auto-generated" readonly style="opacity:.6">
           </div>
           <div class="fg">
+            <label class="fl">Form No.</label>
+            <input class="fc" name="form_no" id="bk-form-no" placeholder="e.g. F-2026-001" maxlength="100">
+          </div>
+          <div class="fg">
             <label class="fl">Payment Plan</label>
-            <select class="fc" name="payment_plan">
-              <option value="ahp_standard">AHP Standard Plan</option>
-              <option value="custom">Custom Plan</option>
+            <select class="fc" name="payment_plan" id="bk-payment-plan">
+              <option value="">— Select Plan —</option>
             </select>
           </div>
           <div class="fg">
@@ -533,6 +536,7 @@ const BookingPage = {
       towSel.innerHTML = `<option value="">— Select —</option>`;
       unitSel.innerHTML = `<option value="">— Select project first —</option>`;
       this._units = [];
+      this.loadPaymentPlans('');
       return;
     }
     try {
@@ -545,7 +549,40 @@ const BookingPage = {
       const unitRes = await Api.get('/units', { params: { projectId, status: 'available', pageSize: 500 } });
       this._units = unitRes.data || [];
       this._renderUnitOptions();
+
+      // Load payment plans
+      this.loadPaymentPlans(projectId);
     } catch {}
+  },
+
+  async loadPaymentPlans(projectId) {
+    const planSelect = document.getElementById('bk-payment-plan');
+    planSelect.innerHTML = '<option value="">— Select Plan —</option>';
+
+    if (!projectId) return;
+
+    try {
+      const res = await Api.get(`/projects/${projectId}/plan-templates`);
+      const plans = res.data || res;
+
+      // Get unique plan names
+      const planNames = [...new Set(plans.map(p => p.plan_name))];
+
+      if (planNames.length === 0) {
+        planSelect.innerHTML = '<option value="">No plans configured</option>';
+        return;
+      }
+
+      planNames.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        planSelect.appendChild(option);
+      });
+    } catch (err) {
+      console.error('Failed to load plans:', err);
+      planSelect.innerHTML = '<option value="">Error loading plans</option>';
+    }
   },
 
   filterUnits() {
@@ -671,49 +708,217 @@ const BookingPage = {
         name: `${body.first_name||''} ${body.last_name||''}`.trim(),
         email: body.email,
         mobile: body.mobile,
+        project_id: body.project_id || null,
         income_category: body.income_category || 'EWS',
         pan_no: body.pan_no,
         aadhaar_no: body.aadhaar_no,
         ppp_id: body.ppp_id,
-        lead_stage: 'pending_verification',
+        lead_stage: 'enquiry',
         source_of_enquiry: body.source_of_enquiry,
         nationality: body.nationality,
         profession: body.profession,
         salutation: body.salutation,
         annual_income: body.annual_income ? parseFloat(body.annual_income) : null,
         company: body.company,
+        form_no: body.form_no || null,
       });
       const consumer = consumerRes.data || consumerRes;
 
       // Step 2: Create booking form record
-      await Api.post('/booking', {
-        consumer_id:       consumer.id,
-        project_id:        body.project_id,
-        unit_id:           body.unit_id || null,
-        booking_date:      body.booking_date,
-        booking_amount:    parseFloat(body.booking_amount || 0),
-        payment_mode:      body.payment_mode,
-        payment_ref:       body.payment_ref,
-        bank_name:         body.bank_name,
-        cheque_date:       body.cheque_date || null,
-        broker_id:         body.broker_id || null,
-        broker_commission: parseFloat(body.broker_commission || 0),
-        sales_employee_id: body.sales_employee_id || null,
-        discount_value:    parseFloat(body.discount_value || 0),
-        discount_reason:   body.discount_reason,
-        nominee_name:      body.nominee_name,
-        nominee_relation:  body.nominee_relation,
-        loan_amount:       parseFloat(body.loan_amount || 0),
-        finance_bank:      body.finance_bank,
-        remarks:           body.booking_remarks,
-      }).catch(() => {}); // non-critical if booking table not wired
+      let registrationNo = 'TBD';
+      try {
+        const bookingRes = await Api.post('/booking', {
+          consumer_id:       consumer.id,
+          project_id:        body.project_id,
+          unit_id:           body.unit_id || null,
+          booking_date:      body.booking_date,
+          booking_amount:    parseFloat(body.booking_amount || 0),
+          payment_mode:      body.payment_mode,
+          payment_ref:       body.payment_ref,
+          bank_name:         body.bank_name,
+          cheque_date:       body.cheque_date || null,
+          broker_id:         body.broker_id || null,
+          broker_commission: parseFloat(body.broker_commission || 0),
+          sales_employee_id: body.sales_employee_id || null,
+          discount_value:    parseFloat(body.discount_value || 0),
+          discount_reason:   body.discount_reason,
+          nominee_name:      body.nominee_name,
+          nominee_relation:  body.nominee_relation,
+          loan_amount:       parseFloat(body.loan_amount || 0),
+          finance_bank:      body.finance_bank,
+          remarks:           body.booking_remarks,
+          form_no:           body.form_no || null,
+        });
+        registrationNo = bookingRes.data?.registration_no || bookingRes.registration_no || 'TBD';
+      } catch (err) {
+        console.warn('Booking creation warning:', err.message);
+      }
 
-      Utils.success(`Booking saved! Consumer registered as ${body.first_name} ${body.last_name}`);
-      Router.navigate('/consumer', { id: consumer.id });
+      // Update the registration number field in the form
+      const regNoField = document.querySelector('[name="reg_no"]');
+      if (regNoField) regNoField.value = registrationNo;
+
+      // Show confirmation modal with booking details
+      BookingPage.showBookingConfirmation({
+        registration_no: registrationNo,
+        form_no: body.form_no || registrationNo,
+        consumer_id: consumer.id,
+        consumer_name: `${body.first_name || ''} ${body.last_name || ''}`.trim() || 'N/A',
+        booking_date: body.booking_date || new Date().toISOString().split('T')[0]
+      });
     } catch (err) {
       Utils.error(err.message);
       btn.disabled = false;
       btn.textContent = '💾 Save Booking';
     }
+  },
+
+  showBookingConfirmation(data) {
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    `;
+
+    modal.innerHTML = `
+      <div style="
+        background: white;
+        border-radius: 12px;
+        padding: 40px;
+        max-width: 500px;
+        width: 90%;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      ">
+        <div style="
+          width: 60px; height: 60px;
+          background: #22c55e;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 0 auto 20px;
+          font-size: 28px;
+          color: white;
+        ">✓</div>
+
+        <h2 style="
+          color: #1e293b;
+          font-size: 24px;
+          margin-bottom: 8px;
+        ">Booking Confirmed!</h2>
+
+        <p style="
+          color: #64748b;
+          margin-bottom: 30px;
+        ">Application has been successfully registered</p>
+
+        <div style="
+          background: #f8fafc;
+          border-radius: 8px;
+          padding: 20px;
+          margin-bottom: 24px;
+          text-align: left;
+        ">
+          <div style="
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+          ">
+            <span style="color:#64748b;font-weight:500">
+              Registration No.
+            </span>
+            <span style="
+              color:#0f172a;
+              font-weight:700;
+              font-size:18px;
+              color:#2563eb;
+            ">${data.registration_no || 'N/A'}</span>
+          </div>
+          <div style="
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+          ">
+            <span style="color:#64748b;font-weight:500">
+              Form No.
+            </span>
+            <span style="color:#0f172a;font-weight:600">
+              ${data.form_no || 'N/A'}
+            </span>
+          </div>
+          <div style="
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+          ">
+            <span style="color:#64748b;font-weight:500">
+              Applicant Name
+            </span>
+            <span style="color:#0f172a;font-weight:600">
+              ${data.consumer_name || 'N/A'}
+            </span>
+          </div>
+          <div style="
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+          ">
+            <span style="color:#64748b;font-weight:500">
+              Booking Date
+            </span>
+            <span style="color:#0f172a;font-weight:600">
+              ${data.booking_date || 'N/A'}
+            </span>
+          </div>
+        </div>
+
+        <div style="
+          display: flex;
+          gap: 12px;
+          justify-content: center;
+        ">
+          <button onclick="
+            window.location.hash = '#/consumer?id=${data.consumer_id}';
+            this.closest('[style*=fixed]').remove();
+          " style="
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+          ">View Consumer Profile</button>
+
+          <button onclick="
+            this.closest('[style*=fixed]').remove();
+            window.location.hash = '#/booking';
+          " style="
+            background: #f1f5f9;
+            color: #475569;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+          ">New Booking</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
   },
 };

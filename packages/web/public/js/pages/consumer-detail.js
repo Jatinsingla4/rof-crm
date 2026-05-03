@@ -225,7 +225,7 @@ Pages.consumerDetail = async function(params = {}) {
     `;
 
     ConsumerDetailPage.loadPaymentData(id, c);
-    ConsumerDetailPage.loadDocuments(id);
+    ConsumerDetailPage.loadDocuments(id, c);
     setTimeout(() => ConsumerDetailPage.recalcPricing(c.carpet_area_sqft || 0), 100);
 
   } catch (err) {
@@ -410,7 +410,7 @@ const ConsumerDetailPage = {
     } catch (err) { console.error('Payment data error:', err); }
   },
 
-  async loadDocuments(id) {
+  async loadDocuments(id, consumer = {}) {
     try {
       const res = await Api.get(`/documents/vault/${id}`);
       const docs = res.data || res || [];
@@ -422,18 +422,23 @@ const ConsumerDetailPage = {
         <table style="width:100%;font-size:11px">
           <thead>
             <tr style="text-align:left;border-bottom:1px solid var(--border2)">
-              <th style="padding-bottom:6px">Verified</th><th style="padding-bottom:6px">Document Type</th><th style="padding-bottom:6px">Physical Storage No.</th><th style="padding-bottom:6px">Barcode No.</th><th style="padding-bottom:6px">Scan Ref No.</th><th style="padding-bottom:6px">Action</th>
+              <th style="padding-bottom:6px">Verified</th><th style="padding-bottom:6px">Document Type</th><th style="padding-bottom:6px">Physical Storage No.</th><th style="padding-bottom:6px">Document Number</th><th style="padding-bottom:6px">Remarks</th><th style="padding-bottom:6px">Action</th>
             </tr>
           </thead>
           <tbody>
             ${kycItems.map(item => {
               const uploaded = docs.some(d => (d.title||d.name||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
+              let isPopulated = false;
+              let docNumber = '';
+              if (item === 'Aadhaar Card' && consumer.aadhaar_no) { isPopulated = true; docNumber = consumer.aadhaar_no; }
+              if (item === 'PAN Card' && consumer.pan_no) { isPopulated = true; docNumber = consumer.pan_no; }
+              const isChecked = uploaded || isPopulated;
               return `<tr style="border-bottom:1px solid var(--border2)">
-                <td style="padding:8px 0"><input type="checkbox" ${uploaded ? 'checked' : ''}></td>
-                <td style="padding:8px 0;font-weight:600;color:${uploaded?'var(--green)':'var(--text)'}">${item}</td>
+                <td style="padding:8px 0"><input type="checkbox" ${isChecked ? 'checked' : ''}></td>
+                <td style="padding:8px 0;font-weight:600;color:${isChecked?'var(--green)':'var(--text)'}">${item}</td>
                 <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="File/Folder No."></td>
-                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Barcode"></td>
-                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Scan Ref"></td>
+                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Document Number" value="${docNumber}"></td>
+                <td style="padding:8px 4px"><input class="fc" style="padding:4px 6px;font-size:10px;height:24px" placeholder="Remarks"></td>
                 <td style="padding:8px 0"><button class="btn btn-ghost btn-sm" onclick="Utils.success('Verified ${item}')">Verify</button></td>
               </tr>`;
             }).join('')}

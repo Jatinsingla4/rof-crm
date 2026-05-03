@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
-import { db } from '../index';
-import { AuthRequest } from '../index';
+import { db } from '../index.js';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
 

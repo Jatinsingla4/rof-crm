@@ -6,8 +6,8 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { parse } from 'csv-parse/sync';
-import { db } from '../index';
-import { AuthRequest } from '../index';
+import { db } from '../index.js';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
 

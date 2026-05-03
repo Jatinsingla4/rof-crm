@@ -189,8 +189,8 @@ Pages.documents = async function(params = {}) {
             </div>
           </div>
           <div style="margin-top:10px">
-            <label class="fl" style="margin-bottom:6px">Letter Body (supports merge fields: {consumer_name}, {unit_number}, {project_name}, {date})</label>
-            <textarea id="ul-body" class="fc" rows="8" style="resize:vertical;font-family:monospace;font-size:12px" placeholder="Dear {consumer_name},&#10;&#10;We are pleased to inform you...&#10;&#10;Regards,&#10;ROF Group"></textarea>
+            <label class="fl" style="margin-bottom:6px">Letter Body (supports merge fields: {{consumer_name}}, {{unit_number}}, {{project_name}}, {{date}})</label>
+            <textarea id="ul-body" class="fc" rows="8" style="resize:vertical;font-family:monospace;font-size:12px" placeholder="Dear {{consumer_name}},&#10;&#10;We are pleased to inform you...&#10;&#10;Regards,&#10;ROF Group"></textarea>
           </div>
           <div style="margin-top:10px;display:flex;gap:8px">
             <button class="btn btn-teal btn-lg" onclick="DocsPage.generateUserLetter()">Generate & Download</button>

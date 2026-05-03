@@ -4,10 +4,67 @@
  */
 
 import { Router, Response, NextFunction } from 'express';
-import { db } from '../index';
-import { AuthRequest } from '../index';
+import { db } from '../index.js';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
+
+// Generate registration number with project-based prefix and sequential numbering
+async function generateRegistrationNo(projectId: string, client: any): Promise<string> {
+  const year = new Date().getFullYear();
+
+  // Get project name for prefix
+  const projResult = await client.query(
+    'SELECT name FROM projects WHERE id = $1',
+    [projectId]
+  );
+
+  if (projResult.rowCount === 0) {
+    throw new Error('Project not found');
+  }
+
+  // Generate 4-letter code from project name
+  // ROF ALANTE_TEST → ALAN
+  // ROF GALLLERIA_TEST → GALL
+  const projectName = projResult.rows[0].name
+    .replace(/^ROF\s+/i, '')  // Remove "ROF " prefix
+    .replace(/_TEST$/i, '')   // Remove "_TEST" suffix
+    .replace(/[^A-Z]/gi, '')  // Keep only letters
+    .toUpperCase()
+    .substring(0, 4)           // Take first 4 letters
+    .padEnd(4, 'X');           // Pad if shorter
+
+  // Increment counter atomically
+  let counterResult = await client.query(
+    `UPDATE booking_counters
+     SET last_number = last_number + 1,
+         updated_at = NOW()
+     WHERE project_id = $1
+     RETURNING last_number`,
+    [projectId]
+  );
+
+  if (counterResult.rowCount === 0) {
+    // Insert if not exists (race condition safety)
+    await client.query(
+      `INSERT INTO booking_counters (project_id, last_number)
+       VALUES ($1, 1)
+       ON CONFLICT (project_id)
+       DO UPDATE SET
+         last_number = booking_counters.last_number + 1,
+         updated_at = NOW()`,
+      [projectId]
+    );
+    // Fetch the updated value
+    counterResult = await client.query(
+      'SELECT last_number FROM booking_counters WHERE project_id = $1',
+      [projectId]
+    );
+  }
+
+  const num = counterResult.rows[0].last_number;
+  return `${projectName}-${year}-${String(num).padStart(4, '0')}`;
+}
 
 // POST /api/booking
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -18,7 +75,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       discount_value, discount_reason, discount_authorized_by,
       broker_id, broker_commission, broker_commission_type,
       sales_employee_id, nominee_name, nominee_relation,
-      loan_amount, finance_bank, remarks,
+      loan_amount, finance_bank, remarks, form_no,
     } = req.body;
 
     if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
@@ -33,15 +90,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           `SELECT status FROM units WHERE id = $1 FOR UPDATE`,
           [unit_id]
         );
-        
+
         if (unitCheck.rows.length === 0) {
           throw new Error('Selected unit does not exist');
         }
-        
+
         if (unitCheck.rows[0].status !== 'available') {
           throw new Error('Double Booking Prevented: Unit is no longer available');
         }
       }
+
+      // Generate registration and form numbers
+      const registrationNo = await generateRegistrationNo(project_id, client);
+      const formNo = form_no || registrationNo;
 
       const result = await client.query(
         `INSERT INTO booking_records (
@@ -50,8 +111,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
            discount_value, discount_reason, discount_authorized_by,
            broker_id, broker_commission, broker_commission_type,
            sales_employee_id, nominee_name, nominee_relation,
-           loan_amount, finance_bank, remarks, created_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+           loan_amount, finance_bank, remarks, registration_no, form_no, created_by
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
          RETURNING *`,
         [
           consumer_id, project_id||null, unit_id||null,
@@ -62,6 +123,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           broker_id||null, parseFloat(broker_commission||0), broker_commission_type||'flat',
           sales_employee_id||null, nominee_name||null, nominee_relation||null,
           loan_amount?parseFloat(loan_amount):null, finance_bank||null, remarks||null,
+          registrationNo, formNo,
           req.userId,
         ]
       );
@@ -71,8 +133,21 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         await client.query(`UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`, [unit_id]);
       }
 
+      // Update consumer with registration number and form number
+      await client.query(
+        `UPDATE consumers SET registration_no = $1, form_no = $2 WHERE id = $3`,
+        [registrationNo, formNo, consumer_id]
+      );
+
       await client.query('COMMIT');
-      res.status(201).json({ success: true, data: result.rows[0] });
+      res.status(201).json({
+        success: true,
+        data: {
+          ...result.rows[0],
+          registration_no: registrationNo,
+          form_no: formNo
+        }
+      });
     } catch (err) {
       await client.query('ROLLBACK');
       throw err;

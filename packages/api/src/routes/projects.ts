@@ -4,8 +4,8 @@
  */
 
 import { Router, Response, NextFunction } from 'express';
-import { db } from '../index';
-import { AuthRequest } from '../index';
+import { db } from '../index.js';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
 
@@ -233,6 +233,24 @@ router.post('/:id/towers', async (req: AuthRequest, res: Response, next: NextFun
   } catch (error) {
     next(error);
   }
+});
+
+// GET /api/projects/:id/towers/:towerId
+router.get('/:id/towers/:towerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await db.query(
+      `SELECT t.id, t.tower_name, t.project_id, COUNT(u.id) as unit_count
+       FROM towers t LEFT JOIN units u ON t.id = u.tower_id
+       WHERE t.project_id = $1 AND t.id = $2
+       GROUP BY t.id
+       LIMIT 1`,
+      [req.params.id, req.params.towerId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tower not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { next(err); }
 });
 
 // DELETE /api/projects/:id/towers/:towerId

@@ -4,7 +4,7 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { AuthRequest } from '../index';
+import { AuthRequest } from '../index.js';
 import { importService } from '../services/test-data-import.service';
 
 const router = Router();

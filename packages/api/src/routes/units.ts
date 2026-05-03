@@ -4,8 +4,8 @@
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import { db } from '../index';
-import { AuthRequest } from '../index';
+import { db } from '../index.js';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
 
@@ -199,7 +199,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr } = req.body;
+    const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft } = req.body;
 
     const result = await db.query(
       `UPDATE units
@@ -208,10 +208,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
            floor_plan_url = COALESCE($3, floor_plan_url),
            base_price_inr = COALESCE($4, base_price_inr),
            total_price_inr = COALESCE($5, total_price_inr),
+           balcony_area_sqft = COALESCE($6, balcony_area_sqft),
            updated_at = NOW()
-       WHERE id = $6
+       WHERE id = $7
        RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`,
-      [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, id]
+      [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft, id]
     );
 
     if (result.rows.length === 0) {

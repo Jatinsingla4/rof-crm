@@ -1,5 +1,5 @@
 import { Router, Response, NextFunction } from 'express';
-import { AuthRequest } from '../index';
+import { AuthRequest } from '../index.js';
 import { db } from '../db/pool';
 import crypto from 'crypto';
 

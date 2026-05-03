@@ -155,12 +155,14 @@ const CampaignsPage = {
     const message = document.getElementById('camp-message')?.value?.trim();
     const segment = document.getElementById('camp-segment')?.value;
     const projectId = document.getElementById('camp-project')?.value;
+    const channelBtn = document.querySelector('.btg:has(> button:first-child) .btg-item.on')?.textContent?.trim().toLowerCase();
+    const channel = channelBtn || 'whatsapp';
 
     if (!name) { Utils.warn('Please enter a campaign name'); return; }
     if (!message) { Utils.warn('Please enter a message'); return; }
 
     try {
-      await Api.post('/communications/campaigns', { name, message, segment, projectId, channel: 'whatsapp' });
+      await Api.post('/communications/campaigns', { name, message, segment, projectId, channel });
       Utils.success(`Campaign "${name}" created and queued`);
       closeOverlay('camp-overlay');
       document.getElementById('camp-modal').style.display = 'none';

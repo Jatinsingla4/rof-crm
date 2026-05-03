@@ -17,38 +17,39 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Route imports
-import consumerRoutes from './routes/consumers';
-import unitRoutes from './routes/units';
-import allocationRoutes from './routes/allocations';
-import paymentRoutes from './routes/payments';
-import documentRoutes from './routes/documents';
-import communicationRoutes from './routes/communications';
-import userRoutes from './routes/users';
-import reportRoutes from './routes/reports';
-import milestonesRoutes from './routes/milestones';
-import reconciliationRoutes from './routes/reconciliation';
-import smtpRoutes from './routes/smtp_config';
-import faqRoutes from './routes/faq';
-import tasksRoutes from './routes/tasks';
-import automationRoutes from './routes/automation';
-import brokersRoutes from './routes/brokers';
-import parkingRoutes from './routes/parking';
-import importRoutes from './routes/import';
-import projectsRoutes from './routes/projects';
-import brokerSetupRoutes from './routes/broker_setup';
-import inventoryHoldRoutes from './routes/inventory_hold';
-import dashboardRoutes from './routes/dashboard';
-import masterRoutes from './routes/master';
-import bookingRoutes from './routes/booking';
-import employeesRoutes from './routes/employees';
-import operationsRoutes from './routes/operations';
-import transfersRoutes from './routes/transfers';
-import registryRoutes from './routes/registry';
-import loansRoutes from './routes/loans';
-import receiptProcessRoutes from './routes/receipt-process';
-import testDataImportRoutes from './routes/test-data-import';
-import { requirePermission } from './middleware/rbac';
-import { logAudit } from './middleware/auditLogger';
+import consumerRoutes from './routes/consumers.js';
+import unitRoutes from './routes/units.js';
+import allocationRoutes from './routes/allocations.js';
+import paymentRoutes from './routes/payments.js';
+import documentRoutes from './routes/documents.js';
+import communicationRoutes from './routes/communications.js';
+import userRoutes from './routes/users.js';
+import reportRoutes from './routes/reports.js';
+import milestonesRoutes from './routes/milestones.js';
+import reconciliationRoutes from './routes/reconciliation.js';
+import smtpRoutes from './routes/smtp_config.js';
+import faqRoutes from './routes/faq.js';
+import tasksRoutes from './routes/tasks.js';
+import automationRoutes from './routes/automation.js';
+import brokersRoutes from './routes/brokers.js';
+import parkingRoutes from './routes/parking.js';
+import importRoutes from './routes/import.js';
+import projectsRoutes from './routes/projects.js';
+import brokerSetupRoutes from './routes/broker_setup.js';
+import inventoryHoldRoutes from './routes/inventory_hold.js';
+import dashboardRoutes from './routes/dashboard.js';
+import masterRoutes from './routes/master.js';
+import bookingRoutes from './routes/booking.js';
+import employeesRoutes from './routes/employees.js';
+import operationsRoutes from './routes/operations.js';
+import transfersRoutes from './routes/transfers.js';
+import registryRoutes from './routes/registry.js';
+import loansRoutes from './routes/loans.js';
+import receiptProcessRoutes from './routes/receipt-process.js';
+import testDataImportRoutes from './routes/test-data-import.js';
+import { requirePermission } from './middleware/rbac.js';
+import { logAudit } from './middleware/auditLogger.js';
+// import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 
 dotenv.config();
 
@@ -210,8 +211,20 @@ app.use(express.static(webPublicDir));
 // HEALTH CHECK
 // ============================================
 
-app.get('/health', (req: Request, res: Response) => {
+app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// ============================================
+// PUBLIC ENDPOINTS (No Auth Required)
+// ============================================
+
+app.get('/api/import/template/units', (req: Request, res: Response) => {
+  const headers = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n';
+  const example = 'GalleriaA,1,A-101,2BHK,650,750,100,5000000,5000000,North\n';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="units_import_template.csv"');
+  res.send(headers + example);
 });
 
 // ============================================
@@ -282,7 +295,7 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
 });
 
 // ============================================
-// API ROUTES (with auth + RBAC + auto-audit)
+// API ROUTES (with auth + RBAC + auto-audit + response formatter)
 // ============================================
 
 app.use('/api', apiLimiter);

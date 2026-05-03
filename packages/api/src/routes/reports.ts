@@ -5,7 +5,7 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../db/pool';
-import { AuthRequest } from '../index';
+import { AuthRequest } from '../index.js';
 
 const router = Router();
 
