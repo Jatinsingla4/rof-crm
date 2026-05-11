@@ -66,16 +66,102 @@ async function generateRegistrationNo(projectId: string, client: any): Promise<s
   return `${projectName}-${year}-${String(num).padStart(4, '0')}`;
 }
 
+// GET /api/booking/check-cheque?ref=XXXX[&exclude_id=UUID]
+// Returns whether a cheque/reference number already exists in booking_records or receipts.
+// Must be registered BEFORE /:id so Express resolves it as a static path.
+router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const ref = (req.query.ref as string || '').trim();
+    const excludeId = (req.query.exclude_id as string || '').trim() || null;
+
+    if (!ref) {
+      return res.status(400).json({ error: 'ref query parameter is required' });
+    }
+
+    // Run both table checks in parallel
+    const [bookingResult, receiptResult] = await Promise.all([
+      db.query(
+        `SELECT id, registration_no, booking_date, payment_mode
+         FROM booking_records
+         WHERE payment_ref = $1
+           AND ($2::uuid IS NULL OR id != $2::uuid)
+         LIMIT 1`,
+        [ref, excludeId]
+      ),
+      db.query(
+        `SELECT id, receipt_number, received_date, payment_method
+         FROM receipts
+         WHERE transaction_ref = $1
+         LIMIT 1`,
+        [ref]
+      ),
+    ]);
+
+    if (bookingResult.rows.length > 0) {
+      const row = bookingResult.rows[0];
+      return res.json({
+        exists: true,
+        found_in: 'booking',
+        detail: {
+          id: row.id,
+          reference: row.registration_no,
+          date: row.booking_date,
+          type: row.payment_mode,
+        },
+      });
+    }
+
+    if (receiptResult.rows.length > 0) {
+      const row = receiptResult.rows[0];
+      return res.json({
+        exists: true,
+        found_in: 'receipt',
+        detail: {
+          id: row.id,
+          reference: row.receipt_number,
+          date: row.received_date,
+          type: row.payment_method,
+        },
+      });
+    }
+
+    return res.json({ exists: false, found_in: null, detail: null });
+  } catch (err) { next(err); }
+});
+
 // POST /api/booking
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const {
       consumer_id, project_id, unit_id, booking_date, booking_amount,
       payment_mode, payment_ref, bank_name, cheque_date,
-      discount_value, discount_reason, discount_authorized_by,
+      company_inaugural_disc = 0, company_rebate_rs = 0, company_rebate_sqft = 0, company_rebate_pct = 0,
       broker_id, broker_commission, broker_commission_type,
+      booking_type = 'direct', main_broker_id,
+      broker_rebate_rs = 0, broker_rebate_sqft = 0, broker_rebate_pct = 0,
+      mailing_address_type = 'present', communication_mode = 'email',
+      comm_address_line1, comm_pin, comm_city, comm_state, comm_country,
       sales_employee_id, nominee_name, nominee_relation,
       loan_amount, finance_bank, remarks, form_no,
+      has_plc = false, plc_amount = 0,
+      has_other_charge = false, other_charge_amount = 0, other_charge_desc = null,
+      // Payment detail fields (migration 042)
+      bank_branch = null,
+      received_for = null,
+      account_holder = null,
+      on_account_of = 'Booking',
+      invoice_date_by = 'receipt_date',
+      interest_type = 'exclusive',
+      extra_add_on_type = 'exclusive',
+      tds_type = 'not_calculate',
+      self_or_loan = 'self',
+      interest_amount = 0,
+      dealer_adjustment_amount = 0,
+      tds_challan_id = null,
+      // Tax values
+      s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
+      cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
+      selected_plan_name = null,
     } = req.body;
 
     if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
@@ -104,40 +190,121 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const registrationNo = await generateRegistrationNo(project_id, client);
       const formNo = form_no || registrationNo;
 
+      // Determine status: pending_payment when no amount and no mode provided
+      const isPendingPayment = (!booking_amount || parseFloat(booking_amount) === 0) && !payment_mode;
+      const bookingStatus = isPendingPayment ? 'pending_payment' : 'active';
+
       const result = await client.query(
         `INSERT INTO booking_records (
            consumer_id, project_id, unit_id, booking_date, booking_amount,
            payment_mode, payment_ref, bank_name, cheque_date,
-           discount_value, discount_reason, discount_authorized_by,
+           company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct,
            broker_id, broker_commission, broker_commission_type,
+           booking_type, main_broker_id,
+           broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct,
+           mailing_address_type, communication_mode,
+           comm_address_line1, comm_pin, comm_city, comm_state, comm_country,
            sales_employee_id, nominee_name, nominee_relation,
-           loan_amount, finance_bank, remarks, registration_no, form_no, created_by
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+           loan_amount, finance_bank, remarks, registration_no, form_no,
+           has_plc, plc_amount, has_other_charge, other_charge_amount, other_charge_desc,
+           created_by,
+           bank_branch, received_for, account_holder, on_account_of,
+           invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan,
+           interest_amount, dealer_adjustment_amount, tds_challan_id,
+           selected_plan_name,
+           status
+         ) VALUES (
+           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
+           $24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
+           $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,
+           $55,$56
+         )
          RETURNING *`,
         [
           consumer_id, project_id||null, unit_id||null,
           booking_date||new Date().toISOString().split('T')[0],
           parseFloat(booking_amount||0),
           payment_mode||null, payment_ref||null, bank_name||null, cheque_date||null,
-          parseFloat(discount_value||0), discount_reason||null, discount_authorized_by||null,
+          parseFloat(company_inaugural_disc||0), parseFloat(company_rebate_rs||0),
+          parseFloat(company_rebate_sqft||0), parseFloat(company_rebate_pct||0),
           broker_id||null, parseFloat(broker_commission||0), broker_commission_type||'flat',
+          booking_type||'direct', main_broker_id||null,
+          parseFloat(broker_rebate_rs||0), parseFloat(broker_rebate_sqft||0), parseFloat(broker_rebate_pct||0),
+          mailing_address_type||'present', communication_mode||'email',
+          comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||'India',
           sales_employee_id||null, nominee_name||null, nominee_relation||null,
           loan_amount?parseFloat(loan_amount):null, finance_bank||null, remarks||null,
           registrationNo, formNo,
+          has_plc === true || has_plc === 'true',
+          parseFloat(plc_amount||0),
+          has_other_charge === true || has_other_charge === 'true',
+          parseFloat(other_charge_amount||0),
+          other_charge_desc||null,
           req.userId,
+          // payment detail (migration 042)
+          bank_branch||null, received_for||null, account_holder||null, on_account_of||'Booking',
+          invoice_date_by||'receipt_date', interest_type||'exclusive', extra_add_on_type||'exclusive',
+          tds_type||'not_calculate', self_or_loan||'self',
+          parseFloat(interest_amount||0), parseFloat(dealer_adjustment_amount||0),
+          tds_challan_id||null,
+          selected_plan_name||null,
+          bookingStatus,
         ]
       );
 
-      // If unit was selected, update unit status to 'booked'
-      if (unit_id) {
-        await client.query(`UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`, [unit_id]);
+      // Insert tax breakdown row (always, even if all zeros)
+      await client.query(
+        `INSERT INTO booking_payment_taxes
+           (booking_record_id, s_tax_pct, cgst_pct, sgst_pct, gst_interest_pct,
+            cgst_amount, sgst_amount, tds_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          result.rows[0].id,
+          parseFloat(s_tax_pct||0), parseFloat(cgst_pct||0), parseFloat(sgst_pct||0),
+          parseFloat(gst_interest_pct||0), parseFloat(cgst_amount||0),
+          parseFloat(sgst_amount||0), parseFloat(tds_amount||0),
+        ]
+      );
+
+      // Lock unit only when payment is present (active booking). pending_payment keeps unit available.
+      if (unit_id && bookingStatus !== 'pending_payment') {
+        await client.query(
+          `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+          [unit_id]
+        );
+        await client.query(
+          `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+           VALUES ($1, 'available', 'locked', NOW(), $2, $3)`,
+          [unit_id, req.userId, `Booking confirmed - ${registrationNo}`]
+        );
       }
 
-      // Update consumer with registration number and form number
+      // Update consumer with registration number, form number, communication preferences, and comm address
       await client.query(
-        `UPDATE consumers SET registration_no = $1, form_no = $2 WHERE id = $3`,
-        [registrationNo, formNo, consumer_id]
+        `UPDATE consumers
+         SET registration_no = $1, form_no = $2,
+             mailing_address_type = $3, communication_mode = $4,
+             comm_address_line1 = COALESCE($5, comm_address_line1),
+             comm_pin           = COALESCE($6, comm_pin),
+             comm_city          = COALESCE($7, comm_city),
+             comm_state         = COALESCE($8, comm_state),
+             comm_country       = COALESCE($9, comm_country)
+         WHERE id = $10`,
+        [registrationNo, formNo, mailing_address_type||'present', communication_mode||'email',
+         comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
+         consumer_id]
       );
+
+      // Auto-create pending commission record when booking type is broker
+      if (booking_type === 'broker' && broker_id) {
+        await client.query(
+          `INSERT INTO broker_commissions
+             (broker_id, consumer_id, project_id, unit_id, commission_amount_inr, status, created_by)
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6)`,
+          [broker_id, consumer_id, project_id||null, unit_id||null,
+           parseFloat(broker_commission||0), req.userId]
+        );
+      }
 
       await client.query('COMMIT');
       res.status(201).json({
@@ -185,15 +352,1711 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
+// PATCH /api/booking/:id  — Step 2: save payment details for a pending_payment booking
+router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const {
+      booking_amount, payment_mode, payment_ref, bank_name, bank_branch, cheque_date,
+      received_for, account_holder, on_account_of, invoice_date_by,
+      interest_type, extra_add_on_type, tds_type, self_or_loan,
+      interest_amount = 0, dealer_adjustment_amount = 0, tds_challan_id = null,
+      s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
+      cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
+    } = req.body;
+
+    if (!booking_amount || parseFloat(booking_amount) === 0) {
+      return res.status(400).json({ error: 'booking_amount must be greater than zero' });
+    }
+    if (!payment_mode) {
+      return res.status(400).json({ error: 'payment_mode is required' });
+    }
+
+    // Duplicate cheque/reference check (excluding current booking)
+    if (payment_ref) {
+      const [bookingDup, receiptDup] = await Promise.all([
+        db.query(
+          `SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND id != $2 LIMIT 1`,
+          [payment_ref, id]
+        ),
+        db.query(
+          `SELECT receipt_number FROM receipts WHERE transaction_ref = $1 LIMIT 1`,
+          [payment_ref]
+        ),
+      ]);
+      if (bookingDup.rows.length > 0) {
+        return res.status(409).json({
+          error: `Reference "${payment_ref}" already used in booking ${bookingDup.rows[0].registration_no}`,
+        });
+      }
+      if (receiptDup.rows.length > 0) {
+        return res.status(409).json({
+          error: `Reference "${payment_ref}" already used in receipt ${receiptDup.rows[0].receipt_number}`,
+        });
+      }
+    }
+
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+
+      const updateResult = await client.query(
+        `UPDATE booking_records SET
+           booking_amount          = $1,
+           payment_mode            = $2,
+           payment_ref             = $3,
+           bank_name               = $4,
+           bank_branch             = $5,
+           cheque_date             = $6,
+           received_for            = $7,
+           account_holder          = $8,
+           on_account_of           = $9,
+           invoice_date_by         = $10,
+           interest_type           = $11,
+           extra_add_on_type       = $12,
+           tds_type                = $13,
+           self_or_loan            = $14,
+           interest_amount         = $15,
+           dealer_adjustment_amount= $16,
+           tds_challan_id          = $17,
+           status                  = 'complete'
+         WHERE id = $18
+         RETURNING *`,
+        [
+          parseFloat(booking_amount),
+          payment_mode, payment_ref||null, bank_name||null, bank_branch||null, cheque_date||null,
+          received_for||null, account_holder||null, on_account_of||'Booking',
+          invoice_date_by||'receipt_date', interest_type||'exclusive',
+          extra_add_on_type||'exclusive', tds_type||'not_calculate', self_or_loan||'self',
+          parseFloat(interest_amount||0), parseFloat(dealer_adjustment_amount||0),
+          tds_challan_id||null,
+          id,
+        ]
+      );
+
+      if (updateResult.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      // Upsert tax row (delete + insert to handle both old and new bookings cleanly)
+      await client.query(
+        `DELETE FROM booking_payment_taxes WHERE booking_record_id = $1`,
+        [id]
+      );
+      await client.query(
+        `INSERT INTO booking_payment_taxes
+           (booking_record_id, s_tax_pct, cgst_pct, sgst_pct, gst_interest_pct,
+            cgst_amount, sgst_amount, tds_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [
+          id,
+          parseFloat(s_tax_pct||0), parseFloat(cgst_pct||0), parseFloat(sgst_pct||0),
+          parseFloat(gst_interest_pct||0), parseFloat(cgst_amount||0),
+          parseFloat(sgst_amount||0), parseFloat(tds_amount||0),
+        ]
+      );
+
+      // Lock the unit now that payment is confirmed
+      const booking = updateResult.rows[0];
+      if (booking.unit_id) {
+        await client.query(
+          `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
+           WHERE id = $1 AND status != 'locked'`,
+          [booking.unit_id]
+        );
+        await client.query(
+          `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+           VALUES ($1, 'available', 'locked', NOW(), $2, $3)
+           ON CONFLICT DO NOTHING`,
+          [booking.unit_id, req.userId, `Payment confirmed - ${booking.registration_no}`]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.json({ success: true, data: updateResult.rows[0] });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) { next(err); }
+});
+
+// ── RECEIPT HELPERS ──────────────────────────
+
+function ordinal(n: number): string {
+  const abs = Math.abs(Math.floor(n));
+  const lastTwo = abs % 100;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${abs}th`;
+  const lastOne = abs % 10;
+  if (lastOne === 1) return `${abs}st`;
+  if (lastOne === 2) return `${abs}nd`;
+  if (lastOne === 3) return `${abs}rd`;
+  return `${abs}th`;
+}
+
+function numberToWords(amount: number): string {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+    'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  const twoDigits = (n: number): string =>
+    n < 20 ? ones[n] : tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+
+  const threeDigits = (n: number): string =>
+    n >= 100
+      ? ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + twoDigits(n % 100) : '')
+      : twoDigits(n);
+
+  if (!amount || amount === 0) return 'Zero Rupees Only';
+
+  const rupees = Math.floor(amount);
+  const paise  = Math.round((amount - rupees) * 100);
+
+  const crore = Math.floor(rupees / 10000000);
+  const lakh  = Math.floor((rupees % 10000000) / 100000);
+  const thou  = Math.floor((rupees % 100000) / 1000);
+  const rem   = rupees % 1000;
+
+  const parts: string[] = [];
+  if (crore) parts.push(threeDigits(crore) + ' Crore');
+  if (lakh)  parts.push(threeDigits(lakh)  + ' Lakh');
+  if (thou)  parts.push(threeDigits(thou)  + ' Thousand');
+  if (rem)   parts.push(threeDigits(rem));
+
+  let result = parts.join(' ') + ' Rupees';
+  if (paise) result += ' and ' + twoDigits(paise) + ' Paise';
+  return result + ' Only';
+}
+
+function esc(v: any): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function fmtDate(d: any): string {
+  if (d == null) return '—';
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtAmt(v: any): string {
+  const n = parseFloat(v ?? 0) || 0;
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function instrumentLabel(mode: string): string {
+  const m = (mode || '').toLowerCase();
+  if (m === 'cheque')                    return 'Cheque No.';
+  if (m === 'demand_draft' || m === 'draft') return 'DD No.';
+  if (m === 'neft' || m === 'rtgs' || m === 'online') return 'Transaction Ref.';
+  if (m === 'upi')                       return 'UPI Ref.';
+  if (m === 'card')                      return 'Card Auth. No.';
+  if (m === 'cash')                      return 'N/A';
+  if (m === 'adjust')                    return 'Adjustment Ref.';
+  if (m === 'dealer_adjustment')         return 'Dealer Ref.';
+  if (m === 'tds_challan')               return 'Challan No.';
+  return 'Reference No.';
+}
+
+function paymentNarrative(b: any): string {
+  const mode    = (b.payment_mode || '').toLowerCase();
+  const ref     = (b.payment_ref  || '').trim();
+  const bank    = (b.bank_name    || '').trim();
+  const branch  = (b.bank_branch  || '').trim();
+  const dateStr = fmtDate(b.cheque_date);
+  const hasDate = dateStr !== '—';
+
+  if (mode === 'cash') {
+    return 'in Cash.';
+  }
+
+  if (mode === 'cheque') {
+    const parts: string[] = ['vide Cheque'];
+    if (ref)     parts.push(`No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank) {
+      const bankStr = branch ? `${bank}, ${branch}` : bank;
+      parts.push(`drawn on ${bankStr}`);
+    }
+    return parts.join(' ') + '.';
+  }
+
+  if (mode === 'demand_draft' || mode === 'draft') {
+    const parts: string[] = ['vide Demand Draft'];
+    if (ref)     parts.push(`No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank) {
+      const bankStr = branch ? `${bank}, ${branch}` : bank;
+      parts.push(`drawn on ${bankStr}`);
+    }
+    return parts.join(' ') + '.';
+  }
+
+  if (mode === 'neft' || mode === 'rtgs' || mode === 'online') {
+    const parts: string[] = ['vide Online Transfer'];
+    if (ref)     parts.push(`Ref. No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`through ${bank}`);
+    return parts.join(' ') + '.';
+  }
+
+  if (mode === 'upi') {
+    const parts: string[] = ['vide UPI'];
+    if (ref)     parts.push(`Ref. No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    return parts.join(' ') + '.';
+  }
+
+  if (mode === 'card') {
+    const parts: string[] = ['vide Card Transaction'];
+    if (ref)     parts.push(`Ref. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`through ${bank}`);
+    return parts.join(' ') + '.';
+  }
+
+  // Fallback: capitalise mode words
+  const modePretty = mode.replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const parts: string[] = [`vide ${modePretty}`];
+  if (ref) parts.push(`Ref. ${ref}`);
+  return parts.join(' ') + '.';
+}
+
+// ── APPLICANT FILE HELPERS ───────────────
+
+function capitalize(str: string): string {
+  if (str == null) return '—';
+  return String(str).replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
+
+function fmtIndianNumber(v: any): string {
+  const n = parseFloat(v ?? 0) || 0;
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtIndianCurrency(v: any): string {
+  return 'Rs. ' + fmtIndianNumber(v);
+}
+
+function ordinalFloor(n: any): string {
+  if (n == null) return '—';
+  const num = parseInt(n);
+  if (isNaN(num)) return '—';
+  if (num === 0) return 'Ground Floor';
+  return ordinal(num) + ' Floor';
+}
+
+function getMailingAddress(consumer: any): string {
+  const type = (consumer.mailing_address_type || 'present').toLowerCase();
+  let addr: string, city: string, state: string, pin: string;
+  if (type === 'office') {
+    addr  = consumer.office_address || '';
+    city  = consumer.office_city    || '';
+    state = consumer.office_state   || '';
+    pin   = consumer.office_pin     || '';
+  } else if (type === 'permanent') {
+    addr  = consumer.perm_address || '';
+    city  = consumer.perm_city    || '';
+    state = consumer.perm_state   || '';
+    pin   = consumer.perm_pin     || '';
+  } else {
+    addr  = consumer.present_address || '';
+    city  = consumer.present_city    || '';
+    state = consumer.present_state   || '';
+    pin   = consumer.present_pin     || '';
+  }
+  const parts = [addr, city, state, pin].map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts.join(', ') : 'N/A';
+}
+
+function amtWords(amount: number): string {
+  const raw = numberToWords(amount);
+  const capitalised = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+  return capitalised.replace(/\bonly\b$/i, 'only.');
+}
+
+// ── PAGE 1 BUILDER ───────────────────────
+
+function buildApplicantPage1(
+  b: any,
+  consumer: any,
+  coApplicants: any[],
+  settings: Record<string, string>,
+  allocation: any | null,
+  parkingSlots: any[] = [],
+): string {
+
+  // ── derived values ──────────────────────
+  const projectName   = esc(b.project_name  || '—');
+  const fullName      = [consumer.salutation, consumer.first_name,
+    consumer.middle_name || '', consumer.last_name].filter(Boolean).join(' ').trim() || '—';
+  const customerId    = esc(consumer.form_no || consumer.registration_no || '—');
+  const presentAddr   = [consumer.present_address, consumer.present_city,
+    consumer.present_state, consumer.present_pin ? `- ${consumer.present_pin}` : '']
+    .filter(Boolean).join(', ');
+
+  const carpetArea    = parseFloat(b.carpet_area_sqft  || 0);
+  const superArea     = parseFloat(b.super_area_sqft   || 0);
+  const basePrice     = parseFloat(b.base_price_inr    || 0);
+  const ratePerSqft   = carpetArea > 0 ? basePrice / carpetArea : 0;
+  const plcAmount     = parseFloat(b.plc_amount        || 0);
+  const otherCharge   = parseFloat(b.other_charge_amount || 0);
+  const isGstExempt   = ['nri','oci','pio'].includes((consumer.nationality || '').toLowerCase());
+  const cgst          = isGstExempt ? 0 : parseFloat(b.cgst_amount       || 0);
+  const sgst          = isGstExempt ? 0 : parseFloat(b.sgst_amount       || 0);
+  const cgstPct       = isGstExempt ? 0 : parseFloat(b.cgst_pct          || 0);
+  const sgstPct       = isGstExempt ? 0 : parseFloat(b.sgst_pct          || 0);
+  const interest      = parseFloat(b.interest_amount   || 0);
+  const bookingAmt    = parseFloat(b.booking_amount    || 0);
+
+  const netBasicPrice      = basePrice;
+  const agreementValue     = netBasicPrice + plcAmount + otherCharge;
+  const totalConsideration = agreementValue;
+  const totalTax           = cgst + sgst;
+  const totalWithTax       = totalConsideration + totalTax;
+  const totalReceivables   = totalWithTax + interest;
+  const lessReceipt        = bookingAmt;
+  const paidPct            = totalReceivables > 0
+    ? (lessReceipt / totalReceivables * 100).toFixed(2) : '0.00';
+  const balance            = totalReceivables - lessReceipt;
+
+  const allotmentDate  = fmtDate(allocation?.allotment_date || b.allotment_date);
+  const agreementDate  = fmtDate(b.agreement_date);
+  const completionDate = fmtDate(b.completion_date);
+
+  // ── shared styles ───────────────────────
+  const baseFont  = 'font-family:Arial,sans-serif;font-size:11px;color:#000;';
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+  const cellLbl   = `style="${baseFont}padding:2px 8px 2px 0;vertical-align:top;white-space:nowrap;font-weight:600;"`;
+  const cellVal   = `style="${baseFont}padding:2px 0;vertical-align:top;"`;
+  const thStyle   = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:3px 5px;text-align:center;"`;
+  const tdStyle   = `style="${baseFont}border:1px solid #999;padding:3px 5px;text-align:center;"`;
+  const tdR       = `style="${baseFont}border:1px solid #999;padding:3px 5px;text-align:right;"`;
+  const tdL       = `style="${baseFont}border:1px solid #999;padding:3px 5px;text-align:left;"`;
+
+  // ── helper: two-column detail layout ────
+  function detailRow(label: string, value: string): string {
+    return `<tr><td ${cellLbl}>${label}:</td><td ${cellVal}>${value}</td></tr>`;
+  }
+  function twoColBlock(leftRows: string[][], rightRows: string[][]): string {
+    const maxLen = Math.max(leftRows.length, rightRows.length);
+    let rows = '';
+    for (let i = 0; i < maxLen; i++) {
+      const l = leftRows[i]  || ['', ''];
+      const r = rightRows[i] || ['', ''];
+      rows += `<tr>
+        <td style="${baseFont}padding:2px 8px 2px 0;vertical-align:top;white-space:nowrap;font-weight:600;width:13%">${esc(l[0])}${l[0] ? ':' : ''}</td>
+        <td style="${baseFont}padding:2px 12px 2px 0;vertical-align:top;width:37%">${l[1]}</td>
+        <td style="${baseFont}padding:2px 8px 2px 0;vertical-align:top;white-space:nowrap;font-weight:600;width:13%">${esc(r[0])}${r[0] ? ':' : ''}</td>
+        <td style="${baseFont}padding:2px 0;vertical-align:top;width:37%">${r[1]}</td>
+      </tr>`;
+    }
+    return `<table style="width:100%;border-collapse:collapse;">${rows}</table>`;
+  }
+
+  // ── helper: pricing row ─────────────────
+  function pRow(label: string, value: string, bold = false): string {
+    const fw = bold ? 'font-weight:700;' : '';
+    return `<tr>
+      <td style="${baseFont}${fw}padding:2px 8px;width:70%">${label}</td>
+      <td style="${baseFont}${fw}padding:2px 8px;text-align:right;">${value}</td>
+    </tr>`;
+  }
+
+  // ── SECTION 1 — HEADER ──────────────────
+  const header = `
+    <div style="text-align:center;margin-bottom:10px;">
+      <div style="${baseFont}font-weight:700;font-size:14px;">APPLICANT FILE (${projectName})</div>
+      <div style="${baseFont}font-size:10px;">Last Update: ${fmtDate(b.updated_at)} By: admin</div>
+      <div style="${baseFont}font-size:10px;">Customer ID: ${customerId}</div>
+    </div>`;
+
+  // ── SECTION 2 — FIRST APPLICANT ─────────
+  const hasLoan = (b.self_or_loan || 'self').toLowerCase() === 'loan'
+    || (b.finance_bank && b.finance_bank.trim().length > 0);
+  const loanInfo = hasLoan
+    ? `Yes - ${esc(b.finance_bank || 'Bank Loan')}${b.loan_amount && Number(b.loan_amount) > 0 ? ` (Amount: ${fmtIndianCurrency(b.loan_amount)})` : ''}`
+    : 'No';
+
+  const leftCols: string[][] = [
+    ['Name',           esc(fullName)],
+    ['S/o',            esc(consumer.father_name || 'N/A')],
+    ['Present Address',esc(presentAddr || 'N/A')],
+    ['Mailing Address',esc(getMailingAddress(consumer))],
+    ['Contact No.',    esc(consumer.mobile || 'N/A')],
+    ['LandLine No.',   esc(consumer.present_phone_no || 'N/A')],
+    ['Email Id',       esc(consumer.email || 'N/A')],
+    ['PAN No.',        esc(consumer.pan_no || 'N/A')],
+    ['Aadhar No.',     esc(consumer.aadhaar_no || 'N/A')],
+    ['Date Of Birth',  fmtDate(consumer.dob)],
+  ];
+  const rightCols: string[][] = [
+    ['Project',         esc(b.project_name || 'N/A')],
+    ['Tower',           esc(b.tower_name || 'N/A')],
+    ['Floor',           ordinalFloor(b.floor)],
+    ['Unit No.',        esc(b.unit_number || 'N/A')],
+    ['Unit Type',       esc(b.bhk_type || 'N/A')],
+    ['Location',        esc(b.project_location || 'N/A')],
+    ['Loan Information',loanInfo],
+    ['Payment Plan',    esc(b.selected_plan_name || 'N/A')],
+    ['Broker Code',     esc(b.broker_rera || 'N/A')],
+    ['Main Broker Name',esc(b.broker_name || 'Direct')],
+    ['Customer Classification', esc(b.bhk_type || 'N/A')],
+    ['Employee Name',   esc(b.employee_name || 'N/A')],
+    ['Booking Created By', esc(b.created_by_name || 'admin')],
+    ['Preferable Comm. Mode', capitalize(b.communication_mode || 'N/A')],
+    ['Document Status', 'N/A'],
+  ];
+
+  const firstApplicant = `
+    <div ${sectionHd}>First Applicant</div>
+    ${twoColBlock(leftCols, rightCols)}`;
+
+  // ── SECTION 3 — CO-APPLICANTS ────────────
+  let coApplicantHtml = '';
+  if (coApplicants.length > 0) {
+    coApplicants.forEach((co: any, idx: number) => {
+      const coLabel = (co.applicant_type || '').toLowerCase() === 'nominee'
+        ? 'Nominee' : `Co Applicant ${idx + 1}`;
+      const coName = [co.salutation, co.first_name, co.middle_name || '', co.last_name]
+        .filter(Boolean).join(' ').trim() || '—';
+      const coLeft: string[][] = [
+        ['Name',        esc(coName)],
+        ['S/o',         esc(co.father_name || 'N/A')],
+        ['Contact No.', esc(co.mobile || 'N/A')],
+        ['Email Id',    esc(co.email  || 'N/A')],
+        ['PAN No.',     esc(co.pan_no || 'N/A')],
+        ['Aadhar No.',  esc(co.aadhaar_no || 'N/A')],
+        ['Date Of Birth', fmtDate(co.dob)],
+      ];
+      coApplicantHtml += `
+        <div ${sectionHd}>${esc(coLabel)}</div>
+        ${twoColBlock(coLeft, [])}`;
+    });
+  }
+
+  // ── SECTION 4 — PRICING SUMMARY ──────────
+  const pricingTable = `
+    <table style="width:100%;border-collapse:collapse;">
+      ${pRow('Carpet Area (Sq. Ft.)',              carpetArea.toFixed(3))}
+      ${pRow('Balcony Area (Sq. Ft.)',             superArea.toFixed(3))}
+      ${pRow('Rate (Rs./Sq. Ft.)',                 ratePerSqft.toFixed(3))}
+      ${pRow(`Net Basic Price (Rs. ${ratePerSqft.toFixed(2)}/Sq. Ft.)`, fmtIndianCurrency(netBasicPrice))}
+      ${pRow('Add: PLC (Rs.)',                     fmtIndianCurrency(plcAmount))}
+      ${pRow('Add: Other Charges (Rs.)',           fmtIndianCurrency(otherCharge))}
+      ${pRow('Agreement Value',                    fmtIndianCurrency(agreementValue), true)}
+      ${pRow('Add on Charges (Rs.)',               'Rs. 0.00')}
+      ${pRow('Total Consideration',                fmtIndianCurrency(totalConsideration), true)}
+      ${pRow(`CGST (${cgstPct}%)`,                 fmtIndianCurrency(cgst))}
+      ${pRow(`SGST (${sgstPct}%)`,                 fmtIndianCurrency(sgst))}
+      ${isGstExempt ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
+      ${pRow('',                                   fmtIndianCurrency(totalTax))}
+      ${pRow('Total Consideration With Tax',       fmtIndianCurrency(totalWithTax), true)}
+      <tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;">In words: (${amtWords(totalWithTax)})</td></tr>
+      ${pRow('Interest (Rs.)',                     fmtIndianCurrency(interest))}
+      ${pRow('Interest Waive off (Rs.)',           'Rs. 0.00')}
+      ${pRow('',                                   fmtIndianCurrency(interest))}
+      ${pRow('Total Receivables',                  fmtIndianCurrency(totalReceivables), true)}
+      ${pRow(`Less Receipt (Rs.) (${paidPct} % Paid Amount)`, fmtIndianCurrency(lessReceipt))}
+      ${pRow('Balance (Rs.) (To be Paid)',         fmtIndianCurrency(balance), true)}
+    </table>`;
+
+  const pricingSection = `
+    <div ${sectionHd}>Pricing Summary</div>
+    ${pricingTable}`;
+
+  // ── SECTION 5 — MILESTONE TIMELINE ───────
+  const milestones = [
+    { label: 'BOOKING',   date: fmtDate(b.booking_date) },
+    { label: 'ALLOTMENT', date: allotmentDate !== '—' ? allotmentDate : '—' },
+    { label: 'AGREEMENT', date: agreementDate !== '—' ? agreementDate  : '—' },
+    { label: 'COMPLETION',date: completionDate !== '—' ? completionDate : '—' },
+  ];
+  const milestoneBoxes = milestones.map(m => `
+    <td style="width:25%;text-align:center;border:1px solid #999;padding:6px 4px;${baseFont}">
+      <div style="font-weight:700;font-size:11px;">${m.label}</div>
+      <div style="font-size:10px;margin-top:3px;">${m.date}</div>
+    </td>`).join('');
+  const milestoneSection = `
+    <div ${sectionHd}>Milestone Timeline</div>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:8px;">
+      <tr>${milestoneBoxes}</tr>
+    </table>`;
+
+  // ── SECTION 6 — OTHER CHARGES TABLE ──────
+  let otherChargeRows = '';
+  let ocRowNum = 0;
+  if (b.has_plc) {
+    ocRowNum++;
+    otherChargeRows += `<tr>
+      <td ${tdStyle}>${ocRowNum}</td>
+      <td ${tdL}>Balcony Charge</td>
+      <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
+      <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
+      <td ${tdL}>—</td>
+    </tr>`;
+  }
+  if (b.has_other_charge) {
+    ocRowNum++;
+    otherChargeRows += `<tr>
+      <td ${tdStyle}>${ocRowNum}</td>
+      <td ${tdL}>Other Charge</td>
+      <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
+      <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
+      <td ${tdL}>${esc(b.other_charge_desc || '—')}</td>
+    </tr>`;
+  }
+  if (!otherChargeRows) {
+    otherChargeRows = `<tr>
+      <td ${tdStyle}>—</td><td ${tdL}>—</td>
+      <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
+      <td ${tdR}>—</td><td ${tdL}>—</td>
+    </tr>`;
+  }
+  const otherChargesSection = `
+    <div ${sectionHd}>Other Charges</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th><th ${thStyle}>OTHER CHARGE</th>
+        <th ${thStyle}>PAID QTY.</th><th ${thStyle}>FREE QTY.</th>
+        <th ${thStyle}>TOTAL QTY.</th><th ${thStyle}>AMOUNT</th>
+        <th ${thStyle}>DESCRIPTION</th>
+      </tr></thead>
+      <tbody>${otherChargeRows}</tbody>
+      <tfoot><tr>
+        <td colspan="5" ${tdR} style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
+        <td ${tdR}><strong>${fmtIndianNumber(plcAmount + otherCharge)}</strong></td>
+        <td ${tdL}></td>
+      </tr></tfoot>
+    </table>`;
+
+  // ── SECTION 7 — ADDON CHARGES TABLE ──────
+  const addonSection = `
+    <div ${sectionHd}>Other/Addon Charges</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th><th ${thStyle}>CHARGE TYPE</th><th ${thStyle}>AMOUNT</th>
+      </tr></thead>
+      <tbody><tr>
+        <td ${tdStyle}>1</td>
+        <td ${tdL}>Add on Charges</td>
+        <td ${tdR}>Rs. 0.00</td>
+      </tr></tbody>
+      <tfoot><tr>
+        <td colspan="2" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
+        <td ${tdR}><strong>Rs. 0.00</strong></td>
+      </tr></tfoot>
+    </table>`;
+
+  // ── SECTION 8 — PARKING DETAIL ────────────
+  let parkingRows = '';
+  if (parkingSlots.length > 0) {
+    parkingSlots.forEach((ps: any, idx: number) => {
+      parkingRows += `<tr>
+        <td ${tdStyle}>${idx + 1}</td>
+        <td ${tdL}>${esc(ps.parking_type || '—')}</td>
+        <td ${tdL}>${esc(ps.slot_number  || 'N/A')}</td>
+      </tr>`;
+    });
+  } else {
+    parkingRows = `<tr>
+      <td ${tdStyle}>1</td><td ${tdL}>—</td><td ${tdL}>N/A</td>
+    </tr>`;
+  }
+  const parkingSection = `
+    <div ${sectionHd}>Parking Detail</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th><th ${thStyle}>TYPE</th><th ${thStyle}>PARKING ADDRESS</th>
+      </tr></thead>
+      <tbody>${parkingRows}</tbody>
+    </table>`;
+
+  // ── SECTION 9 — TAX DETAILS ───────────────
+  const taxSection = `
+    <div ${sectionHd}>Tax Details</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th><th ${thStyle}>NAME</th>
+        <th ${thStyle}>TOTAL</th><th ${thStyle}>PAID</th><th ${thStyle}>BALANCE</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td ${tdStyle}>1</td><td ${tdL}>CGST</td>
+          <td ${tdR}>${fmtIndianNumber(cgst)}</td>
+          <td ${tdR}>${fmtIndianNumber(cgst)}</td>
+          <td ${tdR}>0.00</td>
+        </tr>
+        <tr>
+          <td ${tdStyle}>2</td><td ${tdL}>SGST</td>
+          <td ${tdR}>${fmtIndianNumber(sgst)}</td>
+          <td ${tdR}>${fmtIndianNumber(sgst)}</td>
+          <td ${tdR}>0.00</td>
+        </tr>
+      </tbody>
+      <tfoot><tr>
+        <td colspan="2" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
+        <td ${tdR}><strong>${fmtIndianNumber(totalTax)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(totalTax)}</strong></td>
+        <td ${tdR}><strong>0.00</strong></td>
+      </tr></tfoot>
+    </table>`;
+
+  // ── SECTION 10 — PAYMENT CONTRIBUTION ────
+  const contribTotal = bookingAmt + cgst + sgst + interest;
+  const payContribSection = `
+    <div ${sectionHd}>Payment Contribution</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>NAME</th><th ${thStyle}>AMOUNT</th>
+        <th ${thStyle}>CGST</th><th ${thStyle}>SGST</th>
+        <th ${thStyle}>INTEREST</th><th ${thStyle}>TOTAL</th>
+      </tr></thead>
+      <tbody><tr>
+        <td ${tdL}>Own Contribution</td>
+        <td ${tdR}>${fmtIndianNumber(bookingAmt)}</td>
+        <td ${tdR}>${fmtIndianNumber(cgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(sgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribTotal)}</td>
+      </tr></tbody>
+      <tfoot><tr>
+        <td ${tdL}><strong>Total</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(bookingAmt)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(cgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(sgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(interest)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribTotal)}</strong></td>
+      </tr></tfoot>
+    </table>`;
+
+  // ── SECTION 11 — INTEREST SUMMARY ────────
+  const interestSummary = `
+    <div ${sectionHd}>Interest Summary</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>TOTAL INTEREST</th><th ${thStyle}>WAIVE OFF</th>
+        <th ${thStyle}>PAID</th><th ${thStyle}>PAID GST</th>
+        <th ${thStyle}>BALANCE GST</th><th ${thStyle}>TOTAL INTEREST</th>
+      </tr></thead>
+      <tbody><tr>
+        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+      </tr></tbody>
+    </table>`;
+
+  // ── FOOTER ───────────────────────────────
+  const footer = `
+    <div style="margin-top:16px;${baseFont}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+        <div>
+          Project: ${projectName} &nbsp;&nbsp;
+          First Applicant: ${esc(fullName)} &nbsp;&nbsp;
+          Customer ID: ${customerId}
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700;">(1/3)</div>
+          <div>Date: ${fmtDate(new Date())}</div>
+        </div>
+      </div>
+    </div>`;
+
+  return `
+    <div style="font-family:Arial,sans-serif;font-size:11px;color:#000;padding:20px;max-width:900px;margin:0 auto;">
+      ${header}
+      ${firstApplicant}
+      ${coApplicantHtml}
+      ${pricingSection}
+      ${milestoneSection}
+      ${otherChargesSection}
+      ${addonSection}
+      ${parkingSection}
+      ${taxSection}
+      ${payContribSection}
+      ${interestSummary}
+      ${footer}
+    </div>`;
+}
+
+// ── PAGE 2 BUILDER ───────────────────────
+
+function buildApplicantPage2(
+  b: any,
+  consumer: any,
+  scheduleTemplates: any[],
+  settings: Record<string, string>,
+): string {
+
+  // ── derived values ──────────────────────
+  const projectName = esc(b.project_name || '—');
+  const fullName    = [consumer.salutation, consumer.first_name,
+    consumer.middle_name || '', consumer.last_name].filter(Boolean).join(' ').trim() || '—';
+  const customerId  = esc(consumer.form_no || consumer.registration_no || '—');
+
+  const basePrice     = parseFloat(b.base_price_inr      || 0);
+  const plcAmount     = parseFloat(b.plc_amount           || 0);
+  const otherCharge   = parseFloat(b.other_charge_amount  || 0);
+  const cgstPct       = parseFloat(b.cgst_pct             || 0);
+  const sgstPct       = parseFloat(b.sgst_pct             || 0);
+  const cgstAmt       = parseFloat(b.cgst_amount          || 0);
+  const sgstAmt       = parseFloat(b.sgst_amount          || 0);
+  const interest      = parseFloat(b.interest_amount      || 0);
+  const bookingAmt    = parseFloat(b.booking_amount       || 0);
+
+  const bookingDate  = b.booking_date ? new Date(b.booking_date) : null;
+
+  // ── shared styles ───────────────────────
+  const baseFont = 'font-family:Arial,sans-serif;font-size:10px;color:#000;';
+  const thStyle  = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:3px 4px;text-align:center;white-space:nowrap;"`;
+  const tdC      = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:center;"`;
+  const tdR      = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:right;"`;
+  const tdL      = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:left;"`;
+  const tdBR     = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:right;font-weight:700;"`;
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+
+  // ── date helper: offset from booking_date ──
+  function dueDateStr(offsetDays: any): string {
+    if (offsetDays == null || !bookingDate) return '—';
+    const d = new Date(bookingDate);
+    d.setDate(d.getDate() + parseInt(offsetDays));
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  }
+
+  // ── PAGE HEADER ─────────────────────────
+  const pageHeader = `
+    <div style="${baseFont}display:flex;justify-content:space-between;margin-bottom:8px;">
+      <div>Project: ${projectName} &nbsp;&nbsp; First Applicant: ${esc(fullName)} &nbsp;&nbsp; Customer ID: ${customerId}</div>
+      <div style="font-weight:700;">(2/3)</div>
+    </div>`;
+
+  // ── SECTION 1 — PAYMENT SCHEDULE ─────────
+  const selectedPlan = b.selected_plan_name || null;
+  const filteredTemplates = selectedPlan
+    ? scheduleTemplates.filter((t: any) => t.plan_name === selectedPlan)
+    : [];
+
+  let schedRows = '';
+  let totPct = 0, totNetBsp = 0, totOther = 0, totInstAmt = 0;
+  let totCgst = 0, totSgst = 0, totNetDue = 0;
+
+  if (filteredTemplates.length === 0) {
+    schedRows = `<tr><td colspan="12" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
+  } else {
+    filteredTemplates.forEach((t: any, idx: number) => {
+      const pct        = parseFloat(t.percentage || 0);
+      const netBsp     = basePrice * pct / 100;
+      const otherInst  = (plcAmount + otherCharge) * pct / 100;
+      const instAmt    = netBsp + otherInst;
+      const instCgst   = instAmt * cgstPct / 100;
+      const instSgst   = instAmt * sgstPct / 100;
+      const netDue     = instAmt + instCgst + instSgst;
+      const dueDate    = dueDateStr(t.due_date_offset_days);
+
+      totPct     += pct;
+      totNetBsp  += netBsp;
+      totOther   += otherInst;
+      totInstAmt += instAmt;
+      totCgst    += instCgst;
+      totSgst    += instSgst;
+      totNetDue  += netDue;
+
+      schedRows += `<tr>
+        <td ${tdC}>${idx + 1}</td>
+        <td ${tdL}>${esc(t.installment_name)}</td>
+        <td ${tdC}>${dueDate}</td>
+        <td ${tdR}>${pct.toFixed(2)}</td>
+        <td ${tdR}>${fmtIndianNumber(netBsp)}</td>
+        <td ${tdR}>${fmtIndianNumber(otherInst)}</td>
+        <td ${tdR}>${fmtIndianNumber(instAmt)}</td>
+        <td ${tdR}>${fmtIndianNumber(instCgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(instSgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(netDue)}</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdR}>${fmtIndianNumber(netDue)}</td>
+      </tr>`;
+    });
+  }
+
+  const schedTotalRow = filteredTemplates.length > 0 ? `
+    <tr>
+      <td ${tdBR} colspan="3">* Total:</td>
+      <td ${tdBR}>${totPct.toFixed(2)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totNetBsp)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totOther)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totInstAmt)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totCgst)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totSgst)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totNetDue)}</td>
+      <td ${tdBR}>0.00</td>
+      <td ${tdBR}>${fmtIndianNumber(totNetDue)}</td>
+    </tr>` : '';
+
+  const schedSection = `
+    <div ${sectionHd}>PAYMENTS SCHEDULE</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th>
+        <th ${thStyle}>INSTALLMENT NAME</th>
+        <th ${thStyle}>DUE DATE</th>
+        <th ${thStyle}>%</th>
+        <th ${thStyle}>NET BSP</th>
+        <th ${thStyle}>OTHER CHARGES</th>
+        <th ${thStyle}>INST. AMT. DUE</th>
+        <th ${thStyle}>INST. CGST</th>
+        <th ${thStyle}>SGST</th>
+        <th ${thStyle}>NET DUE</th>
+        <th ${thStyle}>RECEIVED</th>
+        <th ${thStyle}>OUTSTANDING</th>
+      </tr></thead>
+      <tbody>${schedRows}</tbody>
+      <tfoot>${schedTotalRow}</tfoot>
+    </table>`;
+
+  // ── SECTION 2 — OTHER/ADDON CHARGES SCHEDULE ──
+  let addonRows = '';
+  let addonRowNum = 0;
+  let addonNetTotal = 0, addonCgstTotal = 0, addonSgstTotal = 0, addonGrandTotal = 0;
+
+  if (b.has_plc && plcAmount > 0) {
+    addonRowNum++;
+    const plcCgst  = plcAmount * cgstPct / 100;
+    const plcSgst  = plcAmount * sgstPct / 100;
+    const plcTotal = plcAmount + plcCgst + plcSgst;
+    addonNetTotal    += plcAmount; addonCgstTotal += plcCgst;
+    addonSgstTotal   += plcSgst;  addonGrandTotal += plcTotal;
+    addonRows += `<tr>
+      <td ${tdC}>${addonRowNum}</td>
+      <td ${tdL}>Balcony Charge</td>
+      <td ${tdC}>—</td>
+      <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcCgst)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcSgst)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcTotal)}</td>
+      <td ${tdR}>0.00</td>
+      <td ${tdR}>${fmtIndianNumber(plcTotal)}</td>
+      <td ${tdC}>—</td>
+    </tr>`;
+  }
+
+  if (b.has_other_charge && otherCharge > 0) {
+    addonRowNum++;
+    const ocCgst  = otherCharge * cgstPct / 100;
+    const ocSgst  = otherCharge * sgstPct / 100;
+    const ocTotal = otherCharge + ocCgst + ocSgst;
+    addonNetTotal    += otherCharge; addonCgstTotal += ocCgst;
+    addonSgstTotal   += ocSgst;     addonGrandTotal += ocTotal;
+    addonRows += `<tr>
+      <td ${tdC}>${addonRowNum}</td>
+      <td ${tdL}>${esc(b.other_charge_desc || 'Other Charge')}</td>
+      <td ${tdC}>—</td>
+      <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
+      <td ${tdR}>${fmtIndianNumber(ocCgst)}</td>
+      <td ${tdR}>${fmtIndianNumber(ocSgst)}</td>
+      <td ${tdR}>${fmtIndianNumber(ocTotal)}</td>
+      <td ${tdR}>0.00</td>
+      <td ${tdR}>${fmtIndianNumber(ocTotal)}</td>
+      <td ${tdC}>—</td>
+    </tr>`;
+  }
+
+  if (!addonRows) {
+    addonRows = `<tr>
+      <td ${tdC}>—</td><td ${tdL}>—</td><td ${tdC}>—</td>
+      <td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdR}>0.00</td>
+      <td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdC}>—</td>
+    </tr>`;
+  }
+
+  const addonSection = `
+    <div ${sectionHd}>OTHER/ADDON CHARGES</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.NO.</th>
+        <th ${thStyle}>INSTALLMENT/CHARGES</th>
+        <th ${thStyle}>DUE DATE</th>
+        <th ${thStyle}>NET AMOUNT</th>
+        <th ${thStyle}>CGST</th>
+        <th ${thStyle}>SGST</th>
+        <th ${thStyle}>NET DUE</th>
+        <th ${thStyle}>RECEIVED</th>
+        <th ${thStyle}>OUTSTANDING</th>
+        <th ${thStyle}>REMARK</th>
+      </tr></thead>
+      <tbody>${addonRows}</tbody>
+      <tfoot><tr>
+        <td ${tdBR} colspan="3">Total:</td>
+        <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonCgstTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonSgstTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
+        <td ${tdBR}>0.00</td>
+        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
+        <td ${tdBR}></td>
+      </tr></tfoot>
+    </table>`;
+
+  // ── SECTION 3 — RECEIPT INFORMATION ──────
+  const paymentStatus = b.status === 'complete' ? 'Cleared' : 'Pending';
+  const rowBg = paymentStatus === 'Pending'
+    ? 'background:#FFFF99'
+    : (b.self_or_loan === 'loan' ? 'background:#FFD580' : 'background:#ffffff');
+  const netBookingBase = bookingAmt - cgstAmt - sgstAmt;
+
+  // Receipt-table-specific styles (9px font, tighter padding, no nowrap)
+  const rFont  = 'font-family:Arial,sans-serif;font-size:9px;color:#000;';
+  const rthS   = `style="${rFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:2px 3px;text-align:center;overflow-wrap:break-word;"`;
+  const rtdC   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:center;"`;
+  const rtdL   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:left;"`;
+  const rtdR   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;"`;
+  const rtdBR  = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
+
+  const receiptRow = `<tr style="${rowBg}">
+    <td ${rtdC}>1</td>
+    <td ${rtdL}>${esc(b.registration_no || '—')}/REC/${esc(b.form_no || '—')}</td>
+    <td ${rtdC}>${fmtDate(b.booking_date)}</td>
+    <td ${rtdL}>${capitalize(b.payment_mode || '—')}</td>
+    <td ${rtdL}>${esc(b.payment_ref || '—')}</td>
+    <td ${rtdC}>${fmtDate(b.cheque_date)}</td>
+    <td ${rtdL}>${esc(b.bank_name || '—')}</td>
+    <td ${rtdL}>${esc(b.bank_branch || '—')}</td>
+    ${/* TODO: Replace with cleared_date/bounce_date when migration 047 is applied */''}
+    <td ${rtdC}>${paymentStatus === 'Cleared' ? '—' : fmtDate(b.cheque_date)}</td>
+    <td ${rtdR}>${fmtIndianNumber(netBookingBase)}</td>
+    <td ${rtdR}>${fmtIndianNumber(cgstAmt)}</td>
+    <td ${rtdR}>${fmtIndianNumber(sgstAmt)}</td>
+    <td ${rtdR}>${fmtIndianNumber(interest)}</td>
+    <td ${rtdR}>0.00</td>
+    <td ${rtdR}>${fmtIndianNumber(bookingAmt)}</td>
+    <td ${rtdC}>${paymentStatus}</td>
+    <td ${rtdL}>${esc(b.remarks || 'N/A')}</td>
+    <td ${rtdL}>${esc(b.on_account_of || 'Booking')}</td>
+  </tr>`;
+
+  const receiptSection = `
+    <div ${sectionHd}>RECEIPT INFORMATION</div>
+    <div style="text-align:right;font-size:9px;margin-bottom:4px;font-family:Arial,sans-serif;">
+      <span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px">
+        <span style="display:inline-block;width:12px;height:12px;background:#FF9999;border:1px solid #999"></span>
+        Bounce cheque
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px">
+        <span style="display:inline-block;width:12px;height:12px;background:#FFFF99;border:1px solid #999"></span>
+        Pending cheque
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:3px">
+        <span style="display:inline-block;width:12px;height:12px;background:#FFD580;border:1px solid #999"></span>
+        Loan Receipt
+      </span>
+    </div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+      <thead><tr>
+        <th ${rthS} style="width:3%">S.NO.</th>
+        <th ${rthS} style="width:9%">RECEIPT NO.</th>
+        <th ${rthS} style="width:6%">RECEIPT DATE</th>
+        <th ${rthS} style="width:5%">MODE</th>
+        <th ${rthS} style="width:8%">INSTRUMENT NO.</th>
+        <th ${rthS} style="width:6%">INSTRUMENT DATE</th>
+        <th ${rthS} style="width:6%">DRAWN ON</th>
+        <th ${rthS} style="width:6%">CLEARING BANK</th>
+        <th ${rthS} style="width:6%">BOUNCE DATE</th>
+        <th ${rthS} style="width:5%">AMOUNT</th>
+        <th ${rthS} style="width:4%">CGST</th>
+        <th ${rthS} style="width:4%">SGST</th>
+        <th ${rthS} style="width:5%">INTEREST</th>
+        <th ${rthS} style="width:4%">EXTRA</th>
+        <th ${rthS} style="width:5%">NET AMOUNT</th>
+        <th ${rthS} style="width:6%">PAYMENT STATUS</th>
+        <th ${rthS} style="width:6%">REMARK</th>
+        <th ${rthS} style="width:6%">ON ACCOUNT OF</th>
+      </tr></thead>
+      <tbody>${receiptRow}</tbody>
+      <tfoot>
+        <tr>
+          <td ${rtdBR} colspan="9">Received Amt.:</td>
+          <td ${rtdBR}>${fmtIndianNumber(netBookingBase)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(cgstAmt)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(sgstAmt)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(interest)}</td>
+          <td ${rtdBR}>0.00</td>
+          <td ${rtdBR}>${fmtIndianNumber(bookingAmt)}</td>
+          <td ${rtdBR} colspan="3"></td>
+        </tr>
+        <tr style="background:#FFFF99">
+          <td ${rtdBR} colspan="9">Pending Amt.:</td>
+          <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
+          <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
+          <td ${rtdBR} colspan="3"></td>
+        </tr>
+        <tr>
+          <td ${rtdBR} colspan="9">Cleared Amt.:</td>
+          <td ${rtdBR}>${fmtIndianNumber(netBookingBase)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(cgstAmt)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(sgstAmt)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(interest)}</td>
+          <td ${rtdBR}>0.00</td>
+          <td ${rtdBR}>${fmtIndianNumber(bookingAmt)}</td>
+          <td ${rtdBR} colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+    </div>`;
+
+  // ── SECTION 4 — INTEREST TABLE ────────────
+  let interestRows = '';
+  if (filteredTemplates.length === 0) {
+    interestRows = `<tr><td colspan="12" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
+  } else {
+    filteredTemplates.forEach((t: any, idx: number) => {
+      const pct     = parseFloat(t.percentage || 0);
+      const netBsp  = basePrice * pct / 100;
+      const otherI  = (plcAmount + otherCharge) * pct / 100;
+      const dueAmt  = netBsp + otherI;
+      const dueDate = dueDateStr(t.due_date_offset_days);
+      interestRows += `<tr>
+        <td ${tdC}>${idx + 1}</td>
+        <td ${tdL}>${esc(t.installment_name)}</td>
+        <td ${tdC}>${dueDate}</td>
+        <td ${tdR}>${fmtIndianNumber(dueAmt)}</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdC}>—</td>
+        <td ${tdR}>0.00</td>
+        <td ${tdC}>0</td>
+        <td ${tdC}>0</td>
+        <td ${tdC}>—</td>
+        <td ${tdC}>—</td>
+        <td ${tdR}>0.00</td>
+      </tr>`;
+    });
+  }
+
+  const interestSection = `
+    <div ${sectionHd}>INTEREST</div>
+    <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+      <thead><tr>
+        <th ${thStyle} style="width:4%">S.NO.</th>
+        <th ${thStyle} style="width:12%">INST. NAME</th>
+        <th ${thStyle} style="width:9%">INST. DATE</th>
+        <th ${thStyle} style="width:9%">DUE AMT.</th>
+        <th ${thStyle} style="width:9%">AMT. RECD.</th>
+        <th ${thStyle} style="width:9%">DATE RECD.</th>
+        <th ${thStyle} style="width:9%">DELAY AMT.</th>
+        <th ${thStyle} style="width:7%">DELAY DAYS</th>
+        <th ${thStyle} style="width:8%">GRACE PRD.</th>
+        <th ${thStyle} style="width:8%">INT. PERIOD</th>
+        <th ${thStyle} style="width:5%">ROI</th>
+        <th ${thStyle} style="width:11%">INT. AMOUNT</th>
+      </tr></thead>
+      <tbody>${interestRows}</tbody>
+    </table>`;
+
+  // ── SECTION 5 — REMARKS ──────────────────
+  const remarksSection = `
+    <div ${sectionHd}>REMARKS</div>
+    <div style="${baseFont}margin-bottom:6px;">
+      <strong>Registration Remarks:</strong> ${esc(b.remarks || 'N/A')}
+    </div>
+    <div style="${baseFont}">
+      <strong>Allotment Remarks:</strong> N/A
+    </div>`;
+
+  // ── PAGE FOOTER ──────────────────────────
+  const footer = `
+    <div style="margin-top:16px;${baseFont}display:flex;justify-content:space-between;align-items:flex-end;">
+      <div>
+        Project: ${projectName} &nbsp;&nbsp;
+        First Applicant: ${esc(fullName)} &nbsp;&nbsp;
+        Customer ID: ${customerId}
+      </div>
+      <div style="text-align:right;">
+        <div style="font-weight:700;">(2/3)</div>
+        <div>Date: ${fmtDate(new Date())}</div>
+      </div>
+    </div>`;
+
+  return `
+    <div style="font-family:Arial,sans-serif;font-size:10px;color:#000;padding:20px;max-width:1200px;margin:0 auto;">
+      ${pageHeader}
+      ${schedSection}
+      ${addonSection}
+      ${receiptSection}
+      ${interestSection}
+      ${remarksSection}
+      ${footer}
+    </div>`;
+}
+
+// ── PAGE 3 BUILDER ───────────────────────
+
+function buildApplicantPage3(
+  b: any,
+  consumer: any,
+  settings: Record<string, string>,
+  documentDispatches: any[],
+): string {
+
+  // ── derived values ──────────────────────
+  const projectName = esc(b.project_name || '—');
+  const fullName    = [consumer.salutation, consumer.first_name,
+    consumer.middle_name || '', consumer.last_name].filter(Boolean).join(' ').trim() || '—';
+  const customerId  = esc(consumer.form_no || consumer.registration_no || '—');
+
+  // ── shared styles ───────────────────────
+  const baseFont  = 'font-family:Arial,sans-serif;font-size:11px;color:#000;';
+  const thStyle   = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:3px 6px;text-align:center;"`;
+  const tdC       = `style="${baseFont}border:1px solid #999;padding:3px 6px;text-align:center;"`;
+  const tdL       = `style="${baseFont}border:1px solid #999;padding:3px 6px;text-align:left;"`;
+  const cellLbl   = `style="${baseFont}padding:2px 10px 2px 0;vertical-align:top;font-weight:600;white-space:nowrap;width:22%;"`;
+  const cellVal   = `style="${baseFont}padding:2px 0;vertical-align:top;"`;
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+
+  // ── PAGE HEADER ─────────────────────────
+  const pageHeader = `
+    <div style="${baseFont}display:flex;justify-content:space-between;margin-bottom:8px;">
+      <div>Project: ${projectName} &nbsp;&nbsp; First Applicant: ${esc(fullName)} &nbsp;&nbsp; Customer ID: ${customerId}</div>
+      <div style="font-weight:700;">(3/3)</div>
+    </div>`;
+
+  // ── SECTION 1 — DOCUMENT DISPATCH ────────
+  let dispatchRows = '';
+  if (documentDispatches.length > 0) {
+    documentDispatches.forEach((d: any, idx: number) => {
+      dispatchRows += `<tr>
+        <td ${tdC}>${idx + 1}</td>
+        <td ${tdL}>${esc(d.document_type || d.document_name || '—')}</td>
+        <td ${tdL}>${esc(d.dispatch_mode || '—')}</td>
+        <td ${tdL}>${esc(d.tracking_no   || '—')}</td>
+        <td ${tdC}>${fmtDate(d.dispatched_at)}</td>
+        <td ${tdL}>${esc(d.remarks       || '—')}</td>
+      </tr>`;
+    });
+  } else {
+    for (let i = 1; i <= 3; i++) {
+      dispatchRows += `<tr>
+        <td ${tdC}>${i}</td>
+        <td ${tdL}>—</td><td ${tdL}>—</td>
+        <td ${tdL}>—</td><td ${tdC}>—</td><td ${tdL}>—</td>
+      </tr>`;
+    }
+  }
+
+  const dispatchSection = `
+    <div ${sectionHd}>DOCUMENT DISPATCH</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.No.</th>
+        <th ${thStyle}>Document Name</th>
+        <th ${thStyle}>Dispatch Type</th>
+        <th ${thStyle}>Dispatch No./Name</th>
+        <th ${thStyle}>Dispatch Date</th>
+        <th ${thStyle}>Remarks</th>
+      </tr></thead>
+      <tbody>${dispatchRows}</tbody>
+    </table>`;
+
+  // ── SECTION 2 — COMMUNICATIONS LOG ───────
+  const commsSection = `
+    <div ${sectionHd}>COMMUNICATIONS</div>
+    <div style="${baseFont}color:#888;font-style:italic;padding:6px 0;">No communications recorded.</div>`;
+
+  // ── SECTION 3 — KYC DOCUMENTS STATUS ─────
+  const kycDocs = [
+    { name: 'PAN Card',     number: consumer.pan_no     || '—', submitted: !!consumer.pan_no },
+    { name: 'Aadhaar Card', number: consumer.aadhaar_no || '—', submitted: !!consumer.aadhaar_no },
+    { name: 'Passport',     number: consumer.passport_no|| '—', submitted: !!consumer.passport_no },
+    { name: 'Photograph',   number: '—',                         submitted: false },
+  ];
+
+  const kycRows = kycDocs.map((doc, idx) => `<tr>
+    <td ${tdC}>${idx + 1}</td>
+    <td ${tdL}>${esc(doc.name)}</td>
+    <td ${tdL}>${esc(doc.number)}</td>
+    <td ${tdC}>${doc.submitted ? 'Submitted' : 'Pending'}</td>
+    <td ${tdC}>—</td>
+    <td ${tdL}>—</td>
+  </tr>`).join('');
+
+  const kycSection = `
+    <div ${sectionHd}>KYC DOCUMENTS</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.No.</th>
+        <th ${thStyle}>Document Type</th>
+        <th ${thStyle}>Document Number</th>
+        <th ${thStyle}>Status</th>
+        <th ${thStyle}>Verified Date</th>
+        <th ${thStyle}>Remarks</th>
+      </tr></thead>
+      <tbody>${kycRows}</tbody>
+    </table>`;
+
+  // ── SECTION 4 — BOOKING DOCUMENTS ────────
+  const bookingDocsSection = `
+    <div ${sectionHd}>BOOKING DOCUMENTS</div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr>
+        <th ${thStyle}>S.No.</th>
+        <th ${thStyle}>Document Type</th>
+        <th ${thStyle}>Barcode No.</th>
+        <th ${thStyle}>Physical Storage</th>
+        <th ${thStyle}>Scan Ref.</th>
+        <th ${thStyle}>Status</th>
+      </tr></thead>
+      <tbody>
+        <tr><td colspan="6" style="${baseFont}border:1px solid #999;padding:8px;text-align:center;color:#888;font-style:italic;">
+          No booking documents recorded.
+        </td></tr>
+      </tbody>
+    </table>`;
+
+  // ── SECTION 5 — NOMINEE DETAILS ──────────
+  const nomineeRows = [
+    ['Nominee Name',   esc(b.nominee_name     || 'N/A')],
+    ['Relation',       esc(b.nominee_relation || 'N/A')],
+    ['Finance Type',   capitalize(b.self_or_loan || 'self')],
+    ['Finance Bank',   esc(b.finance_bank     || 'N/A')],
+    ['Loan Amount',    b.loan_amount ? fmtIndianCurrency(b.loan_amount) : 'N/A'],
+  ].map(([l, v]) => `<tr><td ${cellLbl}>${l}:</td><td ${cellVal}>${v}</td></tr>`).join('');
+
+  const nomineeSection = `
+    <div ${sectionHd}>NOMINEE DETAILS</div>
+    <table style="width:100%;border-collapse:collapse;">${nomineeRows}</table>`;
+
+  // ── SECTION 6 — REGISTRATION DETAILS ─────
+  const regRows = [
+    ['Registration No.',  esc(b.registration_no || '—')],
+    ['Form No.',          esc(consumer.form_no  || '—')],
+    ['Booking Date',      fmtDate(b.booking_date)],
+    ['Booking Type',      capitalize(b.booking_type || 'direct')],
+    ['RERA No.',          esc(b.rera_number      || 'N/A')],
+    ['Status',            capitalize(b.status    || 'active')],
+    ['Allotment Date',    fmtDate(b.allotment_date)  !== '—' ? fmtDate(b.allotment_date)  : 'Not yet allotted'],
+    ['Agreement Date',    fmtDate(b.agreement_date)  !== '—' ? fmtDate(b.agreement_date)  : 'Not yet signed'],
+    ['Completion Date',   fmtDate(b.completion_date) !== '—' ? fmtDate(b.completion_date) : 'Not yet completed'],
+    ['Possession Date',   fmtDate(b.possession_date) !== '—' ? fmtDate(b.possession_date) : 'Not yet given'],
+  ].map(([l, v]) => `<tr><td ${cellLbl}>${l}:</td><td ${cellVal}>${v}</td></tr>`).join('');
+
+  const regSection = `
+    <div ${sectionHd}>REGISTRATION DETAILS</div>
+    <table style="width:100%;border-collapse:collapse;">${regRows}</table>`;
+
+  // ── PAGE FOOTER ──────────────────────────
+  const footer = `
+    <div style="margin-top:20px;${baseFont}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;">
+        <div>
+          Project: ${projectName} &nbsp;&nbsp;
+          First Applicant: ${esc(fullName)} &nbsp;&nbsp;
+          Customer ID: ${customerId}
+        </div>
+        <div style="text-align:center;font-weight:700;">(3/3)</div>
+        <div style="text-align:right;">Date: ${fmtDate(new Date())}</div>
+      </div>
+    </div>`;
+
+  return `
+    <div style="font-family:Arial,sans-serif;font-size:11px;color:#000;padding:20px;max-width:900px;margin:0 auto;">
+      ${pageHeader}
+      ${dispatchSection}
+      ${commsSection}
+      ${kycSection}
+      ${bookingDocsSection}
+      ${nomineeSection}
+      ${regSection}
+      ${footer}
+    </div>`;
+}
+
+// ── APPLICANT FILE HTML WRAPPER ───────────
+
+export function buildApplicantFileHtml(
+  b: any,
+  consumer: any,
+  coApplicants: any[],
+  settings: Record<string, string>,
+  allocation: any | null,
+  parkingSlots: any[],
+  scheduleTemplates: any[],
+  documentDispatches: any[],
+): string {
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots);
+  const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings);
+  const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
+
+  const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Applicant File — ${regNo}</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 11px; color: #000; background: #fff; margin: 20px; }
+    .page { max-width: 900px; margin: 0 auto; padding: 24px; border: 1px solid #ccc; margin-bottom: 40px; }
+    .page-break { page-break-before: always; }
+    table { border-collapse: collapse; width: 100%; font-size: 10px; }
+    th { background: #f0f0f0; border: 1px solid #999; padding: 5px 6px; text-align: center; font-weight: bold; }
+    td { border: 1px solid #999; padding: 4px 6px; vertical-align: top; }
+    .label { font-weight: bold; padding-right: 8px; white-space: nowrap; }
+    .section-title { font-weight: bold; font-size: 12px; border-bottom: 1px solid #000; margin-bottom: 8px; margin-top: 16px; padding-bottom: 2px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+    .kv-row { display: flex; margin-bottom: 3px; }
+    .milestone-bar { display: flex; gap: 8px; margin: 12px 0; }
+    .milestone-box { flex: 1; border: 1px solid #999; text-align: center; padding: 8px 4px; }
+    .milestone-label { font-weight: bold; font-size: 10px; }
+    .milestone-date { font-size: 10px; margin-top: 4px; color: #333; }
+    .no-print { display: block; }
+    @media print {
+      .no-print { display: none; }
+      .page-break { page-break-before: always; }
+      @page { margin: 12mm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print" style="margin-bottom:16px;">
+    <button onclick="window.print()"
+      style="background:#fff;border:1px solid #333;padding:6px 14px;cursor:pointer;border-radius:3px;font-size:12px;margin-right:8px;">
+      &#128438; Print
+    </button>
+    <button onclick="window.opener ? window.close() : window.history.length > 1 ? window.history.back() : (window.location.href='/')"
+      style="background:#fff;border:1px solid #333;padding:6px 14px;cursor:pointer;border-radius:3px;font-size:12px;">
+      &#10005; Close
+    </button>
+  </div>
+  <div class="page" id="page1">${page1}</div>
+  <div class="page page-break" id="page2">${page2}</div>
+  <div class="page page-break" id="page3">${page3}</div>
+</body>
+</html>`;
+}
+
+function buildReceiptCopy(b: any, settings: Record<string, string>, copyType: string): string {
+  // Company details from settings
+  const companyName  = settings['company_name']    || '';
+  const companyCin   = settings['company_cin']      || '';
+  const companyAddr  = settings['company_address']  || '';
+  const companyReg   = settings['company_reg_addr'] || '';
+  const companyPhone = settings['company_phone']    || '';
+  const companyWeb   = settings['company_website']  || '';
+  const companyEmail = settings['company_email']    || '';
+  const companyGstin = settings['company_gstin']    || '';
+  const placeOfSupply = settings['place_of_supply'] || '';
+  const hsnSacCode   = settings['hsn_sac_code']     || '';
+  const note1 = settings['receipt_note_1'] || '';
+  const note2 = settings['receipt_note_2'] || '';
+  const note3 = settings['receipt_note_3'] || '';
+  const note4 = settings['receipt_note_4'] || '';
+
+  // Consumer name (primary + co-applicants)
+  const primaryName = [b.salutation, b.first_name, b.last_name].filter(Boolean).join(' ').trim();
+  const coNames: string[] = [];
+  if (Array.isArray(b.co_applicants)) {
+    for (const co of b.co_applicants) {
+      const n = [co.salutation, co.first_name, co.last_name].filter(Boolean).join(' ').trim();
+      if (n) coNames.push(`& ${n}`);
+    }
+  }
+  const consumerName = [primaryName, ...coNames].join(' ').trim() || '—';
+
+  // Address
+  const addrParts = [b.present_address, b.present_city, b.present_state].filter(Boolean);
+  const address = addrParts.join(', ') + (b.present_pin ? ` - ${b.present_pin}` : '');
+
+  // Receipt number
+  const projectCode = (b.project_name || '')
+    .replace(/_TEST$/i, '')
+    .replace(/\s+/g, '-')
+    .toUpperCase();
+  const receiptRef = (b.form_no || b.registration_no || '').toString().trim();
+  const receiptNo = receiptRef ? `${projectCode}/REC/${receiptRef}` : `${projectCode}/REC/—`;
+
+  // Payment amounts
+  const amount      = parseFloat(b.booking_amount || 0);
+  const cgst        = parseFloat(b.cgst_amount    || 0);
+  const sgst        = parseFloat(b.sgst_amount    || 0);
+  const tds         = parseFloat(b.tds_amount     || 0);
+  const netAmount   = amount - cgst - sgst;
+  const totalAmount = amount;
+  const amountWords = numberToWords(totalAmount);
+
+  // Floor ordinal
+  const floorOrdinal = b.floor != null ? ordinal(parseInt(b.floor)) : '—';
+
+  // Payment narrative
+  const narrative = paymentNarrative(b);
+
+  return `
+<div class="receipt-copy">
+
+  <!-- HEADER -->
+  <div style="text-align:center;margin-bottom:10px">
+    <div style="font-weight:700;font-size:15px">${esc(companyName)}</div>
+    <div style="font-size:10px;margin-top:2px">CIN: ${esc(companyCin)}</div>
+    <div style="font-size:10px;margin-top:2px">${esc(companyAddr)}</div>
+    <div style="font-size:10px;margin-top:2px">Regd. Office: ${esc(companyReg)}</div>
+    <div style="font-size:10px;margin-top:4px">${esc(companyPhone)} &nbsp;|&nbsp; ${esc(companyWeb)} &nbsp;|&nbsp; ${esc(companyEmail)}</div>
+  </div>
+  <hr style="border:none;border-top:1px solid #000;margin:8px 0">
+  <div style="text-align:center;font-weight:700;font-size:16px;margin:10px 0 12px">RECEIPT</div>
+
+  <!-- TWO-COLUMN INFO BLOCK -->
+  <table style="width:100%;border:none;border-collapse:collapse;margin-bottom:14px">
+    <tr>
+      <td style="width:60%;vertical-align:top;border:none;padding:0">
+        <div style="font-weight:700">Receipt No.: ${esc(receiptNo)}</div>
+        <div style="font-weight:700;font-size:13px;margin-top:2px">${esc(copyType)}</div>
+        <div style="margin-top:6px">Customer ID: ${esc((b.form_no || b.registration_no || '').toString())}</div>
+        <div style="font-weight:700;margin-top:2px">${esc(consumerName)}</div>
+        <div style="margin-top:2px;white-space:pre-wrap">${esc(address)}</div>
+        <div style="margin-top:2px">(M): ${esc(b.mobile || '—')}</div>
+        <div>Email: ${esc(b.email || '—')}</div>
+      </td>
+      <td style="width:40%;vertical-align:top;border:none;padding:0;text-align:right">
+        <div>Place Of Supply: ${esc(placeOfSupply)}</div>
+        <div style="margin-top:2px">GSTIN: ${esc(companyGstin)}</div>
+        <div style="margin-top:2px">CIN No.: ${esc(companyCin)}</div>
+        <div style="margin-top:2px">Receipt Date: ${fmtDate(b.booking_date)}</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- PAYMENT NARRATIVE -->
+  <p style="margin:0 0 14px;line-height:1.7">
+    Received with thanks from <strong>${esc(consumerName)}</strong>
+    a sum of <strong>Rs. ${fmtAmt(totalAmount)} /-</strong>
+    (<strong>${esc(amountWords)}</strong>)
+    ${esc(narrative)} against the Unit No.
+    <strong>${esc(b.unit_number || '—')}</strong> on
+    <strong>${esc(floorOrdinal)} Floor</strong> in
+    <strong>${esc(b.project_name || '—')}</strong>,
+    ${esc(b.project_location || b.location || '—')}.
+    as per following details:
+  </p>
+
+  <!-- INSTALLMENT TABLE -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px">
+    <thead>
+      <tr>
+        <th style="width:4%">S.No.</th>
+        <th>Installment</th>
+        <th>Charge</th>
+        <th style="width:9%">HSN/SAC</th>
+        <th style="width:11%">Amount</th>
+        <th style="width:9%">CGST</th>
+        <th style="width:9%">SGST</th>
+        <th style="width:12%">Total Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="text-align:center">1</td>
+        <td>At the time of Booking</td>
+        <td>Basic</td>
+        <td style="text-align:center">${esc(hsnSacCode)}</td>
+        <td style="text-align:right">${fmtAmt(netAmount)}</td>
+        <td style="text-align:right">${fmtAmt(cgst)}</td>
+        <td style="text-align:right">${fmtAmt(sgst)}</td>
+        <td style="text-align:right">${fmtAmt(totalAmount)}</td>
+      </tr>
+      <tr class="total-row">
+        <td></td><td></td><td></td>
+        <td style="text-align:center;font-weight:700">Total</td>
+        <td style="text-align:right">${fmtAmt(netAmount)}</td>
+        <td style="text-align:right">${fmtAmt(cgst)}</td>
+        <td style="text-align:right">${fmtAmt(sgst)}</td>
+        <td style="text-align:right">${fmtAmt(totalAmount)}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- AMOUNT BOX -->
+  <div class="amt-box">&#8377; ${fmtAmt(totalAmount)}/-</div>
+
+  <!-- SIGNATURE BLOCK -->
+  <div style="text-align:right;margin-top:20px">
+    <div>For ${esc(companyName)}</div>
+    <div style="height:48px"></div>
+    <div>Authorized Signatory</div>
+  </div>
+
+  <!-- NOTES -->
+  <div style="margin-top:16px;font-size:10px;border-top:1px solid #ccc;padding-top:8px">
+    <div style="font-weight:700;margin-bottom:4px">Notes :</div>
+    <div>1. ${esc(note1)}</div>
+    <div style="margin-top:3px">2. ${esc(note2)}</div>
+    <div style="margin-top:3px">3. ${esc(note3)}</div>
+    <div style="margin-top:3px">4. ${esc(note4)}</div>
+  </div>
+
+</div>`;
+}
+
+function buildReceiptHtml(b: any, settings: Record<string, string>, coApplicants: any[]): string {
+  b.co_applicants = coApplicants;
+
+  const customerCopy = buildReceiptCopy(b, settings, 'CUSTOMER COPY');
+  const officeCopy   = buildReceiptCopy(b, settings, 'OFFICE COPY');
+
+  const regNo = esc(b.registration_no || '—');
+
+  const emailSubject = encodeURIComponent(`Booking Receipt - ${b.registration_no || ''}`);
+  const emailBody    = encodeURIComponent(
+    `Dear Customer,\n\nPlease find your booking receipt details below.\nRegistration No: ${b.registration_no || ''}\n\nRegards,\n${settings['company_name'] || 'ROF Group'}`
+  );
+  const emailHref = `mailto:${encodeURIComponent(b.email || '')}?subject=${emailSubject}&body=${emailBody}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Receipt - ${regNo}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #000; background: #fff; margin: 20px; }
+  .receipt-copy { max-width: 750px; margin: auto; border: 1px solid #000; padding: 24px; margin-bottom: 40px; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #f0f0f0; border: 1px solid #999; padding: 6px 8px; text-align: center; }
+  td { border: 1px solid #999; padding: 5px 8px; }
+  .total-row td { font-weight: bold; background: #f9f9f9; }
+  .amt-box { display: inline-block; border: 2px solid #000; padding: 6px 14px; font-weight: bold; font-size: 13px; margin: 10px 0; }
+  .no-print { margin-bottom: 20px; }
+  .hide-customer .customer-copy { display: none; }
+  .hide-office   .office-copy   { display: none; }
+  @media print {
+    .no-print { display: none; }
+    .office-copy { page-break-before: always; }
+    @page { margin: 15mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="document.body.className='';window.print()" style="background:#fff;border:1px solid #333;padding:7px 14px;cursor:pointer;border-radius:3px;font-size:12px;margin-right:8px">&#128424; Print Both Copies</button>
+  <button onclick="document.body.className='hide-office';window.print();setTimeout(()=>document.body.className='',500)" style="background:#fff;border:1px solid #333;padding:7px 14px;cursor:pointer;border-radius:3px;font-size:12px;margin-right:8px">Download Customer Copy</button>
+  <button onclick="document.body.className='hide-customer';window.print();setTimeout(()=>document.body.className='',500)" style="background:#fff;border:1px solid #333;padding:7px 14px;cursor:pointer;border-radius:3px;font-size:12px;margin-right:8px">Download Office Copy</button>
+  <button onclick="window.location.href='${emailHref}'" style="background:#fff;border:1px solid #333;padding:7px 14px;cursor:pointer;border-radius:3px;font-size:12px;margin-right:8px">&#9993; E-Mail</button>
+  <button onclick="window.opener ? window.close() : window.history.length > 1 ? window.history.back() : (window.location.href='/')" style="background:#fff;border:1px solid #333;padding:7px 14px;cursor:pointer;border-radius:3px;font-size:12px">&#10005; Close</button>
+</div>
+
+<div class="customer-copy">${customerCopy}</div>
+<div class="office-copy">${officeCopy}</div>
+
+</body>
+</html>`;
+}
+
+// GET /api/booking/:id/receipt-html  — must be registered before /:id
+router.get('/:id/receipt-html', async (req: AuthRequest, res: Response) => {
+  try {
+    const bookingId = req.params.id;
+
+    // Run settings query and booking query in parallel
+    const [settingsResult, bookingResult] = await Promise.all([
+      db.query('SELECT key, value FROM global_settings'),
+      db.query(`
+        SELECT br.*,
+          c.salutation, c.first_name, c.last_name,
+          c.mobile, c.email,
+          c.present_address, c.present_city,
+          c.present_state, c.present_pin,
+          c.pan_no,
+          p.name as project_name,
+          p.location as project_location,
+          p.rera_number,
+          u.unit_number, u.floor, u.bhk_type,
+          u.carpet_area_sqft, u.super_area_sqft,
+          u.base_price_inr, u.total_price_inr,
+          bpt.s_tax_pct, bpt.cgst_pct, bpt.sgst_pct,
+          bpt.cgst_amount, bpt.sgst_amount,
+          bpt.tds_amount, bpt.gst_interest_pct
+        FROM booking_records br
+        JOIN consumers c ON c.id = br.consumer_id
+        LEFT JOIN projects p ON p.id = br.project_id
+        LEFT JOIN units u ON u.id = br.unit_id
+        LEFT JOIN booking_payment_taxes bpt
+          ON bpt.booking_record_id = br.id
+        WHERE br.id = $1
+      `, [bookingId]),
+    ]);
+
+    if (!bookingResult.rows[0]) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const booking = bookingResult.rows[0];
+
+    // Build settings key-value object
+    const settings: Record<string, string> = {};
+    for (const row of settingsResult.rows) {
+      settings[row.key] = row.value;
+    }
+
+    // Load co-applicants using consumer_id from booking result
+    let coApplicants: any[] = [];
+    try {
+      const coResult = await db.query(
+        `SELECT salutation, first_name, last_name, applicant_number
+         FROM co_applicants
+         WHERE consumer_id = $1
+         ORDER BY applicant_number ASC`,
+        [booking.consumer_id]
+      );
+      coApplicants = coResult.rows;
+    } catch {
+      coApplicants = [];
+    }
+
+    const html = buildReceiptHtml(booking, settings, coApplicants);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    console.error('[receipt-html]', err);
+    res.status(500).json({ error: 'Failed to generate receipt' });
+  }
+});
+
 // GET /api/booking/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(`
-      SELECT br.*, c.name as consumer_name, c.mobile, p.name as project_name, u.unit_number
+      SELECT br.*,
+             c.name as consumer_name, c.mobile, c.nationality,
+             p.name as project_name,
+             u.unit_number,
+             b.name as broker_name, b.firm_name as broker_firm_name,
+             mb.name as main_broker_name, mb.firm_name as main_broker_firm_name,
+             json_build_object(
+               'id',               bpt.id,
+               's_tax_pct',        bpt.s_tax_pct,
+               'cgst_pct',         bpt.cgst_pct,
+               'sgst_pct',         bpt.sgst_pct,
+               'gst_interest_pct', bpt.gst_interest_pct,
+               'cgst_amount',      bpt.cgst_amount,
+               'sgst_amount',      bpt.sgst_amount,
+               'tds_amount',       bpt.tds_amount
+             ) as taxes
       FROM booking_records br
       JOIN consumers c ON c.id = br.consumer_id
       LEFT JOIN projects p ON p.id = br.project_id
       LEFT JOIN units u ON u.id = br.unit_id
+      LEFT JOIN brokers b ON b.id = br.broker_id
+      LEFT JOIN brokers mb ON mb.id = br.main_broker_id
+      LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id
       WHERE br.id = $1
     `, [req.params.id]);
     if (!result.rows[0]) return res.status(404).json({ error: 'Booking not found' });

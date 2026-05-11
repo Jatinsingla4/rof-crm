@@ -8,13 +8,17 @@ Pages.consumerDetail = async function(params = {}) {
   content.innerHTML = `<div class="page-loading"><div class="spinner"></div> Loading consumer…</div>`;
 
   try {
-    const [consRes, remarksRes] = await Promise.allSettled([
+    const [consRes, remarksRes, bookingRes] = await Promise.allSettled([
       Api.get(`/consumers/${id}`),
       Api.get(`/consumers/${id}/remarks`),
+      Api.get(`/booking?consumer_id=${id}`),
     ]);
 
     const c = consRes.status === 'fulfilled' ? (consRes.value.data || consRes.value) : {};
     const remarks = remarksRes.status === 'fulfilled' ? (remarksRes.value.data || remarksRes.value || []) : [];
+    const bookings = bookingRes.status === 'fulfilled' ? (bookingRes.value.data || []) : [];
+    const latestBooking = Array.isArray(bookings) ? bookings[0] : null;
+    const bookingPlcAmount = parseFloat(latestBooking?.plc_amount || 0);
 
     const initials = (((c.first_name || c.name || '?')[0]) + ((c.last_name || '')[0] || '')).toUpperCase();
     const fullName = c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : (c.name || 'Unknown');
@@ -41,7 +45,7 @@ Pages.consumerDetail = async function(params = {}) {
             <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)">
               <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0;color:#fff">${initials}</div>
               <div style="flex:1">
-                <div style="font-size:15px;font-weight:700;color:var(--text)">${fullName}</div>
+                <div style="font-size:15px;font-weight:700;color:var(--text)"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${fullName}</a></div>
                 <div style="font-size:10px;color:var(--text3)">${c.registration_no || c.id || ''} · ${c.project_name || c.projectName || '—'}</div>
                 <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
                   ${Utils.chip(c.lead_stage || c.leadStage || 'enquiry')}
@@ -81,14 +85,14 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
                   <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
-                  <input id="base-rate-input" type="number" value="${c.basic_price || 4000}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
+                  <input id="base-rate-input" type="number" value="${c.basic_price || 4000}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                   <span style="color:var(--text3)">Basic Cost</span>
                   <span id="basic-cost-val" style="font-weight:600">₹0</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
-                  <span style="color:var(--text3)">PLC (5%)</span>
+                  <span style="color:var(--text3)">PLC (Preferential Location)</span>
                   <span id="plc-val" style="font-weight:600">₹0</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border2)">
@@ -239,7 +243,7 @@ const ConsumerDetailPage = {
     if (!baseInput) return;
     const rate = parseFloat(baseInput.value || 0);
     const basic = rate * carpetArea;
-    const plc = basic * 0.05;
+    const plc = parseFloat(baseInput.dataset.plc || 0);
     const cgst = (basic + plc) * 0.05;
     const sgst = (basic + plc) * 0.05;
     const total = basic + plc + cgst + sgst;

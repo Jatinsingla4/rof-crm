@@ -190,6 +190,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     }
 
     // 2. Auto-Merge Logic (if mergeData missing)
+    let htmlContent = template.body_html || '';
     if (!mergeData) {
       const dataRes = await db.query(
         `SELECT c.*, u.unit_number, u.bhk_type as unit_category, u.carpet_area_sqft as carpet_area, p.name as project_name, p.location as project_sector, p.rera_number as project_rera
@@ -291,7 +292,6 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     }
 
     // 3. Perform Merge
-    let htmlContent = template.body_html || '';
     if (mergeData) {
       for (const [key, value] of Object.entries(mergeData)) {
         htmlContent = htmlContent.replace(new RegExp(`{{${key}}}`, 'g'), String(value));
@@ -376,7 +376,7 @@ router.get('/search', async (req: AuthRequest, res: Response, next: NextFunction
 // GET /api/documents - List all documents (with filters)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { documentType, from, to, page = 1, pageSize = 50 } = req.query;
+    const { consumerId, documentType, from, to, page = 1, pageSize = 50 } = req.query;
 
     let query = `SELECT d.id, d.document_type, d.delivery_method, d.delivery_status, d.created_at, d.sent_at,
                         c.name as consumer_name
@@ -385,6 +385,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
                  WHERE 1=1`;
     const params: any[] = [];
 
+    if (consumerId) {
+      params.push(consumerId as string);
+      query += ` AND d.consumer_id = $${params.length}`;
+    }
     if (documentType) {
       params.push(documentType as string);
       query += ` AND d.document_type = $${params.length}`;

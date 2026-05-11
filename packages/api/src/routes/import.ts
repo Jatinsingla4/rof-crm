@@ -26,7 +26,7 @@ router.post('/preview', async (req: AuthRequest, res: Response, next: NextFuncti
 
     // Basic column validation per import type
     const requiredColumns: Record<string, string[]> = {
-      units: ['unitNumber', 'tower', 'bhkType', 'totalPriceInr'],
+      units: ['unitNumber', 'tower', 'floor', 'bhkType', 'totalPriceInr'],
       consumers: ['name', 'mobile', 'email'],
       edraw: ['applicationId', 'applicantName', 'mobile', 'result'],
     };
@@ -80,13 +80,18 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           );
           const towerId = towerRes.rows[0].id;
 
+          if (row.floor === undefined || row.floor === null || row.floor === '') {
+            skipped++;
+            errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
+            continue;
+          }
           await db.query(
             `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
                carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
                status, created_by_user_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
              ON CONFLICT (tower_id, unit_number) DO NOTHING`,
-            [projectId, towerId, row.floor || 1, row.unitNumber, row.bhkType,
+            [projectId, towerId, parseInt(row.floor), row.unitNumber, row.bhkType,
              row.carpetAreaSqft || null, row.superAreaSqft || null,
              row.basePriceInr || null, row.totalPriceInr, row.facing || null, req.userId]
           );

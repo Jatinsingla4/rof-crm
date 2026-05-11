@@ -226,71 +226,47 @@ const ReportsPage = {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
     try {
-      const [pRes, uRes] = await Promise.allSettled([
-        Api.get('/units/projects'),
-        Api.get('/units', { params: { pageSize: 2000 } }),
-      ]);
-
-      const allProjects = pRes.status === 'fulfilled' ? (pRes.value.data || pRes.value || []) : [];
-      const allUnits = uRes.status === 'fulfilled' ? (uRes.value.data || uRes.value || []) : [];
-
-      const filterPid = this._f('project');
-      const filterType = this._f('type');
-
-      let projects = allProjects.filter(p => {
-        if (filterPid && p.id !== filterPid) return false;
-        if (filterType && p.project_type !== filterType) return false;
-        return true;
-      });
-
-      const companyMap = {};
-      projects.forEach(p => {
-        const co = p.developer_name || 'Diverse Developers LLP';
-        if (!companyMap[co]) companyMap[co] = [];
-        companyMap[co].push(p);
-      });
+      const filterPid  = this._f('project');
+      const params     = filterPid ? { projectId: filterPid } : {};
+      const res        = await Api.get('/reports/project-details', { params });
+      const rows_data  = res.data || res || [];
 
       const rows = [];
-      let globalIdx = 1;
+      rows_data.forEach((row, i) => {
+        const totalUnits  = parseInt(row.total_units)  || 0;
+        const soldUnits   = parseInt(row.sold_units)   || 0;
+        const unsoldUnits = parseInt(row.unsold_units) || 0;
+        const salableArea = parseFloat(row.salable_area) || 0;
+        const soldArea    = parseFloat(row.sold_area)    || 0;
+        const balArea     = parseFloat(row.balance_area) || 0;
+        const balPct      = salableArea > 0 ? (balArea / salableArea * 100).toFixed(2) : '0.00';
+        const avgBsp      = Math.round(parseFloat(row.average_bsp)  || 0).toLocaleString('en-IN');
+        const avgCost     = Math.round(parseFloat(row.average_cost) || 0).toLocaleString('en-IN');
+        const towers      = parseInt(row.total_towers) || 0;
 
-      Object.entries(companyMap).forEach(([company, projs]) => {
-        projs.forEach((p, pIdx) => {
-          const pu = allUnits.filter(u => u.project_id === p.id);
-          const totalUnits = pu.length || 30;
-          const soldUnits = pu.filter(u => u.status !== 'available').length || 20;
-          const unsoldUnits = totalUnits - soldUnits;
-          const totalArea = pu.reduce((s, u) => s + parseFloat(u.super_area_sqft || 0), 0) || 41000;
-          const soldArea = pu.filter(u => u.status !== 'available').reduce((s, u) => s + parseFloat(u.super_area_sqft || 0), 0) || 26000;
-          const balArea = totalArea - soldArea;
-          const balPct = totalArea ? (balArea / totalArea * 100).toFixed(2) : '0.00';
-          const avgBsp = pu.length ? (pu.reduce((s, u) => s + parseFloat(u.base_price_inr || 0), 0) / pu.length).toFixed(0) : '0';
-
-          rows.push(`
-            <tr>
-              <td>${globalIdx++}</td>
-              ${pIdx === 0 ? `<td rowspan="${projs.length}" class="td-bold" style="background:var(--surface2)">${company}</td>` : ''}
-              <td class="td-bold" style="color:var(--accent)">${p.name}</td>
-              <td>${p.project_type || 'Residential'}</td>
-              <td style="font-size:11px">${p.location || p.city || 'Gurugram'}</td>
-              <td>${p.land_area || '2.14 Acres'}</td>
-              <td>${p.total_towers || 1}</td>
-              <td class="td-bold">${totalUnits}</td>
-              <td style="color:var(--green)">${soldUnits}</td>
-              <td style="color:var(--red)">${unsoldUnits}</td>
-              <td>${totalArea}</td>
-              <td>${soldArea}</td>
-              <td>${balArea}</td>
-              <td style="color:${parseFloat(balPct)>50?'var(--red)':'var(--text3)'}">${balPct}%</td>
-              <td>${avgBsp}</td>
-              <td>${avgBsp}</td>
-              <td><a href="javascript:void(0)" onclick="Utils.info('Opening Details for ${p.name}')" class="legacy-link">Detail</a></td>
-            </tr>
-          `);
-        });
+        rows.push(`
+          <tr>
+            <td>${i + 1}</td>
+            <td class="td-bold" style="color:var(--accent)">${row.project_name}</td>
+            <td>Residential</td>
+            <td style="font-size:11px">${row.location || 'Gurugram'}</td>
+            <td>${row.land_area_sqft ? Number(row.land_area_sqft).toLocaleString('en-IN') + ' sqft' : '—'}</td>
+            <td>${towers}</td>
+            <td class="td-bold">${totalUnits}</td>
+            <td style="color:var(--green)">${soldUnits}</td>
+            <td style="color:var(--red)">${unsoldUnits}</td>
+            <td>${salableArea.toLocaleString('en-IN')}</td>
+            <td>${soldArea.toLocaleString('en-IN')}</td>
+            <td>${balArea.toLocaleString('en-IN')}</td>
+            <td style="color:${parseFloat(balPct)>50?'var(--red)':'var(--text3)'}">${balPct}%</td>
+            <td>₹${avgBsp}</td>
+            <td>₹${avgCost}</td>
+          </tr>
+        `);
       });
 
       this._table(
-        ['S.NO.', 'COMPANY', 'PROJECT', 'TYPE', 'LOCATION', 'LAND AREA', 'TOTAL TOWER', 'TOTAL UNIT', 'SOLD UNIT', 'UNSOLD UNIT', 'SALABLE AREA', 'SOLD AREA', 'BALANCE AREA', 'BALANCE AREA(%)', 'AVERAGE BSP', 'AVERAGE COST', 'DETAILS'],
+        ['S.NO.', 'PROJECT', 'TYPE', 'LOCATION', 'LAND AREA', 'TOTAL TOWER', 'TOTAL UNIT', 'SOLD UNIT', 'UNSOLD UNIT', 'SALABLE AREA', 'SOLD AREA', 'BALANCE AREA', 'BALANCE AREA(%)', 'AVERAGE BSP', 'AVERAGE COST'],
         rows
       );
 

@@ -135,7 +135,7 @@ const ConsumersPage = {
           <td class="td-bold">${c.project_name || '—'}</td>
           <td>${Utils.date(c.registration_date) || '—'}</td>
           <td class="td-mono">${c.registration_no || '—'}</td>
-          <td class="td-bold">${c.name || (c.first_name + ' ' + (c.last_name || ''))}</td>
+          <td class="td-bold"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.name || (c.first_name + ' ' + (c.last_name || ''))}</a></td>
           <td>${c.second_applicant_name || 'N/A'}</td>
           <td>${c.bhk_type || 'Type-C'}</td>
           <td class="td-mono">${c.unit_area || '—'}</td>

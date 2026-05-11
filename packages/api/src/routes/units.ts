@@ -29,6 +29,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!projectId || !towerId || !unitNumber || !bhkType || !totalPriceInr) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    if (floor === undefined || floor === null || floor === '') {
+      return res.status(400).json({ error: 'Floor number is required for each unit' });
+    }
 
     const result = await db.query(
       `INSERT INTO units (
@@ -241,6 +244,11 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next: NextFu
     const errors: any[] = [];
 
     for (const row of rows) {
+      if (row.floor === undefined || row.floor === null || row.floor === '') {
+        skipped++;
+        errors.push({ unitNumber: row.unitNumber, reason: 'Floor number is required for each unit' });
+        continue;
+      }
       try {
         // Resolve tower by name — create if doesn't exist
         let towerId = row.towerId;

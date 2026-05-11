@@ -75,6 +75,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/consumers',         (p) => Pages.consumers(p));
   Router.register('/consumer',          (p) => Pages.consumerDetail(p));
   Router.register('/booking',           (p) => Pages.booking(p));
+  Router.register('/booking-payment',   (p) => { if (!p.id) { Router.navigate('/consumers'); return; } Pages.bookingPayment(p); });
   Router.register('/allotment',         (p) => Pages.allotment(p));
   Router.register('/receipts',          (p) => Pages.receipts(p));
   Router.register('/demands',           (p) => Pages.demands(p));

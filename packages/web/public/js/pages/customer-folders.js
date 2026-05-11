@@ -102,7 +102,7 @@ const CustomerFoldersPage = {
           <div class="sp" style="cursor:pointer" onclick="CustomerFoldersPage.openFolder('${c.id}','${name.replace(/'/g,'\\x27')}')">
             <div class="sp-hdr" style="padding:10px 12px">
               <div>
-                <div style="font-weight:600;font-size:13px">${name}</div>
+                <div style="font-weight:600;font-size:13px"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${name}</a></div>
                 <div style="font-size:10.5px;color:var(--text3)">${c.mobile||'—'}</div>
               </div>
               ${Utils.chip(stage)}

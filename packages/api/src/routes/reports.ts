@@ -795,12 +795,57 @@ router.get('/collection-pivot', async (req: AuthRequest, res: Response, next: Ne
     });
 
     const sortedMonths = Array.from(monthsSet).sort((a,b) => {
-      const parse = (s:string) => new Date(s.split('-')[1], ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(s.split('-')[0]));
+      const parse = (s:string) => new Date(parseInt(s.split('-')[1]), ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(s.split('-')[0]));
       // @ts-ignore
       return parse(a) - parse(b);
     });
 
     res.json({ success: true, data: { consumers: Object.values(consumers), months: sortedMonths } });
+  } catch (error) { next(error); }
+});
+
+// GET /api/reports/project-details
+router.get('/project-details', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    const params: any[] = [];
+    const whereClause = projectId ? `WHERE p.id = $1` : '';
+    if (projectId) params.push(projectId);
+
+    const result = await db.query(
+      `SELECT
+         p.id,
+         p.name                                                       AS project_name,
+         p.location,
+         p.rera_number,
+         p.group_name,
+         p.land_area_sqft,
+         COUNT(DISTINCT t.id)                                         AS total_towers,
+         COUNT(u.id)                                                  AS total_units,
+         COUNT(CASE WHEN u.status != 'available' THEN 1 END)          AS sold_units,
+         COUNT(CASE WHEN u.status = 'available'  THEN 1 END)          AS unsold_units,
+         COALESCE(SUM(u.carpet_area_sqft), 0)                         AS salable_area,
+         COALESCE(SUM(CASE WHEN u.status != 'available' THEN u.carpet_area_sqft END), 0) AS sold_area,
+         COALESCE(SUM(CASE WHEN u.status = 'available'  THEN u.carpet_area_sqft END), 0) AS balance_area,
+         COALESCE(AVG(u.base_price_inr),   0)                         AS average_bsp,
+         COALESCE(AVG(u.total_price_inr),  0)                         AS average_cost,
+         COALESCE(
+           (SELECT SUM(br.booking_amount)
+            FROM booking_records br
+            WHERE br.project_id = p.id
+              AND br.status IN ('complete', 'pending_payment', 'active')),
+           0
+         )                                                             AS total_collection
+       FROM projects p
+       LEFT JOIN towers t ON t.project_id = p.id
+       LEFT JOIN units  u ON u.project_id = p.id
+       ${whereClause}
+       GROUP BY p.id, p.name, p.location, p.rera_number, p.group_name, p.land_area_sqft
+       ORDER BY p.name`,
+      params
+    );
+
+    res.json({ success: true, data: result.rows });
   } catch (error) { next(error); }
 });
 

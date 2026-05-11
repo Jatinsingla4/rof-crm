@@ -170,10 +170,10 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
     const result = await db.query(
       `INSERT INTO receipts
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,
-          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
-       RETURNING id, receipt_number, amount_received_inr, status`,
-      [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber]
+          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number, plc_amount, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
+       RETURNING id, receipt_number, amount_received_inr, plc_amount, status`,
+      [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber, parseFloat(plcAmount||0)]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });

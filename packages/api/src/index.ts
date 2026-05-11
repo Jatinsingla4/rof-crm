@@ -40,6 +40,7 @@ import inventoryHoldRoutes from './routes/inventory_hold.js';
 import dashboardRoutes from './routes/dashboard.js';
 import masterRoutes from './routes/master.js';
 import bookingRoutes from './routes/booking.js';
+import bookingDocumentsRoutes from './routes/booking_documents.js';
 import employeesRoutes from './routes/employees.js';
 import operationsRoutes from './routes/operations.js';
 import transfersRoutes from './routes/transfers.js';
@@ -131,7 +132,8 @@ export interface AuthRequest extends Request {
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  // Accept ?token= query param as fallback for window.open() navigations (e.g. receipt HTML)
+  const token = (authHeader && authHeader.split(' ')[1]) || (req.query.token as string) || null;
 
   if (!token) {
     return res.status(401).json({ error: 'Access token required' });
@@ -206,6 +208,10 @@ const autoAudit = (req: AuthRequest, res: Response, next: NextFunction) => {
 
 const webPublicDir = path.join(__dirname, '../../web/public');
 app.use(express.static(webPublicDir));
+
+// Serve uploaded consumer photos
+const uploadsDir = path.join(__dirname, '../uploads');
+app.use('/uploads', express.static(uploadsDir));
 
 // ============================================
 // HEALTH CHECK
@@ -323,7 +329,8 @@ app.use('/api/broker-setup',  authenticateToken, rbac('broker_setup'),    broker
 app.use('/api/inventory-hold',authenticateToken, rbac('inventory_hold'),  inventoryHoldRoutes);
 app.use('/api/dashboard',     authenticateToken,                          dashboardRoutes);
 app.use('/api/master',        authenticateToken,                          masterRoutes);
-app.use('/api/booking',       authenticateToken,                          bookingRoutes);
+app.use('/api/booking',           authenticateToken,                      bookingRoutes);
+app.use('/api/booking-documents', authenticateToken,                      bookingDocumentsRoutes);
 app.use('/api/employees', authenticateToken, employeesRoutes);
 app.use('/api/operations', authenticateToken, operationsRoutes);
 app.use('/api/transfers', authenticateToken, transfersRoutes);

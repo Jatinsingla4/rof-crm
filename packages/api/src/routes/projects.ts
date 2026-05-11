@@ -14,7 +14,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(
       `SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location,
-              p.land_area_sqft, p.total_units, p.created_at,
+              p.land_area_sqft, p.total_units, p.group_name, p.possession_date, p.created_at,
               COUNT(DISTINCT t.id) as tower_count,
               COUNT(DISTINCT u.id) as unit_count,
               COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'available') as available_units,
@@ -34,17 +34,20 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // POST /api/projects
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, reraNumber, tcpLicence, location, landAreaSqft, totalUnits } = req.body;
+    const { name, reraNumber, tcpLicence, location, landAreaSqft, totalUnits,
+            possessionDate, incomeCategory } = req.body;
 
     if (!name || !reraNumber || !tcpLicence) {
       return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
     }
 
     const result = await db.query(
-      `INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, name, rera_number, tcp_licence, location, created_at`,
-      [name, reraNumber, tcpLicence, location || null, landAreaSqft || null, totalUnits || null]
+      `INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units,
+                             group_name, possession_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, name, rera_number, tcp_licence, location, group_name, possession_date, created_at`,
+      [name, reraNumber, tcpLicence, location || null, landAreaSqft || null, totalUnits || null,
+       incomeCategory || 'Affordable', possessionDate || null]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -177,7 +180,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
     const result = await db.query(
       `SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location,
-              p.land_area_sqft, p.total_units, p.created_at
+              p.land_area_sqft, p.total_units, p.group_name, p.possession_date, p.created_at
        FROM projects p WHERE p.id = $1`,
       [id]
     );
