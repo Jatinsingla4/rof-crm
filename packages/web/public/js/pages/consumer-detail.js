@@ -244,9 +244,9 @@ const ConsumerDetailPage = {
     const rate = parseFloat(baseInput.value || 0);
     const basic = rate * carpetArea;
     const plc = parseFloat(baseInput.dataset.plc || 0);
-    const cgst = (basic + plc) * 0.05;
-    const sgst = (basic + plc) * 0.05;
-    const total = basic + plc + cgst + sgst;
+    const cgst = (basic + plc) * 0.005;
+    const sgst = (basic + plc) * 0.005;
+    const total = basic + plc;
 
     document.getElementById('basic-cost-val').textContent = Utils.currency(basic);
     document.getElementById('plc-val').textContent = Utils.currency(plc);
@@ -407,7 +407,7 @@ const ConsumerDetailPage = {
                     <td style="color:var(--warn)">${Utils.date(d.due_date||d.dueDate)}</td>
                     <td><span class="chip ${chipCls}">${dtype}</span></td>
                     <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
-                    <td><button class="btn btn-ghost btn-sm" onclick="Utils.info('PDF coming soon')">Print</button></td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this)">Print</button></td>
                   </tr>`;}).join('')}
           </tbody>
         </table>`;

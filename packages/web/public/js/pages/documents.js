@@ -900,7 +900,7 @@ const DocsPage = {
                   <td>${d.demand_type || '—'}</td>
                   <td>${Utils.date(d.generated_at)}</td>
                   <td>${Utils.date(d.due_date)}</td>
-                  <td class="td-bold">${Utils.currency(parseFloat(d.amount_due_inr) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0))}</td>
+                  <td class="td-bold">${Utils.currency(parseFloat(d.amount_due_inr || 0))}</td>
                   <td>
                     <div style="display:flex; flex-direction:column; gap:4px;">
                       <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: true})" class="legacy-link">Print (Interest)</a>

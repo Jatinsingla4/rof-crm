@@ -190,10 +190,6 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-gst-int-pct" value="1" readonly style="background:var(--surface2)">
               </div>
               <div class="fg">
-                <label class="fl">Paid (₹)</label>
-                <input type="number" class="fc" id="bkp-paid-display" placeholder="0" readonly style="background:var(--surface2)">
-              </div>
-              <div class="fg">
                 <label class="fl" id="bkp-lbl-stax">S.Tax(0.000%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct" value="0" readonly style="background:var(--surface2)">
               </div>
@@ -231,8 +227,6 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-interest-amt-d" placeholder="0" value="0" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">GST Interest (%)</label>
                 <input type="number" class="fc" id="bkp-gst-int-pct-d" placeholder="1.0" step="0.01" value="1"></div>
-              <div class="fg"><label class="fl">Paid (₹)</label>
-                <input type="number" class="fc" id="bkp-paid-display-d" placeholder="0" readonly style="background:var(--surface2)"></div>
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-d" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">CGST (%)</label>
@@ -265,8 +259,6 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-cgst-pct-o" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">SGST (%)</label>
                 <input type="number" class="fc" id="bkp-sgst-pct-o" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">Paid (₹)</label>
-                <input type="number" class="fc" id="bkp-paid-display-o" placeholder="0" readonly style="background:var(--surface2)"></div>
             </div>
             <div class="sp-grid">
               <div class="fg"><label class="fl">Transaction Ref</label>
@@ -293,8 +285,6 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-cgst-pct-c" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">SGST (%)</label>
                 <input type="number" class="fc" id="bkp-sgst-pct-c" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">Paid (₹)</label>
-                <input type="number" class="fc" id="bkp-paid-display-c" placeholder="0" readonly style="background:var(--surface2)"></div>
             </div>
           </div>
 
@@ -481,10 +471,6 @@ const BkPayPage = {
     const sgstPct = parseFloat(document.getElementById('bkp-sgst-pct' + sfx)?.value || 0);
     const cgstAmt = base * cgstPct / 100;
     const sgstAmt = base * sgstPct / 100;
-    const paid    = base + cgstAmt + sgstAmt;
-    ['bkp-paid-display','bkp-paid-display-d','bkp-paid-display-o','bkp-paid-display-c'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = paid.toFixed(2);
-    });
     const cgstH = document.getElementById('bkp-cgst-amount'); if (cgstH) cgstH.value = cgstAmt.toFixed(2);
     const sgstH = document.getElementById('bkp-sgst-amount'); if (sgstH) sgstH.value = sgstAmt.toFixed(2);
     this.updateTaxLabels();
@@ -704,6 +690,8 @@ const BkPayPage = {
       document.addEventListener('keydown', escHandler);
 
       const closeModal = () => {
+        btn.disabled = false;
+        btn.textContent = 'CONFIRM PAYMENT';
         if (overlay.parentNode) document.body.removeChild(overlay);
         document.removeEventListener('keydown', escHandler);
       };

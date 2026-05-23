@@ -81,6 +81,21 @@ router.get('/reports/rates', async (req: AuthRequest, res: Response, next: NextF
   } catch (err) { next(err); }
 });
 
+// GET /api/projects/:id/floors?towerId=
+router.get('/:id/floors', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { towerId } = req.query;
+    const params: any[] = [req.params.id];
+    let extra = '';
+    if (towerId) { extra = ' AND tower_id = $2'; params.push(towerId); }
+    const result = await db.query(
+      `SELECT DISTINCT floor FROM units WHERE project_id = $1${extra} ORDER BY floor ASC`,
+      params
+    );
+    res.json({ success: true, data: result.rows.map((r: any) => r.floor) });
+  } catch (err) { next(err); }
+});
+
 // GET /api/projects/:id/plan-templates
 router.get('/:id/plan-templates', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

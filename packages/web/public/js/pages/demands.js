@@ -61,6 +61,7 @@ Pages.demands = async function(params = {}) {
                 <option value="">— All —</option>
                 <option value="sent">Sent</option>
                 <option value="unsent">Unsent</option>
+                <option value="paid">Paid</option>
               </select>
             </div>
             <div class="fg"><label class="fl">From Date</label>
@@ -195,12 +196,15 @@ const DemandsPage = {
         <thead><tr><th>Demand ID</th><th>Consumer</th><th>Unit</th><th>Project</th><th>Instalment</th><th>Amount</th><th>Due Date</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>
           ${list.map(d => {
-            const sent = d.sent_at || d.delivery_status === 'delivered';
+            const paid = d.delivery_status === 'paid';
+            const sent = paid || d.sent_at || d.delivery_status === 'sent' || d.delivery_status === 'delivered';
             const dtype = d.demand_type || 'main';
             const typeMap = { main:'Demand', reminder_1:'Reminder 1', reminder_2:'Reminder 2', termination:'Termination' };
             const clsMap  = { main:'ch-blue', reminder_1:'ch-warn', reminder_2:'ch-red', termination:'ch-accent' };
             const dueDate = d.due_date || d.dueDate;
-            const isOverdue = dueDate && new Date(dueDate) < new Date();
+            const isOverdue = !paid && dueDate && new Date(dueDate) < new Date();
+            const statusChipCls = paid ? 'ch-teal' : sent ? 'ch-green' : 'ch-gray';
+            const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
             return `<tr>
               <td class="td-mono">${(d.id||'').slice(0,8)}</td>
               <td class="td-bold">${d.consumer_name||d.consumerName||'—'}</td>
@@ -210,10 +214,10 @@ const DemandsPage = {
               <td style="font-weight:600">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
               <td style="font-size:10.5px;${isOverdue?'color:var(--red);font-weight:600':'color:var(--warn)'}">${Utils.date(dueDate)}</td>
               <td><span class="chip ${clsMap[dtype]||'ch-blue'}">${typeMap[dtype]||dtype}</span></td>
-              <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
+              <td><span class="chip ${statusChipCls}">${statusChipTxt}</span></td>
               <td><div style="display:flex;gap:3px">
-                <button class="btn btn-ghost btn-sm" onclick="Utils.info('Print coming soon')">Print</button>
-                <button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>
+                <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this)">Print</button>
+                ${paid ? '' : `<button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>`}
               </div></td>
             </tr>`;
           }).join('')}
@@ -253,14 +257,18 @@ const DemandsPage = {
       let list = res.data || res || [];
 
       // Client-side filter for send status
-      if (sendSt === 'sent')   list = list.filter(d => d.sent_at || d.delivery_status === 'delivered');
-      if (sendSt === 'unsent') list = list.filter(d => !d.sent_at && d.delivery_status !== 'delivered');
+      const isPaid   = d => d.delivery_status === 'paid';
+      const isSent   = d => d.sent_at || d.delivery_status === 'sent' || d.delivery_status === 'delivered' || d.delivery_status === 'paid';
+      const isUnsent = d => !d.sent_at && d.delivery_status !== 'sent' && d.delivery_status !== 'delivered' && d.delivery_status !== 'paid';
+      if (sendSt === 'sent')   list = list.filter(isSent);
+      if (sendSt === 'unsent') list = list.filter(isUnsent);
+      if (sendSt === 'paid')   list = list.filter(isPaid);
 
       // KPI summary
       const totalAmt  = list.reduce((s,d) => s + parseFloat(d.amount_due_inr||d.amount||0), 0);
-      const sentCount = list.filter(d => d.sent_at || d.delivery_status === 'delivered').length;
-      const unsentCnt = list.length - sentCount;
-      const overdueC  = list.filter(d => { const dd = d.due_date||d.dueDate; return dd && new Date(dd) < new Date(); }).length;
+      const sentCount = list.filter(isSent).length;
+      const unsentCnt = list.filter(isUnsent).length;
+      const overdueC  = list.filter(d => { const dd = d.due_date||d.dueDate; return dd && new Date(dd) < new Date() && !isPaid(d); }).length;
 
       if (kpiEl) kpiEl.innerHTML = `
         <div class="kpi c-accent"><div class="kpi-lbl">Total Demands</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">In filter</div></div>
@@ -296,12 +304,15 @@ const DemandsPage = {
           </thead>
           <tbody>
             ${list.map((d,i) => {
-              const sent   = d.sent_at || d.delivery_status === 'delivered';
+              const paid   = d.delivery_status === 'paid';
+              const sent   = paid || d.sent_at || d.delivery_status === 'sent' || d.delivery_status === 'delivered';
               const dueDate = d.due_date || d.dueDate;
-              const isOverdue = dueDate && new Date(dueDate) < new Date();
+              const isOverdue = !paid && dueDate && new Date(dueDate) < new Date();
               const dtype  = d.demand_type || 'main';
               const typeMap = { main:'Main Demand', reminder_1:'Reminder 1', reminder_2:'Reminder 2', termination:'Termination' };
               const clsMap  = { main:'ch-blue', reminder_1:'ch-warn', reminder_2:'ch-red', termination:'ch-accent' };
+              const statusChipCls = paid ? 'ch-teal' : sent ? 'ch-green' : 'ch-gray';
+              const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
               return `<tr>
                 <td>${i+1}</td>
                 <td class="td-bold">${d.consumer_name||d.consumerName||'—'}</td>
@@ -311,11 +322,11 @@ const DemandsPage = {
                 <td style="font-size:10.5px;${isOverdue?'color:var(--red);font-weight:600':''}">${Utils.date(dueDate)}</td>
                 <td style="font-weight:600">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
                 <td><span class="chip ${clsMap[dtype]||'ch-blue'}">${typeMap[dtype]||dtype}</span></td>
-                <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
+                <td><span class="chip ${statusChipCls}">${statusChipTxt}</span></td>
                 <td style="font-size:10.5px">${sent ? Utils.date(d.sent_at||d.sentAt) : '—'}</td>
                 <td><div style="display:flex;gap:3px">
-                  <button class="btn btn-ghost btn-sm" onclick="Utils.info('Print coming soon')">Print</button>
-                  <button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>
+                  <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this)">Print</button>
+                  ${paid ? '' : `<button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>`}
                 </div></td>
               </tr>`;
             }).join('')}
@@ -393,7 +404,7 @@ const DemandsPage = {
     const orig = btn.textContent;
     btn.textContent = 'Sending…';
     try {
-      await Api.post(`/documents/${demandId}/send`, { channel: 'email' });
+      await Api.patch(`/payments/demands/${demandId}/send`, { channel: 'email' });
       Utils.success('Demand letter sent');
       btn.textContent = 'Re-Send';
       btn.classList.remove('btn-teal'); btn.classList.add('btn-ghost');
@@ -409,15 +420,42 @@ const DemandsPage = {
   },
 
   async sendAllUnsent() {
-    const unsent = this._list.filter(d => !d.sent_at);
+    const unsent = this._list.filter(d => !d.sent_at && d.delivery_status !== 'sent' && d.delivery_status !== 'delivered' && d.delivery_status !== 'paid');
     if (!unsent.length) { Utils.info('No unsent demands'); return; }
     Utils.confirm(`Send ${unsent.length} unsent demands?`, async () => {
       let ok = 0;
       for (const d of unsent) {
-        try { await Api.post(`/documents/${d.id}/send`, { channel:'email' }); ok++; } catch {}
+        try { await Api.patch(`/payments/demands/${d.id}/send`, { channel:'email' }); ok++; } catch {}
       }
       Utils.success(`${ok} of ${unsent.length} demands sent`);
       await this.loadOverview();
     });
+  },
+
+  async printDemandLetter(consumerId, demandId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+    try {
+      const genRes = await Api.post('/documents/generate', {
+        consumerId,
+        documentType: 'demand_letter',
+        demandId,
+        includeInterest: true,
+      });
+      const documentId = genRes.data?.documentId || genRes.documentId;
+      if (!documentId) throw new Error('Document ID missing from response');
+
+      const htmlRes = await Api.get(`/documents/${documentId}/html`);
+      const html = htmlRes.data;
+      if (!html) throw new Error('No HTML content returned');
+
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (!win) Utils.error('Popup blocked — please allow popups for this site');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      Utils.error('Print failed: ' + err.message);
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Print'; }
   },
 };

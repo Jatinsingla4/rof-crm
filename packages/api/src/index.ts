@@ -126,8 +126,41 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 export interface AuthRequest extends Request {
   userId?: string;
+  userName?: string;
   userRole?: string;
   userPermissions?: string[];
+}
+
+export interface DocumentFieldOverride {
+  id: string;
+  document_id: string;
+  field_key: string;
+  field_label: string;
+  section: string;
+  original_value: string;
+  current_value: string;
+  value_type: 'text' | 'number' | 'date' | 'percentage' | 'currency';
+  edit_reason: string;
+  edited_by_user_id: string;
+  edited_at: string;
+  is_active: boolean;
+}
+
+export interface DocumentVersion {
+  id: string;
+  document_id: string;
+  version_number: number;
+  html_content: string;
+  created_by_user_id: string;
+  created_at: string;
+  edit_reason: string;
+  fields_changed: Array<{
+    field_key: string;
+    field_label: string;
+    old_value: string;
+    new_value: string;
+  }>;
+  is_original: boolean;
 }
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -142,6 +175,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   // Development: Allow mock token
   if (isDev && token === 'mock-jwt-token') {
     req.userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    req.userName = 'Test User';
     req.userRole = 'super_admin';
     req.userPermissions = [
       'view_consumers', 'create_consumers', 'edit_consumers', 'delete_consumers',
@@ -159,6 +193,7 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
   try {
     const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     req.userId = decoded.userId;
+    req.userName = decoded.name || decoded.email || 'Unknown';
     req.userRole = decoded.role;
     req.userPermissions = decoded.permissions || [];
     next();

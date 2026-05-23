@@ -36,8 +36,10 @@ router.post('/journals', async (req: AuthRequest, res: Response, next: NextFunct
       return res.status(400).json({ error: 'consumerId and ledgerHead required' });
     }
 
-    const entryNo = `JE/${new Date().getFullYear()}/${Math.floor(Math.random() * 10000)}`;
-    
+    const seqResult = await db.query(`SELECT nextval('journal_entry_seq') AS seq`);
+    const seq = String(seqResult.rows[0].seq).padStart(4, '0');
+    const entryNo = `JE/${new Date().getFullYear()}/${seq}`;
+
     const result = await db.query(
       `INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks)
        VALUES ($1, $2, $3, $4, $5, $6, $7)

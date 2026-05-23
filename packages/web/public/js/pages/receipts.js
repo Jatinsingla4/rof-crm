@@ -10,6 +10,7 @@ Pages.receipts = async function(params = {}) {
     </div>
     <div class="tabs-line">
       <button class="tab-line active" data-group="rec" data-tab="entry" onclick="switchTab('rec','entry')">Receipt Generation</button>
+      <button class="tab-line" data-group="rec" data-tab="print" onclick="switchTab('rec','print');ReceiptsPage.initPrintTab()">Receipt Print</button>
       <button class="tab-line" data-group="rec" data-tab="list" onclick="switchTab('rec','list');ReceiptsPage.loadList()">Receipt List</button>
       <button class="tab-line" data-group="rec" data-tab="journal" onclick="switchTab('rec','journal');ReceiptsPage.loadJournals()">Journal Entry</button>
       <button class="tab-line" data-group="rec" data-tab="edit" onclick="switchTab('rec','edit');ReceiptsPage.loadEditSearch()">Edit Receipt</button>
@@ -100,6 +101,15 @@ Pages.receipts = async function(params = {}) {
               <div class="fg"><label class="fl">IDC (Optional)</label>
                 <input type="number" class="fc rec-amt-input" id="rec-idc" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
               </div>
+              <div class="fg"><label class="fl">Interest (Optional)</label>
+                <input type="number" class="fc rec-amt-input" id="rec-interest" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">Other Charges (Optional)</label>
+                <input type="number" class="fc rec-amt-input" id="rec-other-charge" placeholder="0.00" min="0" oninput="ReceiptsPage.calcTotal()">
+              </div>
+              <div class="fg"><label class="fl">Other Charge Description</label>
+                <input class="fc" id="rec-other-charge-desc" placeholder="e.g. Admin Fee, IFMS">
+              </div>
               <div class="fg"><label class="fl">Total Amount</label>
                 <input type="number" class="fc" id="rec-total-amount" placeholder="0.00" disabled style="background:var(--surface2);font-weight:bold;color:var(--teal)">
               </div>
@@ -113,10 +123,76 @@ Pages.receipts = async function(params = {}) {
               </div>
             </div>
             <div style="margin-top:10px;display:flex;gap:8px">
-              <button class="btn btn-teal btn-lg" onclick="ReceiptsPage.submit()">Save Receipt</button>
+              <button class="btn btn-teal btn-lg" id="rec-submit-btn" onclick="ReceiptsPage.submit()">Save Receipt</button>
               <button class="btn btn-ghost" onclick="ReceiptsPage.reset()">Clear</button>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECEIPT PRINT TAB -->
+    <div data-panel-group="rec" data-panel="print" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr">
+          <div class="sp-title">SEARCH RECEIPTS FOR PRINTING</div>
+          <div id="rp-project-label" style="font-size:13px;color:var(--text2);font-weight:500"></div>
+        </div>
+        <div class="sp-body">
+          <div class="sp-grid" style="grid-template-columns:repeat(5,1fr)">
+            <div class="fg"><label class="fl">Project</label>
+              <select class="fc" id="rp-project" onchange="ReceiptsPage.loadPrintTowers(this.value)">
+                <option value="">— All Projects —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Tower</label>
+              <select class="fc" id="rp-tower">
+                <option value="">— All Towers —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Registration No.</label>
+              <input class="fc" id="rp-reg-no" placeholder="e.g. ALAN-2026-0001">
+            </div>
+            <div class="fg"><label class="fl">First Name</label>
+              <input class="fc" id="rp-first-name" placeholder="Buyer first name">
+            </div>
+            <div class="fg"><label class="fl">Unit Address</label>
+              <input class="fc" id="rp-unit-address" placeholder="Unit no. / address">
+            </div>
+            <div class="fg"><label class="fl">Receipt No.</label>
+              <input class="fc" id="rp-receipt-no" placeholder="e.g. RCP/2026/0001">
+            </div>
+            <div class="fg"><label class="fl">Broker</label>
+              <select class="fc" id="rp-broker">
+                <option value="">— All Brokers —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">From Date</label>
+              <input type="date" class="fc" id="rp-from-date">
+            </div>
+            <div class="fg"><label class="fl">To Date</label>
+              <input type="date" class="fc" id="rp-to-date">
+            </div>
+            <div class="fg"><label class="fl">Print Status</label>
+              <select class="fc" id="rp-print-status">
+                <option value="">— All —</option>
+                <option value="not_printed">Not Printed</option>
+                <option value="printed">Printed</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:10px" id="rp-search-btn">FETCH</button>
+        </div>
+      </div>
+      <div id="rp-results-wrap" style="display:none">
+        <div class="tbl-wrap">
+          <div class="tbl-hdr">
+            <div class="tbl-title" id="rp-results-title">RECEIPTS</div>
+            <div class="tbl-actions">
+              <button class="btn btn-ghost btn-sm" id="rp-print-all-btn">🖨 Print All Visible</button>
+            </div>
+          </div>
+          <div id="rp-results-body"></div>
         </div>
       </div>
     </div>
@@ -436,24 +512,33 @@ const ReceiptsPage = {
   },
 
   calcTotal() {
-    const base = parseFloat(document.getElementById('rec-amount')?.value || 0);
-    const plc = parseFloat(document.getElementById('rec-plc')?.value || 0);
-    const edc = parseFloat(document.getElementById('rec-edc')?.value || 0);
-    const idc = parseFloat(document.getElementById('rec-idc')?.value || 0);
-    const total = base + plc + edc + idc;
+    const base     = parseFloat(document.getElementById('rec-amount')?.value || 0);
+    const plc      = parseFloat(document.getElementById('rec-plc')?.value || 0);
+    const edc      = parseFloat(document.getElementById('rec-edc')?.value || 0);
+    const idc      = parseFloat(document.getElementById('rec-idc')?.value || 0);
+    const interest = parseFloat(document.getElementById('rec-interest')?.value || 0);
+    const other    = parseFloat(document.getElementById('rec-other-charge')?.value || 0);
+    const total = base + plc + edc + idc + interest + other;
     const totalEl = document.getElementById('rec-total-amount');
     if (totalEl) totalEl.value = total > 0 ? total.toFixed(2) : '';
   },
 
   async submit() {
+    if (this._selectedReceiptId) {
+      await this.updateReceipt(this._selectedReceiptId);
+      return;
+    }
+
     const consumerId = document.getElementById('rec-consumer-id')?.value;
     const baseAmount = document.getElementById('rec-amount')?.value;
     const date = document.getElementById('rec-date')?.value;
-    
-    const plc = parseFloat(document.getElementById('rec-plc')?.value || 0);
-    const edc = parseFloat(document.getElementById('rec-edc')?.value || 0);
-    const idc = parseFloat(document.getElementById('rec-idc')?.value || 0);
-    const totalAmount = (parseFloat(baseAmount || 0) + plc + edc + idc) || 0;
+
+    const plc      = parseFloat(document.getElementById('rec-plc')?.value || 0);
+    const edc      = parseFloat(document.getElementById('rec-edc')?.value || 0);
+    const idc      = parseFloat(document.getElementById('rec-idc')?.value || 0);
+    const interest = parseFloat(document.getElementById('rec-interest')?.value || 0);
+    const other    = parseFloat(document.getElementById('rec-other-charge')?.value || 0);
+    const totalAmount = (parseFloat(baseAmount || 0) + plc + edc + idc + interest + other) || 0;
 
     if (!consumerId) { Utils.warn('Please select a consumer'); return; }
     if (totalAmount <= 0) { Utils.warn('Please enter an amount'); return; }
@@ -463,9 +548,12 @@ const ReceiptsPage = {
       consumerId,
       amountReceivedInr: totalAmount,
       baseAmount: parseFloat(baseAmount || 0),
-      plcAmount: plc,
-      edcAmount: edc,
-      idcAmount: idc,
+      plcAmount:          plc,
+      edcAmount:          edc,
+      idcAmount:          idc,
+      interestAmount:     interest || undefined,
+      otherChargeAmount:  other    || undefined,
+      otherChargeDesc:    document.getElementById('rec-other-charge-desc')?.value || undefined,
       paymentDate: date,
       paymentMode: this._payType,
       referenceNumber: document.getElementById('rec-txn')?.value || undefined,
@@ -484,7 +572,7 @@ const ReceiptsPage = {
     document.getElementById('rec-consumer-sel').value = '';
     document.getElementById('rec-fin-hdr').style.display = 'none';
     document.getElementById('receipt-form').style.display = 'none';
-    ['rec-amount','rec-plc','rec-edc','rec-idc','rec-total-amount','rec-txn','rec-bank','rec-branch','rec-remarks'].forEach(id => {
+    ['rec-amount','rec-plc','rec-edc','rec-idc','rec-interest','rec-other-charge','rec-other-charge-desc','rec-total-amount','rec-txn','rec-bank','rec-branch','rec-remarks'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     document.getElementById('rec-date').value = Utils.today();
@@ -520,9 +608,9 @@ const ReceiptsPage = {
             <tbody>
               ${list.map(r => {
                 const amt = parseFloat(r.amount || 0);
-                const cgst = amt * 0.05;
-                const sgst = amt * 0.05;
-                const total = amt + cgst + sgst;
+                const cgst = amt * 0.005;
+                const sgst = amt * 0.005;
+                const total = amt;
                 return `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
                 <td class="td-bold">${r.consumer_name||r.consumerName||'—'}</td>
@@ -714,7 +802,29 @@ const ReceiptsPage = {
 
   async printReceipt(id) {
     Utils.info('Opening receipt for printing…');
-    window.open(`/api/payments/receipts/${id}/print`, '_blank');
+    try {
+      const token = Auth.getToken() || localStorage.getItem('rof-jwt') || '';
+      const res = await fetch(`/api/payments/receipts/${id}/html`, {
+        headers: { 'Authorization': 'Bearer ' + token }
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const html = await res.text();
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const tab = window.open(url, '_blank');
+      if (tab) setTimeout(() => URL.revokeObjectURL(url), 60000);
+      // Mark as printed in background — don't block or show error to user
+      Api.patch(`/payments/receipts/${id}/mark-printed`, {}).then(() => {
+        // Refresh print-tab row if it's currently visible
+        const row = document.querySelector(`[data-rp-row="${id}"]`);
+        if (row) {
+          const printedCell = row.querySelector('.rp-printed-by');
+          if (printedCell) printedCell.textContent = 'Me (just now)';
+        }
+      }).catch(() => {});
+    } catch (err) {
+      Utils.error('Failed to open receipt: ' + err.message);
+    }
   },
 
   async loadOverdue() {
@@ -857,39 +967,230 @@ const ReceiptsPage = {
     try {
       const res = await Api.get('/payments/receipts', { params: { pageSize: 50 } });
       const list = res.data || res || [];
+
+      const rows = list.map(r => {
+        const amt = Utils.currency(r.amount_received_inr || r.amount || 0);
+        const statusChip = Utils.chip(r.status || r.approval_status || 'pending');
+
+        if (mode === 'edit') {
+          return `<tr>
+            <td class="td-mono">${r.receipt_number}</td>
+            <td class="td-bold">${r.consumer_name}</td>
+            <td class="td-bold">${amt}</td>
+            <td>${statusChip}</td>
+            <td><button class="btn btn-teal btn-sm" onclick="ReceiptsPage.editReceipt('${r.id}')">Edit</button></td>
+          </tr>`;
+        }
+
+        // Cancel mode — show status-aware rows
+        const isCancelled = r.status === 'cancelled';
+        const isApproved  = r.approval_status === 'approved';
+
+        if (isCancelled) {
+          return `<tr style="opacity:0.5">
+            <td class="td-mono">${r.receipt_number}</td>
+            <td class="td-bold">${r.consumer_name}</td>
+            <td class="td-bold">${amt}</td>
+            <td>${Utils.chip('cancelled')}</td>
+            <td><span style="font-size:11px;color:var(--text3)">Already cancelled</span></td>
+          </tr>`;
+        }
+        if (isApproved) {
+          return `<tr style="opacity:0.6">
+            <td class="td-mono">${r.receipt_number}</td>
+            <td class="td-bold">${r.consumer_name}</td>
+            <td class="td-bold">${amt}</td>
+            <td>${Utils.chip('approved')}</td>
+            <td><span style="font-size:11px;color:var(--text3)">Approved — cannot cancel</span></td>
+          </tr>`;
+        }
+
+        return `<tr>
+          <td class="td-mono">${r.receipt_number}</td>
+          <td class="td-bold">${r.consumer_name}</td>
+          <td class="td-bold">${amt}</td>
+          <td>${statusChip}</td>
+          <td><button class="btn btn-danger btn-sm" onclick="ReceiptsPage.cancelReceipt('${r.id}','${r.receipt_number}')">Cancel</button></td>
+        </tr>`;
+      }).join('');
+
       el.innerHTML = `
         <div class="tbl-wrap" style="margin-top:15px">
           <table>
             <thead><tr><th>Receipt No</th><th>Consumer</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody>
-              ${list.map(r => `<tr>
-                <td class="td-mono">${r.receipt_number}</td>
-                <td class="td-bold">${r.consumer_name}</td>
-                <td class="td-bold">${Utils.currency(r.amount)}</td>
-                <td>${Utils.chip(r.status)}</td>
-                <td>
-                  <button class="btn btn-sm ${mode==='edit'?'btn-teal':'btn-danger'}" onclick="ReceiptsPage.${mode}Receipt('${r.id}')">${mode==='edit'?'Edit':'Cancel'}</button>
-                </td>
-              </tr>`).join('')}
-            </tbody>
+            <tbody>${rows}</tbody>
           </table>
         </div>`;
     } catch (err) { el.innerHTML = err.message; }
   },
 
   async editReceipt(id) {
-    Utils.info('Opening receipt editor for: ' + id);
-    // Logic for loading receipt into the main form for editing
     switchTab('rec', 'entry');
     this._selectedReceiptId = id;
-    this.loadReceiptForEdit(id);
+    this.setFormMode('edit');
+    await this.loadReceiptForEdit(id);
+    window.scrollTo(0, 0);
   },
 
-  async cancelReceipt(id) {
-    if (!confirm('Are you sure you want to cancel this receipt? This will reverse the ledger impact.')) return;
+  async loadReceiptForEdit(id) {
     try {
-      await Api.post(`/payments/receipts/${id}/cancel`, { reason: 'Cancelled by user' });
-      Utils.success('Receipt cancelled');
+      const res = await Api.get('/payments/receipts/' + id);
+      const receipt = res.data || res;
+      if (!receipt || !receipt.id) { Utils.error('Receipt not found'); return; }
+
+      if (receipt.approval_status === 'approved') {
+        Utils.error('This receipt has been approved and cannot be edited.');
+        this._selectedReceiptId = null;
+        this.setFormMode('create');
+        return;
+      }
+      if (receipt.status === 'cancelled') {
+        Utils.error('This receipt has been cancelled and cannot be edited.');
+        this._selectedReceiptId = null;
+        this.setFormMode('create');
+        return;
+      }
+
+      // Show consumer info banner
+      document.getElementById('rec-consumer-title').textContent =
+        `Editing: ${receipt.receipt_number} · ${receipt.consumer_name || '—'}`;
+      document.getElementById('rec-fin-hdr').style.display = 'block';
+      document.getElementById('receipt-form').style.display = 'block';
+      document.getElementById('rec-consumer-id').value = receipt.consumer_id;
+
+      // Payment type button
+      this._payType = receipt.payment_method || 'cheque';
+      const btg = document.getElementById('rec-type-btg');
+      if (btg) {
+        const methodMap = { cheque: 'cheque', neft: 'neft_rtgs', neft_rtgs: 'neft_rtgs',
+          bank_transfer: 'neft_rtgs', upi: 'upi', cash: 'cash', draft: 'draft', card: 'card' };
+        const btnVal = methodMap[receipt.payment_method] || receipt.payment_method;
+        btg.querySelectorAll('.btg-item').forEach(b => {
+          b.classList.toggle('on', b.textContent.toLowerCase().replace(/\//,'_') === btnVal ||
+            b.onclick?.toString().includes(`'${btnVal}'`));
+        });
+      }
+
+      // Instrument fields
+      const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+      set('rec-txn',         receipt.transaction_ref);
+      set('rec-cheque-date', receipt.cheque_date   ? receipt.cheque_date.split('T')[0]   : '');
+      set('rec-bank',        receipt.bank_name);
+      set('rec-branch',      receipt.branch);
+      set('rec-date',        receipt.received_date ? receipt.received_date.split('T')[0] : '');
+
+      // Amount fields — only if pending
+      if (receipt.approval_status === 'pending') {
+        set('rec-amount',            receipt.amount_received_inr);
+        set('rec-plc',               receipt.plc_amount          || 0);
+        set('rec-edc',               receipt.edc_amount          || 0);
+        set('rec-idc',               receipt.idc_amount          || 0);
+        set('rec-interest',          receipt.interest_amount     || 0);
+        set('rec-other-charge',      receipt.other_charge_amount || 0);
+        set('rec-other-charge-desc', receipt.other_charge_desc   || '');
+        this.calcTotal();
+      }
+
+      Utils.success('Receipt loaded for editing — ' + receipt.receipt_number);
+    } catch (err) {
+      Utils.error('Failed to load receipt: ' + err.message);
+    }
+  },
+
+  async updateReceipt(id) {
+    const baseAmount = parseFloat(document.getElementById('rec-amount')?.value || 0);
+    const plc      = parseFloat(document.getElementById('rec-plc')?.value      || 0);
+    const edc      = parseFloat(document.getElementById('rec-edc')?.value      || 0);
+    const idc      = parseFloat(document.getElementById('rec-idc')?.value      || 0);
+    const interest = parseFloat(document.getElementById('rec-interest')?.value || 0);
+    const other    = parseFloat(document.getElementById('rec-other-charge')?.value || 0);
+    const date = document.getElementById('rec-date')?.value;
+    if (!date) { Utils.warn('Please enter a receipt date'); return; }
+
+    const payload = {
+      paymentMethod:      this._payType || undefined,
+      transactionRef:     document.getElementById('rec-txn')?.value    || undefined,
+      bankName:           document.getElementById('rec-bank')?.value   || undefined,
+      branch:             document.getElementById('rec-branch')?.value || undefined,
+      chequeNo:           document.getElementById('rec-txn')?.value    || undefined,
+      chequeDate:         document.getElementById('rec-cheque-date')?.value || undefined,
+      receivedDate:       date,
+      amountReceivedInr:  baseAmount > 0 ? baseAmount : undefined,
+      plcAmount:          plc       >= 0 ? plc       : undefined,
+      edcAmount:          edc       >= 0 ? edc       : undefined,
+      idcAmount:          idc       >= 0 ? idc       : undefined,
+      interestAmount:     interest  >= 0 ? interest  : undefined,
+      otherChargeAmount:  other     >= 0 ? other     : undefined,
+      otherChargeDesc:    document.getElementById('rec-other-charge-desc')?.value || undefined,
+    };
+
+    try {
+      await Api.patch('/payments/receipts/' + id, payload);
+      Utils.success('Receipt updated successfully');
+      this._selectedReceiptId = null;
+      this.setFormMode('create');
+      this.reset();
+      this.loadList();
+      switchTab('rec', 'list');
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  setFormMode(mode) {
+    const btn = document.getElementById('rec-submit-btn');
+    let banner = document.getElementById('rec-edit-banner');
+
+    if (mode === 'edit') {
+      if (btn) { btn.textContent = 'Update Receipt'; btn.style.background = '#e67e22'; }
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'rec-edit-banner';
+        banner.style.cssText = 'background:#fff3e0;border:1px solid #e67e22;border-radius:6px;padding:8px 14px;margin-bottom:12px;font-size:12px;font-weight:600;color:#e65100';
+        banner.textContent = '✏ EDIT MODE — Modify the fields below and click Update Receipt. Click Cancel Edit to discard changes.';
+        const entryPanel = document.querySelector('[data-panel-group="rec"][data-panel="entry"]');
+        if (entryPanel) entryPanel.insertBefore(banner, entryPanel.firstChild);
+      }
+      banner.style.display = 'block';
+      this.showCancelEditButton();
+    } else {
+      if (btn) { btn.textContent = 'Save Receipt'; btn.style.background = ''; }
+      if (banner) banner.style.display = 'none';
+      this.hideCancelEditButton();
+    }
+  },
+
+  showCancelEditButton() {
+    let cancelBtn = document.getElementById('rec-cancel-edit-btn');
+    if (!cancelBtn) {
+      cancelBtn = document.createElement('button');
+      cancelBtn.id = 'rec-cancel-edit-btn';
+      cancelBtn.textContent = 'Cancel Edit';
+      cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.style.cssText = 'background:#6c757d;color:#fff;border:none;margin-left:4px';
+      cancelBtn.onclick = () => {
+        this._selectedReceiptId = null;
+        this.setFormMode('create');
+        this.reset();
+      };
+      const submitBtn = document.getElementById('rec-submit-btn');
+      if (submitBtn) submitBtn.parentNode.insertBefore(cancelBtn, submitBtn.nextSibling);
+    }
+    cancelBtn.style.display = 'inline-block';
+  },
+
+  hideCancelEditButton() {
+    const btn = document.getElementById('rec-cancel-edit-btn');
+    if (btn) btn.style.display = 'none';
+  },
+
+  async cancelReceipt(id, receiptNumber) {
+    const label = receiptNumber ? `receipt ${receiptNumber}` : 'this receipt';
+    if (!confirm(`Are you sure you want to cancel ${label}?\nThis will reverse the payment record and reopen the linked demand.`)) return;
+    try {
+      const res = await Api.post(`/payments/receipts/${id}/cancel`, { reason: 'Cancelled by user' });
+      const data = res.data || res || {};
+      const num = data.receiptNumber || receiptNumber || '';
+      const demandMsg = data.demandReverted ? ' Linked demand reopened.' : '';
+      Utils.success(`Receipt ${num} cancelled successfully.${demandMsg}`);
       this.loadCancelSearch();
     } catch (err) { Utils.error(err.message); }
   },
@@ -928,5 +1229,205 @@ const ReceiptsPage = {
     if (params.tab === 'cancel') this.loadCancelSearch();
     if (params.tab === 'assign-tds') this.loadAssignTDS();
     if (params.tab === 'tds-report') this.loadTDSReport();
+    if (params.tab === 'print') this.initPrintTab();
+  },
+
+  async initPrintTab() {
+    // Load projects (once per page load)
+    const sel = document.getElementById('rp-project');
+    if (sel && sel.options.length <= 1) {
+      try {
+        const res = await Api.get('/projects', { params: { pageSize: 100 } });
+        const list = res.data || res || [];
+        list.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = p.name;
+          sel.appendChild(opt);
+        });
+      } catch (err) { console.error('Failed to load projects for print tab:', err); }
+    }
+
+    // Load brokers (once per page load)
+    await this.loadPrintBrokers();
+
+    // Wire buttons (guard against double-wiring on re-visit)
+    const searchBtn = document.getElementById('rp-search-btn');
+    if (searchBtn && !searchBtn._wired) {
+      searchBtn.addEventListener('click', () => this.searchReceiptsForPrint());
+      searchBtn._wired = true;
+    }
+    const printAllBtn = document.getElementById('rp-print-all-btn');
+    if (printAllBtn && !printAllBtn._wired) {
+      printAllBtn.addEventListener('click', () => this.printAllVisible());
+      printAllBtn._wired = true;
+    }
+  },
+
+  async loadPrintTowers(projectId) {
+    const sel = document.getElementById('rp-tower');
+    const label = document.getElementById('rp-project-label');
+    if (!sel) return;
+
+    // Reset tower dropdown
+    sel.innerHTML = '<option value="">— All Towers —</option>';
+
+    // Update project label
+    if (label) {
+      const projectSel = document.getElementById('rp-project');
+      const selected = projectSel?.options[projectSel.selectedIndex];
+      label.textContent = selected?.value ? selected.textContent : '';
+    }
+
+    if (!projectId) return;
+
+    try {
+      const res = await Api.get(`/projects/${projectId}/towers`);
+      const towers = res.data || res || [];
+      towers.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.tower_name;
+        sel.appendChild(opt);
+      });
+    } catch (err) { console.error('Failed to load towers:', err); }
+  },
+
+  async loadPrintBrokers() {
+    const sel = document.getElementById('rp-broker');
+    if (!sel || sel.options.length > 1) return;
+    try {
+      const res = await Api.get('/brokers', { params: { pageSize: 200 } });
+      const list = res.data || res || [];
+      list.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = b.firm_name || b.name || b.id;
+        sel.appendChild(opt);
+      });
+    } catch (err) { console.error('Failed to load brokers:', err); }
+  },
+
+  async searchReceiptsForPrint() {
+    const projectId   = document.getElementById('rp-project')?.value      || '';
+    const towerId     = document.getElementById('rp-tower')?.value         || '';
+    const regNo       = document.getElementById('rp-reg-no')?.value        || '';
+    const firstName   = document.getElementById('rp-first-name')?.value    || '';
+    const unitAddress = document.getElementById('rp-unit-address')?.value  || '';
+    const receiptNo   = document.getElementById('rp-receipt-no')?.value    || '';
+    const brokerId    = document.getElementById('rp-broker')?.value        || '';
+    const fromDate    = document.getElementById('rp-from-date')?.value     || '';
+    const toDate      = document.getElementById('rp-to-date')?.value       || '';
+    const printStatus = document.getElementById('rp-print-status')?.value  || '';
+
+    const params = { pageSize: 300 };
+    if (projectId)   params.projectId      = projectId;
+    if (towerId)     params.towerId        = towerId;
+    if (regNo)       params.registrationNo = regNo;
+    if (firstName)   params.firstName      = firstName;
+    if (unitAddress) params.unitAddress    = unitAddress;
+    if (receiptNo)   params.receiptNo      = receiptNo;
+    if (brokerId)    params.brokerId       = brokerId;
+    if (fromDate)    params.fromDate       = fromDate;
+    if (toDate)      params.toDate         = toDate;
+    if (printStatus) params.printStatus    = printStatus;
+
+    const wrap = document.getElementById('rp-results-wrap');
+    const body = document.getElementById('rp-results-body');
+    if (body) body.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    if (wrap) wrap.style.display = 'block';
+
+    try {
+      const res = await Api.get('/payments/receipts', { params });
+      const receipts = res.data || res || [];
+      this.renderPrintResults(receipts);
+    } catch (err) {
+      if (body) body.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
+  },
+
+  renderPrintResults(receipts) {
+    const body = document.getElementById('rp-results-body');
+    const title = document.getElementById('rp-results-title');
+    if (!body) return;
+
+    if (title) title.textContent = `RECEIPTS (${receipts.length})`;
+
+    if (receipts.length === 0) {
+      body.innerHTML = '<div class="empty-state"><div class="empty-icon">🧾</div><h3>No receipts found</h3></div>';
+      return;
+    }
+
+    const rows = receipts.map((r, i) => {
+      const receiptDate  = r.received_date ? new Date(r.received_date).toLocaleDateString('en-GB') : '—';
+      const generatedDate = r.created_at   ? new Date(r.created_at).toLocaleDateString('en-GB')   : '—';
+      const amount = parseFloat(r.amount_received_inr || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+      const isCancelled = r.status === 'cancelled';
+      const printedBy = isCancelled
+        ? `<span style="color:var(--red);font-size:11px;font-weight:600">Cancelled</span>`
+        : r.printed_by_name
+          ? `<span style="color:var(--teal);font-size:11px">${r.printed_by_name}</span>`
+          : `<span style="color:var(--text3);font-size:11px">Not Printed</span>`;
+      const consumerLink = r.consumer_id
+        ? `<a href="#" onclick="Pages.navigate('consumer-detail',{id:'${r.consumer_id}'})" style="color:var(--teal)">${r.consumer_name || '—'}</a>`
+        : (r.consumer_name || '—');
+      const receiptLink = isCancelled
+        ? `<span style="color:var(--red);font-size:11px;text-decoration:line-through">${r.receipt_number || '—'}</span>`
+        : `<a href="#" onclick="ReceiptsPage.printReceipt('${r.id}')"
+            style="color:#1a6fcf;font-weight:600;cursor:pointer;text-decoration:none"
+            onmouseover="this.style.textDecoration='underline'"
+            onmouseout="this.style.textDecoration='none'"
+          >${r.receipt_number || '—'}</a>`;
+
+      return `<tr data-rp-row="${r.id}"${!isCancelled ? ` data-receipt-id="${r.id}"` : ''}>
+        <td style="text-align:center">${i + 1}</td>
+        <td class="td-mono">${receiptLink}</td>
+        <td class="td-mono">${r.registration_no || '—'}</td>
+        <td>${consumerLink}</td>
+        <td>${r.tower_name || '—'}</td>
+        <td>${r.unit_number || '—'}</td>
+        <td>${receiptDate}</td>
+        <td class="td-mono">${r.receipt_number || '—'}</td>
+        <td style="text-transform:capitalize">${(r.payment_method || '—').replace(/_/g,' ')}</td>
+        <td style="text-align:right;font-weight:600;color:var(--teal)">₹${amount}</td>
+        <td style="font-size:12px">${r.generated_by_name || '—'}</td>
+        <td style="font-size:12px">${generatedDate}</td>
+        <td class="rp-printed-by">${printedBy}</td>
+      </tr>`;
+    }).join('');
+
+    body.innerHTML = `<table style="font-size:12px">
+      <thead>
+        <tr>
+          <th style="text-align:center">S.NO.</th>
+          <th>RECEIPT</th>
+          <th>REG NO.</th>
+          <th>NAME</th>
+          <th>TOWER</th>
+          <th>UNIT NO.</th>
+          <th>RECEIPT DATE</th>
+          <th>RECEIPT NO.</th>
+          <th>MODE OF PAYMENT</th>
+          <th>NET AMOUNT</th>
+          <th>GENERATED BY</th>
+          <th>GENERATED DATE</th>
+          <th>PRINTED BY</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  },
+
+  async printAllVisible() {
+    const rows = document.querySelectorAll('#rp-results-body tr[data-receipt-id]');
+    if (!rows.length) { Utils.error('No printable receipts visible'); return; }
+    Utils.info(`Opening ${rows.length} receipt(s)…`);
+    for (const row of rows) {
+      const id = row.dataset.receiptId;
+      if (id) {
+        await this.printReceipt(id);
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
   }
 };

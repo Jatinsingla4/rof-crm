@@ -20,6 +20,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       bhkType,
       carpetAreaSqft,
       superAreaSqft,
+      balconyAreaSqft,
+      balconyRateInrSqft,
+      balconyRateCapInr,
       basePriceInr,
       totalPriceInr,
       facing,
@@ -36,11 +39,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const result = await db.query(
       `INSERT INTO units (
         project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft,
-        super_area_sqft, base_price_inr, total_price_inr, facing, floor_plan_url,
+        super_area_sqft, balcony_area_sqft, balcony_rate_inr_sqft, balcony_rate_cap_inr,
+        base_price_inr, total_price_inr, facing, floor_plan_url,
         status, created_by_user_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'available', $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'available', $15)
        RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`,
       [projectId, towerId, floor, unitNumber, bhkType, carpetAreaSqft, superAreaSqft,
+       balconyAreaSqft || null, balconyRateInrSqft || null, balconyRateCapInr || null,
        basePriceInr, totalPriceInr, facing, floorPlanUrl, req.userId]
     );
 
@@ -59,41 +64,80 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // GET /api/units - List units with filters
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, towerId, status, bhkType, page = 1, pageSize = 200 } = req.query;
+    const { projectId, towerId, status, bhkType, consumerName, registrationNo, page = 1, pageSize = 200 } = req.query;
 
-    let query = `SELECT u.id, u.project_id, p.name as project_name,
-                        u.tower_id, t.tower_name,
-                        u.floor, u.unit_number, u.bhk_type,
-                        u.carpet_area_sqft, u.super_area_sqft, u.total_price_inr,
-                        u.base_price_inr, u.facing, u.status, u.created_at
-                 FROM units u
-                 JOIN towers t ON u.tower_id = t.id
-                 JOIN projects p ON u.project_id = p.id
-                 WHERE 1=1`;
-    const params: any[] = [];
+    const innerParams: any[] = [];
+    let innerWhere = `WHERE 1=1`;
 
     if (projectId) {
-      query += ` AND u.project_id = $${params.length + 1}`;
-      params.push(projectId);
+      innerParams.push(projectId);
+      innerWhere += ` AND u.project_id = $${innerParams.length}`;
     }
     if (towerId) {
-      query += ` AND u.tower_id = $${params.length + 1}`;
-      params.push(towerId);
+      innerParams.push(towerId);
+      innerWhere += ` AND u.tower_id = $${innerParams.length}`;
     }
     if (status) {
-      query += ` AND u.status::text = $${params.length + 1}`;
-      params.push(status);
+      innerParams.push(status);
+      innerWhere += ` AND u.status::text = $${innerParams.length}`;
     }
     if (bhkType) {
-      query += ` AND u.bhk_type = $${params.length + 1}`;
-      params.push(bhkType);
+      innerParams.push(bhkType);
+      innerWhere += ` AND u.bhk_type = $${innerParams.length}`;
+    }
+    if (consumerName) {
+      innerParams.push(`%${consumerName}%`);
+      const idx = innerParams.length;
+      innerWhere += ` AND (c.first_name ILIKE $${idx} OR c.last_name ILIKE $${idx})`;
+    }
+    if (registrationNo) {
+      innerParams.push(`%${registrationNo}%`);
+      innerWhere += ` AND c.registration_no ILIKE $${innerParams.length}`;
     }
 
-    query += ` ORDER BY t.tower_name, u.floor, u.unit_number`;
-    query += ` LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
+    const innerQuery = `
+      SELECT DISTINCT ON (u.id)
+        u.id, u.project_id, p.name as project_name,
+        u.tower_id, t.tower_name, t.tower_name AS tower,
+        u.floor, u.unit_number, u.bhk_type,
+        u.carpet_area_sqft, u.super_area_sqft, u.total_price_inr,
+        u.base_price_inr, u.facing, u.status, u.created_at,
+        u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
+        u.registry_date,
+        u.hold_status,
+        u.status_changed_at,
+        c.id AS consumer_id,
+        NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') AS consumer_name,
+        c.registration_no,
+        a.allotment_date,
+        CASE WHEN c.id IS NOT NULL
+          THEN COALESCE(bk.firm_name, bk.name, 'Direct')
+          ELSE NULL
+        END AS broker_name,
+        (SELECT br_u.booking_date FROM booking_records br_u
+         WHERE br_u.unit_id = u.id ORDER BY br_u.created_at DESC LIMIT 1) AS booking_date,
+        (SELECT uh.client_name FROM unit_holds uh
+         WHERE uh.unit_id = u.id AND uh.status = 'active' LIMIT 1) AS hold_client,
+        (SELECT uh.expires_at FROM unit_holds uh
+         WHERE uh.unit_id = u.id AND uh.status = 'active' LIMIT 1) AS hold_expires_at,
+        (SELECT ut.name FROM unit_types ut
+         WHERE ut.id = u.unit_type_id LIMIT 1) AS unit_group
+      FROM units u
+      JOIN towers t ON u.tower_id = t.id
+      JOIN projects p ON u.project_id = p.id
+      LEFT JOIN allocations a ON a.unit_id = u.id
+      LEFT JOIN consumers c ON c.id = a.consumer_id
+      LEFT JOIN LATERAL (
+        SELECT br2.main_broker_id FROM booking_records br2
+        WHERE br2.consumer_id = c.id ORDER BY br2.created_at DESC LIMIT 1
+      ) br ON true
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
+      ${innerWhere}
+      ORDER BY u.id
+    `;
 
-    const result = await db.query(query, params);
-
+    const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
+    const result = await db.query(query, innerParams);
     res.json({ success: true, data: result.rows });
   } catch (error) {
     next(error);
@@ -106,21 +150,53 @@ router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: Ne
     const { projectId } = req.params;
 
     const result = await db.query(
-      `SELECT t.tower_name,
-              COUNT(*) as total_units,
-              COUNT(CASE WHEN u.status::text = 'available' THEN 1 END) as available,
-              COUNT(CASE WHEN u.status::text = 'allotted' THEN 1 END) as allotted,
-              COUNT(CASE WHEN u.status::text = 'possession_handed_over' THEN 1 END) as possession_handed_over,
-              ROUND(100.0 * COUNT(CASE WHEN u.status::text = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as fill_percentage
+      `SELECT
+        t.id as tower_id,
+        t.tower_name,
+        COUNT(*) as total_units,
+        ROUND(SUM(u.carpet_area_sqft)::numeric, 4) as total_area,
+        COUNT(CASE WHEN u.status = 'available' THEN 1 END) as available_count,
+        ROUND(SUM(CASE WHEN u.status = 'available' THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as available_area,
+        COUNT(CASE WHEN u.status IN ('application_received','draw_pending','booked') THEN 1 END) as booked_count,
+        ROUND(SUM(CASE WHEN u.status IN ('application_received','draw_pending','booked') THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as booked_area,
+        COUNT(CASE WHEN u.status IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over') THEN 1 END) as allotted_count,
+        ROUND(SUM(CASE WHEN u.status IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over') THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as allotted_area,
+        COUNT(CASE WHEN u.status IN ('locked','held') THEN 1 END) as hold_count,
+        ROUND(SUM(CASE WHEN u.status IN ('locked','held') THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as hold_area,
+        COALESCE(SUM(r_total.received), 0) as received_amount
        FROM units u
        JOIN towers t ON u.tower_id = t.id
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(SUM(r.amount_received_inr), 0) as received
+         FROM allocations a
+         JOIN receipts r ON r.consumer_id = a.consumer_id AND r.status != 'cancelled'
+         WHERE a.unit_id = u.id
+       ) r_total ON true
        WHERE u.project_id = $1
        GROUP BY t.id, t.tower_name
        ORDER BY t.tower_name ASC`,
       [projectId]
     );
 
-    res.json({ success: true, data: result.rows });
+    const towers = result.rows;
+    const totals = towers.reduce((acc: any, t: any) => {
+      acc.total_units       += parseInt(t.total_units)       || 0;
+      acc.total_area        += parseFloat(t.total_area)      || 0;
+      acc.available_count   += parseInt(t.available_count)   || 0;
+      acc.available_area    += parseFloat(t.available_area)  || 0;
+      acc.booked_count      += parseInt(t.booked_count)      || 0;
+      acc.booked_area       += parseFloat(t.booked_area)     || 0;
+      acc.allotted_count    += parseInt(t.allotted_count)    || 0;
+      acc.allotted_area     += parseFloat(t.allotted_area)   || 0;
+      acc.hold_count        += parseInt(t.hold_count)        || 0;
+      acc.hold_area         += parseFloat(t.hold_area)       || 0;
+      acc.received_amount   += parseFloat(t.received_amount) || 0;
+      return acc;
+    }, { total_units:0, total_area:0, available_count:0, available_area:0,
+         booked_count:0, booked_area:0, allotted_count:0, allotted_area:0,
+         hold_count:0, hold_area:0, received_amount:0 });
+
+    res.json({ success: true, towers, totals });
   } catch (error) {
     next(error);
   }
@@ -165,6 +241,136 @@ router.get('/projects', async (req: AuthRequest, res: Response, next: NextFuncti
   }
 });
 
+// GET /api/units/status-counts - Count per status (must be before /:id)
+router.get('/status-counts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    const params: any[] = [];
+    let where = 'WHERE 1=1';
+    if (projectId) {
+      params.push(projectId);
+      where += ` AND u.project_id = $${params.length}`;
+    }
+    const result = await db.query(
+      `SELECT u.status::text as status, COUNT(*)::int as count,
+              COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
+       FROM units u ${where}
+       GROUP BY u.status ORDER BY u.status`,
+      params
+    );
+    const rows = result.rows;
+    const total: number = rows.reduce((s: number, r: any) => s + r.count, 0);
+    const available: number = rows.find((r: any) => r.status === 'available')?.count || 0;
+    const totalArea: number = rows.reduce((s: number, r: any) => s + parseFloat(r.total_area || 0), 0);
+    res.json({
+      success: true,
+      data: { byStatus: rows, total_units: total, available, total_sold: total - available, total_area: Math.round(totalArea) },
+    });
+  } catch (error) { next(error); }
+});
+
+// GET /api/units/tower-detail - Tower drill-down: units for a specific tower + status group
+router.get('/tower-detail', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, towerId, statusGroup } = req.query as Record<string, string>;
+    if (!projectId || !towerId || !statusGroup) {
+      return res.status(400).json({ error: 'projectId, towerId, statusGroup are required' });
+    }
+
+    const STATUS_MAP: Record<string, string[]> = {
+      allotted:  ['allotted','agreement_signed','under_construction','oc_received','possession_handed_over'],
+      booked:    ['application_received','draw_pending','booked'],
+      hold:      ['locked','held'],
+      available: ['available'],
+      all:       [],
+    };
+
+    const statuses = STATUS_MAP[statusGroup] ?? [];
+    const statusFilter = statuses.length > 0
+      ? 'AND u.status::text = ANY($3)'
+      : '';
+    const queryParams: any[] = statuses.length > 0
+      ? [projectId, towerId, statuses]
+      : [projectId, towerId];
+
+    const result = await db.query(
+      `SELECT
+        u.unit_number,
+        u.bhk_type as unit_type,
+        ROUND(u.carpet_area_sqft::numeric, 4) as area,
+        ROUND(u.super_area_sqft::numeric, 4) as super_area_sqft,
+        u.floor,
+        u.facing,
+        u.base_price_inr,
+        u.status,
+        t.tower_name,
+        p.name as project_name,
+        c.registration_no,
+        TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')) as consumer_name,
+        COALESCE(br.booking_date, a.allotment_date) as booking_date,
+        a.allotment_date,
+        COALESCE(b.firm_name, b.name, 'Direct') as broker_name,
+        COALESCE(br.self_or_loan, 'self') as loan_type,
+        COALESCE(NULLIF(br.selected_plan_name, ''), 'Payment Plan') as payment_plan
+       FROM units u
+       JOIN towers t ON t.id = u.tower_id
+       JOIN projects p ON p.id = u.project_id
+       LEFT JOIN allocations a ON a.unit_id = u.id
+       LEFT JOIN consumers c ON c.id = a.consumer_id
+       LEFT JOIN LATERAL (
+         SELECT br2.booking_date, br2.selected_plan_name, br2.main_broker_id, br2.self_or_loan
+         FROM booking_records br2
+         WHERE br2.consumer_id = c.id
+         ORDER BY br2.created_at DESC LIMIT 1
+       ) br ON true
+       LEFT JOIN brokers b ON b.id = br.main_broker_id
+       WHERE u.project_id = $1
+       AND u.tower_id = $2
+       ${statusFilter}
+       ORDER BY COALESCE(br.booking_date, a.allotment_date) ASC NULLS LAST, u.unit_number ASC`,
+      queryParams
+    );
+
+    const units = result.rows;
+    const projectName = units[0]?.project_name || '';
+    const towerName   = units[0]?.tower_name   || '';
+    const today = new Date().toLocaleDateString('en-GB');
+
+    res.json({ success: true, project_name: projectName, tower_name: towerName,
+               status_group: statusGroup, date: today, units });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/units/status - Alias for /status-counts (must be before /:id)
+router.get('/status', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    const params: any[] = [];
+    let where = 'WHERE 1=1';
+    if (projectId) {
+      params.push(projectId);
+      where += ` AND u.project_id = $${params.length}`;
+    }
+    const result = await db.query(
+      `SELECT u.status::text as status, COUNT(*)::int as count,
+              COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
+       FROM units u ${where}
+       GROUP BY u.status ORDER BY u.status`,
+      params
+    );
+    const rows = result.rows;
+    const total: number = rows.reduce((s: number, r: any) => s + r.count, 0);
+    const available: number = rows.find((r: any) => r.status === 'available')?.count || 0;
+    const totalArea: number = rows.reduce((s: number, r: any) => s + parseFloat(r.total_area || 0), 0);
+    res.json({
+      success: true,
+      data: { byStatus: rows, total_units: total, available, total_sold: total - available, total_area: Math.round(totalArea) },
+    });
+  } catch (error) { next(error); }
+});
+
 // GET /api/units/:id - Get unit detail
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -176,6 +382,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
               u.floor, u.unit_number, u.bhk_type,
               u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr,
               u.total_price_inr, u.facing, u.floor_plan_url,
+              u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
               u.status, u.status_changed_at, u.created_at
        FROM units u
        JOIN towers t ON u.tower_id = t.id
@@ -208,7 +415,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft } = req.body;
+    const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
+            balconyAreaSqft, balconyRateInrSqft, balconyRateCapInr } = req.body;
 
     const result = await db.query(
       `UPDATE units
@@ -218,10 +426,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
            base_price_inr = COALESCE($4, base_price_inr),
            total_price_inr = COALESCE($5, total_price_inr),
            balcony_area_sqft = COALESCE($6, balcony_area_sqft),
+           balcony_rate_inr_sqft = COALESCE($7, balcony_rate_inr_sqft),
+           balcony_rate_cap_inr = COALESCE($8, balcony_rate_cap_inr),
            updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $9
        RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`,
-      [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft, id]
+      [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
+       balconyAreaSqft ?? null, balconyRateInrSqft ?? null, balconyRateCapInr ?? null, id]
     );
 
     if (result.rows.length === 0) {

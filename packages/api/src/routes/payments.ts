@@ -6,23 +6,24 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 
 const router = Router();
 
 /**
  * Calculate Penal Interest (Late Payment Penalty)
- * Legacy Standard: 15% per annum
+ * HRERA Rule 15: 11.10% per annum
  */
 const getPenalInterestRate = async (): Promise<number> => {
   try {
     const res = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
-    return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 15.0;
+    return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 11.10;
   } catch {
-    return 15.0;
+    return 11.10;
   }
 };
 
-const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate: number = 15.0): number => {
+const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate: number = 11.10): number => {
   return Math.round((principalInr * rate * daysOverdue / 365) / 100);
 };
 
@@ -59,10 +60,17 @@ router.post('/payment-plans', async (req: AuthRequest, res: Response, next: Next
         { sn:8, name:'Within 36 months from Allotment', pct:12.5, due: m(1080) },
       ];
 
+      const gstSettingsRes = await client.query(
+        `SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`
+      );
+      const gstSettings = Object.fromEntries(gstSettingsRes.rows.map((r: any) => [r.key, parseFloat(r.value)]));
+      const legacyCgstPct = (gstSettings['basic_cgst_percent'] ?? 0.5) / 100;
+      const legacySgstPct = (gstSettings['basic_sgst_percent'] ?? 0.5) / 100;
+
       for (const s of schedule) {
         const amt = Math.round(totalAmountInr * (s.pct / 100));
-        const cgst = Math.round(amt * 0.05);
-        const sgst = Math.round(amt * 0.05);
+        const cgst = Math.round(amt * legacyCgstPct);
+        const sgst = Math.round(amt * legacySgstPct);
         await client.query(
           `INSERT INTO demands (payment_plan_id, consumer_id, installment_index, amount_due_inr, cgst_amount, sgst_amount, due_date, status, demand_type)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
@@ -133,6 +141,7 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
       consumerId, amountReceivedInr, paymentDate, paymentMode,
       referenceNumber, bankName, branch, remarks,
       baseAmount, plcAmount, edcAmount, idcAmount,
+      otherChargeAmount, otherChargeDesc, interestAmount,
       // legacy fields
       paymentPlanId: legacyPlanId, installmentIndex: legacyIdx,
       paymentMethod, transactionRef, receivedDate,
@@ -148,17 +157,34 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
       `SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`,
       [consumerId]
     );
-    const resolvedPlanId = legacyPlanId || (planResult.rows[0]?.id);
+    let resolvedPlanId: string | null = legacyPlanId || (planResult.rows[0]?.id) || null;
+
+    // Fallback: find any payment plan for this consumer's project
     if (!resolvedPlanId) {
-      return res.status(400).json({ error: 'No payment plan found for this consumer. Please complete allotment first.' });
+      const projResult = await db.query(
+        `SELECT pp.id FROM payment_plans pp
+         JOIN units u ON u.id = pp.unit_id
+         JOIN booking_records br ON br.consumer_id = $1
+         WHERE u.project_id = (
+           SELECT u2.project_id FROM units u2
+           JOIN booking_records br2 ON br2.unit_id = u2.id AND br2.consumer_id = $1
+           LIMIT 1
+         )
+         LIMIT 1`,
+        [consumerId]
+      );
+      resolvedPlanId = projResult.rows[0]?.id || null;
     }
 
-    // Get next installment_index for this plan
-    const idxResult = await db.query(
-      `SELECT COALESCE(MAX(installment_index), -1) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1`,
-      [resolvedPlanId]
-    );
-    const resolvedIdx = legacyIdx ?? idxResult.rows[0].next_idx;
+    // Get next installment_index for this plan (null if no plan; receipts.payment_plan_id is now nullable)
+    let resolvedIdx: number | null = (legacyIdx != null ? Number(legacyIdx) : null);
+    if (resolvedPlanId && resolvedIdx == null) {
+      const idxResult = await db.query(
+        `SELECT COALESCE(MAX(installment_index), -1) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1`,
+        [resolvedPlanId]
+      );
+      resolvedIdx = idxResult.rows[0].next_idx;
+    }
 
     const receiptDate = paymentDate || receivedDate || new Date().toISOString().split('T')[0];
     const method = paymentMode || paymentMethod || 'cash';
@@ -167,14 +193,47 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
     // Generate receipt number REC-YYYY-XXXXX
     const receiptNumber = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
 
+    const bankNameVal  = bankName  || null;
+    const branchVal    = branch    || null;
+    const chequeNoVal  = req.body.chequeNo   || req.body.cheque_no   || null;
+    const chequeDateVal = req.body.chequeDate || req.body.cheque_date || null;
+
     const result = await db.query(
       `INSERT INTO receipts
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,
-          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number, plc_amount, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending')
-       RETURNING id, receipt_number, amount_received_inr, plc_amount, status`,
-      [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber, parseFloat(plcAmount||0)]
+          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,
+          plc_amount, edc_amount, idc_amount, other_charge_amount, other_charge_desc, interest_amount,
+          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed')
+       RETURNING id, receipt_number, amount_received_inr, plc_amount, edc_amount, idc_amount, other_charge_amount, interest_amount, status`,
+      [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber,
+       parseFloat(plcAmount||0), parseFloat(edcAmount||0), parseFloat(idcAmount||0),
+       parseFloat(otherChargeAmount||0), otherChargeDesc||null, parseFloat(interestAmount||0),
+       bankNameVal, branchVal, chequeNoVal, chequeDateVal]
     );
+
+    const receiptId = result.rows[0].id;
+
+    // Non-fatal: auto-match receipt to open demand and mark it paid
+    try {
+      const matchedDemand = await db.query(
+        `SELECT d.id FROM demands d
+         WHERE d.payment_plan_id = $1
+           AND d.installment_index = $2
+           AND d.status = 'demanded'
+           AND d.delivery_status != 'paid'
+         ORDER BY d.created_at ASC
+         LIMIT 1`,
+        [resolvedPlanId, resolvedIdx]
+      );
+      if (matchedDemand.rows[0]) {
+        const demandId = matchedDemand.rows[0].id;
+        await db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demandId, receiptId]);
+        await db.query(`UPDATE demands SET delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demandId]);
+      }
+    } catch (matchErr: any) {
+      console.warn('Demand auto-match failed:', matchErr.message);
+    }
 
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
@@ -227,24 +286,198 @@ router.get('/dashboard', async (req: AuthRequest, res: Response, next: NextFunct
   }
 });
 
+// POST /api/payments/demands/generate - Create pending demand records from a consumer's payment plan
+// planName is optional; if omitted, uses the first available plan for the project
+router.post('/demands/generate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId, projectId, planName } = req.body;
+    if (!consumerId && !projectId) {
+      return res.status(400).json({ error: 'consumerId or projectId required' });
+    }
+
+    // Find payment plans for the consumer(s) — include nationality for GST calculation
+    let planQuery = `
+      SELECT pp.id as payment_plan_id, pp.consumer_id, pp.unit_id, pp.project_id,
+             pp.total_amount_inr, c.name as consumer_name,
+             COALESCE(c.nationality, 'indian') as nationality
+      FROM payment_plans pp
+      JOIN consumers c ON c.id = pp.consumer_id
+      WHERE 1=1
+    `;
+    const planParams: any[] = [];
+    if (consumerId) {
+      planQuery += ` AND pp.consumer_id = $${planParams.length + 1}`;
+      planParams.push(consumerId);
+    }
+    if (projectId) {
+      planQuery += ` AND pp.project_id = $${planParams.length + 1}`;
+      planParams.push(projectId);
+    }
+
+    const plans = await db.query(planQuery, planParams);
+    if (plans.rows.length === 0) {
+      return res.status(404).json({ error: 'No payment plans found for the given criteria' });
+    }
+
+    const gstRes = await db.query(
+      `SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`
+    );
+    const gstMap = Object.fromEntries(gstRes.rows.map((r: any) => [r.key, parseFloat(r.value)]));
+    const basicCgstPct = (gstMap['basic_cgst_percent'] ?? 0.5) / 100;
+    const basicSgstPct = (gstMap['basic_sgst_percent'] ?? 0.5) / 100;
+
+    let totalCreated = 0;
+    const created: any[] = [];
+
+    for (const plan of plans.rows) {
+      // Resolve the plan name: use provided → consumer's booking_records.selected_plan_name → alphabetically first
+      let resolvedPlanName = planName;
+      if (!resolvedPlanName) {
+        const brRow = await db.query(
+          `SELECT selected_plan_name FROM booking_records
+           WHERE consumer_id = $1 AND unit_id IS NOT NULL AND selected_plan_name IS NOT NULL
+           ORDER BY created_at DESC LIMIT 1`,
+          [plan.consumer_id]
+        );
+        resolvedPlanName = brRow.rows[0]?.selected_plan_name;
+      }
+      if (!resolvedPlanName) {
+        const firstPlan = await db.query(
+          `SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name LIMIT 1`,
+          [plan.project_id]
+        );
+        resolvedPlanName = firstPlan.rows[0]?.plan_name;
+      }
+      if (!resolvedPlanName) continue;
+
+      // Get installment templates for this plan
+      const templates = await db.query(
+        `SELECT installment_index, installment_name, percentage, installment_type
+         FROM plan_schedule_templates
+         WHERE project_id = $1 AND plan_name = $2
+         ORDER BY installment_index`,
+        [plan.project_id, resolvedPlanName]
+      );
+
+      for (const tmpl of templates.rows) {
+        // Skip if a demand already exists for this consumer + installment index
+        const existing = await db.query(
+          `SELECT id FROM demands WHERE consumer_id = $1 AND installment_index = $2 AND payment_plan_id = $3`,
+          [plan.consumer_id, tmpl.installment_index, plan.payment_plan_id]
+        );
+        if (existing.rows.length > 0) continue;
+
+        const pct = parseFloat(tmpl.percentage) / 100;
+        const amountDue = Math.round(plan.total_amount_inr * pct);
+
+        // GST: AHP rate is 1% total. Residents pay 0.5% CGST + 0.5% SGST.
+        // NRIs pay IGST instead (intrastate split doesn't apply); store as 0 CGST/SGST.
+        // Rates are read from global_settings (basic_cgst_percent / basic_sgst_percent).
+        const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
+        const cgstAmount = isNri ? 0 : Math.round(amountDue * basicCgstPct);
+        const sgstAmount = isNri ? 0 : Math.round(amountDue * basicSgstPct);
+
+        const ins = await db.query(
+          `INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr,
+                                cgst_amount, sgst_amount,
+                                status, demand_type, delivery_status, generated_at)
+           VALUES ($1, $2, $3, CURRENT_DATE + INTERVAL '30 days', $4, $5, $6, 'pending', $7, 'pending', NOW())
+           RETURNING id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status`,
+          [plan.payment_plan_id, tmpl.installment_index, plan.consumer_id, amountDue,
+           cgstAmount, sgstAmount, tmpl.installment_type || tmpl.installment_name]
+        );
+        created.push({ ...ins.rows[0], consumer_name: plan.consumer_name });
+        totalCreated++;
+      }
+    }
+
+    res.json({ success: true, data: { totalCreated, demands: created } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/payments/demands/by-stage - Stage×Tower grouped view for legacy Stage Wise grid
+router.get('/demands/by-stage', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
+
+    const result = await db.query(`
+      SELECT
+        d.installment_index,
+        COALESCE(
+          (SELECT pst.installment_name
+           FROM plan_schedule_templates pst
+           WHERE pst.project_id = $1
+             AND pst.installment_index = d.installment_index
+           ORDER BY pst.plan_name
+           LIMIT 1),
+          'Stage ' || d.installment_index
+        ) AS installment_name,
+        t.id   AS tower_id,
+        t.tower_name,
+        COUNT(DISTINCT d.consumer_id)                                              AS total_consumers,
+        COUNT(DISTINCT d.consumer_id) FILTER (WHERE d.status = 'pending')          AS pending_count,
+        COUNT(DISTINCT d.consumer_id) FILTER (WHERE d.status = 'demanded')         AS raised_count,
+        MIN(d.due_date)     FILTER (WHERE d.status = 'demanded')                   AS installment_date,
+        MIN(d.generated_at) FILTER (WHERE d.status = 'demanded')                   AS raised_at,
+        ARRAY_AGG(d.id) FILTER (WHERE d.status = 'pending')                        AS pending_demand_ids,
+        ARRAY_AGG(d.id) FILTER (WHERE d.status = 'demanded')                       AS raised_demand_ids
+      FROM demands d
+      JOIN consumers c  ON c.id  = d.consumer_id
+      JOIN allocations a ON a.consumer_id = c.id
+      JOIN units u      ON u.id  = a.unit_id
+      JOIN towers t     ON t.id  = u.tower_id
+      WHERE a.project_id = $1
+      GROUP BY d.installment_index, t.id, t.tower_name
+      HAVING COUNT(DISTINCT d.consumer_id) > 0
+      ORDER BY d.installment_index ASC, t.tower_name ASC
+    `, [projectId]);
+
+    // Group flat rows into nested stages → towers structure
+    const stageMap: Record<number, { installment_index: number; installment_name: string; towers: any[] }> = {};
+    for (const row of result.rows) {
+      const idx = row.installment_index;
+      if (!stageMap[idx]) {
+        stageMap[idx] = { installment_index: idx, installment_name: row.installment_name, towers: [] };
+      }
+      stageMap[idx].towers.push({
+        tower_id:           row.tower_id,
+        tower_name:         row.tower_name,
+        total_consumers:    parseInt(row.total_consumers),
+        pending_count:      parseInt(row.pending_count),
+        raised_count:       parseInt(row.raised_count),
+        installment_date:   row.installment_date   ? new Date(row.installment_date).toISOString().split('T')[0] : null,
+        raised_at:          row.raised_at           || null,
+        pending_demand_ids: row.pending_demand_ids  || [],
+        raised_demand_ids:  row.raised_demand_ids   || [],
+      });
+    }
+
+    const stages = Object.values(stageMap).sort((a, b) => a.installment_index - b.installment_index);
+    res.json({ success: true, stages });
+  } catch (err) { next(err); }
+});
+
 // GET /api/payments/demands - List all demands (with legacy fetch grid support)
 router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, projectId, status, installmentType, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, page = 1, pageSize = 50 } = req.query;
+    const { consumerId, projectId, status, installmentType, installmentIndex, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, raisedFrom, raisedTo, page = 1, pageSize = 50 } = req.query;
 
     let query = `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
-                        d.due_date, d.status, d.demand_type,
+                        d.due_date, d.status, d.demand_type, d.delivery_status, d.sent_at, d.generated_at,
                         c.name as consumer_name, c.mobile,
                         br.registration_no,
-                        u.unit_number as unit_address, u.bhk_type as unit_type,
+                        u.unit_number as unit_address, u.bhk_type as unit_type, u.floor,
+                        tw.tower_name,
                         p.name as project_name,
                         (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = c.id AND status = 'authorized') as total_paid
                  FROM demands d
                  JOIN consumers c ON d.consumer_id = c.id
-                 JOIN units u ON c.allocated_unit_id = u.id
+                 JOIN payment_plans pp ON pp.id = d.payment_plan_id
+                 JOIN units u ON u.id = pp.unit_id
                  JOIN projects p ON u.project_id = p.id
                  LEFT JOIN towers tw ON u.tower_id = tw.id
-                 LEFT JOIN booking_forms br ON br.consumer_id = c.id
+                 LEFT JOIN booking_records br ON br.consumer_id = c.id
                  WHERE 1=1`;
     const params: any[] = [];
 
@@ -265,6 +498,10 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       query += ` AND d.demand_type ILIKE $${params.length + 1}`;
       params.push(`%${installmentType}%`);
     }
+    if (installmentIndex !== undefined && installmentIndex !== '') {
+      query += ` AND d.installment_index = $${params.length + 1}`;
+      params.push(parseInt(installmentIndex as string, 10));
+    }
     const tId = tower || towerId;
     if (tId) {
       const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -276,8 +513,8 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       params.push(tId);
     }
     if (floor) {
-      query += ` AND u.floor_no = $${params.length + 1}`;
-      params.push(floor);
+      query += ` AND u.floor = $${params.length + 1}`;
+      params.push(parseInt(floor as string, 10));
     }
     if (registrationNo) {
       query += ` AND br.registration_no ILIKE $${params.length + 1}`;
@@ -291,7 +528,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       query += ` AND u.unit_number ILIKE $${params.length + 1}`;
       params.push(unitAddress);
     }
-    if (status) {
+    if (status && status !== 'all') {
       query += ` AND d.status = $${params.length + 1}`;
       params.push(status);
     }
@@ -306,6 +543,15 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       params.push(dTo);
     }
 
+    if (raisedFrom) {
+      query += ` AND d.generated_at >= $${params.length + 1}`;
+      params.push(raisedFrom);
+    }
+    if (raisedTo) {
+      query += ` AND d.generated_at <= $${params.length + 1}`;
+      params.push(raisedTo);
+    }
+
     query += ` ORDER BY d.installment_index ASC, d.due_date ASC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
 
     const result = await db.query(query, params);
@@ -313,7 +559,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
     // Add Balance calculation in memory for speed
     const data = result.rows.map(r => ({
       ...r,
-      balance: parseFloat(r.amount_due_inr) + parseFloat(r.cgst_amount) + parseFloat(r.sgst_amount) - parseFloat(r.total_paid)
+      balance: parseFloat(r.amount_due_inr) - parseFloat(r.total_paid)
     }));
 
     res.json({ success: true, data });
@@ -323,6 +569,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
 });
 
 // PATCH /api/payments/demands/activate - Transition scheduled installment to active demand
+// Option A: skip invalid (sequential check fails), raise all valid — no full rollback on partial failure
 router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: NextFunction) => {
   const client = await db.connect();
   try {
@@ -334,30 +581,44 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
 
     await client.query('BEGIN');
 
-    const activatedIds = [];
+    const raisedIds: string[] = [];
+    const skippedIds: { id: string; reason: string }[] = [];
     const dueDate = new Date(installmentDate);
     dueDate.setDate(dueDate.getDate() + 15); // Legacy Rule: Due Date = Installment Date + 15 days
 
     for (const id of demandIds) {
-      // 1. Check for sequential validation
-      const currentDemand = await client.query('SELECT installment_index, consumer_id FROM demands WHERE id = $1', [id]);
-      if (currentDemand.rows.length === 0) continue;
-      
-      const { installment_index, consumer_id } = currentDemand.rows[0];
+      // 1. Load demand
+      const currentDemand = await client.query(
+        'SELECT installment_index, consumer_id, status FROM demands WHERE id = $1', [id]
+      );
+      if (currentDemand.rows.length === 0) {
+        skippedIds.push({ id, reason: 'Demand not found' });
+        continue;
+      }
+
+      const { installment_index, consumer_id, status } = currentDemand.rows[0];
+
+      if (status === 'demanded') {
+        skippedIds.push({ id, reason: 'Already raised' });
+        continue;
+      }
+
+      // 2. Sequential validation — skip (not throw) if prior stages pending
       if (installment_index > 1) {
         const prevPending = await client.query(
           'SELECT id FROM demands WHERE consumer_id = $1 AND installment_index < $2 AND status = $3',
           [consumer_id, installment_index, 'pending']
         );
         if (prevPending.rows.length > 0) {
-          throw new Error(`Cannot raise demand for installment ${installment_index} before previous installments are raised.`);
+          skippedIds.push({ id, reason: `Installment ${installment_index}: prior stage(s) not yet raised` });
+          continue;
         }
       }
 
-      // 2. Activate demand
+      // 3. Activate
       const updateResult = await client.query(
-        `UPDATE demands 
-         SET status = 'demanded', 
+        `UPDATE demands
+         SET status = 'demanded',
              due_date = $1,
              generated_at = NOW(),
              delivery_status = 'queued'
@@ -366,18 +627,24 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
         [dueDate.toISOString().split('T')[0], id]
       );
 
-      // 3. Log Audit Trail
+      // 4. Audit log
       await client.query(
         `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values)
          VALUES ($1, 'DEMAND_RAISE', 'demand', $2, $3)`,
         [req.userId, id, JSON.stringify({ installment_date: installmentDate, due_date: dueDate, consumer_id, installment_index })]
       );
 
-      activatedIds.push(updateResult.rows[0].id);
+      raisedIds.push(updateResult.rows[0].id);
     }
 
     await client.query('COMMIT');
-    res.json({ success: true, activatedCount: activatedIds.length });
+    res.json({
+      success: true,
+      raised: raisedIds.length,
+      skipped: skippedIds.length,
+      skippedIds,
+      activatedCount: raisedIds.length, // backward compat
+    });
   } catch (error: any) {
     await client.query('ROLLBACK');
     res.status(400).json({ error: error.message });
@@ -416,6 +683,46 @@ router.post('/demands/bulk', async (req: AuthRequest, res: Response, next: NextF
   }
 });
 
+// PATCH /api/payments/demands/bulk-cancel - Reset multiple demands to pending
+router.patch('/demands/bulk-cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
+  try {
+    const { demandIds } = req.body;
+    if (!demandIds || !Array.isArray(demandIds) || demandIds.length === 0) {
+      return res.status(400).json({ error: 'demandIds (non-empty array) is required' });
+    }
+
+    await client.query('BEGIN');
+    let cancelled = 0;
+    const failedIds: string[] = [];
+
+    for (const id of demandIds) {
+      try {
+        const r = await client.query(
+          `UPDATE demands
+           SET status = 'pending', delivery_status = 'pending',
+               raised_at = NULL, updated_at = NOW()
+           WHERE id = $1 AND status = 'demanded'
+           RETURNING id`,
+          [id]
+        );
+        if (r.rows.length > 0) cancelled++;
+        else failedIds.push(id);
+      } catch {
+        failedIds.push(id);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, cancelled, failed: failedIds.length, failedIds });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 // PATCH /api/payments/demands/:id/send - Mark demand as sent
 router.patch('/demands/:id/send', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -439,19 +746,77 @@ router.patch('/demands/:id/send', async (req: AuthRequest, res: Response, next: 
   }
 });
 
+// PATCH /api/payments/demands/:id/cancel - Reset demand back to pending (cancel raise)
+router.patch('/demands/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const current = await db.query(`SELECT id, status FROM demands WHERE id = $1`, [id]);
+    if (current.rows.length === 0) {
+      return res.status(404).json({ error: 'Demand not found' });
+    }
+    if (current.rows[0].status !== 'demanded') {
+      return res.status(400).json({ error: `Cannot cancel a demand with status '${current.rows[0].status}'. Only 'demanded' demands can be cancelled.` });
+    }
+
+    const result = await db.query(
+      `UPDATE demands
+       SET status = 'pending', delivery_status = 'pending',
+           raised_at = NULL, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, status, delivery_status`,
+      [id]
+    );
+
+    res.json({ success: true, data: { ...result.rows[0], cancel_reason: reason || null }, message: 'Demand cancelled and reset to pending' });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/payments/receipts - List all receipts (with optional filters)
 router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, projectId, status, page = 1, pageSize = 50 } = req.query;
+    const {
+      consumerId, projectId, towerId, status, fromDate, toDate,
+      registrationNo, firstName, unitAddress, receiptNo,
+      brokerId, printStatus, approvalStatus,
+      page = 1, pageSize = 50,
+    } = req.query;
 
     let query = `SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index,
                         r.consumer_id, r.amount_received_inr, r.payment_method,
                         r.transaction_ref, r.received_date, r.created_at,
+                        r.status, r.approval_status, r.bank_name,
+                        r.print_status, r.printed_at,
+                        r.plc_amount, r.edc_amount, r.idc_amount,
+                        r.other_charge_amount, r.other_charge_desc, r.interest_amount,
                         c.name as consumer_name, c.mobile,
-                        pp.project_id
+                        c.registration_no, c.first_name, c.last_name,
+                        pp.project_id,
+                        p.name as project_name,
+                        u.unit_number,
+                        t.id::text as tower_id, t.tower_name,
+                        u_creator.name AS generated_by_name,
+                        u_printer.name AS printed_by_name,
+                        COALESCE(b.firm_name, b.name, 'Direct') AS broker_name,
+                        b.id AS broker_id
                  FROM receipts r
                  JOIN consumers c ON r.consumer_id = c.id
                  JOIN payment_plans pp ON r.payment_plan_id = pp.id
+                 LEFT JOIN projects p ON p.id = pp.project_id
+                 LEFT JOIN units u ON u.id = pp.unit_id
+                 LEFT JOIN towers t ON t.id = u.tower_id
+                 LEFT JOIN users u_creator ON u_creator.id = r.received_by_user_id
+                 LEFT JOIN users u_printer ON u_printer.id = r.printed_by
+                 LEFT JOIN LATERAL (
+                   SELECT br2.main_broker_id
+                   FROM booking_records br2
+                   WHERE br2.consumer_id = r.consumer_id
+                   ORDER BY br2.created_at DESC LIMIT 1
+                 ) latest_booking ON true
+                 LEFT JOIN brokers b ON b.id = latest_booking.main_broker_id
                  WHERE 1=1`;
     const params: any[] = [];
 
@@ -463,6 +828,46 @@ router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFuncti
       query += ` AND pp.project_id = $${params.length + 1}`;
       params.push(projectId);
     }
+    if (towerId) {
+      query += ` AND t.id = $${params.length + 1}`;
+      params.push(towerId);
+    }
+    if (fromDate) {
+      query += ` AND r.received_date >= $${params.length + 1}`;
+      params.push(fromDate);
+    }
+    if (toDate) {
+      query += ` AND r.received_date <= $${params.length + 1}`;
+      params.push(toDate);
+    }
+    if (registrationNo) {
+      query += ` AND c.registration_no ILIKE $${params.length + 1}`;
+      params.push(`%${registrationNo}%`);
+    }
+    if (firstName) {
+      query += ` AND c.first_name ILIKE $${params.length + 1}`;
+      params.push(`%${firstName}%`);
+    }
+    if (unitAddress) {
+      query += ` AND u.unit_number ILIKE $${params.length + 1}`;
+      params.push(`%${unitAddress}%`);
+    }
+    if (receiptNo) {
+      query += ` AND r.receipt_number ILIKE $${params.length + 1}`;
+      params.push(`%${receiptNo}%`);
+    }
+    if (brokerId) {
+      query += ` AND b.id = $${params.length + 1}`;
+      params.push(brokerId);
+    }
+    if (printStatus) {
+      query += ` AND r.print_status = $${params.length + 1}`;
+      params.push(printStatus);
+    }
+    if (approvalStatus) {
+      query += ` AND r.approval_status = $${params.length + 1}`;
+      params.push(approvalStatus);
+    }
 
     query += ` ORDER BY r.created_at DESC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
 
@@ -471,6 +876,115 @@ router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFuncti
   } catch (error) {
     next(error);
   }
+});
+
+// GET /api/payments/receipts/:id - Fetch single receipt with all fields
+router.get('/receipts/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(
+      `SELECT r.*, c.name AS consumer_name, c.mobile
+       FROM receipts r
+       JOIN consumers c ON r.consumer_id = c.id
+       WHERE r.id = $1`,
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Receipt not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// PATCH /api/payments/receipts/:id - Edit receipt instrument / amount fields
+router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { paymentMethod, transactionRef, bankName, branch,
+            chequeNo, chequeDate, receivedDate,
+            amountReceivedInr, plcAmount,
+            edcAmount, idcAmount, interestAmount, otherChargeAmount, otherChargeDesc } = req.body;
+
+    const existing = await db.query(
+      `SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref
+       FROM receipts WHERE id = $1`,
+      [id]
+    );
+    if (existing.rows.length === 0) return res.status(404).json({ error: 'Receipt not found' });
+
+    const receipt = existing.rows[0];
+    if (receipt.approval_status === 'approved') {
+      return res.status(403).json({ error: 'Cannot edit an approved receipt' });
+    }
+    if (receipt.status === 'cancelled') {
+      return res.status(403).json({ error: 'Cannot edit a cancelled receipt' });
+    }
+
+    if (transactionRef && transactionRef !== receipt.transaction_ref) {
+      const dup = await db.query(
+        `SELECT id FROM receipts WHERE transaction_ref = $1 AND id != $2`,
+        [transactionRef, id]
+      );
+      if (dup.rows.length > 0) {
+        return res.status(409).json({ error: 'Transaction reference already exists on another receipt' });
+      }
+    }
+
+    const isPending = receipt.approval_status === 'pending';
+
+    const result = await db.query(
+      `UPDATE receipts SET
+         payment_method  = COALESCE($1, payment_method),
+         transaction_ref = COALESCE($2, transaction_ref),
+         bank_name       = COALESCE($3, bank_name),
+         branch          = COALESCE($4, branch),
+         cheque_no       = COALESCE($5, cheque_no),
+         cheque_date     = COALESCE($6::date, cheque_date),
+         received_date   = COALESCE($7::date, received_date),
+         amount_received_inr = CASE WHEN $8::boolean
+           THEN COALESCE($9::bigint, amount_received_inr)
+           ELSE amount_received_inr END,
+         plc_amount = CASE WHEN $8::boolean
+           THEN COALESCE($10::numeric, plc_amount)
+           ELSE plc_amount END,
+         edc_amount = CASE WHEN $8::boolean
+           THEN COALESCE($11::numeric, edc_amount)
+           ELSE edc_amount END,
+         idc_amount = CASE WHEN $8::boolean
+           THEN COALESCE($12::numeric, idc_amount)
+           ELSE idc_amount END,
+         interest_amount = CASE WHEN $8::boolean
+           THEN COALESCE($13::numeric, interest_amount)
+           ELSE interest_amount END,
+         other_charge_amount = CASE WHEN $8::boolean
+           THEN COALESCE($14::numeric, other_charge_amount)
+           ELSE other_charge_amount END,
+         other_charge_desc = CASE WHEN $8::boolean
+           THEN COALESCE($15, other_charge_desc)
+           ELSE other_charge_desc END,
+         updated_at = NOW()
+       WHERE id = $16
+       RETURNING *`,
+      [
+        paymentMethod   || null,
+        transactionRef  || null,
+        bankName        || null,
+        branch          || null,
+        chequeNo        || null,
+        chequeDate      || null,
+        receivedDate    || null,
+        isPending,
+        amountReceivedInr != null ? amountReceivedInr : null,
+        plcAmount         != null ? plcAmount         : null,
+        edcAmount         != null ? edcAmount         : null,
+        idcAmount         != null ? idcAmount         : null,
+        interestAmount    != null ? interestAmount    : null,
+        otherChargeAmount != null ? otherChargeAmount : null,
+        otherChargeDesc   != null ? otherChargeDesc   : null,
+        id,
+      ]
+    );
+
+    res.json({ success: true, receipt: result.rows[0] });
+  } catch (error) { next(error); }
 });
 
 // PATCH /api/payments/receipts/:id/approve - Approve a pending receipt (Authentication)
@@ -829,6 +1343,1583 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
     next(error);
   } finally {
     client.release();
+  }
+});
+
+// POST /api/payments/receipts/:id/cancel - Cancel a receipt and reverse demand payment state
+router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
+  try {
+    const { id } = req.params;
+    const reason = req.body?.reason || 'Cancelled by user';
+
+    await client.query('BEGIN');
+
+    const receiptResult = await client.query(
+      `SELECT id, receipt_number, status, approval_status,
+              demand_id, payment_plan_id, amount_received_inr, consumer_id
+       FROM receipts WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+
+    if (receiptResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+
+    const receipt = receiptResult.rows[0];
+
+    if (receipt.status === 'cancelled') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Receipt is already cancelled' });
+    }
+
+    if (receipt.approval_status === 'approved') {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Cannot cancel an approved receipt. Please use the formal reversal workflow.' });
+    }
+
+    // Step 1: Cancel the receipt
+    await client.query(
+      `UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    // Step 2: Reverse demand delivery_status if linked and paid
+    if (receipt.demand_id) {
+      await client.query(
+        `UPDATE demands SET delivery_status = 'queued', updated_at = NOW()
+         WHERE id = $1 AND delivery_status = 'paid'`,
+        [receipt.demand_id]
+      );
+    }
+
+    // Step 3: Write audit log (non-fatal)
+    try {
+      await client.query(
+        `INSERT INTO financial_audit_logs
+           (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          receipt.consumer_id,
+          receipt.payment_plan_id,
+          req.userId || null,
+          'RECEIPT_CANCEL',
+          JSON.stringify({ status: receipt.status, amount: receipt.amount_received_inr }),
+          JSON.stringify({ status: 'cancelled' }),
+          reason,
+        ]
+      );
+    } catch (auditErr: any) {
+      console.error('Audit log failed (non-fatal):', auditErr.message);
+    }
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      message: 'Receipt cancelled successfully',
+      receiptNumber: receipt.receipt_number,
+      demandReverted: !!receipt.demand_id,
+    });
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
+// PATCH /api/payments/receipts/:id/mark-printed - Record who printed this receipt
+router.patch('/receipts/:id/mark-printed', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await db.query(`SELECT id FROM receipts WHERE id = $1`, [id]);
+    if (existing.rows.length === 0) {
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+
+    await db.query(
+      `UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2`,
+      [req.userId, id]
+    );
+
+    res.json({ success: true, printedBy: req.userName, printedAt: new Date() });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── RECEIPT HTML HELPERS ─────────────────────────────────────────────────────
+
+function pmtOrdinal(n: number): string {
+  const abs = Math.abs(n);
+  const lastTwo = abs % 100;
+  const lastOne = abs % 10;
+  if (lastTwo >= 11 && lastTwo <= 13) return `${abs}th`;
+  if (lastOne === 1) return `${abs}st`;
+  if (lastOne === 2) return `${abs}nd`;
+  if (lastOne === 3) return `${abs}rd`;
+  return `${abs}th`;
+}
+
+function pmtNumberToWords(amount: number): string {
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+    'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen',
+    'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const twoDigits = (n: number): string =>
+    n < 20 ? ones[n] : tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+  const threeDigits = (n: number): string =>
+    n >= 100
+      ? ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + twoDigits(n % 100) : '')
+      : twoDigits(n);
+  if (!amount || amount === 0) return 'Zero Rupees Only';
+  const rupees = Math.floor(amount);
+  const paise  = Math.round((amount - rupees) * 100);
+  const crore  = Math.floor(rupees / 10000000);
+  const lakh   = Math.floor((rupees % 10000000) / 100000);
+  const thou   = Math.floor((rupees % 100000) / 1000);
+  const rem    = rupees % 1000;
+  const parts: string[] = [];
+  if (crore) parts.push(threeDigits(crore) + ' Crore');
+  if (lakh)  parts.push(threeDigits(lakh)  + ' Lakh');
+  if (thou)  parts.push(threeDigits(thou)  + ' Thousand');
+  if (rem)   parts.push(threeDigits(rem));
+  let result = parts.join(' ') + ' Rupees';
+  if (paise) result += ' and ' + twoDigits(paise) + ' Paise';
+  return result + ' Only';
+}
+
+function pmtEsc(v: any): string {
+  return String(v ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function pmtFmtDate(d: any): string {
+  if (d == null) return '—';
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function pmtFmtAmt(v: any): string {
+  const n = parseFloat(v ?? 0) || 0;
+  return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function pmtPaymentNarrative(b: any): string {
+  const mode    = (b.payment_mode || '').toLowerCase();
+  const ref     = (b.payment_ref  || '').trim();
+  const bank    = (b.bank_name    || '').trim();
+  const branch  = (b.bank_branch  || '').trim();
+  const dateStr = pmtFmtDate(b.cheque_date);
+  const hasDate = dateStr !== '—';
+
+  if (mode === 'cash') return 'in Cash.';
+
+  if (mode === 'cheque') {
+    const parts: string[] = ['vide Cheque'];
+    if (ref)     parts.push(`No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`drawn on ${branch ? `${bank}, ${branch}` : bank}`);
+    return parts.join(' ') + '.';
+  }
+  if (mode === 'demand_draft' || mode === 'draft') {
+    const parts: string[] = ['vide Demand Draft'];
+    if (ref)     parts.push(`No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`drawn on ${branch ? `${bank}, ${branch}` : bank}`);
+    return parts.join(' ') + '.';
+  }
+  if (mode === 'neft' || mode === 'rtgs' || mode === 'online') {
+    const parts: string[] = ['vide Online Transfer'];
+    if (ref)     parts.push(`Ref. No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`through ${bank}`);
+    return parts.join(' ') + '.';
+  }
+  if (mode === 'upi') {
+    const parts: string[] = ['vide UPI'];
+    if (ref) parts.push(`Ref. No. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    return parts.join(' ') + '.';
+  }
+  if (mode === 'card') {
+    const parts: string[] = ['vide Card Transaction'];
+    if (ref)     parts.push(`Ref. ${ref}`);
+    if (hasDate) parts.push(`dated ${dateStr}`);
+    if (bank)    parts.push(`through ${bank}`);
+    return parts.join(' ') + '.';
+  }
+  const modePretty = mode.replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const parts: string[] = [`vide ${modePretty}`];
+  if (ref) parts.push(`Ref. ${ref}`);
+  return parts.join(' ') + '.';
+}
+
+function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyType: string, allInstallments: any[]): string {
+  const companyName   = settings['company_name']    || '';
+  const companyCin    = settings['company_cin']      || '';
+  const companyAddr   = settings['company_address']  || '';
+  const companyReg    = settings['company_reg_addr'] || '';
+  const companyPhone  = settings['company_phone']    || '';
+  const companyWeb    = settings['company_website']  || '';
+  const companyEmail  = settings['company_email']    || '';
+  const companyGstin  = settings['company_gstin']    || '';
+  const placeOfSupply = settings['place_of_supply']  || '';
+  const hsnSacCode    = settings['hsn_sac_code']     || '';
+  const note1 = settings['receipt_note_1'] || '';
+  const note2 = settings['receipt_note_2'] || '';
+  const note3 = settings['receipt_note_3'] || '';
+  const note4 = settings['receipt_note_4'] || '';
+
+  const primaryName = [r.salutation, r.first_name, r.last_name].filter(Boolean).join(' ').trim();
+  const coNames: string[] = [];
+  if (Array.isArray(r.co_applicants)) {
+    for (const co of r.co_applicants) {
+      const n = [co.salutation, co.first_name, co.last_name].filter(Boolean).join(' ').trim();
+      if (n) coNames.push(`& ${n}`);
+    }
+  }
+  const consumerName = [primaryName, ...coNames].join(' ').trim() || '—';
+  const addrParts    = [r.present_address, r.present_city, r.present_state].filter(Boolean);
+  const address      = addrParts.join(', ') + (r.present_pin ? ` - ${r.present_pin}` : '');
+
+  const isNri       = ['nri','oci','pio'].includes((r.nationality || '').toLowerCase());
+  const totalAmount = parseFloat(r.amount_received_inr || 0);
+  const amountWords = pmtNumberToWords(totalAmount);
+  const floorOrdinal = r.floor != null ? pmtOrdinal(parseInt(r.floor)) : '—';
+  const receiptNo    = r.receipt_number || '—';
+
+  const narrative = pmtPaymentNarrative({
+    payment_mode: r.payment_method,
+    payment_ref:  r.transaction_ref,
+    bank_name:    r.bank_name,
+    bank_branch:  r.branch,
+    cheque_date:  r.cheque_date,
+  });
+
+  // ── BALCONY SETUP ──────────────────────────────────────────────────────
+  const balconyAreaSqft    = parseFloat(r.balcony_area_sqft     || 0);
+  const balconyRateInrSqft = parseFloat(r.balcony_rate_inr_sqft || 0);
+  const balconyCapInr      = parseFloat(r.balcony_rate_cap_inr  || 0);
+  const hasBalcony         = balconyAreaSqft > 0 && balconyRateInrSqft > 0;
+  let   totalBalconyCharge = 0;
+  if (hasBalcony) {
+    totalBalconyCharge = balconyAreaSqft * balconyRateInrSqft;
+    if (balconyCapInr > 0 && totalBalconyCharge > balconyCapInr) totalBalconyCharge = balconyCapInr;
+  }
+
+  // ── TABLE CELL HELPERS ─────────────────────────────────────────────────
+  const TH  = (s: string, w?: string) =>
+    `<th style="${w?`width:${w};`:''}background:#f0f0f0;border:1px solid #999;padding:4px 6px;font-size:10px;text-align:center">${s}</th>`;
+  const TDx = (s: string, extra = '') =>
+    `<td style="border:1px solid #999;padding:4px 6px;font-size:10px;${extra}">${s}</td>`;
+  const TDR = (s: string, extra = '') => TDx(s, `text-align:right;${extra}`);
+  const TDC = (s: string, extra = '') => TDx(s, `text-align:center;${extra}`);
+  // Span wrapper: wraps a cell value with data-field-key for inline edit support
+  const SF = (key: string, label: string, val: string, vtype: string, extra = '') =>
+    `<span data-field-key="${key}" data-field-label="${label}" data-value-type="${vtype}" data-section="table"${extra}>${val}</span>`;
+
+  // ── ADDON GST RATES & AMOUNTS (needed before installment rows for back-calc) ───
+  const addonCgstPct = parseFloat(settings['addon_cgst_percent'] || '9');
+  const addonSgstPct = parseFloat(settings['addon_sgst_percent'] || '9');
+  const basicCgstPct = parseFloat(settings['basic_cgst_percent'] || '0.5');
+  const basicSgstPct = parseFloat(settings['basic_sgst_percent'] || '0.5');
+
+  const calcAddonGst = (amount: number, cgstPct: number, sgstPct: number) => {
+    if (isNri || amount <= 0) return { net: amount, cgst: 0, sgst: 0, total: amount };
+    const cgst = Math.round(amount * cgstPct / 100 * 100) / 100;
+    const sgst = Math.round(amount * sgstPct / 100 * 100) / 100;
+    return { net: amount, cgst, sgst, total: amount + cgst + sgst };
+  };
+
+  const plcAmt   = parseFloat(r.plc_amount          || 0);
+  const edcAmt   = parseFloat(r.edc_amount          || 0);
+  const idcAmt   = parseFloat(r.idc_amount          || 0);
+  const intAmt   = parseFloat(r.interest_amount     || 0) || parseFloat(r.penal_interest_amount || 0);
+  const otherAmt = parseFloat(r.other_charge_amount || 0);
+  const otherDesc = r.other_charge_desc || 'Other Charges';
+
+  // Pre-compute addon gross total so we can back-calculate basic amount
+  const addonGrossTotal =
+    calcAddonGst(plcAmt,   addonCgstPct, addonSgstPct).total +
+    calcAddonGst(edcAmt,   addonCgstPct, addonSgstPct).total +
+    calcAddonGst(idcAmt,   addonCgstPct, addonSgstPct).total +
+    calcAddonGst(intAmt,   basicCgstPct, basicSgstPct).total +
+    calcAddonGst(otherAmt, addonCgstPct, addonSgstPct).total;
+
+  // ── FIND CURRENT INSTALLMENT ONLY ──────────────────────────────────────
+  const currentInstIdx = r.installment_index != null ? parseInt(r.installment_index) : -1;
+  const currentInst = allInstallments.find(i => parseInt(i.installment_index) === currentInstIdx)
+                   || (allInstallments.length === 1 ? allInstallments[0] : null);
+
+  // ── BUILD INSTALLMENT ROWS (this receipt only) ─────────────────────────
+  // Use back-calculated basic gross (totalAmount - addonGross) so the
+  // table total always equals the amount box — correct for partial payments.
+  let tableBodyRows = '';
+  let sumNet = 0, sumCgst = 0, sumSgst = 0, sumGross = 0;
+  let sNo = 0;
+
+  if (currentInst) {
+    const basicGross = Math.max(0, totalAmount - addonGrossTotal);
+
+    // Derive GST fractions from the demand's actual amounts
+    const demandNet   = parseFloat(currentInst.amount_due_inr || 0);
+    const demandCgst  = isNri ? 0 : parseFloat(currentInst.cgst_amount || 0);
+    const demandSgst  = isNri ? 0 : parseFloat(currentInst.sgst_amount || 0);
+    const demandGross = demandNet + demandCgst + demandSgst;
+    const cgstFrac    = demandGross > 0 ? demandCgst / demandGross : 0;
+    const sgstFrac    = demandGross > 0 ? demandSgst / demandGross : 0;
+
+    const pct = parseFloat(currentInst.percentage || 0);
+
+    if (hasBalcony && pct > 0) {
+      const balconyInstGross = Math.round(totalBalconyCharge * pct / 100);
+      const basicInstGross   = Math.max(0, basicGross - balconyInstGross);
+
+      if (basicInstGross > 0) {
+        sNo++;
+        const instCgst = Math.round(basicInstGross * cgstFrac);
+        const instSgst = Math.round(basicInstGross * sgstFrac);
+        const instNet  = basicInstGross - instCgst - instSgst;
+        sumNet += instNet; sumCgst += instCgst; sumSgst += instSgst; sumGross += basicInstGross;
+        tableBodyRows += `
+        <tr>
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')',pmtEsc(currentInst.installment_name),'text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','Basic','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(instNet),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(instCgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(instSgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(basicInstGross),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+      }
+      if (balconyInstGross > 0) {
+        sNo++;
+        const balcCgst  = isNri ? 0 : Math.round(balconyInstGross * basicCgstPct / 100);
+        const balcSgst  = isNri ? 0 : Math.round(balconyInstGross * basicSgstPct / 100);
+        const balcTotal = balconyInstGross + balcCgst + balcSgst;
+        sumNet += balconyInstGross; sumCgst += balcCgst; sumSgst += balcSgst; sumGross += balcTotal;
+        tableBodyRows += `
+        <tr>
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')',pmtEsc(currentInst.installment_name),'text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','Balcony Charge','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(balconyInstGross),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(balcCgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(balcSgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(balcTotal),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+      }
+    } else if (basicGross > 0) {
+      sNo++;
+      const instCgst = Math.round(basicGross * cgstFrac);
+      const instSgst = Math.round(basicGross * sgstFrac);
+      const instNet  = basicGross - instCgst - instSgst;
+      sumNet += instNet; sumCgst += instCgst; sumSgst += instSgst; sumGross += basicGross;
+      tableBodyRows += `
+        <tr>
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')',pmtEsc(currentInst.installment_name),'text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','Basic','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(instNet),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(instCgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(instSgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(basicGross),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+    }
+  } else if (r.installment_index != null && allInstallments.length === 0) {
+    // Fallback — no demands raised yet; back-calculate from receipt total
+    const basicGross = Math.max(0, totalAmount - addonGrossTotal);
+    if (basicGross > 0) {
+      sNo++;
+      const cgst = isNri ? 0 : Math.round(basicGross * basicCgstPct / 100);
+      const sgst = isNri ? 0 : Math.round(basicGross * basicSgstPct / 100);
+      const net  = basicGross - cgst - sgst;
+      const fallbackName = `Installment #${r.installment_index}`;
+      sumNet += net; sumCgst += cgst; sumSgst += sgst; sumGross += basicGross;
+      tableBodyRows = `
+        <tr>
+          ${TDC('1')}
+          ${TDx(SF('installmentName_1','Installment (Row 1)',pmtEsc(fallbackName),'text'))}
+          ${TDx(SF('chargeType_1','Charge Type (Row 1)','Basic','text'))}
+          ${TDC(SF('hsnSac_1','HSN/SAC (Row 1)',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_1','Amount (Row 1)',pmtFmtAmt(net),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_1','CGST (Row 1)',pmtFmtAmt(cgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_1','SGST (Row 1)',pmtFmtAmt(sgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_1','Row Total (Row 1)',pmtFmtAmt(basicGross),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+    }
+  }
+
+  // ── ADDON CHARGE ROWS ─────────────────────────────────────────────────
+  const addonRowStyle = 'background:#fafafa;';
+  let addonRows = '';
+
+  if (plcAmt > 0) {
+    sNo++;
+    const g = calcAddonGst(plcAmt, addonCgstPct, addonSgstPct);
+    sumNet += g.net; sumCgst += g.cgst; sumSgst += g.sgst; sumGross += g.total;
+    addonRows += `
+        <tr style="${addonRowStyle}">
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','<em>Addon</em>','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','PLC Charges','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(g.net),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(g.cgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(g.sgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(g.total),'currency',' data-gst-type="addon"'))}
+        </tr>`;
+  }
+
+  if (edcAmt > 0) {
+    sNo++;
+    const g = calcAddonGst(edcAmt, addonCgstPct, addonSgstPct);
+    sumNet += g.net; sumCgst += g.cgst; sumSgst += g.sgst; sumGross += g.total;
+    addonRows += `
+        <tr style="${addonRowStyle}">
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','<em>Addon</em>','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','EDC','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(g.net),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(g.cgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(g.sgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(g.total),'currency',' data-gst-type="addon"'))}
+        </tr>`;
+  }
+
+  if (idcAmt > 0) {
+    sNo++;
+    const g = calcAddonGst(idcAmt, addonCgstPct, addonSgstPct);
+    sumNet += g.net; sumCgst += g.cgst; sumSgst += g.sgst; sumGross += g.total;
+    addonRows += `
+        <tr style="${addonRowStyle}">
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','<em>Addon</em>','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','IDC','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(g.net),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(g.cgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(g.sgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(g.total),'currency',' data-gst-type="addon"'))}
+        </tr>`;
+  }
+
+  if (intAmt > 0) {
+    sNo++;
+    const g = calcAddonGst(intAmt, basicCgstPct, basicSgstPct);
+    sumNet += g.net; sumCgst += g.cgst; sumSgst += g.sgst; sumGross += g.total;
+    addonRows += `
+        <tr style="${addonRowStyle}">
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','Interest','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(g.net),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(g.cgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(g.sgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(g.total),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+  }
+
+  if (otherAmt > 0) {
+    sNo++;
+    const g = calcAddonGst(otherAmt, addonCgstPct, addonSgstPct);
+    sumNet += g.net; sumCgst += g.cgst; sumSgst += g.sgst; sumGross += g.total;
+    addonRows += `
+        <tr style="${addonRowStyle}">
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','<em>Addon</em>','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')',pmtEsc(otherDesc),'text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(g.net),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(g.cgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(g.sgst),'currency',' data-gst-type="addon"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(g.total),'currency',' data-gst-type="addon"'))}
+        </tr>`;
+  }
+
+  // ── SUMMARY ROWS ───────────────────────────────────────────────────────
+  const summaryRows = `
+        <tr style="font-weight:700;background:#f0f0f0">
+          ${TDC('')}${TDx('')}${TDx('')}
+          ${TDC('Total','font-weight:700')}
+          ${TDR(SF('grandTotalNet','Grand Total (Net)',pmtFmtAmt(sumNet),'currency'),'font-weight:700')}
+          ${TDR(SF('grandTotalCgst','Grand Total CGST',pmtFmtAmt(sumCgst),'currency'),'font-weight:700')}
+          ${TDR(SF('grandTotalSgst','Grand Total SGST',pmtFmtAmt(sumSgst),'currency'),'font-weight:700')}
+          ${TDR(SF('grandTotal','Grand Total',pmtFmtAmt(sumGross),'currency'),'font-weight:700')}
+        </tr>`;
+
+  return `
+<div class="receipt-copy">
+
+  <!-- HEADER -->
+  <div style="text-align:center;margin-bottom:10px">
+    <div style="font-weight:700;font-size:15px">${pmtEsc(companyName)}</div>
+    <div style="font-size:10px;margin-top:2px">CIN: ${pmtEsc(companyCin)}</div>
+    <div style="font-size:10px;margin-top:2px">${pmtEsc(companyAddr)}</div>
+    <div style="font-size:10px;margin-top:2px">Regd. Office: ${pmtEsc(companyReg)}</div>
+    <div style="font-size:10px;margin-top:4px">${pmtEsc(companyPhone)} &nbsp;|&nbsp; ${pmtEsc(companyWeb)} &nbsp;|&nbsp; ${pmtEsc(companyEmail)}</div>
+  </div>
+  <hr style="border:none;border-top:1px solid #000;margin:8px 0">
+  <div style="text-align:center;font-weight:700;font-size:16px;margin:10px 0 12px">RECEIPT</div>
+
+  <!-- TWO-COLUMN INFO BLOCK -->
+  <table style="width:100%;border:none;border-collapse:collapse;margin-bottom:14px">
+    <tr>
+      <td style="width:60%;vertical-align:top;border:none;padding:0">
+        <div style="font-weight:700">Receipt No.: <span data-field-key="receiptNumber" data-field-label="Receipt Number" data-value-type="text" data-section="header">${pmtEsc(receiptNo)}</span></div>
+        <div style="font-weight:700;font-size:13px;margin-top:2px">${pmtEsc(copyType)}</div>
+        <div style="margin-top:6px">Customer ID: <span data-field-key="customerId" data-field-label="Customer ID" data-value-type="text" data-section="header">${pmtEsc((r.form_no || r.registration_no || '').toString())}</span></div>
+        <div style="font-weight:700;margin-top:2px"><span data-field-key="consumerName" data-field-label="Consumer Name" data-value-type="text" data-section="header">${pmtEsc(consumerName)}</span></div>
+        <div style="margin-top:2px;white-space:pre-wrap"><span data-field-key="consumerAddress" data-field-label="Consumer Address" data-value-type="text" data-section="header">${pmtEsc(address)}</span></div>
+        <div style="margin-top:2px">(M): <span data-field-key="consumerMobile" data-field-label="Mobile" data-value-type="text" data-section="header">${pmtEsc(r.mobile || '—')}</span></div>
+        <div>Email: <span data-field-key="consumerEmail" data-field-label="Email" data-value-type="text" data-section="header">${pmtEsc(r.email || '—')}</span></div>
+      </td>
+      <td style="width:40%;vertical-align:top;border:none;padding:0;text-align:right">
+        <div>Place Of Supply: <span data-field-key="placeOfSupply" data-field-label="Place of Supply" data-value-type="text" data-section="header">${pmtEsc(placeOfSupply)}</span></div>
+        <div style="margin-top:2px">GSTIN: <span data-field-key="companyGstin" data-field-label="GSTIN" data-value-type="text" data-section="header">${pmtEsc(companyGstin)}</span></div>
+        <div style="margin-top:2px">CIN No.: <span data-field-key="companyCin" data-field-label="CIN No." data-value-type="text" data-section="header">${pmtEsc(companyCin)}</span></div>
+        <div style="margin-top:2px">Receipt Date: <span data-field-key="receiptDate" data-field-label="Receipt Date" data-value-type="date" data-section="header">${pmtFmtDate(r.received_date)}</span></div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- PAYMENT NARRATIVE -->
+  <p style="margin:0 0 14px;line-height:1.7">
+    Received with thanks from <strong><span data-field-key="narrativeConsumerName" data-field-label="Consumer Name (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(consumerName)}</span></strong>
+    a sum of <strong>Rs. <span data-field-key="narrativeAmount" data-field-label="Amount (Narrative)" data-value-type="currency" data-section="narrative">${pmtFmtAmt(totalAmount)}</span> /-</strong>
+    (<strong><span data-field-key="amountInWords" data-field-label="Amount in Words" data-value-type="text" data-section="narrative">${pmtEsc(amountWords)}</span></strong>)
+    <span data-field-key="narrativePaymentMethod" data-field-label="Payment Method (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(narrative)}</span> against the Unit No.
+    <strong><span data-field-key="narrativeUnitNo" data-field-label="Unit Number (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(r.unit_number || '—')}</span></strong> on
+    <strong><span data-field-key="narrativeFloor" data-field-label="Floor (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(floorOrdinal)}</span> Floor</strong> in
+    <strong><span data-field-key="narrativeProjectName" data-field-label="Project Name (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(r.project_name || '—')}</span></strong>,
+    <span data-field-key="narrativeLocation" data-field-label="Project Location (Narrative)" data-value-type="text" data-section="narrative">${pmtEsc(r.project_location || '—')}</span>.
+    as per following details:
+  </p>
+
+  <!-- INSTALLMENT TABLE -->
+  <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:11px">
+    <thead>
+      <tr>
+        ${TH('S.No.','4%')}
+        ${TH('Installment')}
+        ${TH('Charge')}
+        ${TH('HSN/SAC','8%')}
+        ${TH('Amount','11%')}
+        ${TH('CGST','8%')}
+        ${TH('SGST','8%')}
+        ${TH('Total Amount','11%')}
+      </tr>
+    </thead>
+    <tbody>
+      ${tableBodyRows}
+      ${addonRows}
+      ${summaryRows}
+    </tbody>
+  </table>
+
+  <!-- AMOUNT BOX -->
+  <div style="display:inline-block;border:2px solid #000;padding:6px 14px;font-weight:bold;font-size:13px;margin:10px 0">&#8377; <span data-field-key="amountBox" data-field-label="Amount Box" data-value-type="currency" data-section="footer">${pmtFmtAmt(totalAmount)}</span>/-</div>
+
+  <!-- SIGNATURE BLOCK -->
+  <div style="text-align:right;margin-top:20px">
+    <div>For ${pmtEsc(companyName)}</div>
+    <div style="height:48px"></div>
+    <div>Authorized Signatory</div>
+  </div>
+
+  <!-- NOTES -->
+  <div style="margin-top:16px;font-size:10px;border-top:1px solid #ccc;padding-top:8px">
+    <div style="font-weight:700;margin-bottom:4px">Notes :</div>
+    <div>1. ${pmtEsc(note1)}</div>
+    <div style="margin-top:3px">2. ${pmtEsc(note2)}</div>
+    <div style="margin-top:3px">3. ${pmtEsc(note3)}</div>
+    <div style="margin-top:3px">4. ${pmtEsc(note4)}</div>
+  </div>
+
+</div>`;
+}
+
+function buildPaymentReceiptHtml(r: any, settings: Record<string, string>, coApplicants: any[], allInstallments: any[]): string {
+  r.co_applicants = coApplicants;
+
+  const customerCopy = buildPaymentReceiptCopy(r, settings, 'CUSTOMER COPY', allInstallments);
+  const officeCopy   = buildPaymentReceiptCopy(r, settings, 'OFFICE COPY',   allInstallments);
+
+  const receiptNo = pmtEsc(r.receipt_number || '—');
+  const emailSubject = encodeURIComponent(`Payment Receipt - ${r.receipt_number || ''}`);
+  const emailBody    = encodeURIComponent(
+    `Dear Customer,\n\nPlease find your payment receipt details below.\nReceipt No: ${r.receipt_number || ''}\n\nRegards,\n${settings['company_name'] || 'ROF Group'}`
+  );
+  const emailHref = `mailto:${encodeURIComponent(r.email || '')}?subject=${emailSubject}&body=${emailBody}`;
+
+  const btnNav = 'background:#ffffff;color:#1a3c5e;border:2px solid #1a3c5e;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px';
+  const btnClose = 'background:#ffffff;color:#dc3545;border:2px solid #dc3545;padding:7px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px';
+  const hoverNav = `onmouseover="this.style.background='#1a3c5e';this.style.color='#ffffff'" onmouseout="this.style.background='#ffffff';this.style.color='#1a3c5e'"`;
+  const hoverClose = `onmouseover="this.style.background='#dc3545';this.style.color='#ffffff'" onmouseout="this.style.background='#ffffff';this.style.color='#dc3545'"`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Receipt - ${receiptNo}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #000; background: #fff; margin: 20px; }
+  .receipt-copy { max-width: 750px; margin: auto; border: 1px solid #000; padding: 24px; margin-bottom: 40px; }
+  .hide-customer .customer-copy { display: none; }
+  .hide-office   .office-copy   { display: none; }
+  @media print {
+    .no-print { display: none !important; visibility: hidden !important; height: 0 !important; overflow: hidden !important; }
+    .office-copy { page-break-before: always; }
+    .customer-copy, .office-copy { margin-top: 0 !important; padding-top: 0 !important; }
+    body { margin: 0 !important; padding: 0 !important; }
+    @page { margin: 15mm; size: A4; }
+  }
+</style>
+</head>
+<body>
+
+<div class="no-print" style="position:fixed;top:0;left:0;right:0;z-index:1000;background:#1a3c5e;padding:10px 20px;display:flex;align-items:center;gap:8px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">
+  <button onclick="document.body.className='';window.print()" style="${btnNav}" ${hoverNav}>&#128424; Print Both Copies</button>
+  <button onclick="document.body.className='hide-office';window.print();setTimeout(()=>document.body.className='',500)" style="${btnNav}" ${hoverNav}>&#11015; Download Customer Copy</button>
+  <button onclick="document.body.className='hide-customer';window.print();setTimeout(()=>document.body.className='',500)" style="${btnNav}" ${hoverNav}>&#11015; Download Office Copy</button>
+  <button onclick="window.location.href='${emailHref}'" style="${btnNav}" ${hoverNav}>&#9993; E-Mail</button>
+  <button onclick="window.opener ? window.close() : window.history.length > 1 ? window.history.back() : (window.location.href='/')" style="${btnClose}" ${hoverClose}>&#10005; Close</button>
+</div>
+<div class="no-print" style="height:52px"></div>
+
+<div class="customer-copy">${customerCopy}</div>
+<div class="office-copy">${officeCopy}</div>
+
+</body>
+</html>`;
+}
+
+// GET /api/payments/receipts/:id/html — Print-ready receipt with full plan breakdown
+router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const [settingsResult, receiptResult] = await Promise.all([
+      db.query('SELECT key, value FROM global_settings'),
+      db.query(`
+        SELECT
+          r.id, r.receipt_number, r.installment_index,
+          r.consumer_id, r.payment_plan_id,
+          r.amount_received_inr,
+          r.plc_amount, r.edc_amount, r.idc_amount,
+          r.other_charge_amount, r.other_charge_desc, r.interest_amount,
+          r.payment_method, r.transaction_ref, r.received_date,
+          r.bank_name, r.cheque_no, r.cheque_date, r.branch,
+          c.salutation, c.first_name, c.last_name, c.mobile, c.email,
+          c.nationality,
+          c.present_address, c.present_city, c.present_state, c.present_pin,
+          c.form_no, c.registration_no,
+          p.id AS project_id,
+          p.name AS project_name,
+          p.location AS project_location,
+          u.unit_number, u.floor, u.bhk_type,
+          u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr, u.total_price_inr,
+          u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
+          pp.total_amount_inr AS plan_total_inr,
+          COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
+          COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * 0.005)) AS sgst_amount
+        FROM receipts r
+        JOIN consumers c ON c.id = r.consumer_id
+        LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
+        LEFT JOIN projects p ON p.id = pp.project_id
+        LEFT JOIN units u ON u.id = pp.unit_id
+        LEFT JOIN demands d ON d.id = r.demand_id
+        WHERE r.id = $1
+      `, [id]),
+    ]);
+
+    if (!receiptResult.rows[0]) {
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+
+    const receipt = receiptResult.rows[0];
+    const settings: Record<string, string> = {};
+    for (const row of settingsResult.rows) settings[row.key] = row.value;
+
+    // Fetch full plan installments with status + plan template names
+    let allInstallments: any[] = [];
+    if (receipt.payment_plan_id) {
+      try {
+        const instResult = await db.query(`
+          SELECT
+            d.id AS demand_id,
+            d.installment_index,
+            d.demand_type,
+            d.status AS demand_status,
+            d.delivery_status,
+            d.amount_due_inr,
+            COALESCE(d.cgst_amount, 0) AS cgst_amount,
+            COALESCE(d.sgst_amount, 0) AS sgst_amount,
+            COALESCE(
+              pst.installment_name,
+              CASE
+                WHEN d.demand_type = 'allotment'   THEN 'At the time of Allotment'
+                WHEN d.demand_type = 'installment' THEN 'Installment #' || d.installment_index::text
+                ELSE COALESCE(d.demand_type, 'Installment #' || d.installment_index::text)
+              END
+            ) AS installment_name,
+            COALESCE(pst.percentage, 0) AS percentage,
+            r2.id AS paid_receipt_id,
+            r2.receipt_number AS paid_receipt_no,
+            r2.received_date  AS paid_date,
+            r2.amount_received_inr AS paid_amount
+          FROM demands d
+          LEFT JOIN LATERAL (
+            SELECT pst2.installment_name, pst2.percentage
+            FROM plan_schedule_templates pst2
+            WHERE pst2.project_id = $2
+              AND pst2.installment_index = d.installment_index
+            ORDER BY pst2.plan_name
+            LIMIT 1
+          ) pst ON true
+          LEFT JOIN LATERAL (
+            SELECT r2.id, r2.receipt_number, r2.received_date, r2.amount_received_inr
+            FROM receipts r2
+            WHERE r2.payment_plan_id = d.payment_plan_id
+              AND r2.installment_index = d.installment_index
+              AND r2.status != 'cancelled'
+            ORDER BY r2.created_at DESC
+            LIMIT 1
+          ) r2 ON true
+          WHERE d.payment_plan_id = $1
+          ORDER BY d.installment_index
+        `, [receipt.payment_plan_id, receipt.project_id || null]);
+        allInstallments = instResult.rows;
+      } catch { allInstallments = []; }
+    }
+
+    let coApplicants: any[] = [];
+    try {
+      const coResult = await db.query(
+        `SELECT salutation, first_name, last_name, applicant_number
+         FROM co_applicants WHERE consumer_id = $1 ORDER BY applicant_number ASC`,
+        [receipt.consumer_id]
+      );
+      coApplicants = coResult.rows;
+    } catch { coApplicants = []; }
+
+    // Fetch penal interest for this receipt's consumer + installment
+    if (!receipt.interest_amount || parseFloat(receipt.interest_amount) === 0) {
+      try {
+        const penalResult = await db.query(
+          `SELECT amount_inr, interest_waived_inr, rate_percent
+           FROM penal_interests
+           WHERE consumer_id = $1
+             AND payment_plan_id = $2
+             AND installment_index = $3
+           ORDER BY calculated_at DESC LIMIT 1`,
+          [receipt.consumer_id, receipt.payment_plan_id, receipt.installment_index]
+        );
+        if (penalResult.rows.length > 0) {
+          const pi = penalResult.rows[0];
+          const net = parseFloat(pi.amount_inr || 0) - parseFloat(pi.interest_waived_inr || 0);
+          if (net > 0) receipt.penal_interest_amount = net;
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    const html = buildPaymentReceiptHtml(receipt, settings, coApplicants, allInstallments);
+
+    // Persist to documents table on first view so it can be edited later
+    let receiptDocId: string | null = null;
+    try {
+      const existing = await db.query(
+        `SELECT id FROM documents WHERE document_type = 'payment_receipt' AND reference_id = $1 LIMIT 1`,
+        [id]
+      );
+      if (existing.rows.length === 0) {
+        const docInsert = await db.query(
+          `INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
+           VALUES ('payment_receipt', $1, $2, $3, 'receipt', 1, 0, FALSE, $4) RETURNING id`,
+          [receipt.consumer_id, html, id, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']
+        );
+        receiptDocId = docInsert.rows[0].id;
+        await db.query(
+          `INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
+           VALUES ($1, 1, $2, TRUE, 'Original generation')`,
+          [receiptDocId, html]
+        );
+      } else {
+        receiptDocId = existing.rows[0].id;
+      }
+    } catch { /* non-fatal — don't block the response */ }
+
+    // Apply any active field overrides so edits persist across re-renders
+    let finalHtml = html;
+    if (receiptDocId) {
+      try {
+        const overridesRes = await db.query(
+          `SELECT field_key, current_value FROM document_field_overrides
+           WHERE document_id = $1 AND is_active = TRUE`,
+          [receiptDocId]
+        );
+        if (overridesRes.rows.length > 0) {
+          const overridesMap: Record<string, string> = {};
+          overridesRes.rows.forEach((o: { field_key: string; current_value: string }) => {
+            overridesMap[o.field_key] = o.current_value;
+          });
+          finalHtml = applyOverridesToHtml(html, overridesMap);
+          // Keep stored html_content in sync
+          await db.query(
+            `UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`,
+            [finalHtml, receiptDocId]
+          );
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    const token = (req.headers.authorization?.split(' ')[1] || req.query.token as string || '');
+    const htmlWithEdit = receiptDocId
+      ? finalHtml.replace('</body>', buildEditScript(receiptDocId, token, 'payment_receipt') + '\n</body>')
+      : finalHtml;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(htmlWithEdit);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── RECEIPT ENTRY FORM (standalone HTML page) ─────────────────────────────────
+
+function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], users: any[], token: string): string {
+  const fmtN = (v: any) => {
+    const n = parseFloat(String(v || 0));
+    return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  const today = new Date().toISOString().split('T')[0];
+  const inp = `width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;box-sizing:border-box;height:30px;`;
+
+  const instOpts = installments.map((x: any) =>
+    `<option value="${x.installment_index}">${x.installment_name}</option>`
+  ).join('') + `<option value="-1">Other</option>`;
+
+  const bankOpts = `<option value="">&lt;-Select-&gt;</option>` + banks.map((b: any) =>
+    `<option value="${b.name}">${b.name}</option>`
+  ).join('');
+
+  const userOpts = `<option value="">&lt;-Select-&gt;</option>` + users.map((u: any) =>
+    `<option value="${u.id}">${u.name || u.email || u.id}</option>`
+  ).join('');
+
+  const bal = parseFloat(consumer.balance || 0);
+  const balColor = bal > 0 ? '#c0392b' : '#27ae60';
+
+  const toggleCSS = `
+    .tgl{display:inline-flex;border:1px solid #ccc;border-radius:3px;overflow:hidden;}
+    .tgl button{padding:5px 11px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:#f0f0f0;color:#555;}
+    .tgl button.on{background:#1db5a0;color:#fff;}
+    .tgl button.on2{background:#c0392b;color:#fff;}
+  `;
+
+  const tabs = ['Cheque','Draft','Online','Cash','Adjust','Dealer Adjustment','TDS Challan','Card'];
+
+  const amountRow = (prefix: string) => `
+    <div style="display:grid;grid-template-columns:repeat(7,1fr) auto;gap:8px;margin-bottom:10px;align-items:end;">
+      <div><label class="lbl">${prefix} Amount*</label><input type="number" id="rf-amount" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
+      <div><label class="lbl">Interest</label><input type="number" id="rf-interest" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
+      <div><label class="lbl">GST Interest (1.000%)</label><input type="number" id="rf-gst-interest" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">Paid</label><input type="number" id="rf-paid" placeholder="0.00" readonly style="${inp}background:#f8f9fa;font-weight:700;"></div>
+      <div><label class="lbl">S.Tax (0.000%)</label><input type="number" id="rf-stax" value="0" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">CGST (0.500%)</label><input type="number" id="rf-cgst" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">SGST (0.500%)</label><input type="number" id="rf-sgst" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <button onclick="addExtraAddOn()" style="background:#1db5a0;color:#fff;border:none;padding:5px 10px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;height:30px;">+ Extra Add On</button>
+    </div>`;
+
+  const chequeInstrRow = `
+    <div style="display:grid;grid-template-columns:130px 150px 1fr 1fr 1fr;gap:8px;align-items:end;">
+      <div><label class="lbl">Cheque No.</label><input type="text" id="rf-cheque-no" style="${inp}"></div>
+      <div><label class="lbl">Cheque Date</label><input type="date" id="rf-cheque-date" value="${today}" style="${inp}"></div>
+      <div><label class="lbl">Bank Name</label><select id="rf-bank" style="${inp}">${bankOpts}</select></div>
+      <div><label class="lbl">Branch Name</label><input type="text" id="rf-branch" style="${inp}"></div>
+      <div><label class="lbl">Employee</label><select id="rf-employee" style="${inp}">${userOpts}</select></div>
+    </div>`;
+
+  const onlineInstrRow = `
+    <div style="display:grid;grid-template-columns:1fr 150px 1fr 1fr 1fr;gap:8px;align-items:end;">
+      <div><label class="lbl">Transaction Ref.</label><input type="text" id="rf-txn-ref" style="${inp}"></div>
+      <div><label class="lbl">Transaction Date</label><input type="date" id="rf-txn-date" value="${today}" style="${inp}"></div>
+      <div><label class="lbl">Bank Name</label><select id="rf-bank-online" style="${inp}">${bankOpts}</select></div>
+      <div><label class="lbl">Branch Name</label><input type="text" id="rf-branch-online" style="${inp}"></div>
+      <div><label class="lbl">Employee</label><select id="rf-employee-online" style="${inp}">${userOpts}</select></div>
+    </div>`;
+
+  const cashOnlyRow = `
+    <div style="display:grid;grid-template-columns:160px 1fr;gap:8px;align-items:end;">
+      <div><label class="lbl">Employee</label><select id="rf-employee-cash" style="${inp}">${userOpts}</select></div>
+    </div>`;
+
+  const tabContents: Record<string, string> = {
+    'Cheque': amountRow('Cheque') + chequeInstrRow,
+    'Draft': amountRow('Draft') + chequeInstrRow.replace(/rf-cheque-no/g,'rf-draft-no').replace(/rf-cheque-date/g,'rf-draft-date').replace(/rf-bank/g,'rf-bank-draft').replace(/rf-branch/g,'rf-branch-draft').replace(/rf-employee/g,'rf-employee-draft').replace('Cheque No.','Draft No.').replace('Cheque Date','Draft Date'),
+    'Online': amountRow('Online') + onlineInstrRow,
+    'Cash': amountRow('Cash') + cashOnlyRow,
+    'Adjust': amountRow('Adjust') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-adjust-remarks" style="${inp}"></div>`,
+    'Dealer Adjustment': amountRow('Dealer Adj.') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-dealer-remarks" style="${inp}"></div>`,
+    'TDS Challan': amountRow('TDS') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Challan No.</label><input type="text" id="rf-challan-no" style="${inp}"></div><div><label class="lbl">BSR Code</label><input type="text" id="rf-bsr-code" style="${inp}"></div><div><label class="lbl">Deposit Date</label><input type="date" id="rf-deposit-date" style="${inp}"></div></div>`,
+    'Card': amountRow('Card') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Terminal ID</label><input type="text" id="rf-terminal-id" style="${inp}"></div><div><label class="lbl">Approval Code</label><input type="text" id="rf-approval-code" style="${inp}"></div><div><label class="lbl">Employee</label><select id="rf-employee-card" style="${inp}">${userOpts}</select></div></div>`,
+  };
+
+  const tabBtns = tabs.map((t, i) =>
+    `<button id="tab-btn-${t.replace(/\s/g,'')}" onclick="switchTab('${t}')" style="padding:7px 13px;border:1px solid #dee2e6;border-bottom:none;background:${i===0?'#1db5a0':'#f8f9fa'};color:${i===0?'#fff':'#333'};cursor:pointer;font-size:12px;font-weight:600;border-radius:4px 4px 0 0;">${t}</button>`
+  ).join(' ');
+
+  const tabPanels = tabs.map((t, i) =>
+    `<div id="tab-panel-${t.replace(/\s/g,'')}" class="tab-panel" style="display:${i===0?'block':'none'};padding:14px;">${tabContents[t] || amountRow(t)}</div>`
+  ).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment Receipt — ${consumer.consumer_name}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Arial,sans-serif;font-size:13px;background:#f4f6f8;padding:12px;}
+  .lbl{display:block;font-size:11px;font-weight:600;color:#555;margin-bottom:3px;}
+  ${toggleCSS}
+  .sec{border:1px solid #b8d4e4;background:#fff;margin-bottom:0;}
+  .sec:last-of-type{border-radius:0 0 4px 4px;}
+  .sec-hdr{border-radius:4px 4px 0 0;background:#e8f4f8;border-bottom:1px solid #b8d4e4;padding:8px 14px;}
+</style>
+</head>
+<body>
+
+<!-- Section 1: Consumer Header -->
+<div class="sec-hdr" style="border:1px solid #b8d4e4;border-radius:4px 4px 0 0;">
+  <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+    <span style="color:#c0392b;font-weight:bold;font-size:15px;">${(consumer.salutation ? consumer.salutation + ' ' : '') + consumer.consumer_name} [${consumer.registration_no || '—'}]</span>
+    <span style="color:#c0392b;font-weight:bold;">Tower: ${consumer.tower_name || '—'}</span>
+    <span style="color:#c0392b;font-weight:bold;">Unit No.: ${consumer.unit_number || '—'}</span>
+    <span style="color:#c0392b;font-weight:bold;">TDS Applicable: No</span>
+  </div>
+  <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:13px;color:#333;">
+    <span>Unit Cost: <strong>${fmtN(consumer.base_price_inr)}</strong></span>
+    <span>S. Tax: <strong>0</strong></span>
+    <span>GST: <strong>${fmtN(consumer.total_gst)}</strong></span>
+    <span>Total Cost: <strong>${fmtN(consumer.total_cost)}</strong></span>
+    <span style="color:#1a56db;">Paid: <strong>${fmtN(consumer.total_paid)}</strong></span>
+    <span style="color:${balColor};">Balance: <strong>${fmtN(bal)}</strong></span>
+    <span>Interest: <strong>${fmtN(consumer.interest_paid)}</strong></span>
+  </div>
+</div>
+
+<!-- Section 2: Payment Detail -->
+<div class="sec" style="padding:14px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+    <span style="color:#1a56db;font-weight:bold;font-size:14px;text-transform:uppercase;letter-spacing:.5px;">PAYMENT DETAIL</span>
+    <div class="tgl">
+      <button id="btn-self" class="on" onclick="setSelfLoan('self')">Self</button>
+      <button id="btn-loan" onclick="setSelfLoan('loan')">Bank Loan</button>
+    </div>
+  </div>
+
+  <!-- Row 1 -->
+  <div style="display:grid;grid-template-columns:160px 1fr 1fr 1fr auto;gap:12px;margin-bottom:14px;align-items:end;">
+    <div>
+      <label class="lbl">Receipt Date*</label>
+      <input type="date" id="rf-date" value="${today}" style="${inp}">
+    </div>
+    <div>
+      <label class="lbl">Received For</label>
+      <input type="text" id="rf-received-for" value="${consumer.company_name || ''}" style="${inp}">
+    </div>
+    <div>
+      <label class="lbl">Account Holder</label>
+      <input type="text" id="rf-account-holder" style="${inp}">
+    </div>
+    <div>
+      <label class="lbl">Remark</label>
+      <input type="text" id="rf-remark" style="${inp}">
+    </div>
+    <div>
+      <label class="lbl">Invoice Date By</label>
+      <div class="tgl">
+        <button id="btn-receipt-date" class="on" onclick="setInvoiceDateBy('receipt')">Receipt Date</button>
+        <button id="btn-posting-date" onclick="setInvoiceDateBy('posting')">Posting Date</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2 -->
+  <div style="display:grid;grid-template-columns:260px 1fr 1fr 1fr;gap:12px;align-items:end;">
+    <div>
+      <label class="lbl">On Account Of</label>
+      <div style="display:flex;gap:6px;">
+        <select id="rf-account-of" style="${inp}flex:1;" onchange="onAccountOfChange()">
+          ${instOpts}
+        </select>
+        <input type="text" id="rf-account-of-other" placeholder="Specify…" style="${inp}flex:1;display:none;">
+      </div>
+    </div>
+    <div>
+      <label class="lbl">Interest</label>
+      <div class="tgl">
+        <button id="btn-int-inclusive" onclick="setInterest('inclusive')">Inclusive</button>
+        <button id="btn-int-exclusive" class="on" onclick="setInterest('exclusive')">Exclusive</button>
+      </div>
+    </div>
+    <div>
+      <label class="lbl">Extra Add On</label>
+      <div class="tgl">
+        <button id="btn-xao-inclusive" onclick="setExtraAddOn('inclusive')">Inclusive</button>
+        <button id="btn-xao-exclusive" class="on" onclick="setExtraAddOn('exclusive')">Exclusive</button>
+      </div>
+    </div>
+    <div>
+      <label class="lbl">TDS</label>
+      <div class="tgl">
+        <button id="btn-tds-calc" onclick="setTds('calculate')">Calculate Exclusive</button>
+        <button id="btn-tds-none" class="on" onclick="setTds('not_calculate')">Not Calculate</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Section 3: Payment Tabs -->
+<div class="sec">
+  <div style="display:flex;gap:2px;padding:10px 14px 0;flex-wrap:wrap;border-bottom:2px solid #dee2e6;">
+    ${tabBtns}
+  </div>
+  ${tabPanels}
+</div>
+
+<!-- Section 4: Save / Close -->
+<div class="sec" style="padding:10px 14px;display:flex;gap:10px;background:#f8f9fa;">
+  <button onclick="saveReceipt()" id="rf-save-btn" style="background:#1db5a0;color:#fff;border:none;padding:9px 26px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;letter-spacing:.5px;">SAVE</button>
+  <button onclick="window.close()" style="background:#6c757d;color:#fff;border:none;padding:9px 20px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">CLOSE</button>
+</div>
+
+<script>
+const CONSUMER_ID = '${consumer.consumer_id}';
+const PAYMENT_PLAN_ID = '${consumer.payment_plan_id || ''}';
+const TOKEN = '${token}';
+const API_BASE = window.location.origin + '/api';
+let currentTab = 'Cheque';
+let selfOrLoan = '${consumer.self_or_loan || 'self'}';
+let invoiceDateBy = 'receipt';
+let interestMode = 'exclusive';
+let extraAddOnMode = 'exclusive';
+let tdsMode = 'not_calculate';
+
+function setSelfLoan(mode) {
+  selfOrLoan = mode;
+  document.getElementById('btn-self').className = mode === 'self' ? 'on' : '';
+  document.getElementById('btn-loan').className = mode === 'loan' ? 'on' : '';
+}
+
+function setInvoiceDateBy(mode) {
+  invoiceDateBy = mode;
+  document.getElementById('btn-receipt-date').className = mode === 'receipt' ? 'on' : '';
+  document.getElementById('btn-posting-date').className = mode === 'posting' ? 'on' : '';
+}
+
+function setInterest(mode) {
+  interestMode = mode;
+  document.getElementById('btn-int-inclusive').className = mode === 'inclusive' ? 'on' : '';
+  document.getElementById('btn-int-exclusive').className = mode === 'exclusive' ? 'on' : '';
+}
+
+function setExtraAddOn(mode) {
+  extraAddOnMode = mode;
+  document.getElementById('btn-xao-inclusive').className = mode === 'inclusive' ? 'on' : '';
+  document.getElementById('btn-xao-exclusive').className = mode === 'exclusive' ? 'on' : '';
+}
+
+function setTds(mode) {
+  tdsMode = mode;
+  document.getElementById('btn-tds-calc').className = mode === 'calculate' ? 'on' : '';
+  document.getElementById('btn-tds-none').className = mode === 'not_calculate' ? 'on' : '';
+}
+
+function onAccountOfChange() {
+  const sel = document.getElementById('rf-account-of');
+  const other = document.getElementById('rf-account-of-other');
+  if (other) other.style.display = sel.value === '-1' ? 'inline-block' : 'none';
+}
+
+function calcTotals() {
+  const amount = parseFloat(document.getElementById('rf-amount')?.value || 0);
+  const interest = parseFloat(document.getElementById('rf-interest')?.value || 0);
+  const gstInterest = parseFloat((interest * 0.01).toFixed(2));
+  const cgst = parseFloat((amount * 0.005).toFixed(2));
+  const sgst = parseFloat((amount * 0.005).toFixed(2));
+  const paid = amount + interest + gstInterest;
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val.toFixed(2); };
+  set('rf-gst-interest', gstInterest);
+  set('rf-cgst', cgst);
+  set('rf-sgst', sgst);
+  set('rf-paid', paid);
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.tab-panel').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="tab-btn-"]').forEach(btn => {
+    btn.style.background = '#f8f9fa'; btn.style.color = '#333';
+  });
+  const panel = document.getElementById('tab-panel-' + tabName.replace(/\\s/g,''));
+  if (panel) panel.style.display = 'block';
+  const btn = document.getElementById('tab-btn-' + tabName.replace(/\\s/g,''));
+  if (btn) { btn.style.background = '#1db5a0'; btn.style.color = '#fff'; }
+  currentTab = tabName;
+}
+
+function addExtraAddOn() {
+  alert('Extra Add On feature not yet implemented.');
+}
+
+function getFieldVal(id) {
+  const el = document.getElementById(id);
+  return el ? (el.value || '') : '';
+}
+
+async function saveReceipt() {
+  const amount = parseFloat(getFieldVal('rf-amount') || 0);
+  if (!amount || amount <= 0) { showMsg('Please enter an amount', true); return; }
+
+  const receiptDate = getFieldVal('rf-date');
+  if (!receiptDate) { showMsg('Please select receipt date', true); return; }
+
+  const accountOfSel = document.getElementById('rf-account-of');
+  const installmentIndex = accountOfSel && accountOfSel.value !== '-1'
+    ? parseInt(accountOfSel.value)
+    : null;
+
+  const interest = parseFloat(getFieldVal('rf-interest') || 0);
+  const gstInterest = parseFloat(getFieldVal('rf-gst-interest') || 0);
+  const totalAmount = amount + interest + gstInterest;
+
+  const modeMap = {
+    'Cheque':'cheque','Draft':'cheque','Online':'neft_rtgs',
+    'Cash':'cash','Card':'card','Adjust':'cash',
+    'Dealer Adjustment':'cash','TDS Challan':'cash'
+  };
+
+  const bankName = getFieldVal('rf-bank') || getFieldVal('rf-bank-online') || getFieldVal('rf-bank-draft') || '';
+  const branch = getFieldVal('rf-branch') || getFieldVal('rf-branch-online') || getFieldVal('rf-branch-draft') || '';
+  const chequeNo = getFieldVal('rf-cheque-no') || getFieldVal('rf-draft-no') || getFieldVal('rf-txn-ref') || '';
+  const chequeDate = getFieldVal('rf-cheque-date') || getFieldVal('rf-draft-date') || getFieldVal('rf-txn-date') || '';
+
+  const payload = {
+    consumerId: CONSUMER_ID,
+    amountReceivedInr: totalAmount,
+    baseAmount: amount,
+    interestAmount: interest || undefined,
+    paymentDate: receiptDate,
+    paymentMode: modeMap[currentTab] || 'cash',
+    bankName: bankName || undefined,
+    branch: branch || undefined,
+    chequeNo: chequeNo || undefined,
+    chequeDate: chequeDate || undefined,
+    remarks: getFieldVal('rf-remark') || undefined,
+    installmentIndex: installmentIndex !== null ? installmentIndex : undefined,
+  };
+
+  const saveBtn = document.getElementById('rf-save-btn');
+  saveBtn.textContent = 'Saving…';
+  saveBtn.disabled = true;
+
+  try {
+    const res = await fetch(API_BASE + '/payments/receipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+
+    showMsg('Receipt ' + (data.data?.receipt_number || '') + ' created successfully!');
+    setTimeout(() => {
+      if (window.opener && !window.opener.closed) {
+        try { window.opener.ReportsPage && window.opener.ReportsPage.fetchPaymentFile(); } catch(e) {}
+      }
+      window.close();
+    }, 2200);
+  } catch (err) {
+    showMsg('Error: ' + err.message, true);
+    saveBtn.textContent = 'SAVE';
+    saveBtn.disabled = false;
+  }
+}
+
+function showMsg(msg, isError) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 18px;border-radius:6px;font-size:13px;font-weight:600;z-index:9999;box-shadow:0 4px 16px rgba(0,0,0,.25);' + (isError ? 'background:#c0392b;color:#fff;' : 'background:#1db5a0;color:#fff;');
+  d.textContent = (isError ? '✖ ' : '✔ ') + msg;
+  document.body.appendChild(d);
+  if (!isError) setTimeout(() => d.remove(), 3000);
+}
+</script>
+</body>
+</html>`;
+}
+
+// GET /api/payments/receipt-form/:consumerId — Serve standalone receipt entry form
+router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+    const token = (req.headers.authorization?.split(' ')[1] || req.query.token as string || '');
+
+    // 1. Consumer + financial summary
+    const consumerResult = await db.query(`
+      SELECT
+        c.id AS consumer_id,
+        c.registration_no,
+        c.salutation,
+        c.first_name || ' ' || COALESCE(c.last_name,'') AS consumer_name,
+        c.finance_bank,
+        c.loan_amount,
+        u.unit_number,
+        u.floor,
+        u.base_price_inr,
+        u.total_price_inr,
+        t.tower_name,
+        p.name AS project_name,
+        p.id AS project_id,
+        br.id AS booking_record_id,
+        pp.id AS payment_plan_id,
+        COALESCE(br.self_or_loan, 'self') AS self_or_loan,
+        COALESCE(br.plc_amount, 0) AS plc_amount,
+        COALESCE(br.other_charge_amount, 0) AS other_charge_amount,
+        COALESCE(bpt.cgst_amount, 0) AS cgst_amount,
+        COALESCE(bpt.sgst_amount, 0) AS sgst_amount,
+        COALESCE(bpt.cgst_amount, 0) + COALESCE(bpt.sgst_amount, 0) AS total_gst,
+        u.base_price_inr
+          + COALESCE(br.plc_amount, 0)
+          + COALESCE(br.other_charge_amount, 0)
+          + COALESCE(bpt.cgst_amount, 0)
+          + COALESCE(bpt.sgst_amount, 0) AS total_cost,
+        COALESCE((
+          SELECT SUM(r.amount_received_inr)
+          FROM receipts r
+          WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+        ), 0) AS total_paid,
+        u.base_price_inr
+          + COALESCE(br.plc_amount, 0)
+          + COALESCE(br.other_charge_amount, 0)
+          + COALESCE(bpt.cgst_amount, 0)
+          + COALESCE(bpt.sgst_amount, 0)
+          - COALESCE((
+            SELECT SUM(r.amount_received_inr)
+            FROM receipts r
+            WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+          ), 0) AS balance,
+        COALESCE((
+          SELECT SUM(r.interest_amount)
+          FROM receipts r
+          WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+        ), 0) AS interest_paid,
+        (SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1) AS company_name
+      FROM consumers c
+      LEFT JOIN booking_records br ON br.consumer_id = c.id
+      LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+      LEFT JOIN units u ON u.id = COALESCE(br.unit_id, pp.unit_id)
+      LEFT JOIN projects p ON p.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id
+      WHERE c.id = $1
+        AND u.id IS NOT NULL
+      ORDER BY COALESCE(br.created_at, pp.created_at) DESC
+      LIMIT 1
+    `, [consumerId]);
+
+    if (!consumerResult.rows[0]) {
+      return res.status(404).send('<h2>Consumer not found or no booking record exists.</h2>');
+    }
+    const consumer = consumerResult.rows[0];
+
+    // 2. Installments from plan_schedule_templates
+    const instResult = await db.query(`
+      SELECT DISTINCT ON (pst.installment_index)
+        pst.installment_index,
+        pst.installment_name,
+        pst.percentage,
+        COALESCE(pst.flat_amount_inr, 0) AS flat_amount
+      FROM plan_schedule_templates pst
+      WHERE pst.project_id = $1
+      ORDER BY pst.installment_index
+    `, [consumer.project_id]);
+
+    // 3. Banks
+    const banksResult = await db.query(`SELECT id, name FROM banks ORDER BY name`);
+
+    // 4. Users
+    const usersResult = await db.query(`SELECT id, name, email FROM users ORDER BY name LIMIT 50`);
+
+    const html = buildReceiptFormHtml(consumer, instResult.rows, banksResult.rows, usersResult.rows, token);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ── RECEIPT DETAIL PAGE (standalone HTML page) ─────────────────────────────────
+
+function buildReceiptDetailHtml(rows: any[]): string {
+  const fmtD = (d: any): string => {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  const fmtN = (n: any): string => parseFloat(String(n || 0)).toFixed(2);
+  const capitalizeMode = (mode: string): string => {
+    if (!mode) return '—';
+    const map: Record<string, string> = {
+      cheque: 'Cheque', neft_rtgs: 'Online', bank_transfer: 'Online',
+      upi: 'Online', cash: 'Cash', draft: 'Draft', card: 'Card', online: 'Online', neft: 'Online', rtgs: 'Online'
+    };
+    return map[mode.toLowerCase()] || mode;
+  };
+
+  const tdStyle  = `border:1px solid #dee2e6;padding:6px 8px;font-size:12px;`;
+  const dthStyle = `border:1px solid #2d4d7a;padding:5px 6px;text-align:center;font-size:11px;font-weight:bold;white-space:nowrap;`;
+  const dtdStyle = `border:1px solid #dee2e6;padding:4px 6px;font-size:11px;`;
+
+  const buildDetailRows = (r: any): any[] => {
+    const drows: any[] = [];
+    let sno = 1;
+    const basicAmt  = parseFloat(String(r.amount_received_inr || 0));
+    const basicCgst = basicAmt * 0.005;
+    const basicSgst = basicAmt * 0.005;
+    drows.push({ sno: sno++, installmentName: r.installment_name || '—', head: 'Basic Price', amount: basicAmt, cgst: basicCgst, sgst: basicSgst, netAmount: basicAmt });
+
+    if (parseFloat(String(r.plc_amount || 0)) > 0) {
+      const a = parseFloat(String(r.plc_amount)), c = a * 0.09, s = a * 0.09;
+      drows.push({ sno: sno++, installmentName: '', head: 'PLC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+    }
+    if (parseFloat(String(r.edc_amount || 0)) > 0) {
+      const a = parseFloat(String(r.edc_amount)), c = a * 0.09, s = a * 0.09;
+      drows.push({ sno: sno++, installmentName: '', head: 'EDC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+    }
+    if (parseFloat(String(r.idc_amount || 0)) > 0) {
+      const a = parseFloat(String(r.idc_amount)), c = a * 0.09, s = a * 0.09;
+      drows.push({ sno: sno++, installmentName: '', head: 'IDC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+    }
+    if (parseFloat(String(r.other_charge_amount || 0)) > 0) {
+      const a = parseFloat(String(r.other_charge_amount)), c = a * 0.09, s = a * 0.09;
+      drows.push({ sno: sno++, installmentName: '', head: r.other_charge_desc || 'Other Charge', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+    }
+    if (parseFloat(String(r.interest_amount || 0)) > 0) {
+      const a = parseFloat(String(r.interest_amount)), c = a * 0.005, s = a * 0.005;
+      drows.push({ sno: sno++, installmentName: '', head: 'Interest', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+    }
+    return drows;
+  };
+
+  if (!rows || rows.length === 0) {
+    return `<!DOCTYPE html><html><head><title>Receipt Detail</title></head><body style="font-family:Arial;padding:20px;">
+<div style="background:#1e3a5f;color:white;padding:10px 16px;border-radius:4px;font-weight:bold;font-size:14px;">RECEIPT DETAIL</div>
+<p style="margin-top:40px;color:#666;text-align:center;padding:40px;">No receipts found for this consumer.</p>
+<div style="margin-top:16px;"><button onclick="window.close()" style="background:#6c757d;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">CLOSE</button></div>
+</body></html>`;
+  }
+
+  const consumer = rows[0];
+  let totalAmount = 0, totalGst = 0, totalInterest = 0, totalExtraCharge = 0, totalNet = 0;
+  rows.forEach((r: any) => {
+    const amt   = parseFloat(String(r.amount_received_inr || 0));
+    const intr  = parseFloat(String(r.interest_amount || 0));
+    const extra = parseFloat(String(r.plc_amount || 0)) + parseFloat(String(r.edc_amount || 0))
+                + parseFloat(String(r.idc_amount || 0)) + parseFloat(String(r.other_charge_amount || 0));
+    // amt is inclusive of GST — GST is informational only, not added to net
+    totalAmount += amt; totalGst += amt * 0.01; totalInterest += intr; totalExtraCharge += extra;
+    totalNet += amt + intr + extra;
+  });
+
+  const receiptRowsHtml = rows.map((r: any, idx: number) => {
+    const amt   = parseFloat(String(r.amount_received_inr || 0));
+    const gst   = amt * 0.01; // back-calculated for display column only — inclusive in amt
+    const intr  = parseFloat(String(r.interest_amount || 0));
+    const extra = parseFloat(String(r.plc_amount || 0)) + parseFloat(String(r.edc_amount || 0))
+                + parseFloat(String(r.idc_amount || 0)) + parseFloat(String(r.other_charge_amount || 0));
+    const net   = amt + intr + extra;
+    const drows = buildDetailRows(r);
+    const dtotal = drows.reduce((acc: any, dr: any) => ({
+      amount: acc.amount + dr.amount, cgst: acc.cgst + dr.cgst,
+      sgst: acc.sgst + dr.sgst, net: acc.net + dr.netAmount
+    }), { amount: 0, cgst: 0, sgst: 0, net: 0 });
+    const bg = idx % 2 === 0 ? '#ffffff' : '#fef9f0';
+
+    const detailRowsHtml = drows.map((dr: any) => `
+        <tr>
+          <td style="${dtdStyle}text-align:center;">${dr.sno}</td>
+          <td style="${dtdStyle}">${dr.installmentName}</td>
+          <td style="${dtdStyle}">${dr.head}</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dr.amount)}</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dr.cgst)}</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dr.sgst)}</td>
+          <td style="${dtdStyle}text-align:right;font-weight:600;">${fmtN(dr.netAmount)}</td>
+        </tr>`).join('') + `
+        <tr style="background:#d0e8f0;font-weight:bold;">
+          <td colspan="3" style="${dtdStyle}text-align:right;">Total</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.amount)}</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.cgst)}</td>
+          <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.sgst)}</td>
+          <td style="${dtdStyle}text-align:right;font-weight:bold;">${fmtN(dtotal.net)}</td>
+        </tr>`;
+
+    return `
+    <tr style="background:${bg};vertical-align:top;">
+      <td style="${tdStyle}text-align:center;">${idx + 1}</td>
+      <td style="${tdStyle}">${r.receipt_number || '—'}</td>
+      <td style="${tdStyle}white-space:nowrap;">${fmtD(r.received_date)}</td>
+      <td style="${tdStyle}">${capitalizeMode(r.payment_method)}</td>
+      <td style="${tdStyle}text-align:right;">${fmtN(amt)}</td>
+      <td style="${tdStyle}text-align:right;">${fmtN(gst)}</td>
+      <td style="${tdStyle}text-align:right;">${fmtN(intr)}</td>
+      <td style="${tdStyle}text-align:right;">${fmtN(extra)}</td>
+      <td style="${tdStyle}text-align:right;font-weight:600;">${fmtN(net)}</td>
+      <td style="${tdStyle}">${r.entry_by || '—'}</td>
+      <td style="${tdStyle}white-space:nowrap;">${fmtD(r.created_at)}</td>
+      <td style="${tdStyle}padding:0;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">
+          <thead>
+            <tr style="background:#1e3a5f;color:white;">
+              <th style="${dthStyle}width:36px;">S.No</th>
+              <th style="${dthStyle}">Installment Name</th>
+              <th style="${dthStyle}">Head</th>
+              <th style="${dthStyle}text-align:right;">Amount</th>
+              <th style="${dthStyle}text-align:right;">CGST</th>
+              <th style="${dthStyle}text-align:right;">SGST</th>
+              <th style="${dthStyle}text-align:right;">Net Amount</th>
+            </tr>
+          </thead>
+          <tbody>${detailRowsHtml}</tbody>
+        </table>
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Receipt Detail — ${consumer.consumer_name}</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:Arial,sans-serif;font-size:12px;background:#f5f5f5;padding:16px;}
+    @media print{.no-print{display:none!important;}body{padding:0;background:#fff;}}
+  </style>
+</head>
+<body>
+  <div style="background:#1e3a5f;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px;">
+    <span style="font-weight:bold;font-size:14px;letter-spacing:.5px;">RECEIPT DETAIL</span>
+    <span><strong>Project:</strong> ${consumer.project_name}</span>
+    <span><strong>Name:</strong> ${consumer.consumer_name}</span>
+    <span><strong>Registration No.:</strong> ${consumer.registration_no}</span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid #dee2e6;border-top:none;background:white;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1200px;">
+      <thead>
+        <tr style="background:#2d5282;color:white;">
+          <th style="${tdStyle}text-align:center;background:#2d5282;color:white;font-weight:bold;">S.No</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Receipt No.</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Receipt Date</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Payment Mode</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;text-align:right;">Amount</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;text-align:right;">GST</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;text-align:right;">Interest</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;text-align:right;">Extra Charge Amount</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;text-align:right;">Net Amount</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Entry By</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Entry Date</th>
+          <th style="${tdStyle}background:#2d5282;color:white;font-weight:bold;">Detail</th>
+        </tr>
+      </thead>
+      <tbody>${receiptRowsHtml}</tbody>
+      <tfoot>
+        <tr style="background:#e8f4f8;font-weight:bold;">
+          <td colspan="3" style="${tdStyle}text-align:right;font-weight:bold;">Total</td>
+          <td style="${tdStyle}"></td>
+          <td style="${tdStyle}text-align:right;">${fmtN(totalAmount)}</td>
+          <td style="${tdStyle}text-align:right;">${fmtN(totalGst)}</td>
+          <td style="${tdStyle}text-align:right;">${fmtN(totalInterest)}</td>
+          <td style="${tdStyle}text-align:right;">${fmtN(totalExtraCharge)}</td>
+          <td style="${tdStyle}text-align:right;font-weight:bold;">${fmtN(totalNet)}</td>
+          <td colspan="3" style="${tdStyle}"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+  <div class="no-print" style="margin-top:16px;display:flex;gap:10px;">
+    <button onclick="window.print()" style="background:#1db5a0;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">PRINT</button>
+    <button onclick="window.close()" style="background:#6c757d;color:white;border:none;padding:10px 24px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">CLOSE</button>
+  </div>
+</body>
+</html>`;
+}
+
+// GET /api/payments/receipt-detail/:consumerId — Standalone receipt detail page
+router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+
+    const result = await db.query(`
+      SELECT
+        r.id,
+        r.receipt_number,
+        r.received_date,
+        r.payment_method,
+        r.amount_received_inr,
+        COALESCE(r.plc_amount, 0)          AS plc_amount,
+        COALESCE(r.edc_amount, 0)          AS edc_amount,
+        COALESCE(r.idc_amount, 0)          AS idc_amount,
+        COALESCE(r.interest_amount, 0)     AS interest_amount,
+        COALESCE(r.other_charge_amount, 0) AS other_charge_amount,
+        r.other_charge_desc,
+        r.installment_index,
+        r.status,
+        r.created_at,
+        COALESCE(u.name, 'System')                            AS entry_by,
+        COALESCE(pst.installment_name, 'General Payment')     AS installment_name,
+        c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
+        c.registration_no,
+        p.name  AS project_name,
+        un.unit_number,
+        t.tower_name
+      FROM receipts r
+      JOIN consumers c    ON c.id  = r.consumer_id
+      JOIN payment_plans pp ON pp.id = r.payment_plan_id
+      JOIN units un        ON un.id = pp.unit_id
+      JOIN projects p      ON p.id  = pp.project_id
+      LEFT JOIN towers t   ON t.id  = un.tower_id
+      LEFT JOIN users u    ON u.id  = r.received_by_user_id
+      LEFT JOIN LATERAL (
+        SELECT installment_name
+        FROM   plan_schedule_templates
+        WHERE  project_id       = p.id
+          AND  installment_index = r.installment_index
+        LIMIT 1
+      ) pst ON true
+      WHERE r.consumer_id = $1
+        AND r.status != 'cancelled'
+      ORDER BY r.received_date ASC, r.created_at ASC
+    `, [consumerId]);
+
+    const html = buildReceiptDetailHtml(result.rows);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (err) {
+    next(err);
   }
 });
 

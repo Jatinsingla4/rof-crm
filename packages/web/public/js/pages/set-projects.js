@@ -732,6 +732,8 @@ Object.assign(SPJPage, {
       carpetAreaSqft: formData.carpet_area_sqft ? parseFloat(formData.carpet_area_sqft) : null,
       superAreaSqft: formData.super_area_sqft ? parseFloat(formData.super_area_sqft) : null,
       balconyAreaSqft: formData.balcony_area_sqft ? parseFloat(formData.balcony_area_sqft) : null,
+      balconyRateInrSqft: formData.balcony_rate ? parseFloat(formData.balcony_rate) || null : null,
+      balconyRateCapInr: formData.balcony_cap ? parseFloat(formData.balcony_cap) || null : null,
       basePriceInr: basePriceValue,
       totalPriceInr: basePriceValue,  // Set equal to base price at creation time
       facing: formData.facing || undefined,

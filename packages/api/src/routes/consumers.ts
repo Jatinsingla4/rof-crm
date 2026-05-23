@@ -12,6 +12,7 @@ import multer from 'multer';
 import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
 import { AuthRequest } from '../index.js';
+import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -343,16 +344,22 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
     let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
-                        COALESCE(c.registration_no, br.registration_no) as registration_no, br.application_date as registration_date,
+                        COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
                         b.name as broker_name,
                         co.name as second_applicant_name,
                         p.name as project_name
                  FROM consumers c
                  LEFT JOIN units u ON c.allocated_unit_id = u.id
                  LEFT JOIN towers t ON u.tower_id = t.id
-                 LEFT JOIN booking_forms br ON br.consumer_id = c.id
+                 LEFT JOIN LATERAL (
+                   SELECT registration_no, booking_date, main_broker_id
+                   FROM booking_records WHERE consumer_id = c.id
+                   ORDER BY created_at DESC LIMIT 1
+                 ) br ON true
                  LEFT JOIN brokers b ON br.main_broker_id = b.id
-                 LEFT JOIN co_applicants co ON co.consumer_id = c.id
+                 LEFT JOIN LATERAL (
+                   SELECT name FROM co_applicants WHERE consumer_id = c.id LIMIT 1
+                 ) co ON true
                  LEFT JOIN projects p ON c.project_id = p.id
                  WHERE 1=1`;
     const params: any[] = [];
@@ -1033,7 +1040,27 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
           bpt.tds_amount, bpt.gst_interest_pct, bpt.s_tax_pct,
           b.name AS broker_name, b.rera_number AS broker_rera,
           e.name AS employee_name,
-          u2.name AS created_by_name
+          u2.name AS created_by_name,
+          COALESCE((
+            SELECT SUM(r.amount_received_inr)
+            FROM receipts r
+            WHERE r.consumer_id = c.id
+            AND r.status != 'cancelled'
+          ), 0) AS total_received_inr,
+          COALESCE((
+            SELECT json_agg(json_build_object(
+              'installment_index', rr.installment_index,
+              'total_paid', rr.total_paid
+            ))
+            FROM (
+              SELECT installment_index,
+                     SUM(amount_received_inr) AS total_paid
+              FROM receipts
+              WHERE consumer_id = c.id
+                AND status != 'cancelled'
+              GROUP BY installment_index
+            ) rr
+          ), '[]'::json) AS installment_payments
         FROM consumers c
         LEFT JOIN booking_records br
           ON br.consumer_id = c.id
@@ -1127,7 +1154,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     const projectId      = row.project_id     || null;
     const selectedPlan   = row.selected_plan_name || null;
 
-    const [templatesRes, allocationRes, dispatchRes] = await Promise.all([
+    const [templatesRes, allocationRes, dispatchRes, receiptsRes] = await Promise.all([
       projectId && selectedPlan
         ? db.query(
             `SELECT * FROM plan_schedule_templates
@@ -1144,6 +1171,20 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
         `SELECT * FROM document_dispatch WHERE consumer_id = $1 ORDER BY dispatched_at DESC`,
         [consumerId],
       ),
+      db.query(
+        `SELECT r.receipt_number, r.received_date, r.amount_received_inr,
+                r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
+                r.bank_name, r.branch, r.interest_amount, r.status,
+                COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
+                COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * 0.005)) AS sgst_amount,
+                COALESCE(d.demand_type, 'Booking') AS on_account_of
+         FROM receipts r
+         LEFT JOIN demands d ON d.id = r.demand_id
+         WHERE r.consumer_id = $1
+           AND r.status != 'cancelled'
+         ORDER BY r.received_date ASC, r.created_at ASC`,
+        [consumerId],
+      ),
     ]);
 
     const html = buildApplicantFileHtml(
@@ -1155,10 +1196,64 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       parkingRes.rows,
       templatesRes.rows,
       dispatchRes.rows,
+      receiptsRes.rows,
     );
 
+    // Persist to documents table on first view so it can be edited later
+    let applicantDocId: string | null = null;
+    try {
+      const existing = await db.query(
+        `SELECT id FROM documents WHERE document_type = 'applicant_file' AND consumer_id = $1 LIMIT 1`,
+        [consumerId]
+      );
+      if (existing.rows.length === 0) {
+        const docInsert = await db.query(
+          `INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
+           VALUES ('applicant_file', $1, $2, $1, 'applicant_file', 1, 0, FALSE, $3) RETURNING id`,
+          [consumerId, html, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']
+        );
+        applicantDocId = docInsert.rows[0].id;
+        await db.query(
+          `INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
+           VALUES ($1, 1, $2, TRUE, 'Original generation')`,
+          [applicantDocId, html]
+        );
+      } else {
+        applicantDocId = existing.rows[0].id;
+      }
+    } catch { /* non-fatal — don't block the response */ }
+
+    // Apply any active field overrides so edits persist across re-renders
+    let finalHtml = html;
+    if (applicantDocId) {
+      try {
+        const overridesRes = await db.query(
+          `SELECT field_key, current_value FROM document_field_overrides
+           WHERE document_id = $1 AND is_active = TRUE`,
+          [applicantDocId]
+        );
+        if (overridesRes.rows.length > 0) {
+          const overridesMap: Record<string, string> = {};
+          overridesRes.rows.forEach((o: { field_key: string; current_value: string }) => {
+            overridesMap[o.field_key] = o.current_value;
+          });
+          finalHtml = applyOverridesToHtml(html, overridesMap);
+          // Keep stored html_content in sync with override-applied version
+          await db.query(
+            `UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`,
+            [finalHtml, applicantDocId]
+          );
+        }
+      } catch { /* non-fatal */ }
+    }
+
+    const token = (req.headers.authorization?.split(' ')[1] || req.query.token as string || '');
+    const htmlWithEdit = applicantDocId
+      ? finalHtml.replace('</body>', buildEditScript(applicantDocId, token, 'applicant_file') + '\n</body>')
+      : finalHtml;
+
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
+    res.send(htmlWithEdit);
   } catch (err) {
     next(err);
   }

@@ -216,9 +216,15 @@
       </div>
 
       <div class="dd-link has-sub">Demand Raise <span class="arr">▶</span>
-        <div class="sub-dd">
-          <a class="dd-link" onclick="Router.navigate('/demand-raise')">Demand Raise</a>
+        <div class="sub-dd" style="min-width:190px">
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'stage'})">Stage Wise</a>
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'tower'})">Tower Wise</a>
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'customer'})">Customer Wise</a>
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'installment'})">Installment Wise</a>
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'unitstage'})">Unit / Stage Wise</a>
+          <div style="border-top:1px solid rgba(255,255,255,0.15);margin:4px 0"></div>
           <a class="dd-link" onclick="Router.navigate('/demands',{tab:'status'})">Demand Status</a>
+          <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'unraise'})">Demand Unraise</a>
         </div>
       </div>
 
@@ -286,7 +292,15 @@
       <div class="dd-link has-sub">Inventory <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:240px">
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'project-details'})">Project Details</a>
-          <a class="dd-link" onclick="Router.navigate('/reports',{tab:'inventory'})">Unit Status</a>
+          <div class="dd-link has-sub">Unit Status <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:220px">
+              <a class="dd-link" onclick="Router.navigate('/unit-status')">Project Wise</a>
+              <a class="dd-link" onclick="Router.navigate('/unit-status',{view:'tower'})">Tower Wise</a>
+              <a class="dd-link" onclick="Router.navigate('/unit-status',{view:'unit-type'})">Unit Type Wise</a>
+              <a class="dd-link" onclick="Router.navigate('/unit-status',{view:'inventory-summary'})">Inventory Summary Report</a>
+              <a class="dd-link" onclick="Router.navigate('/unit-status',{view:'availability'})">Availability Sheet</a>
+            </div>
+          </div>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-wise-plc'})">Unit Wise PLC</a>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-sold-area'})">Unit Sold/Availb. Area Wise</a>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'unit-cost'})">Unit Cost</a>
@@ -347,6 +361,7 @@
       </div>
 
       <div class="dd-sep"></div>
+      <a class="dd-link" onclick="Router.navigate('/reports/edits')">📝 Edits</a>
       <a class="dd-link" onclick="Router.navigate('/analytics')">📊 Analytics Dashboard</a>
 
     </div>

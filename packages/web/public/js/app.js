@@ -90,6 +90,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/facebook-inbox',    (p) => Pages.facebookInbox(p));
   Router.register('/instagram-inbox',   (p) => Pages.instagramInbox(p));
   Router.register('/reports',           (p) => Pages.reports(p));
+  Router.register('/reports/edits',     (p) => Pages.documentEdits(p));
   Router.register('/analytics',         (p) => Pages.analytics(p));
   Router.register('/leads',             (p) => Pages.leads(p));
   Router.register('/set-master',        (p) => Pages.setMaster(p));

@@ -40,18 +40,35 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         [unitId]
       );
 
-      if (unitResult.rows.length === 0 || unitResult.rows[0].status !== 'available') {
+      const unitStatus = unitResult.rows[0]?.status;
+      if (!unitStatus || !['available', 'booked'].includes(unitStatus)) {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'Unit not available for allocation' });
       }
 
-      // Create allocation
-      const allocationResult = await client.query(
-        `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks)
-         VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE), $6)
-         RETURNING id, allocated_date, allotment_date, remarks`,
-        [consumerId, unitId, projectId, req.userId, allotmentDate || null, remarks || null]
-      );
+      // Create or promote allocation.
+      // 'booked' units already have an allocation row (created during booking confirmation).
+      // Promote it to 'allotted' rather than inserting a duplicate.
+      let allocationResult;
+      if (unitStatus === 'booked') {
+        allocationResult = await client.query(
+          `UPDATE allocations
+           SET status = 'allotted',
+               allotment_date = COALESCE($1, CURRENT_DATE),
+               remarks = COALESCE($2, remarks),
+               updated_at = NOW()
+           WHERE consumer_id = $3 AND unit_id = $4 AND status = 'booked'
+           RETURNING id, allocated_date, allotment_date, remarks`,
+          [allotmentDate || null, remarks || null, consumerId, unitId]
+        );
+      } else {
+        allocationResult = await client.query(
+          `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks)
+           VALUES ($1, $2, $3, $4, COALESCE($5, CURRENT_DATE), $6)
+           RETURNING id, allocated_date, allotment_date, remarks`,
+          [consumerId, unitId, projectId, req.userId, allotmentDate || null, remarks || null]
+        );
+      }
 
       // Update unit status
       await client.query(
@@ -65,11 +82,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         [unitId, consumerId]
       );
 
-      // Log status change
+      // Log status change (use actual previous status, not hardcoded 'available')
       await client.query(
         `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason)
-         VALUES ($1, 'available', 'allotted', $2, 'Allotment created')`,
-        [unitId, req.userId]
+         VALUES ($1, $2, 'allotted', $3, 'Allotment created')`,
+        [unitId, unitStatus, req.userId]
       );
 
       await client.query('COMMIT');
@@ -133,13 +150,34 @@ router.get('/waitlist', async (req: AuthRequest, res: Response, next: NextFuncti
 // GET /api/allocations - List allocations
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, status = 'allotted', page = 1, pageSize = 20 } = req.query;
+    const { projectId, status, search, registrationNo, firstName, unitAddress, dateFrom, dateTo, page = 1, pageSize = 20 } = req.query;
 
-    let query = `SELECT a.id, a.consumer_id, a.unit_id, a.allocated_date, a.status,
-                        c.name as consumer_name, c.mobile, u.unit_number
+    let query = `SELECT a.id, a.consumer_id, a.unit_id,
+                        a.allocated_date, a.allotment_date, a.status, a.project_id,
+                        c.name as consumer_name, c.first_name, c.last_name, c.mobile,
+                        c.registration_no,
+                        u.unit_number, u.bhk_type,
+                        u.carpet_area_sqft, u.super_area_sqft,
+                        u.base_price_inr, u.total_price_inr,
+                        t.tower_name,
+                        p.name as project_name,
+                        COALESCE(co.name, 'N/A') as co_applicant_name,
+                        COALESCE(b.firm_name, 'Direct') as broker_company
                  FROM allocations a
                  JOIN consumers c ON a.consumer_id = c.id
                  JOIN units u ON a.unit_id = u.id
+                 LEFT JOIN towers t ON t.id = u.tower_id
+                 LEFT JOIN projects p ON p.id = a.project_id
+                 LEFT JOIN LATERAL (
+                   SELECT main_broker_id FROM booking_records
+                   WHERE consumer_id = a.consumer_id AND project_id = a.project_id
+                   ORDER BY created_at DESC LIMIT 1
+                 ) bk ON true
+                 LEFT JOIN brokers b ON b.id = bk.main_broker_id
+                 LEFT JOIN LATERAL (
+                   SELECT name FROM co_applicants
+                   WHERE consumer_id = a.consumer_id LIMIT 1
+                 ) co ON true
                  WHERE 1=1`;
 
     const params: any[] = [];
@@ -149,9 +187,42 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       params.push(projectId);
     }
 
-    if (status) {
+    if (status && status !== 'all') {
       query += ` AND a.status = $${params.length + 1}`;
       params.push(status);
+    } else if (!status) {
+      // Default: show allotted when no status specified (for allotment form tab)
+      query += ` AND a.status = 'allotted'`;
+    }
+
+    if (search) {
+      query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2})`;
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    if (registrationNo) {
+      query += ` AND c.registration_no ILIKE $${params.length + 1}`;
+      params.push(`%${registrationNo}%`);
+    }
+
+    if (firstName) {
+      query += ` AND c.first_name ILIKE $${params.length + 1}`;
+      params.push(`%${firstName}%`);
+    }
+
+    if (unitAddress) {
+      query += ` AND u.unit_number ILIKE $${params.length + 1}`;
+      params.push(`%${unitAddress}%`);
+    }
+
+    if (dateFrom) {
+      query += ` AND a.allotment_date >= $${params.length + 1}`;
+      params.push(dateFrom);
+    }
+
+    if (dateTo) {
+      query += ` AND a.allotment_date <= $${params.length + 1}`;
+      params.push(dateTo);
     }
 
     query += ` ORDER BY a.allocated_date DESC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;

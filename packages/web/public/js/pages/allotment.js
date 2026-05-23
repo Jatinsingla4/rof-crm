@@ -10,7 +10,7 @@ Pages.allotment = async function(params = {}) {
     <div class="tabs-line">
       <button class="tab-line active" data-group="allot" data-tab="allot" onclick="switchTab('allot','allot')">Allotment Form</button>
       <button class="tab-line" data-group="allot" data-tab="letter" onclick="switchTab('allot','letter');AllotmentPage.loadAllotmentList('letter-search-body')">Allotment Letter</button>
-      <button class="tab-line" data-group="allot" data-tab="search" onclick="switchTab('allot','search');AllotmentPage.loadAllotmentList()">Search Allotment</button>
+      <button class="tab-line" data-group="allot" data-tab="search" onclick="switchTab('allot','search');AllotmentPage.loadAllotmentList('allot-search-body')">Search Allotment</button>
       <button class="tab-line" data-group="allot" data-tab="shifting" onclick="switchTab('allot','shifting');AllotmentPage.loadShiftingList()">Unit Shifting</button>
       <button class="tab-line" data-group="allot" data-tab="cancel" onclick="switchTab('allot','cancel');AllotmentPage.loadCancellations()">Cancel Allotment</button>
       <button class="tab-line" data-group="allot" data-tab="waitlist" onclick="switchTab('allot','waitlist');AllotmentPage.loadWaitlist()">Waitlist</button>
@@ -24,7 +24,7 @@ Pages.allotment = async function(params = {}) {
         <div class="sp-body">
           <div class="sp-grid">
             <div class="fg"><label class="fl"><span class="r">*</span>Consumer</label>
-              <select class="fc" id="allot-consumer-sel">
+              <select class="fc" id="allot-consumer-sel" onchange="AllotmentPage.onConsumerChange()">
                 <option value="">— Select Consumer —</option>
               </select>
             </div>
@@ -78,27 +78,54 @@ Pages.allotment = async function(params = {}) {
 
     <!-- SEARCH ALLOTMENT TAB -->
     <div data-panel-group="allot" data-panel="search" style="display:none">
-      <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">Search Allotment</div></div>
-        <div class="sp-body">
-          <div class="sp-grid">
-            <div class="fg"><label class="fl">Consumer Name / Mobile</label><input class="fc" id="search-name" placeholder="Search…"></div>
-            <div class="fg"><label class="fl">Status</label>
-              <select class="fc" id="search-status">
-                <option value="">— All —</option>
-                <option value="allotted">Allotted</option>
-                <option value="agreement_signed">Agreement Signed</option>
-                <option value="possession_handed_over">Possession</option>
-                <option value="cancelled">Cancelled</option>
+      <div style="background:#fff;border:1px solid #dde1e7;border-radius:4px;margin-bottom:12px">
+        <div style="background:#e8f0fe;border-bottom:1px solid #dde1e7;padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
+          <span style="font-weight:700;font-size:13px;color:var(--primary,#1a73e8);letter-spacing:.5px">SEARCH ALLOTMENT</span>
+        </div>
+        <div style="padding:14px 16px 10px">
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;flex:1">
+              <label style="font-size:11.5px;color:#555;font-weight:600"><span style="color:var(--red,#d32f2f)">*</span>Project:</label>
+              <select class="fc" id="search-project" style="height:32px;font-size:12.5px;padding:0 8px">
+                <option value="">--Select--</option>
               </select>
             </div>
-            <div class="fg"><label class="fl">Project</label>
-              <select class="fc" id="search-project">
-                <option value="">— All Projects —</option>
-              </select>
+
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:140px;flex:1">
+              <label style="font-size:11.5px;color:#555;font-weight:600">Registration No.:</label>
+              <input class="fc" id="searchRegNo" placeholder="Registration No." style="height:32px;font-size:12.5px;padding:0 8px">
             </div>
+
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:130px;flex:1">
+              <label style="font-size:11.5px;color:#555;font-weight:600">First Name:</label>
+              <input class="fc" id="searchFirstName" placeholder="First Name" style="height:32px;font-size:12.5px;padding:0 8px">
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:130px;flex:1">
+              <label style="font-size:11.5px;color:#555;font-weight:600">Unit Address:</label>
+              <input class="fc" id="searchUnitAddress" placeholder="Unit Address" style="height:32px;font-size:12.5px;padding:0 8px">
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:220px;flex:1.4">
+              <label style="font-size:11.5px;color:#555;font-weight:600">Allotment Date:</label>
+              <div style="display:flex;align-items:center;gap:5px">
+                <div style="position:relative;flex:1">
+                  <span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;pointer-events:none">📅</span>
+                  <input type="date" class="fc" id="searchDateFrom" placeholder="From Date" style="height:32px;font-size:12px;padding:0 8px 0 26px">
+                </div>
+                <span style="color:#555;font-size:13px;flex-shrink:0">-</span>
+                <div style="position:relative;flex:1">
+                  <span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;pointer-events:none">📅</span>
+                  <input type="date" class="fc" id="searchDateTo" placeholder="To Date" style="height:32px;font-size:12px;padding:0 8px 0 26px">
+                </div>
+              </div>
+            </div>
+
           </div>
-          <button class="btn btn-fetch" style="margin-top:10px" onclick="AllotmentPage.loadAllotmentList('allot-search-body')">FETCH</button>
+          <div style="margin-top:12px">
+            <button class="btn btn-fetch" style="background:#1a73e8;color:#fff;border:none;padding:6px 22px;border-radius:3px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.3px" onclick="AllotmentPage.loadAllotmentList('allot-search-body')">FETCH</button>
+          </div>
         </div>
       </div>
       <div id="allot-search-body"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -344,6 +371,34 @@ const AllotmentPage = {
     } catch {}
   },
 
+  async onConsumerChange() {
+    const consumerId = document.getElementById('allot-consumer-sel')?.value;
+    if (!consumerId) {
+      document.getElementById('allot-project-sel').value = '';
+      document.getElementById('allot-unit-sel').value = '';
+      return;
+    }
+    try {
+      const res = await Api.get('/booking', { params: { consumer_id: consumerId, pageSize: 1 } });
+      const bookings = res.data || [];
+      if (!bookings.length) return;
+      const booking = bookings[0];
+      if (booking.project_id) {
+        const projectSel = document.getElementById('allot-project-sel');
+        projectSel.value = booking.project_id;
+        await this.onProjectChange();
+      }
+      if (booking.unit_id) {
+        setTimeout(() => {
+          const unitSel = document.getElementById('allot-unit-sel');
+          if (unitSel) unitSel.value = booking.unit_id;
+        }, 500);
+      }
+    } catch (err) {
+      console.warn('Could not fetch booking for consumer:', err.message);
+    }
+  },
+
   async onProjectChange() {
     const projectId = document.getElementById('allot-project-sel')?.value;
     if (!projectId) { this.loadAvailableUnits(); return; }
@@ -352,7 +407,7 @@ const AllotmentPage = {
 
   async loadAvailableUnits(projectId) {
     try {
-      const params = { status: 'available', pageSize: 300 };
+      const params = { status: 'booked', pageSize: 300 };
       if (projectId) params.projectId = projectId;
       const res = await Api.get('/units', { params });
       const list = res.data || res || [];
@@ -372,8 +427,20 @@ const AllotmentPage = {
     if (!el) return;
     try {
       const params = { page: 1, pageSize: 100 };
-      const statusSel = document.getElementById('search-status');
-      if (statusSel?.value) params.status = statusSel.value;
+      const isSearchTab = targetId === 'allot-search-body';
+      if (isSearchTab) {
+        params.status = 'all';
+        const regNo = document.getElementById('searchRegNo')?.value?.trim();
+        if (regNo) params.registrationNo = regNo;
+        const firstName = document.getElementById('searchFirstName')?.value?.trim();
+        if (firstName) params.firstName = firstName;
+        const unitAddr = document.getElementById('searchUnitAddress')?.value?.trim();
+        if (unitAddr) params.unitAddress = unitAddr;
+        const dateFrom = document.getElementById('searchDateFrom')?.value;
+        if (dateFrom) params.dateFrom = dateFrom;
+        const dateTo = document.getElementById('searchDateTo')?.value;
+        if (dateTo) params.dateTo = dateTo;
+      }
       const projSel = document.getElementById('search-project');
       if (projSel?.value) params.projectId = projSel.value;
 
@@ -387,22 +454,96 @@ const AllotmentPage = {
           `<option value="${a.id}">${a.consumer_name||a.consumerName||'—'} · ${a.unit_number||a.unitNumber||'Unit'}</option>`
         ).join('');
 
-      el.innerHTML = list.length === 0
-        ? '<div class="empty-state"><div class="empty-icon">📋</div><h3>No allotments found</h3></div>'
-        : `<table>
-            <thead><tr><th>S.No.</th><th>Consumer</th><th>Unit</th><th>Project</th><th>Allotment Date</th><th>Status</th><th>Action</th></tr></thead>
-            <tbody>
-              ${list.map((a,i) => `<tr>
-                <td>${i+1}</td>
-                <td class="td-bold">${a.consumer_name||a.consumerName||'—'}</td>
-                <td>${a.unit_number||a.unitNumber||'—'}</td>
-                <td style="font-size:10.5px">${a.project_name||a.projectName||'—'}</td>
-                <td style="font-size:10.5px">${Utils.date(a.allotment_date||a.allocated_date||a.allotmentDate||a.created_at)}</td>
-                <td>${Utils.chip(a.status||'allotted')}</td>
-                <td><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${a.consumer_id||a.consumerId}'})">View</button></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`;
+      if (isSearchTab) {
+        // Legacy-style Search Allotment results
+        const fmt = (n) => n != null ? Number(n).toLocaleString('en-IN') : 'N/A';
+        const fmtDec = (n) => n != null ? Number(n).toFixed(2) : 'N/A';
+        const fmtDate = (d) => {
+          if (!d) return '—';
+          const dt = new Date(d);
+          return `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}`;
+        };
+        const projectName = list.length > 0 ? (list[0].project_name || '') : '';
+        const allSameProject = list.every(r => r.project_name === projectName);
+        const headerLabel = projectName && allSameProject ? `PROJECT: ${projectName}` : (list.length > 0 ? 'ALL PROJECTS' : '');
+
+        el.innerHTML = list.length === 0
+          ? '<div style="padding:16px;color:#555">No allotments found.</div>'
+          : `<div style="background:#e8f0fe;border:1px solid #c5cfe8;border-bottom:none;padding:7px 14px;display:flex;align-items:center;justify-content:space-between">
+               <span style="font-weight:700;font-size:12.5px;color:#1a4a8a">${headerLabel}</span>
+             </div>
+             <div style="overflow-x:auto;border:1px solid #c5cfe8">
+               <table style="width:100%;border-collapse:collapse;min-width:1100px;font-size:12px">
+                 <thead>
+                   <tr style="background:#1a5276;color:#fff">
+                     <th style="padding:7px 6px;text-align:center;white-space:nowrap;font-weight:700;border:1px solid #154360">S.NO.</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">REGISTRATION NO</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">FIRST APPLICANT NAME</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">SECOND APPLICANT NAME</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">UNIT ADDRESS</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">BROKER COMPANY</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">UNIT TYPE</th>
+                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">AREA</th>
+                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">RATE</th>
+                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">BASIC PRICE</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">ALLOTMENT DATE</th>
+                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">ALLOTMENT LETTER TYPE1</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+                   ${list.map((a, i) => `
+                     <tr style="background:${i%2===0?'#fff':'#f4f8fc'}">
+                       <td style="padding:6px;text-align:center;border:1px solid #dde4ee">${i+1}</td>
+                       <td style="padding:6px;border:1px solid #dde4ee">${a.registration_no||'—'}</td>
+                       <td style="padding:6px;border:1px solid #dde4ee">
+                         <a href="javascript:void(0)"
+                            onclick="Router.navigate('/consumer',{id:'${a.consumer_id}'})"
+                            style="color:#1a6fc4;text-decoration:none;cursor:pointer"
+                            onmouseover="this.style.textDecoration='underline'"
+                            onmouseout="this.style.textDecoration='none'">
+                           ${a.first_name||a.consumer_name||'—'}
+                         </a>
+                       </td>
+                       <td style="padding:6px;border:1px solid #dde4ee;color:#555">${a.co_applicant_name||'N/A'}</td>
+                       <td style="padding:6px;border:1px solid #dde4ee">${a.unit_number||'—'}</td>
+                       <td style="padding:6px;border:1px solid #dde4ee">${a.broker_company||'Direct'}</td>
+                       <td style="padding:6px;border:1px solid #dde4ee">${a.bhk_type||'N/A'}</td>
+                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmtDec(a.carpet_area_sqft||a.super_area_sqft)}</td>
+                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmtDec(a.base_price_inr)}</td>
+                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmt(a.total_price_inr)}</td>
+                       <td style="padding:6px;white-space:nowrap;border:1px solid #dde4ee">${fmtDate(a.allotment_date||a.allocated_date)}</td>
+                       <td style="padding:6px;text-align:center;border:1px solid #dde4ee">
+                         <a href="javascript:void(0)"
+                            onclick="AllotmentPage.openAllotmentLetter('${a.consumer_id}','${a.id}')"
+                            style="color:#1a6fc4;text-decoration:none;cursor:pointer"
+                            onmouseover="this.style.textDecoration='underline'"
+                            onmouseout="this.style.textDecoration='none'">
+                           Allotment Letter
+                         </a>
+                       </td>
+                     </tr>`).join('')}
+                 </tbody>
+               </table>
+             </div>`;
+      } else {
+        // Simple table for allotment form / letter tabs
+        el.innerHTML = list.length === 0
+          ? '<div class="empty-state"><div class="empty-icon">📋</div><h3>No allotments found</h3></div>'
+          : `<table>
+              <thead><tr><th>S.No.</th><th>Consumer</th><th>Unit</th><th>Project</th><th>Allotment Date</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>
+                ${list.map((a,i) => `<tr>
+                  <td>${i+1}</td>
+                  <td class="td-bold">${a.consumer_name||a.consumerName||'—'}</td>
+                  <td>${a.unit_number||a.unitNumber||'—'}</td>
+                  <td style="font-size:10.5px">${a.project_name||a.projectName||'—'}</td>
+                  <td style="font-size:10.5px">${Utils.date(a.allotment_date||a.allocated_date||a.allotmentDate||a.created_at)}</td>
+                  <td>${Utils.chip(a.status||'allotted')}</td>
+                  <td><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${a.consumer_id||a.consumerId}'})">View</button></td>
+                </tr>`).join('')}
+              </tbody>
+            </table>`;
+      }
     } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
   },
 
@@ -619,6 +760,46 @@ const AllotmentPage = {
     document.getElementById('addr-consumer').value = '';
     document.getElementById('addr-form').style.display = 'none';
     document.getElementById('addr-result').innerHTML = '';
+  },
+
+  async openAllotmentLetter(consumerId, allotmentId) {
+    // Open blank tab synchronously (before any await) so popup blocker allows it
+    const newTab = window.open('about:blank', '_blank');
+    if (newTab) newTab.document.write('<p style="font-family:sans-serif;padding:20px">Generating allotment letter…</p>');
+    try {
+      Utils.info('Generating allotment letter…');
+      const res = await Api.post('/documents/generate', {
+        consumerId,
+        allocationId: allotmentId,
+        documentType: 'allotment_letter',
+      });
+      const docId = res.data?.documentId || res.documentId;
+      if (!docId) throw new Error('No document ID returned');
+
+      const token = Auth.getToken() || localStorage.getItem('rof-jwt') || '';
+      const htmlRes = await fetch(`/api/documents/${docId}/html`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!htmlRes.ok) throw new Error(`Failed to load document: ${htmlRes.status}`);
+      const rawText = await htmlRes.text();
+      let html = rawText;
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && parsed.data) html = parsed.data;
+      } catch (_) { /* already raw HTML */ }
+
+      if (newTab) {
+        newTab.document.open();
+        newTab.document.write(html);
+        newTab.document.close();
+      } else {
+        const blob = new Blob([html], { type: 'text/html' });
+        window.open(URL.createObjectURL(blob), '_blank');
+      }
+    } catch (err) {
+      if (newTab) newTab.close();
+      Utils.error('Failed to generate allotment letter: ' + err.message);
+    }
   },
 
   async generateLetters() {

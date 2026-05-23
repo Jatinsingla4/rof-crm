@@ -2201,7 +2201,13 @@ const BookingPage = {
     const basicCost = basicPrice * carpetArea;
     const hasPlc = document.getElementById('bk-has-plc-chk')?.checked || false;
     const plc = hasPlc ? parseFloat(document.getElementById('bk-plc-amount')?.value || 0) : 0;
-    const balcony = 50000; // Flat balcony charge
+    const selectedUnitId = document.querySelector('[name="unit_id"]')?.value;
+    const selectedUnit = this._units.find(u => u.id === selectedUnitId);
+    const balconyAreaSqft = parseFloat(selectedUnit?.balcony_area_sqft || 0);
+    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || 0);
+    const balconyCapInr = parseFloat(selectedUnit?.balcony_rate_cap_inr || 0);
+    let balcony = balconyAreaSqft * balconyRateInrSqft;
+    if (balconyCapInr > 0 && balcony > balconyCapInr) balcony = balconyCapInr;
     const scooterParking = 25000; // Flat scooter parking
     const totalUnitCost = basicCost + plc + balcony + scooterParking;
 
