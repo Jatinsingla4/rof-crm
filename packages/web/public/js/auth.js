@@ -64,9 +64,6 @@ const Auth = {
 
   requireAuth() {
     if (!this.isAuthenticated()) {
-      // Allow mock token for dev
-      const stored = this.getToken();
-      if (stored === 'mock-jwt-token') return true;
       this.logout();
       return false;
     }

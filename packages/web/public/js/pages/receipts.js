@@ -12,7 +12,7 @@ Pages.receipts = async function(params = {}) {
       <button class="tab-line active" data-group="rec" data-tab="entry" onclick="switchTab('rec','entry')">Receipt Generation</button>
       <button class="tab-line" data-group="rec" data-tab="print" onclick="switchTab('rec','print');ReceiptsPage.initPrintTab()">Receipt Print</button>
       <button class="tab-line" data-group="rec" data-tab="list" onclick="switchTab('rec','list');ReceiptsPage.loadList()">Receipt List</button>
-      <button class="tab-line" data-group="rec" data-tab="journal" onclick="switchTab('rec','journal');ReceiptsPage.loadJournals()">Journal Entry</button>
+      <button class="tab-line" data-group="rec" data-tab="journal" onclick="switchTab('rec','journal');ReceiptsPage.jeInit()">Journal Entry</button>
       <button class="tab-line" data-group="rec" data-tab="edit" onclick="switchTab('rec','edit');ReceiptsPage.loadEditSearch()">Edit Receipt</button>
       <button class="tab-line" data-group="rec" data-tab="cancel" onclick="switchTab('rec','cancel');ReceiptsPage.loadCancelSearch()">Cancel Receipt</button>
       <button class="tab-line" data-group="rec" data-tab="tds-report" onclick="switchTab('rec','tds-report');ReceiptsPage.loadTDSReport()">TDS Challan Report</button>
@@ -333,29 +333,349 @@ Pages.receipts = async function(params = {}) {
       </div>
     </div>
 
-    <!-- JOURNAL ENTRY TAB -->
+    <!-- JOURNAL ENTRY TAB (with inner sub-tabs) -->
     <div data-panel-group="rec" data-panel="journal" style="display:none">
-      <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">NEW JOURNAL ENTRY</div></div>
-        <div class="sp-body">
-          <div class="sp-grid">
-            <div class="fg" style="grid-column:span 2"><label class="fl">Consumer</label>
-              <select class="fc" id="jou-consumer-sel"><option value="">— Select —</option></select>
+
+      <!-- Inner sub-tab bar -->
+      <div style="display:flex;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:20px;overflow-x:auto;">
+        <button id="je-tab-entry" onclick="ReceiptsPage.switchJeTab('entry')"
+          style="padding:9px 18px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--teal);border-bottom:2px solid var(--teal);margin-bottom:-2px;">
+          Journal Entry
+        </button>
+        <button id="je-tab-dc" onclick="ReceiptsPage.switchJeTab('dc')"
+          style="padding:9px 18px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px;">
+          Debit / Credit
+        </button>
+        <button id="je-tab-report" onclick="ReceiptsPage.switchJeTab('report')"
+          style="padding:9px 18px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px;">
+          Journal Report
+        </button>
+        <button id="je-tab-reversal" onclick="ReceiptsPage.switchJeTab('reversal')"
+          style="padding:9px 18px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:#6b7280;border-bottom:2px solid transparent;margin-bottom:-2px;">
+          JV / Dr / Cr / Refund Reversal
+        </button>
+      </div>
+
+      <!-- SUB-PANEL 1: Journal Entry (3-step flow) -->
+      <div id="je-panel-entry">
+
+        <!-- ── STEP 1: Consumer Search ── -->
+        <div id="je-step-1">
+          <div style="font-size:13px;font-weight:700;color:var(--navy,#1a3a5c);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;">
+            JOURNAL ENTRY
+          </div>
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">*PROJECT:</label>
+              <select id="je-project-filter" class="fc" style="width:100%;"><option value="">All Projects</option></select>
             </div>
-            <div class="fg"><label class="fl">Entry Date</label><input type="date" class="fc" id="jou-date" value="${Utils.today()}"></div>
-            <div class="fg"><label class="fl">Ledger Head</label>
-              <select class="fc" id="jou-head">
-                <option>Waiver</option><option>Discount</option><option>Transfer Fee</option><option>Admin Charge</option>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">REGISTRATION NO.:</label>
+              <input type="text" id="je-reg-filter" class="fc" placeholder="Registration No." style="width:100%;">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">FIRST NAME:</label>
+              <input type="text" id="je-name-filter" class="fc" placeholder="First Name" style="width:100%;">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">UNIT ADDRESS:</label>
+              <input type="text" id="je-unit-filter" class="fc" placeholder="Unit Address" style="width:100%;">
+            </div>
+          </div>
+          <button id="je-fetch-btn" class="btn btn-fetch" style="margin-bottom:16px;" onclick="ReceiptsPage.jeFetch()">FETCH</button>
+          <div id="je-results-container" style="display:none;">
+            <div style="font-size:13px;font-weight:700;color:var(--navy,#1a3a5c);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">JOURNAL ENTRY</div>
+            <div id="je-project-label" style="font-size:12px;color:#555;margin-bottom:8px;"></div>
+            <div class="tbl-wrap">
+              <table>
+                <thead><tr style="background:#1a3a5c;color:#fff;">
+                  <th>S.NO</th><th>REGISTRATION NO.</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th><th>SELECT</th>
+                </tr></thead>
+                <tbody id="je-results-body"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── STEP 2: Entry Form ── -->
+        <div id="je-step-2" style="display:none;">
+          <div style="font-size:12px;color:#555;margin-bottom:10px;">
+            <strong>Transfer From :</strong>&nbsp;Project: <span id="je-from-project" style="color:var(--navy,#1a3a5c);font-weight:600;"></span>
+          </div>
+          <div class="tbl-wrap" style="margin-bottom:20px;">
+            <table>
+              <thead><tr style="background:#1a3a5c;color:#fff;"><th>S.NO</th><th>REGISTRATION NO.</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th><th>SELECT</th></tr></thead>
+              <tbody id="je-from-body"></tbody>
+            </table>
+          </div>
+          <div style="font-size:12px;color:#555;margin-bottom:10px;">
+            <strong>Transfer To :</strong>&nbsp;Project: <span id="je-to-project" style="color:var(--navy,#1a3a5c);font-weight:600;"></span>
+          </div>
+          <div class="tbl-wrap" style="margin-bottom:20px;">
+            <table>
+              <thead><tr style="background:#1a3a5c;color:#fff;"><th>REGISTRATION NO</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th></tr></thead>
+              <tbody id="je-to-body"></tbody>
+            </table>
+          </div>
+
+          <!-- GST toggle + form fields -->
+          <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:16px;align-items:end;margin-bottom:16px;">
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Service Tax / GST:</label>
+              <div style="display:flex;">
+                <button id="je-tax-none" onclick="ReceiptsPage.jeTaxToggle('none')"
+                  style="padding:6px 11px;border:1px solid #0d9488;background:#0d9488;color:#fff;cursor:pointer;font-size:12px;font-weight:500;border-radius:4px 0 0 4px;">
+                  Without Tax
+                </button>
+                <button id="je-tax-manual" onclick="ReceiptsPage.jeTaxToggle('manual')"
+                  style="padding:6px 11px;border:1px solid #0d9488;border-left:none;background:#fff;color:#0d9488;cursor:pointer;font-size:12px;font-weight:500;border-radius:0;">
+                  With Manual Tax
+                </button>
+                <button id="je-tax-auto" onclick="ReceiptsPage.jeTaxToggle('auto')"
+                  style="padding:6px 11px;border:1px solid #0d9488;border-left:none;background:#fff;color:#0d9488;cursor:pointer;font-size:12px;font-weight:500;border-radius:0 4px 4px 0;">
+                  With Auto Tax
+                </button>
+              </div>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Head Type</label>
+              <select id="je-head-type" class="fc" style="width:100%;">
+                <option value="">&lt;All&gt;</option>
+                <option value="agreement_value">Agreement Value</option>
+                <option value="basic">Basic</option>
+                <option value="other_charge">Other Charge</option>
+                <option value="plc">PLC</option>
+                <option value="ifms">IFMS</option>
+                <option value="interest">Interest</option>
+                <option value="addon_charge">Addon Charge</option>
+                <option value="excess">Excess</option>
               </select>
             </div>
-            <div class="fg"><label class="fl">Debit Amount</label><input type="number" class="fc" id="jou-debit" placeholder="0.00"></div>
-            <div class="fg"><label class="fl">Credit Amount</label><input type="number" class="fc" id="jou-credit" placeholder="0.00"></div>
-            <div class="fg" style="grid-column:span 2"><label class="fl">Remarks</label><input class="fc" id="jou-remarks"></div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Amount:</label>
+              <input type="number" id="je-amount" class="fc" placeholder="Amount" min="0" step="0.01" style="width:100%;">
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Adjustment Date:</label>
+              <input type="date" id="je-adj-date" class="fc" style="width:100%;">
+            </div>
           </div>
-          <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.submitJournal()">POST ENTRY</button>
+          <div style="margin-bottom:16px;">
+            <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Remarks (Max 1000)</label>
+            <textarea id="je-remarks" class="fc" maxlength="1000" rows="3" placeholder="Remarks" style="width:100%;box-sizing:border-box;resize:vertical;"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="je-continue-btn" class="btn btn-fetch" onclick="ReceiptsPage.jeContinue()">CONTINUE</button>
+            <button id="je-clear-btn" class="btn" style="background:#6b7280;color:#fff;" onclick="ReceiptsPage.jeClear()">CLEAR</button>
+          </div>
+        </div>
+
+        <!-- ── STEP 3: Debit/Credit Split ── -->
+        <div id="je-step-3" style="display:none;">
+          <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:16px;">
+
+            <!-- Debit panel -->
+            <div>
+              <div style="background:#1a3a5c;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;border-radius:4px 4px 0 0;">
+                <span id="je-debit-title">PROJECT – NAME [REG] (DEBIT)</span>
+              </div>
+              <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;overflow:hidden;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                  <thead><tr style="background:#e2e8f0;"><th style="padding:8px 10px;text-align:left;">S.No.</th><th style="padding:8px 10px;text-align:left;">Installment Name</th></tr></thead>
+                  <tbody id="je-debit-body"></tbody>
+                </table>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:600;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;">
+                <span>Balance: <span id="je-debit-balance" style="color:var(--navy,#1a3a5c);">0/-</span></span>
+                <span>Total: <span id="je-debit-total" style="color:var(--navy,#1a3a5c);">0.00/-</span></span>
+              </div>
+            </div>
+
+            <!-- Credit panel -->
+            <div>
+              <div style="background:#0d9488;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;border-radius:4px 4px 0 0;">
+                <span id="je-credit-title">PROJECT – NAME [REG] (CREDIT)</span>
+              </div>
+              <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
+                  <thead><tr style="background:#e2e8f0;">
+                    <th style="padding:8px 6px;">S.No.</th>
+                    <th>Installment Name</th><th>Inst. Date</th><th>Head Name</th>
+                    <th>Payable Amt</th><th>Payable CGST</th><th>Payable SGST</th>
+                    <th>Total Payable</th><th>Total Amount</th><th>ST%</th><th>CGST%</th><th>SGST%</th>
+                    <th>Select</th>
+                  </tr></thead>
+                  <tbody id="je-credit-body"></tbody>
+                </table>
+              </div>
+              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:600;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;">
+                <span>Balance: <span id="je-credit-balance" style="color:var(--navy,#1a3a5c);">0/-</span></span>
+                <span>Total: <span id="je-credit-total" style="color:var(--navy,#1a3a5c);">0.00/-</span></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="je-transfer-container" style="display:none;margin-top:4px;">
+            <button id="je-transfer-btn" onclick="Utils.info('Transfer feature coming soon')"
+              style="background:#e91e63;color:#fff;border:none;border-radius:6px;padding:10px 32px;font-weight:700;font-size:14px;cursor:pointer;letter-spacing:.5px;">
+              TRANSFER
+            </button>
+          </div>
+          <button id="je-back-btn" onclick="ReceiptsPage.jeGoStep(2)"
+            style="background:#6b7280;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:600;cursor:pointer;margin-top:12px;">
+            ← Back
+          </button>
+        </div>
+
+      </div>
+
+      <!-- SUB-PANEL 2: Debit / Credit (placeholder) -->
+      <div id="je-panel-dc" style="display:none">
+        <div class="sp">
+          <div class="sp-hdr"><div class="sp-title">DEBIT / CREDIT NOTE</div></div>
+          <div class="sp-body">
+            <div class="sp-grid">
+              <div class="fg" style="grid-column:span 2">
+                <label class="fl">Consumer</label>
+                <select class="fc" id="dc-consumer"><option value="">— Select Consumer —</option></select>
+              </div>
+              <div class="fg">
+                <label class="fl">Type</label>
+                <div style="display:flex;gap:8px;margin-top:4px;">
+                  <button id="dc-type-debit" onclick="ReceiptsPage.dcSetType('debit',this)"
+                    style="flex:1;padding:8px;border-radius:6px;border:2px solid var(--teal);background:var(--teal);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">
+                    Debit
+                  </button>
+                  <button id="dc-type-credit" onclick="ReceiptsPage.dcSetType('credit',this)"
+                    style="flex:1;padding:8px;border-radius:6px;border:2px solid #d1d5db;background:#fff;color:#6b7280;font-size:12px;font-weight:700;cursor:pointer;">
+                    Credit
+                  </button>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Amount (₹)</label>
+                <input type="number" class="fc" id="dc-amount" placeholder="0.00" min="0" step="0.01">
+              </div>
+              <div class="fg">
+                <label class="fl">Reference No.</label>
+                <input type="text" class="fc" id="dc-ref" placeholder="Reference number">
+              </div>
+              <div class="fg" style="grid-column:span 2">
+                <label class="fl">Reason</label>
+                <textarea class="fc" id="dc-reason" rows="2" placeholder="Reason for adjustment" style="resize:vertical;"></textarea>
+              </div>
+            </div>
+            <button class="btn btn-fetch" style="margin-top:15px;background:var(--teal);" onclick="Utils.info('Feature coming soon')">POST DEBIT/CREDIT</button>
+          </div>
+        </div>
+        <div class="tbl-wrap" style="margin-top:20px">
+          <div class="tbl-hdr"><div class="tbl-title">Debit / Credit History</div></div>
+          <table>
+            <thead><tr><th>REF NO.</th><th>DATE</th><th>CONSUMER</th><th>TYPE</th><th>AMOUNT</th><th>REASON</th><th>STATUS</th></tr></thead>
+            <tbody id="dc-history-body">
+              <tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No records found</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-      <div id="jou-list"></div>
+
+      <!-- SUB-PANEL 3: Journal Report (placeholder) -->
+      <div id="je-panel-report" style="display:none">
+        <div class="sp">
+          <div class="sp-hdr"><div class="sp-title">JOURNAL REPORT</div></div>
+          <div class="sp-body">
+            <div class="sp-grid" style="grid-template-columns:1fr 1fr 1fr 1fr;">
+              <div class="fg">
+                <label class="fl">From Date</label>
+                <input type="date" class="fc" id="jr-from-date">
+              </div>
+              <div class="fg">
+                <label class="fl">To Date</label>
+                <input type="date" class="fc" id="jr-to-date">
+              </div>
+              <div class="fg">
+                <label class="fl">Project</label>
+                <select class="fc" id="jr-project"><option value="">All Projects</option></select>
+              </div>
+              <div class="fg">
+                <label class="fl">Ledger Head</label>
+                <select class="fc" id="jr-ledger-head">
+                  <option value="">All Heads</option>
+                  <option>Waiver</option><option>Discount</option><option>Transfer Fee</option><option>Admin Charge</option>
+                </select>
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:15px;">
+              <button class="btn btn-fetch" onclick="Utils.info('Feature coming soon')">FETCH</button>
+              <button class="btn" style="background:#fff;border:1px solid var(--teal);color:var(--teal);" onclick="Utils.info('Feature coming soon')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0;">
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Debit</div>
+            <div id="jr-total-debit" style="font-size:22px;font-weight:700;color:#16a34a;">₹0</div>
+          </div>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Credit</div>
+            <div id="jr-total-credit" style="font-size:22px;font-weight:700;color:#dc2626;">₹0</div>
+          </div>
+          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Net Balance</div>
+            <div id="jr-net-balance" style="font-size:22px;font-weight:700;color:#1d4ed8;">₹0</div>
+          </div>
+        </div>
+        <div class="tbl-wrap">
+          <table id="jr-table">
+            <thead><tr><th>S.NO.</th><th>ENTRY NO.</th><th>DATE</th><th>CONSUMER</th><th>LEDGER HEAD</th><th>DEBIT (₹)</th><th>CREDIT (₹)</th><th>REMARKS</th><th>STATUS</th></tr></thead>
+            <tbody id="jr-body">
+              <tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">Select filters and click FETCH</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SUB-PANEL 4: JV/Dr/Cr/Refund Reversal (placeholder) -->
+      <div id="je-panel-reversal" style="display:none">
+        <div class="sp">
+          <div class="sp-hdr"><div class="sp-title">JV / DR / CR / REFUND REVERSAL</div></div>
+          <div class="sp-body">
+            <div class="sp-grid" style="grid-template-columns:1fr 1fr 1fr;">
+              <div class="fg">
+                <label class="fl">Consumer</label>
+                <select class="fc" id="rv-consumer"><option value="">— Select Consumer —</option></select>
+              </div>
+              <div class="fg">
+                <label class="fl">Entry Type</label>
+                <select class="fc" id="rv-type">
+                  <option value="">All Types</option>
+                  <option value="JV">Journal Entry (JV)</option>
+                  <option value="DR">Debit Note (DR)</option>
+                  <option value="CR">Credit Note (CR)</option>
+                  <option value="REFUND">Refund</option>
+                </select>
+              </div>
+              <div class="fg">
+                <label class="fl">From Date</label>
+                <input type="date" class="fc" id="rv-from-date">
+              </div>
+            </div>
+            <button class="btn btn-fetch" style="margin-top:15px;" onclick="Utils.info('Feature coming soon')">FETCH ENTRIES</button>
+          </div>
+        </div>
+        <div class="tbl-wrap" style="margin-top:20px">
+          <table>
+            <thead><tr><th>S.NO.</th><th>ENTRY NO.</th><th>DATE</th><th>TYPE</th><th>CONSUMER</th><th>DEBIT (₹)</th><th>CREDIT (₹)</th><th>REMARKS</th><th>STATUS</th><th>ACTION</th></tr></thead>
+            <tbody id="rv-body">
+              <tr><td colspan="10" style="text-align:center;color:#888;padding:20px;">Select consumer and click FETCH ENTRIES</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:16px;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">
+          Only entries with status "Posted" can be reversed. Reversed entries cannot be reversed again.
+        </div>
+      </div>
+
     </div>
 
     <!-- TDS REPORT TAB -->
@@ -428,7 +748,7 @@ const ReceiptsPage = {
     try {
       const res = await Api.get('/consumers', { params: { page: 1, pageSize: 300 } });
       const list = res.data || res || [];
-      ['rec-consumer-sel', 'dup-consumer', 'jou-consumer-sel'].forEach(id => {
+      ['rec-consumer-sel', 'dup-consumer', 'dc-consumer', 'rv-consumer'].forEach(id => {
         const sel = document.getElementById(id);
         if (!sel) return;
         sel.innerHTML = '<option value="">— Select Consumer —</option>' +
@@ -447,7 +767,7 @@ const ReceiptsPage = {
     try {
       const res = await Api.get('/projects', { params: { pageSize: 100 } });
       const list = res.data || res || [];
-      ['hwc-project'].forEach(id => {
+      ['hwc-project', 'jr-project'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
           list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -864,48 +1184,339 @@ const ReceiptsPage = {
           </table>`;
     } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
   },
-  async loadJournals() {
-    const el = document.getElementById('jou-list');
-    if (!el) return;
-    el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
-    try {
-      const res = await Api.get('/payments/journals');
-      const list = res.data || res || [];
-      el.innerHTML = `
-        <div class="tbl-wrap" style="margin-top:20px">
-          <div class="tbl-hdr"><div class="tbl-title">Journal History</div></div>
-          <table>
-            <thead><tr><th>Ref No.</th><th>Date</th><th>Consumer</th><th>Head</th><th>Debit</th><th>Credit</th></tr></thead>
-            <tbody>
-              ${list.map(j => `<tr>
-                <td class="td-mono">${j.entry_number}</td>
-                <td>${Utils.date(j.entry_date)}</td>
-                <td class="td-bold">${j.consumer_name}</td>
-                <td>${j.ledger_head}</td>
-                <td style="color:var(--red)">${Utils.currency(j.debit_amount)}</td>
-                <td style="color:var(--teal)">${Utils.currency(j.credit_amount)}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>`;
-    } catch (err) { el.innerHTML = err.message; }
+  // ── JOURNAL ENTRY STATE MACHINE ─────────────────────────────
+  _jeStep: 1,
+  _jeConsumer: null,
+  _jeFormData: null,
+  _jeInstallments: [],
+  _jeTaxMode: 'none',
+
+  jeInit() {
+    this._jeStep = 1;
+    this._jeConsumer = null;
+    this._jeFormData = null;
+    this._jeInstallments = [];
+    this._jeTaxMode = 'none';
+    this.jeGoStep(1);
+    // Populate project filter
+    const pSel = document.getElementById('je-project-filter');
+    if (pSel && pSel.options.length <= 1) {
+      Api.get('/projects', { params: { pageSize: 100 } }).then(res => {
+        const list = res.data || res || [];
+        pSel.innerHTML = '<option value="">All Projects</option>' +
+          list.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
+      }).catch(() => {});
+    }
   },
 
-  async submitJournal() {
-    const data = {
-      consumerId: document.getElementById('jou-consumer-sel').value,
-      entryDate: document.getElementById('jou-date').value,
-      ledgerHead: document.getElementById('jou-head').value,
-      debitAmount: document.getElementById('jou-debit').value || 0,
-      creditAmount: document.getElementById('jou-credit').value || 0,
-      remarks: document.getElementById('jou-remarks').value
-    };
-    if (!data.consumerId) return Utils.warn('Select consumer');
+  jeGoStep(n) {
+    [1, 2, 3].forEach(i => {
+      const el = document.getElementById('je-step-' + i);
+      if (el) el.style.display = i === n ? '' : 'none';
+    });
+    this._jeStep = n;
+  },
+
+  async jeFetch() {
+    const projectId = document.getElementById('je-project-filter')?.value || '';
+    const reg       = document.getElementById('je-reg-filter')?.value.trim() || '';
+    const name      = document.getElementById('je-name-filter')?.value.trim() || '';
+    const unit      = document.getElementById('je-unit-filter')?.value.trim() || '';
+    const params    = { pageSize: 100 };
+    if (projectId) params.project_id = projectId;
+    if (reg)       params.search = reg;
+    else if (name) params.search = name;
+
+    const btn = document.getElementById('je-fetch-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
     try {
-      await Api.post('/payments/journals', data);
-      Utils.success('Journal entry posted');
-      this.loadJournals();
-    } catch (err) { Utils.error(err.message); }
+      const res  = await Api.get('/consumers', { params });
+      const list = res.data || res || [];
+      const container = document.getElementById('je-results-container');
+      const body      = document.getElementById('je-results-body');
+      if (!body) return;
+
+      const unitLower = unit.toLowerCase();
+      const filtered  = unitLower
+        ? list.filter(c => (c.unit_no || c.unit_number || '').toLowerCase().includes(unitLower))
+        : list;
+
+      // Build lookup map so onclick can pass just the UUID
+      ReceiptsPage._jeConsumerMap = {};
+      filtered.forEach(c => { ReceiptsPage._jeConsumerMap[c.id] = c; });
+
+      if (!filtered.length) {
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No consumers found</td></tr>';
+      } else {
+        body.innerHTML = filtered.map((c, i) => {
+          const displayName = c.name || ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || '—';
+          const regNo       = c.registration_no || c.reg_no || '—';
+          const unitType    = c.bhk_type || c.unit_type || '—';
+          const unitAddr    = c.unit_no || c.unit_number || c.unit_address || '—';
+          const paid        = c.total_paid != null ? Utils.currency(c.total_paid) : '—';
+          return `<tr style="cursor:pointer;" onmouseover="this.style.background='#f0f9ff'" onmouseout="this.style.background=''">
+            <td style="padding:8px 10px;text-align:center;">${i + 1}</td>
+            <td style="padding:8px 10px;font-family:monospace;">${Utils.esc(regNo)}</td>
+            <td style="padding:8px 10px;font-weight:600;">${Utils.esc(displayName)}</td>
+            <td style="padding:8px 10px;">${Utils.esc(unitType)}</td>
+            <td style="padding:8px 10px;">${Utils.esc(unitAddr)}</td>
+            <td style="padding:8px 10px;">${paid}</td>
+            <td style="padding:8px 10px;text-align:center;">
+              <button style="background:none;border:none;color:var(--teal,#0d9488);font-weight:600;cursor:pointer;padding:0;font-size:inherit;"
+                onclick="ReceiptsPage.jeSelectById('${c.id}')">Select</button>
+            </td>
+          </tr>`;
+        }).join('');
+      }
+
+      const projSel = document.getElementById('je-project-filter');
+      const projLabel = document.getElementById('je-project-label');
+      if (projLabel && projSel) {
+        const opt = projSel.options[projSel.selectedIndex];
+        projLabel.textContent = opt && opt.value ? 'Project: ' + opt.text : '';
+      }
+      if (container) container.style.display = '';
+    } catch (err) {
+      Utils.error(err.message || 'Failed to fetch consumers');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'FETCH'; }
+    }
+  },
+
+  jeSelectById(id) {
+    const consumer = this._jeConsumerMap?.[id];
+    if (!consumer) {
+      Utils.error('Consumer not found. Please fetch again.');
+      return;
+    }
+    this.jeSelectConsumer(consumer);
+  },
+
+  jeSelectConsumer(consumer) {
+    console.log('jeSelectConsumer called:', consumer);
+    const c = consumer;
+    this._jeConsumer = c;
+
+    const displayName = c.name || ((c.first_name || '') + ' ' + (c.last_name || '')).trim() || '—';
+    const regNo       = c.registration_no || c.reg_no || '—';
+    const unitType    = c.bhk_type || c.unit_type || '—';
+    const unitAddr    = c.unit_no || c.unit_number || c.unit_address || '—';
+    const paid        = c.total_paid != null ? Utils.currency(c.total_paid) : '—';
+
+    // Populate project spans
+    const projSel = document.getElementById('je-project-filter');
+    const projName = projSel && projSel.value
+      ? (projSel.options[projSel.selectedIndex]?.text || '')
+      : (c.project_name || '—');
+    const fromProj = document.getElementById('je-from-project');
+    const toProj   = document.getElementById('je-to-project');
+    if (fromProj) fromProj.textContent = projName;
+    if (toProj)   toProj.textContent   = projName;
+
+    const row = `<tr>
+      <td style="padding:8px 10px;text-align:center;">1</td>
+      <td style="padding:8px 10px;font-family:monospace;">${Utils.esc(regNo)}</td>
+      <td style="padding:8px 10px;font-weight:600;">${Utils.esc(displayName)}</td>
+      <td style="padding:8px 10px;">${Utils.esc(unitType)}</td>
+      <td style="padding:8px 10px;">${Utils.esc(unitAddr)}</td>
+      <td style="padding:8px 10px;">${paid}</td>
+      <td style="padding:8px 10px;text-align:center;color:var(--teal);">✓ Selected</td>
+    </tr>`;
+    const fromBody = document.getElementById('je-from-body');
+    if (fromBody) fromBody.innerHTML = row;
+
+    const toRow = `<tr>
+      <td style="padding:8px 10px;font-family:monospace;">${Utils.esc(regNo)}</td>
+      <td style="padding:8px 10px;font-weight:600;">${Utils.esc(displayName)}</td>
+      <td style="padding:8px 10px;">${Utils.esc(unitType)}</td>
+      <td style="padding:8px 10px;">${Utils.esc(unitAddr)}</td>
+      <td style="padding:8px 10px;">${paid}</td>
+    </tr>`;
+    const toBody = document.getElementById('je-to-body');
+    if (toBody) toBody.innerHTML = toRow;
+
+    // Default adjustment date to today
+    const adjDate = document.getElementById('je-adj-date');
+    if (adjDate) adjDate.value = Utils.today();
+
+    this.jeGoStep(2);
+  },
+
+  async jeContinue() {
+    const amount = document.getElementById('je-amount')?.value;
+    if (!amount || parseFloat(amount) <= 0) return Utils.warn('Enter a valid amount');
+
+    this._jeFormData = {
+      headType:   document.getElementById('je-head-type')?.value || '',
+      amount:     parseFloat(amount),
+      adjDate:    document.getElementById('je-adj-date')?.value || '',
+      remarks:    document.getElementById('je-remarks')?.value || '',
+      taxMode:    this._jeTaxMode,
+    };
+
+    const c = this._jeConsumer;
+    const displayName = c ? (c.name || ((c.first_name || '') + ' ' + (c.last_name || '')).trim()) : '—';
+    const regNo       = c ? (c.registration_no || c.reg_no || '—') : '—';
+    const projSel     = document.getElementById('je-project-filter');
+    const projName    = projSel && projSel.value ? (projSel.options[projSel.selectedIndex]?.text || '') : (c?.project_name || '—');
+
+    // Update panel titles
+    const debitTitle  = document.getElementById('je-debit-title');
+    const creditTitle = document.getElementById('je-credit-title');
+    if (debitTitle)  debitTitle.textContent  = `${projName} – ${displayName} [${regNo}] (DEBIT)`;
+    if (creditTitle) creditTitle.textContent = `${projName} – ${displayName} [${regNo}] (CREDIT)`;
+
+    // Fetch installments
+    let demands = [];
+    try {
+      if (c) {
+        const res = await Api.get('/payments/demands', { params: { consumerId: c.id, pageSize: 50 } });
+        demands = res.data || res || [];
+      }
+    } catch (_) {}
+    this._jeInstallments = demands;
+
+    // Build debit panel (simple name list)
+    const debitBody = document.getElementById('je-debit-body');
+    if (debitBody) {
+      if (!demands.length) {
+        debitBody.innerHTML = '<tr><td colspan="2" style="padding:10px;color:#888;text-align:center;">No installments found</td></tr>';
+      } else {
+        debitBody.innerHTML = demands.map((d, i) => `
+          <tr style="border-bottom:1px solid #f1f5f9;">
+            <td style="padding:7px 10px;text-align:center;">${i + 1}</td>
+            <td style="padding:7px 10px;">${Utils.esc(d.installment_name || ('Instalment ' + (d.installment_index || (i + 1))))}</td>
+          </tr>`).join('');
+      }
+    }
+
+    // Build credit panel (with amounts + checkbox)
+    const creditBody = document.getElementById('je-credit-body');
+    if (creditBody) {
+      if (!demands.length) {
+        creditBody.innerHTML = '<tr><td colspan="13" style="padding:10px;color:#888;text-align:center;">No installments found</td></tr>';
+      } else {
+        creditBody.innerHTML = demands.map((d, i) => {
+          const payable = parseFloat(d.amount_due_inr || d.amount_due || 0);
+          const cgst    = parseFloat(d.cgst_amount || 0);
+          const sgst    = parseFloat(d.sgst_amount || 0);
+          const total   = payable + cgst + sgst;
+          const date    = d.due_date ? Utils.date(d.due_date) : '—';
+          const head    = d.demand_type || d.installment_name || '—';
+          return `<tr style="border-bottom:1px solid #f1f5f9;">
+            <td style="padding:6px 6px;text-align:center;">${i + 1}</td>
+            <td style="padding:6px 8px;">${Utils.esc(d.installment_name || ('Instalment ' + (d.installment_index || (i + 1))))}</td>
+            <td style="padding:6px 8px;">${date}</td>
+            <td style="padding:6px 8px;">${Utils.esc(head)}</td>
+            <td style="padding:6px 8px;text-align:right;">${payable.toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;">${cgst.toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;">${sgst.toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:600;">${total.toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;">${total.toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:center;">—</td>
+            <td style="padding:6px 8px;text-align:center;">—</td>
+            <td style="padding:6px 8px;text-align:center;">—</td>
+            <td style="padding:6px 8px;text-align:center;">
+              <input type="checkbox" style="cursor:pointer;"
+                onchange="ReceiptsPage.jeUpdateCreditTotals()">
+            </td>
+          </tr>`;
+        }).join('');
+      }
+    }
+
+    // Reset totals
+    ['je-debit-balance','je-debit-total','je-credit-balance','je-credit-total'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = id.includes('balance') ? '0/-' : '0.00/-';
+    });
+    const tc = document.getElementById('je-transfer-container');
+    if (tc) tc.style.display = 'none';
+
+    this.jeGoStep(3);
+  },
+
+  jeUpdateCreditTotals() {
+    const checkboxes = document.querySelectorAll('#je-credit-body input[type="checkbox"]');
+    let checkedCount = 0;
+    let total = 0;
+    checkboxes.forEach((cb, i) => {
+      if (cb.checked) {
+        checkedCount++;
+        const d = this._jeInstallments[i];
+        if (d) {
+          const payable = parseFloat(d.amount_due_inr || d.amount_due || 0);
+          const cgst    = parseFloat(d.cgst_amount || 0);
+          const sgst    = parseFloat(d.sgst_amount || 0);
+          total += payable + cgst + sgst;
+        }
+      }
+    });
+    const creditTotal   = document.getElementById('je-credit-total');
+    const creditBalance = document.getElementById('je-credit-balance');
+    if (creditTotal)   creditTotal.textContent   = total.toFixed(2) + '/-';
+    if (creditBalance) creditBalance.textContent = checkedCount + '/-';
+
+    const tc = document.getElementById('je-transfer-container');
+    if (tc) tc.style.display = checkedCount > 0 ? '' : 'none';
+  },
+
+  jeTaxToggle(mode) {
+    this._jeTaxMode = mode;
+    const map = {
+      none:   'je-tax-none',
+      manual: 'je-tax-manual',
+      auto:   'je-tax-auto',
+    };
+    Object.entries(map).forEach(([key, id]) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const active = key === mode;
+      el.style.background = active ? '#0d9488' : '#fff';
+      el.style.color      = active ? '#fff'    : '#0d9488';
+    });
+  },
+
+  jeClear() {
+    this._jeConsumer     = null;
+    this._jeFormData     = null;
+    this._jeInstallments = [];
+    this._jeTaxMode      = 'none';
+    ['je-reg-filter','je-name-filter','je-unit-filter','je-amount','je-adj-date','je-remarks'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+    const pf = document.getElementById('je-project-filter');
+    if (pf) pf.selectedIndex = 0;
+    const rc = document.getElementById('je-results-container');
+    if (rc) rc.style.display = 'none';
+    this.jeTaxToggle('none');
+    this.jeGoStep(1);
+  },
+
+  switchJeTab(tabId) {
+    const panels = ['entry', 'dc', 'report', 'reversal'];
+    panels.forEach(id => {
+      const panel = document.getElementById('je-panel-' + id);
+      const btn   = document.getElementById('je-tab-' + id);
+      if (!panel || !btn) return;
+      const active = id === tabId;
+      panel.style.display = active ? '' : 'none';
+      btn.style.color        = active ? 'var(--teal)' : '#6b7280';
+      btn.style.borderBottom = active ? '2px solid var(--teal)' : '2px solid transparent';
+    });
+    if (tabId === 'entry') this.jeInit();
+  },
+
+  dcSetType(type, btn) {
+    ['dc-type-debit', 'dc-type-credit'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const isActive = el.id === btn.id;
+      el.style.background  = isActive ? 'var(--teal)' : '#fff';
+      el.style.color       = isActive ? '#fff'        : '#6b7280';
+      el.style.borderColor = isActive ? 'var(--teal)' : '#d1d5db';
+    });
   },
 
   async loadTDSReport() {
@@ -1212,7 +1823,7 @@ const ReceiptsPage = {
     const cList = consumers.data || consumers || [];
     this._consumers = cList;
     
-    const sels = ['rec-consumer-sel', 'dup-consumer', 'jou-consumer-sel'];
+    const sels = ['rec-consumer-sel', 'dup-consumer'];
     sels.forEach(id => {
       const el = document.getElementById(id);
       if (el) {
@@ -1224,7 +1835,7 @@ const ReceiptsPage = {
     if (params.tab) switchTab('rec', params.tab);
     if (params.tab === 'approval') this.loadApproval();
     if (params.tab === 'list') this.loadList();
-    if (params.tab === 'journal') this.loadJournals();
+    if (params.tab === 'journal') this.jeInit();
     if (params.tab === 'edit') this.loadEditSearch();
     if (params.tab === 'cancel') this.loadCancelSearch();
     if (params.tab === 'assign-tds') this.loadAssignTDS();

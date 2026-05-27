@@ -13,6 +13,7 @@ import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
+import { applyWaterfall } from '../utils/payment-waterfall.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,7 +139,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     } = req.body;
 
     const consumerMobile = mobile || req.body.mobile;
-    const consumerName   = name || `${first_name||''} ${last_name||''}`.trim() || 'Unknown';
+    const titleCase = (s: string) => s ? s.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
+    const consumerName   = name
+      ? titleCase(name)
+      : [first_name, last_name].filter(Boolean).map(titleCase).join(' ') || 'Unknown';
     const projId         = projectId || project_id || null;
     const incomeCat      = incomeCategory || income_category || null;
 
@@ -625,6 +629,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
            salutation          = COALESCE($46, salutation),
            first_name          = COALESCE($47, first_name),
            last_name           = COALESCE($48, last_name),
+           name                = REGEXP_REPLACE(TRIM(INITCAP(COALESCE($47, first_name)) || ' ' || INITCAP(COALESCE($48, last_name))), '\s+', ' ', 'g'),
            middle_name         = COALESCE($49, middle_name),
            dob                 = COALESCE($50, dob),
            gender              = COALESCE($51, gender),
@@ -1030,7 +1035,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
           c.form_no AS consumer_form_no, c.registration_no AS consumer_reg_no,
           c.income_category, c.lead_stage, c.annual_income,
           u.unit_number, u.floor, u.bhk_type,
-          u.carpet_area_sqft, u.super_area_sqft,
+          u.carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
           u.base_price_inr, u.total_price_inr, u.facing,
           t.tower_name,
           p.name AS project_name, p.location AS project_location,
@@ -1186,6 +1191,25 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
         [consumerId],
       ),
     ]);
+
+    // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
+    // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
+    const [wfRcptsRes, wfDemandsRes] = await Promise.all([
+      db.query(
+        `SELECT id, amount_received_inr, demand_id, installment_index, status
+         FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+        [consumerId]
+      ),
+      db.query(
+        `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+         FROM demands WHERE consumer_id = $1`,
+        [consumerId]
+      ),
+    ]);
+    row.installment_payments = applyWaterfall(wfRcptsRes.rows, wfDemandsRes.rows).map(w => ({
+      installment_index: w.installment_index,
+      total_paid: w.paid,
+    }));
 
     const html = buildApplicantFileHtml(
       row,

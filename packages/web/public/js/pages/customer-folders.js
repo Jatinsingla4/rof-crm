@@ -75,7 +75,7 @@ const CustomerFoldersPage = {
     const search = document.getElementById('cf-search')?.value?.toLowerCase() || '';
     const filtered = search
       ? this._all.filter(c => {
-          const name = `${c.first_name||''} ${c.last_name||c.name||''}`.toLowerCase();
+          const name = Utils.formatName(c.first_name, c.last_name, c.name).toLowerCase();
           const mobile = (c.mobile||c.phone||'').toLowerCase();
           return name.includes(search) || mobile.includes(search);
         })
@@ -95,7 +95,7 @@ const CustomerFoldersPage = {
 
     el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">` +
       list.map(c => {
-        const name = c.first_name ? `${c.first_name} ${c.last_name||''}`.trim() : c.name || 'Unknown';
+        const name = Utils.formatName(c.first_name, c.last_name, c.name);
         const stage = c.lead_stage || c.leadStage || 'enquiry';
         const docCount = c.document_count || c.documentCount || Math.floor(Math.random() * 8);
         return `

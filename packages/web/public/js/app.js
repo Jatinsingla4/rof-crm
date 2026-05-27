@@ -40,10 +40,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ── 2. AUTH GUARD ─────────────────────────────
   const isLoginPage = window.location.pathname.includes('login');
   if (!isLoginPage && !Auth.isAuthenticated()) {
-    // Allow mock token for dev
-    if (!localStorage.getItem(ROF.TOKEN_KEY)) {
-      localStorage.setItem(ROF.TOKEN_KEY, 'mock-jwt-token');
-    }
+    window.location.href = '/pages/login.html';
+    return;
   }
 
   // ── 3. TOPBAR ─────────────────────────────────

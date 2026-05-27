@@ -456,7 +456,20 @@ const UnitStatusPage = {
       return;
     }
 
-    const rows = units.map((u, i) => {
+    // Sort by project name to guarantee contiguous groups regardless of API ordering
+    const sortedUnits = [...units].sort((a, b) =>
+      (a.project_name || '').localeCompare(b.project_name || '')
+    );
+
+    // Pre-compute rowspan counts per project
+    const projectSpan = {};
+    sortedUnits.forEach(u => {
+      const p = u.project_name || 'Unknown';
+      projectSpan[p] = (projectSpan[p] || 0) + 1;
+    });
+    const projectEmitted = new Set();
+
+    const rows = sortedUnits.map((u, i) => {
       const bg       = this._STATUS_BG[u.status || 'available'] || '';
       const label    = this._STATUS_LABELS[u.status || 'available'] || (u.status || 'Available');
       const dateVal  = this._getStatusDate(u);
@@ -464,12 +477,6 @@ const UnitStatusPage = {
       const statusHtml = dateStr
         ? `${label}<br><span style="font-size:10.5px;color:#555">(${dateStr})</span>`
         : label;
-
-      const holdHtml = (u.hold_status || u.hold_client)
-        ? `<span style="color:#e67e22;font-size:11px;font-weight:600">${u.hold_client || 'Yes'}${
-            u.hold_expires_at ? '<br><span style="font-size:10px">' + this._fmtDate(u.hold_expires_at) + '</span>' : ''
-          }</span>`
-        : '';
 
       const floorLabel = u.floor != null ? this._ordinalFloor(u.floor) : '—';
       const regNo      = u.registration_no || '';
@@ -482,7 +489,15 @@ const UnitStatusPage = {
       const unitNo     = u.unit_number  || '—';
       const broker     = u.broker_name  || 'Direct';
 
+      const projName = u.project_name || 'Unknown';
+      let projectCell = '';
+      if (!projectEmitted.has(projName)) {
+        projectEmitted.add(projName);
+        projectCell = `<td rowspan="${projectSpan[projName]}" style="font-weight:700;font-size:11.5px;text-align:center;vertical-align:middle;background:#1a3a5c;color:#fff;letter-spacing:0.4px;padding:8px 10px;min-width:140px;border-right:2px solid #0f2744;white-space:nowrap">${projName}</td>`;
+      }
+
       return `<tr style="background:${bg}">
+        ${projectCell}
         <td>${i + 1}</td>
         <td>${regNo}</td>
         <td class="td-name">${name}</td>
@@ -496,7 +511,6 @@ const UnitStatusPage = {
         <td>N/A</td>
         <td>${broker}</td>
         <td class="td-status">${statusHtml}</td>
-        <td>${holdHtml}</td>
       </tr>`;
     }).join('');
 
@@ -507,6 +521,7 @@ const UnitStatusPage = {
       <table>
         <thead>
           <tr>
+            <th style="min-width:140px;text-align:center">PROJECT</th>
             <th>S.NO.</th>
             <th>REGISTRATION NO.</th>
             <th style="min-width:160px;text-align:left">NAME</th>
@@ -520,15 +535,14 @@ const UnitStatusPage = {
             <th>LOCATION</th>
             <th>BROKER</th>
             <th style="min-width:120px;text-align:left">STATUS</th>
-            <th>HOLD</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
         <tfoot>
           <tr>
-            <td colspan="7"><strong>TOTAL: ${units.length} units</strong></td>
+            <td colspan="8"><strong>TOTAL: ${units.length} units</strong></td>
             <td><strong>${totalArea.toFixed(3)}</strong></td>
-            <td colspan="6"></td>
+            <td colspan="5"></td>
           </tr>
         </tfoot>
       </table>

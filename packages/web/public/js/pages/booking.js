@@ -85,7 +85,7 @@ Pages.booking = async function(params = {}) {
             </select>
           </div>
           <div class="fg">
-            <label class="fl">Unit No.</label>
+            <label class="fl"><span class="r">*</span>Unit No.</label>
             <select class="fc" name="unit_id" id="bk-unit-select">
               <option value="">— Select project first —</option>
             </select>
@@ -103,7 +103,7 @@ Pages.booking = async function(params = {}) {
             <input class="fc" name="form_no" id="bk-form-no" placeholder="e.g. F-2026-001" maxlength="100">
           </div>
           <div class="fg">
-            <label class="fl">Payment Plan</label>
+            <label class="fl"><span class="r">*</span>Payment Plan</label>
             <select class="fc" name="payment_plan" id="bk-payment-plan">
               <option value="">— Select Plan —</option>
             </select>
@@ -1123,20 +1123,6 @@ Pages.booking = async function(params = {}) {
     </div>
     </form>
 
-    <!-- ── PREVIEW MODAL ─────────────────────────────────────── -->
-    <div id="bk-preview-modal" class="modal" style="display:none">
-      <div class="modal-content" style="max-width:600px">
-        <div class="modal-hdr">
-          <h2>Application Preview</h2>
-          <button class="btn-close" onclick="document.getElementById('bk-preview-modal').style.display='none'">×</button>
-        </div>
-        <div class="modal-body" id="bk-preview-body"></div>
-        <div class="modal-ftr">
-          <button class="btn btn-ghost" onclick="document.getElementById('bk-preview-modal').style.display='none'">Edit Details</button>
-          <button class="btn btn-teal" onclick="BookingPage.saveAndProceed()">Save and Process</button>
-        </div>
-      </div>
-    </div>
 
     <!-- ── MULTI APPLICANT MODAL ─────────────────────────────── -->
     <div id="bk-addl-modal-overlay" class="overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1200;align-items:center;justify-content:center">
@@ -1567,7 +1553,7 @@ const BookingPage = {
         const label = [u.unit_number, u.tower_name&&`Tower ${u.tower_name}`, u.floor&&`Floor ${u.floor}`, showBhk&&u.bhk_type, u.carpet_area_sqft&&`${u.carpet_area_sqft} sqft`].filter(Boolean).join(' | ');
         const isAvailable = !u.status || u.status === 'available';
         if (isAvailable) {
-          return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-price="${u.base_price||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;
+          return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-price="${u.base_price_inr||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;
         }
         return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — Booked</option>`;
       }).join('');
@@ -2189,46 +2175,190 @@ const BookingPage = {
   },
 
   async preview(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
+
+    const { missing, firstEl } = this._collectMissing();
+    if (missing.length > 0) {
+      this._showValidationPopup(missing, firstEl);
+      return;
+    }
+
+    // Preserve _bookingData for submit path compatibility
     const form = document.getElementById('booking-form');
     const fd = new FormData(form);
     this._bookingData = {};
     fd.forEach((v, k) => { if (v) this._bookingData[k] = v; });
 
-    // Granular Cost Breakdown
-    const basicPrice = parseFloat(this._bookingData.basic_price || 0);
-    const carpetArea = parseFloat(this._bookingData.carpet_area_sqft || 0);
-    const basicCost = basicPrice * carpetArea;
-    const hasPlc = document.getElementById('bk-has-plc-chk')?.checked || false;
-    const plc = hasPlc ? parseFloat(document.getElementById('bk-plc-amount')?.value || 0) : 0;
-    const selectedUnitId = document.querySelector('[name="unit_id"]')?.value;
-    const selectedUnit = this._units.find(u => u.id === selectedUnitId);
-    const balconyAreaSqft = parseFloat(selectedUnit?.balcony_area_sqft || 0);
-    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || 0);
-    const balconyCapInr = parseFloat(selectedUnit?.balcony_rate_cap_inr || 0);
-    let balcony = balconyAreaSqft * balconyRateInrSqft;
-    if (balconyCapInr > 0 && balcony > balconyCapInr) balcony = balconyCapInr;
-    const scooterParking = 25000; // Flat scooter parking
-    const totalUnitCost = basicCost + plc + balcony + scooterParking;
+    // Read helpers — use real field IDs / name selectors verified from the form
+    const qval  = sel => (document.querySelector(sel)?.value || '').trim();
+    const qtext = sel => { const el = document.querySelector(sel); return el ? (el.options?.[el.selectedIndex]?.text || el.value || '').trim() : ''; };
+    const gval  = id  => (document.getElementById(id)?.value || '').trim();
+    const gtext = id  => { const el = document.getElementById(id); return el ? (el.options?.[el.selectedIndex]?.text || el.value || '').trim() : ''; };
+    const gchk  = id  => document.getElementById(id)?.checked || false;
 
-    const modalBody = document.getElementById('bk-preview-body');
-    modalBody.innerHTML = `
-      <div style="margin-bottom:16px;font-size:13px;line-height:1.6;color:var(--text2)">
-        Please verify the granular cost breakdown and application details before final processing.
-      </div>
-      <div style="background:var(--surface2);padding:16px;border-radius:8px;border:1px solid var(--border)">
-        <h3 style="margin-bottom:12px;font-size:14px;color:var(--text)">Unit Cost Breakdown</h3>
-        <table style="width:100%;font-size:13px;border-collapse:collapse">
-          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Basic Cost</td><td style="text-align:right;font-weight:600">${Utils.currency(basicCost)}</td></tr>
-          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">PLC (Preferential Location)</td><td style="text-align:right;font-weight:600">${Utils.currency(plc)}</td></tr>
-          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Balcony Charges</td><td style="text-align:right;font-weight:600">${Utils.currency(balcony)}</td></tr>
-          <tr style="border-bottom:1px solid var(--border2)"><td style="padding:6px 0">Scooter Parking</td><td style="text-align:right;font-weight:600">${Utils.currency(scooterParking)}</td></tr>
-          <tr><td style="padding:10px 0;font-weight:700;color:var(--teal)">Total Unit Cost</td><td style="text-align:right;font-weight:700;font-size:15px;color:var(--teal)">${Utils.currency(totalUnitCost)}</td></tr>
-        </table>
-      </div>
-    `;
+    // ── Unit Information ────────────────────────────────────────
+    const projectName  = qtext('[name="project_id"]');
+    const unitNo       = gtext('bk-unit-select');
+    const bhkType      = qtext('[name="bhk_type"]');
+    const tower        = gtext('bk-tower') || '—';
+    const floor        = gtext('bk-floor') || '—';
+    const carpetAreaNum = parseFloat(gval('bk-carpet-area') || '0') || 0;
+    const bookingDate  = qval('[name="booking_date"]');
+    const planName     = gtext('bk-payment-plan');
+    const formNo       = gval('bk-form-no') || '—';
 
-    document.getElementById('bk-preview-modal').style.display = 'flex';
+    // ── First Applicant ─────────────────────────────────────────
+    const salutation = qtext('[name="salutation"]');
+    const firstName  = qval('[name="first_name"]');
+    const lastName   = qval('[name="last_name"]');
+    const fullName   = [(salutation && salutation !== '— Select —' ? salutation : ''), firstName, lastName].filter(Boolean).join(' ') || '—';
+    const mobile     = qval('[name="mobile"]');
+    const email      = qval('[name="email"]');
+    const pan        = qval('[name="pan_no"]') || '—';
+    const address    = qval('[name="present_address_line1"]') || '—';
+
+    // ── Payment ─────────────────────────────────────────────────
+    const paymentMode = gval('bk-payment-mode') || 'cheque';
+    const amtIdMap    = { cheque: 'bk-amt-cheque', draft: 'bk-amt-draft', online: 'bk-amt-online', cash: 'bk-amt-cash', card: 'bk-amt-card' };
+    const bookingAmt  = parseFloat(gval(amtIdMap[paymentMode] || '') || qval('[name="booking_amount"]') || '0') || 0;
+    const modeLabelMap = { cheque: 'Cheque', draft: 'Demand Draft', online: 'Online / NEFT', cash: 'Cash', card: 'Card', tds_challan: 'TDS Challan', adjust: 'Adjust' };
+    const paymentModeLabel = modeLabelMap[paymentMode] || paymentMode;
+    const refIdMap  = { cheque: 'bk-ref-cheque', draft: 'bk-ref-draft', online: 'bk-ref-online', card: 'bk-ref-card' };
+    const refNo     = gval(refIdMap[paymentMode] || '') || qval('[name="payment_ref"]') || '—';
+    const bankName  = qval('[name="bank_name"]') || '—';
+
+    // ── CGST / SGST (mode-specific suffix) ──────────────────────
+    const sfxMap = { cheque: '', draft: '-d', online: '-o', cash: '-c', card: '' };
+    const sfx    = sfxMap[paymentMode] || '';
+    const cgstPct = parseFloat(gval('bk-cgst-pct' + sfx) || '0.5') || 0.5;
+    const sgstPct = parseFloat(gval('bk-sgst-pct' + sfx) || '0.5') || 0.5;
+
+    // ── Costs ────────────────────────────────────────────────────
+    const basicPrice  = parseFloat(qval('[name="basic_price"]') || '0') || 0;
+    const basicCost   = basicPrice * carpetAreaNum;
+
+    const hasPLC  = gchk('bk-has-plc-chk');
+    const plcAmt  = hasPLC ? parseFloat(gval('bk-plc-amount') || '0') || 0 : 0;
+
+    const hasOther  = gchk('bk-has-other-chk');
+    const otherAmt  = hasOther ? parseFloat(gval('bk-other-charge-amount') || '0') || 0 : 0;
+    const otherDesc = hasOther ? (gval('bk-other-charge-desc') || 'Other Charges') : '';
+
+    const selectedUnitId     = document.querySelector('[name="unit_id"]')?.value;
+    const selectedUnit       = this._units?.find(u => u.id === selectedUnitId);
+    const balconyAreaSqft    = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
+    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || '0') || 0;
+    const balconyCapInr      = parseFloat(selectedUnit?.balcony_rate_cap_inr || '0') || 0;
+    let   balconyAmt         = balconyAreaSqft * balconyRateInrSqft;
+    if (balconyCapInr > 0 && balconyAmt > balconyCapInr) balconyAmt = balconyCapInr;
+
+    const subTotal    = basicCost + plcAmt + otherAmt + balconyAmt;
+    const cgstAmt     = subTotal * cgstPct / 100;
+    const sgstAmt     = subTotal * sgstPct / 100;
+    const grandTotal  = subTotal + cgstAmt + sgstAmt;
+
+    // ── Broker / Sales ───────────────────────────────────────────
+    const saleType  = document.getElementById('bk-booking-type')?.value === 'direct' ? 'Direct' : 'Broker';
+    const brokerName = gtext('bk-broker-id') || '—';
+    const salesExec  = qtext('[name="sales_employee_id"]') || '—';
+    const sourceEnq  = gtext('bk-source-sel') || '—';
+
+    // ── Format helpers ───────────────────────────────────────────
+    const fmt = n => '₹' + parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const row = (label, value, isTotal = false) =>
+      `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;">
+         <span style="color:#64748b;min-width:110px;flex-shrink:0">${label}</span>
+         <span style="font-weight:${isTotal ? '700' : '500'};color:${isTotal ? '#1a3a5c' : '#1e293b'};text-align:right;word-break:break-word;max-width:220px">${value || '—'}</span>
+       </div>`;
+    const hdr = title =>
+      `<div style="background:#f1f5f9;padding:8px 14px;font-size:11px;font-weight:700;color:#1a3a5c;text-transform:uppercase;letter-spacing:0.5px">${title}</div>`;
+    const card = (title, body) =>
+      `<div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">${hdr(title)}<div style="padding:10px 14px">${body}</div></div>`;
+
+    // ── Build overlay HTML ────────────────────────────────────────
+    const overlayHtml = `
+<div id="bk-preview-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:860px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;flex-direction:column">
+
+    <div style="background:#1a3a5c;color:#fff;padding:16px 24px;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <div>
+        <div style="font-size:16px;font-weight:700;letter-spacing:0.3px">BOOKING PREVIEW</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:2px">Please review all details before submitting</div>
+      </div>
+      <button onclick="document.getElementById('bk-preview-overlay').remove()" style="background:rgba(255,255,255,0.15);border:none;color:#fff;width:32px;height:32px;border-radius:50%;cursor:pointer;font-size:18px;line-height:1">✕</button>
+    </div>
+
+    <div style="padding:20px 24px;overflow-y:auto;flex:1">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        ${card('Unit Information',
+          row('Project', projectName) +
+          row('Unit No.', unitNo) +
+          row('BHK Type', bhkType) +
+          row('Tower', tower) +
+          row('Floor', floor) +
+          row('Carpet Area', carpetAreaNum > 0 ? carpetAreaNum + ' sq.ft.' : '—') +
+          row('Booking Date', bookingDate) +
+          row('Payment Plan', planName) +
+          row('Form No.', formNo)
+        )}
+        ${card('First Applicant',
+          row('Name', fullName) +
+          row('Mobile', mobile) +
+          row('Email', email) +
+          row('PAN No.', pan) +
+          row('Address', address)
+        )}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        ${card('Booking Payment',
+          row('Booking Amount', fmt(bookingAmt)) +
+          row('Payment Mode', paymentModeLabel) +
+          row('Cheque / Ref No.', refNo) +
+          row('Bank Name', bankName)
+        )}
+        ${card('Broker / Sales',
+          row('Sale Type', saleType) +
+          row('Broker', brokerName) +
+          row('Sales Executive', salesExec) +
+          row('Source of Enquiry', sourceEnq)
+        )}
+      </div>
+
+      <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:4px">
+        ${hdr('Cost Summary')}
+        <div style="padding:10px 14px">
+          ${basicCost > 0 ? row('Basic Cost (' + fmt(basicPrice) + '/sqft × ' + carpetAreaNum + ' sqft)', fmt(basicCost)) : ''}
+          ${hasPLC         ? row('PLC (Preferential Location)', fmt(plcAmt)) : ''}
+          ${hasOther       ? row(otherDesc || 'Other Charges', fmt(otherAmt)) : ''}
+          ${balconyAmt > 0 ? row('Balcony Charges', fmt(balconyAmt)) : ''}
+          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8"><span>Sub Total</span><span>${fmt(subTotal)}</span></div>
+          ${row('CGST (' + cgstPct + '%)', fmt(cgstAmt))}
+          ${row('SGST (' + sgstPct + '%)', fmt(sgstAmt))}
+          <div style="display:flex;justify-content:space-between;padding:10px 0 4px;font-size:15px;font-weight:700;color:#1a3a5c;border-top:2px solid #1a3a5c;margin-top:4px">
+            <span>Total Consideration</span><span>${fmt(grandTotal)}</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="padding:16px 24px;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:12px;flex-shrink:0;border-radius:0 0 12px 12px;background:#fff">
+      <button onclick="document.getElementById('bk-preview-overlay').remove()" style="background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer">Close</button>
+      <button id="bk-preview-save-btn" style="background:#1a3a5c;border:none;color:#fff;border-radius:8px;padding:10px 28px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:0.3px">Save and Proceed →</button>
+    </div>
+
+  </div>
+</div>`;
+
+    document.getElementById('bk-preview-overlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', overlayHtml);
+
+    document.getElementById('bk-preview-save-btn').addEventListener('click', async () => {
+      document.getElementById('bk-preview-overlay')?.remove();
+      await this.saveAndProceed();
+    });
   },
 
   // Returns true if ref is clear, false if duplicate was found (and modal shown)
@@ -2309,6 +2439,91 @@ const BookingPage = {
     });
   },
 
+  // Required fields shared by preview() and saveAndProceed()
+  _REQUIRED_FIELDS: [
+    { sel: '[name="project_id"]',            label: 'Project'          },
+    { sel: '[name="bhk_type"]',              label: 'Unit Type (BHK)'  },
+    { sel: '[name="booking_date"]',          label: 'Booking Date'     },
+    { sel: '#bk-unit-select',               label: 'Unit No.'         },
+    { sel: '#bk-payment-plan',              label: 'Payment Plan'     },
+    { sel: '[name="first_name"]',            label: 'First Name'       },
+    { sel: '[name="last_name"]',             label: 'Last Name'        },
+    { sel: '[name="email"]',                 label: 'Email'            },
+    { sel: '[name="mobile"]',                label: 'Mobile No.'       },
+    { sel: '[name="present_address_line1"]', label: 'Present Address'  },
+  ],
+
+  // Collect missing required fields; suppress Unit/Plan when Project is missing
+  _collectMissing() {
+    const projectEl = document.querySelector('[name="project_id"]');
+    const projectMissing = !projectEl?.value;
+
+    const missing = [];
+    let firstEl = null;
+    for (const { sel, label } of this._REQUIRED_FIELDS) {
+      // Unit and Plan are impossible to fill when Project is not chosen — skip them
+      if (projectMissing && (label === 'Unit No.' || label === 'Payment Plan')) continue;
+      // First/Last Name not required for Company applicant type
+      if ((label === 'First Name' || label === 'Last Name') && this._applicantType === 'company') continue;
+      const el = document.querySelector(sel);
+      if (!el) continue;
+      if (!(el.value || '').trim()) {
+        missing.push(label);
+        if (!firstEl) firstEl = el;
+      }
+    }
+    return { missing, firstEl };
+  },
+
+  // Show a validation summary popup listing all missing fields
+  _showValidationPopup(missing, firstEl) {
+    const existing = document.getElementById('bk-validation-popup');
+    if (existing) existing.remove();
+
+    const rows = missing.map((f, i) =>
+      `<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;${i < missing.length - 1 ? 'border-bottom:1px solid #fecaca;' : ''}">
+         <div style="width:6px;height:6px;background:#c0392b;border-radius:50%;flex-shrink:0"></div>
+         <span style="font-size:13.5px;font-weight:500;color:#374151">${f}</span>
+       </div>`
+    ).join('');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'bk-validation-popup';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:99999';
+    overlay.innerHTML = `
+      <div style="background:#ffffff;border-radius:16px;padding:0;min-width:360px;max-width:440px;width:90vw;box-shadow:0 20px 60px rgba(0,0,0,0.15),0 4px 16px rgba(0,0,0,0.08);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden">
+        <div style="background:#c0392b;padding:20px 28px 18px;display:flex;align-items:center;gap:12px">
+          <div style="width:32px;height:32px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div>
+            <h3 style="margin:0;font-size:15px;font-weight:700;color:#ffffff;letter-spacing:0.3px">Required Fields Missing</h3>
+            <p style="margin:2px 0 0;font-size:12px;color:rgba(255,255,255,0.8);font-weight:400">Please complete all required fields</p>
+          </div>
+        </div>
+        <div style="padding:24px 28px 0">
+          <p style="margin:0 0 16px;font-size:13px;color:#6b7280;line-height:1.5">The following fields cannot be empty before proceeding:</p>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:4px 0;margin-bottom:24px">${rows}</div>
+        </div>
+        <div style="padding:0 28px 24px;display:flex;justify-content:flex-end">
+          <button id="bk-val-ok-btn" style="background:#1a3a5c;color:#ffffff;border:none;border-radius:8px;padding:11px 40px;font-size:14px;font-weight:600;cursor:pointer;letter-spacing:0.5px;transition:background 0.2s" onmouseover="this.style.background='#0f2744'" onmouseout="this.style.background='#1a3a5c'">OK</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const scrollToFirst = () => {
+      if (!firstEl) return;
+      firstEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => firstEl.focus(), 450);
+    };
+    document.getElementById('bk-val-ok-btn').addEventListener('click', () => { overlay.remove(); scrollToFirst(); });
+    overlay.addEventListener('click', e => { if (e.target === overlay) { overlay.remove(); scrollToFirst(); } });
+  },
+
   // saveAndProceed — Step 1 submit: create consumer + booking (no payment), navigate to payment page
   async saveAndProceed() {
     // Close preview modal if open
@@ -2317,7 +2532,14 @@ const BookingPage = {
 
     // Collect fresh form data (works whether called from modal or direct button)
     const form = document.getElementById('booking-form');
-    if (!form.checkValidity()) { form.reportValidity(); return; }
+
+    // Collect all missing required fields and show summary popup if any
+    const { missing, firstEl } = this._collectMissing();
+    if (missing.length > 0) {
+      this._showValidationPopup(missing, firstEl);
+      return;
+    }
+
     const fd = new FormData(form);
     const body = {};
     fd.forEach((v, k) => { if (v) body[k] = v; });
@@ -2428,6 +2650,8 @@ const BookingPage = {
           other_charge_amount: parseFloat(body.other_charge_amount || 0),
           other_charge_desc: body.other_charge_desc || null,
           selected_plan_name: body.payment_plan || null,
+          basic_price: parseFloat(body.basic_price || 0),
+          carpet_area_sqft: parseFloat(body.carpet_area_sqft || 0),
           // booking_amount = 0 intentionally — signals pending_payment status
         });
         registrationNo  = bookingRes.data?.registration_no || bookingRes.registration_no || 'TBD';
@@ -2537,14 +2761,12 @@ const BookingPage = {
   },
 
   async confirmSubmit() {
-    document.getElementById('bk-preview-modal').style.display = 'none';
+    document.getElementById('bk-preview-overlay')?.remove();
     const body = this._bookingData;
 
     // Validate cheque/reference uniqueness before submitting
     const refOk = await this.validateChequeRef();
     if (!refOk) {
-      // User chose "Change Number" — re-open preview is unnecessary; just return
-      document.getElementById('bk-preview-modal').style.display = 'flex';
       return;
     }
 
@@ -2746,6 +2968,8 @@ const BookingPage = {
           cgst_amount: parseFloat(body.cgst_amount || 0),
           sgst_amount: parseFloat(body.sgst_amount || 0),
           tds_amount:  parseFloat(body.tds_amount || 0),
+          basic_price: parseFloat(body.basic_price || 0),
+          carpet_area_sqft: parseFloat(body.carpet_area_sqft || 0),
         });
         registrationNo  = bookingRes.data?.registration_no || bookingRes.registration_no || 'TBD';
         bookingRecordId = bookingRes.data?.id || bookingRes.id || null;

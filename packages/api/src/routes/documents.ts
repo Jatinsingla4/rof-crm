@@ -9,6 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { applyRecalc, extractFieldValue, buildEditScript } from '../utils/document-recalc.js';
 import { writebackField, WritebackContext } from '../utils/document-writeback.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
 
 const router = Router();
 
@@ -306,6 +307,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               al.allotment_date,
               br.booking_date,
               COALESCE(br.booking_amount, 0) AS booking_amount,
+              COALESCE(br.basic_rate_inr_sqft, 0) AS booking_basic_rate_inr_sqft,
+              COALESCE(br.carpet_area_sqft, 0) AS booking_carpet_area_sqft,
               COALESCE(br.payment_mode, '') AS booking_payment_mode,
               COALESCE(NULLIF(br.payment_ref, ''), '') AS booking_payment_ref,
               COALESCE(NULLIF(br.bank_name, ''), '') AS booking_bank_name,
@@ -375,7 +378,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
-                 WHERE r.payment_plan_id = $1 AND r.installment_index = pst.installment_index),
+                 WHERE r.demand_id = d.id AND r.status != 'cancelled'),
                 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
@@ -386,9 +389,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               AND pst.installment_index = d.installment_index
             WHERE d.payment_plan_id = $1
               AND d.status = 'demanded'
+              AND d.due_date IS NOT NULL
+              AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
           `;
-          const demandParams: any[] = [planId, projectId, planName];
+          const demandParams: any[] = [planId, projectId, planName, dueDate];
 
           // Fallback: only if no project could be resolved at all
           let demandsRes: any;
@@ -399,7 +404,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
                 d.amount_due_inr, d.cgst_amount, d.sgst_amount, d.due_date,
                 COALESCE(
                   (SELECT SUM(amount_received_inr) FROM receipts
-                   WHERE payment_plan_id = d.payment_plan_id AND installment_index = d.installment_index), 0
+                   WHERE demand_id = d.id AND status != 'cancelled'), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
                 COALESCE(pst2.percentage, 0) AS percentage
@@ -409,20 +414,43 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
                 ON pst2.project_id = pp2.project_id AND pst2.installment_index = d.installment_index
               WHERE d.consumer_id = $1
                 AND d.status = 'demanded'
+                AND d.due_date IS NOT NULL
+                AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
-            demandsRes = await db.query(fallbackQuery, [consumerId]);
+            demandsRes = await db.query(fallbackQuery, [consumerId, dueDate]);
           } else {
             demandsRes = await db.query(demandQuery, demandParams);
           }
 
+          // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
+          const [wfRcptsRes, wfDemandsRes] = await Promise.all([
+            db.query<WaterfallReceipt>(
+              `SELECT id, amount_received_inr, demand_id, installment_index, status,
+                      received_date, payment_method
+               FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+              [consumerId]
+            ),
+            db.query<WaterfallDemand>(
+              `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+               FROM demands WHERE consumer_id = $1`,
+              [consumerId]
+            ),
+          ]);
+          const allWfResults = applyWaterfall(wfRcptsRes.rows, wfDemandsRes.rows);
+          const wfMap = new Map(allWfResults.map(w => [w.demand_id, w.paid]));
+
           let totalDue = 0, totalPaid = 0, totalCgst = 0, totalSgst = 0;
           let totalInterestCalc = 0;  // always-calculated interest for with-interest mode
 
-          // Area-based split ratio for Basic Price vs Balcony Charges rows
-          const carpetSqft = parseFloat(plan.carpet_area_sqft || 0);
-          const balconySqft = parseFloat(plan.balcony_area_sqft || 0);
-          const totalAreaSqft = carpetSqft + balconySqft;
-          const basicRatio = totalAreaSqft > 0 ? carpetSqft / totalAreaSqft : 1;
+          // BSP amount-based split ratio for Basic Price vs Balcony Charges rows
+          const bookingBspRate   = parseFloat(plan.booking_basic_rate_inr_sqft || 0);
+          const bookingCarpetSqft = parseFloat(plan.booking_carpet_area_sqft   || 0);
+          const totalBsp = bookingBspRate > 0 && bookingCarpetSqft > 0
+            ? Math.round(bookingBspRate * bookingCarpetSqft)
+            : 0;
+          const basicRatio = totalBsp > 0 && totalAmountInr > 0
+            ? totalBsp / totalAmountInr
+            : 1;
 
           let rowsNoInterest = '';
           let rowsWithInterest = '';
@@ -446,10 +474,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               ? parseFloat(dm.sgst_amount || 0)
               : Math.round(installment * defaultSgstPct / 100);
             const totalGst = cgst + sgst;
-            // amount_due_inr is the inclusive total the consumer pays.
-            // cgst/sgst are informational breakdown only — not additive to totalDue.
-            const amtDue = installment;
-            const amtPaid = parseFloat(dm.amount_paid || 0);
+            const amtDue = installment + cgst + sgst;
+            // Use waterfall allocation (covers advance/booking receipts) with fallback to direct linkage.
+            // dm.demand_id is set by the main query alias; dm.id is set by fallback (d.*).
+            const dmId = dm.demand_id || dm.id || null;
+            const amtPaid = dmId ? (wfMap.get(dmId) ?? parseFloat(dm.amount_paid || 0)) : parseFloat(dm.amount_paid || 0);
 
             // Due date: from demand if raised, else calculate from allotment date + offset.
             // Milestone-based installments have offset_days = 0; they show '—' until demanded.
@@ -498,8 +527,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             const balconyCgst = cgst - basicCgst;
             const basicSgst = Math.round(sgst * basicRatio);
             const balconySgst = sgst - basicSgst;
-            const basicDue = basicAmt;
-            const balconyDue = balconyAmt;
+            const basicDue = basicAmt + basicCgst + basicSgst;
+            const balconyDue = balconyAmt + balconyCgst + balconySgst;
             const basicPaid = Math.round(amtPaid * basicRatio);
             const balconyPaid = amtPaid - basicPaid;
             const basicPayable = Math.max(0, basicDue - basicPaid);
@@ -573,11 +602,14 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             </tr>`;
           });
 
-          const totalPayable = Math.round(totalDue - totalPaid);  // no-interest (primary)
-          const totalPayableWithInterest = Math.round(totalDue - totalPaid + totalInterestCalc);
-          const ratePerSqft = plan.carpet_area_sqft > 0
-            ? Math.round((plan.base_price_inr || 0) / plan.carpet_area_sqft)
-            : 0;
+          // Guard against slight overpayment (advance receipt covers base+GST, totalDue tracks base only)
+          const totalPayable = Math.max(0, Math.round(totalDue - totalPaid));
+          const totalPayableWithInterest = Math.max(0, Math.round(totalDue - totalPaid + totalInterestCalc));
+          const ratePerSqft = parseFloat(plan.booking_basic_rate_inr_sqft || 0) > 0
+            ? Math.round(parseFloat(plan.booking_basic_rate_inr_sqft))
+            : (plan.carpet_area_sqft > 0
+              ? Math.round((plan.base_price_inr || 0) / plan.carpet_area_sqft)
+              : 0);
           const lastDemand = demandsRes.rows[demandsRes.rows.length - 1];
           // Compute last due date across all rows
           const lastDueDate = demandsRes.rows.reduce((acc: Date | null, dm: any) => {
@@ -670,6 +702,103 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             bookingBankName: plan.booking_bank_name || '',
             bookingChequeDate: plan.booking_cheque_date ? fmtDateIndia(plan.booking_cheque_date) : '',
           };
+
+          // ── ADVANCE PAYMENT ADJUSTMENT section ───────────────────────────────
+          // Build HTML for the section and store it for injection during post-processing.
+          // Computed here while wfRcptsRes, demandsRes, allWfResults, and totalPayable are in scope.
+          const advanceReceipts = wfRcptsRes.rows.filter(
+            r => !r.demand_id && r.installment_index === null && r.status !== 'cancelled'
+          );
+          const totalAdvancePool = advanceReceipts.reduce((s, r) => s + Number(r.amount_received_inr), 0);
+
+          let advanceSectionHtml = '';
+          if (totalAdvancePool > 0) {
+            // Identify the primary demand for this letter.
+            // Prefer the explicit demandIdFilter; fall back to the lowest-index demand in wfDemandsRes
+            // (use wfDemandsRes because it includes ALL statuses, not just 'demanded').
+            const primaryDemand = demandIdFilter
+              ? wfDemandsRes.rows.find((d: any) => d.id === demandIdFilter)
+              : wfDemandsRes.rows.slice().sort((a: any, b: any) => a.installment_index - b.installment_index)[0];
+            const currentDemandId: string | null = primaryDemand?.id ?? null;
+            const currentIndex: number = primaryDemand?.installment_index ?? 0;
+            const currentWf = currentDemandId ? allWfResults.find(w => w.demand_id === currentDemandId) : null;
+
+            // Walk the waterfall in index order to find how much of the pool went to this demand
+            let poolLeft = totalAdvancePool;
+            let advanceApplied = 0;
+            for (const w of allWfResults.slice().sort((a, b) => a.installment_index - b.installment_index)) {
+              const linkedAmt = wfRcptsRes.rows
+                .filter(r => r.demand_id === w.demand_id && r.status !== 'cancelled')
+                .reduce((s, r) => s + Number(r.amount_received_inr), 0);
+              const fromPool = Math.max(0, w.paid - linkedAmt);
+              if (w.demand_id === currentDemandId) {
+                advanceApplied = Math.min(fromPool, poolLeft);
+                break;
+              }
+              poolLeft = Math.max(0, poolLeft - fromPool);
+            }
+
+            // Advance consumed by all installments BEFORE the current one
+            const advanceUsedBefore = allWfResults
+              .filter(w => w.installment_index < currentIndex)
+              .reduce((s, w) => {
+                const lnk = wfRcptsRes.rows
+                  .filter(r => r.demand_id === w.demand_id && r.status !== 'cancelled')
+                  .reduce((a, r) => a + Number(r.amount_received_inr), 0);
+                return s + Math.max(0, w.paid - lnk);
+              }, 0);
+            const advanceRemaining = Math.max(0, totalAdvancePool - advanceUsedBefore - advanceApplied);
+
+            if (advanceApplied > 0) {
+              const fmtINR = (n: number) => '&#8377;' + Math.round(n).toLocaleString('en-IN');
+
+              const advanceSummary = advanceReceipts.map(r => {
+                const dt = r.received_date
+                  ? (() => {
+                      const d = r.received_date instanceof Date ? r.received_date : new Date(r.received_date as string);
+                      return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+                    })()
+                  : '&#8212;';
+                return `${r.payment_method || 'Receipt'} dated ${dt}`;
+              }).join(', ');
+
+              // Compute balance directly from waterfall — demandsRes may be empty for non-'demanded' demands
+              const demandTotalDue = primaryDemand
+                ? Number(primaryDemand.amount_due_inr) + Number(primaryDemand.cgst_amount) + Number(primaryDemand.sgst_amount)
+                : 0;
+              const balancePayable = Math.max(0, Math.round(demandTotalDue - (currentWf?.paid ?? 0)));
+              const isFullyCovered = currentWf?.fully_covered ?? false;
+              const noteText = isFullyCovered
+                ? 'This installment has been fully adjusted against your advance/booking payment. No further payment is required for this installment.'
+                : `${fmtINR(advanceApplied)} of your advance payment has been adjusted against this installment. Balance payable for this installment: ${fmtINR(balancePayable)}.`;
+
+              advanceSectionHtml = `
+<div style="margin:24px 0;border:1px solid #1a1a2e;border-radius:4px;overflow:hidden;font-family:Arial,sans-serif;font-size:12px;">
+  <div style="background:#1a1a2e;color:white;padding:8px 14px;font-weight:bold;font-size:12px;letter-spacing:0.5px;">ADVANCE PAYMENT ADJUSTMENT</div>
+  <div style="padding:14px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="padding:5px 8px;color:#555;width:65%;">Total Advance / Booking Amount Received<span style="font-size:10px;color:#888;display:block;">${advanceSummary}</span></td>
+        <td style="padding:5px 8px;text-align:right;font-weight:bold;">${fmtINR(totalAdvancePool)}</td>
+      </tr>
+      <tr style="background:#f8f8f8;">
+        <td style="padding:5px 8px;color:#555;">Applied to this installment</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:bold;color:#2a7a2a;">${fmtINR(advanceApplied)}</td>
+      </tr>
+      <tr>
+        <td style="padding:5px 8px;color:#555;border-top:1px solid #ddd;">Advance Balance Remaining (after this installment)</td>
+        <td style="padding:5px 8px;text-align:right;font-weight:bold;border-top:1px solid #ddd;color:${advanceRemaining > 0 ? '#c47a00' : '#888'};">${fmtINR(advanceRemaining)}</td>
+      </tr>
+    </table>
+    <div style="margin-top:12px;padding:10px 12px;background:${isFullyCovered ? '#f0fff0' : '#fffbf0'};border-left:3px solid ${isFullyCovered ? '#2a7a2a' : '#c47a00'};color:#333;font-size:11px;line-height:1.5;">
+      <strong>Note:</strong> ${noteText}
+    </div>
+  </div>
+</div>`;
+            }
+          }
+          // Store in mergeData so post-processing can inject it
+          (mergeData as Record<string, string>).__advanceSectionHtml = advanceSectionHtml;
         }
 
         // ── ALLOTMENT LETTER ─────────────────────────────────────────────────
@@ -1057,6 +1186,19 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           `<div id="para-no-interest">${originalAmtWords}</div>\n  ` +
           `<div id="para-with-interest" style="display:none">${withInterestAmtWords}</div>` +
           htmlContent.substring(amtWordsEnd);
+      }
+
+      // Inject advance payment adjustment section (computed in first demand_letter block, stored in mergeData)
+      const advanceSectionHtml = md.__advanceSectionHtml || '';
+      if (advanceSectionHtml) {
+        const payParaMarker = '<!-- Payment Para -->';
+        const payParaPos = htmlContent.indexOf(payParaMarker);
+        if (payParaPos !== -1) {
+          htmlContent =
+            htmlContent.substring(0, payParaPos) +
+            advanceSectionHtml + '\n\n  ' +
+            htmlContent.substring(payParaPos);
+        }
       }
     }
 

@@ -263,7 +263,7 @@ Pages.demandRaise = async function(params = {}) {
         </div>
         <div style="padding:20px">
           <div class="fg">
-            <label class="fl">Installment Date</label>
+            <label class="fl">Due Date</label>
             <input type="date" id="m-inst-date" class="fc" value="${Utils.today()}">
           </div>
           <div style="margin-top:20px;display:flex;gap:10px">
@@ -301,7 +301,7 @@ Pages.demandRaise = async function(params = {}) {
         <div style="padding:20px">
           <p id="sw-raise-label" style="font-size:13px;font-weight:600;margin-bottom:12px;color:#0056b3"></p>
           <div class="fg">
-            <label class="fl">Select Installment Date</label>
+            <label class="fl">Due Date</label>
             <input type="date" id="sw-inst-date" class="fc">
           </div>
           <p id="sw-raise-summary" style="font-size:11px;color:#555;margin-top:8px"></p>
@@ -726,7 +726,7 @@ const DemandRaisePage = {
   async submit() {
     const selected = Array.from(document.querySelectorAll('.row-sel:checked')).map(cb => cb.value);
     const instDate = document.getElementById('m-inst-date').value;
-    if (!instDate) return Utils.error('Please select an Installment Date');
+    if (!instDate) return Utils.error('Please select a Due Date');
 
     try {
       const res = await Api.patch('/payments/demands/activate', {
@@ -909,7 +909,7 @@ const StageWisePage = {
 
   async confirmRaise() {
     const instDate = document.getElementById('sw-inst-date')?.value;
-    if (!instDate) return Utils.warn('Please select an Installment Date');
+    if (!instDate) return Utils.warn('Please select a Due Date');
     if (this._pendingRaiseIds.length === 0) return Utils.warn('No pending demands to raise');
 
     this.closeRaiseModal();

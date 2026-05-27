@@ -4,6 +4,18 @@
 const Utils = {
   // ── FORMATTING ──────────────────────────────
 
+  toTitleCase(str) {
+    if (!str) return '';
+    return String(str).trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+  },
+
+  formatName(firstName, lastName, name) {
+    const raw = (firstName || lastName)
+      ? `${firstName || ''} ${lastName || ''}`.trim()
+      : (name || '');
+    return Utils.toTitleCase(raw) || 'Unknown';
+  },
+
   esc(str) {
     if (str == null) return '';
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');

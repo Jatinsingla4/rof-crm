@@ -7,6 +7,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
 
 const router = Router();
 
@@ -142,6 +143,7 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
       referenceNumber, bankName, branch, remarks,
       baseAmount, plcAmount, edcAmount, idcAmount,
       otherChargeAmount, otherChargeDesc, interestAmount,
+      isOtherPayment,
       // legacy fields
       paymentPlanId: legacyPlanId, installmentIndex: legacyIdx,
       paymentMethod, transactionRef, receivedDate,
@@ -178,9 +180,10 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
 
     // Get next installment_index for this plan (null if no plan; receipts.payment_plan_id is now nullable)
     let resolvedIdx: number | null = (legacyIdx != null ? Number(legacyIdx) : null);
-    if (resolvedPlanId && resolvedIdx == null) {
+    // Auto-increment only when a plan exists, no index given, AND it's not an explicit "Other" payment
+    if (resolvedPlanId && resolvedIdx == null && !isOtherPayment) {
       const idxResult = await db.query(
-        `SELECT COALESCE(MAX(installment_index), -1) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1`,
+        `SELECT COALESCE(MAX(installment_index), 0) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`,
         [resolvedPlanId]
       );
       resolvedIdx = idxResult.rows[0].next_idx;
@@ -214,22 +217,83 @@ router.post('/receipts', async (req: AuthRequest, res: Response, next: NextFunct
 
     const receiptId = result.rows[0].id;
 
-    // Non-fatal: auto-match receipt to open demand and mark it paid
+    // Auto-match receipt to demand, then apply partial/full/excess payment logic
     try {
-      const matchedDemand = await db.query(
-        `SELECT d.id FROM demands d
-         WHERE d.payment_plan_id = $1
-           AND d.installment_index = $2
-           AND d.status = 'demanded'
-           AND d.delivery_status != 'paid'
-         ORDER BY d.created_at ASC
-         LIMIT 1`,
-        [resolvedPlanId, resolvedIdx]
-      );
-      if (matchedDemand.rows[0]) {
-        const demandId = matchedDemand.rows[0].id;
-        await db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demandId, receiptId]);
-        await db.query(`UPDATE demands SET delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demandId]);
+      if (resolvedPlanId && resolvedIdx != null) {
+        const matchedDemand = await db.query(
+          `SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
+                  d.installment_index, d.consumer_id
+           FROM demands d
+           WHERE d.payment_plan_id = $1
+             AND d.installment_index = $2
+             AND d.status != 'paid'
+           ORDER BY d.created_at ASC
+           LIMIT 1`,
+          [resolvedPlanId, resolvedIdx]
+        );
+        if (matchedDemand.rows[0]) {
+          const demand = matchedDemand.rows[0];
+          await db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
+
+          // Sum all non-cancelled receipts linked to this demand
+          const paidResult = await db.query(
+            `SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
+             FROM receipts
+             WHERE demand_id = $1 AND status != 'cancelled'`,
+            [demand.id]
+          );
+          const totalPaid = parseFloat(paidResult.rows[0].total_paid);
+          const amountDue = parseFloat(demand.amount_due_inr)
+                          + parseFloat(demand.cgst_amount || 0)
+                          + parseFloat(demand.sgst_amount || 0);
+
+          if (totalPaid >= amountDue) {
+            // Fully paid (or excess)
+            await db.query(
+              `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
+              [demand.id]
+            );
+
+            const excess = totalPaid - amountDue;
+            if (excess > 0) {
+              // Find next unpaid demand in the same plan
+              const nextDemand = await db.query(
+                `SELECT id FROM demands
+                 WHERE payment_plan_id = $1
+                   AND consumer_id = $2
+                   AND installment_index > $3
+                   AND status != 'paid'
+                 ORDER BY installment_index ASC
+                 LIMIT 1`,
+                [resolvedPlanId, demand.consumer_id, demand.installment_index]
+              );
+              if (nextDemand.rows[0]) {
+                const nextId = nextDemand.rows[0].id;
+                const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
+                await db.query(
+                  `INSERT INTO receipts
+                     (consumer_id, payment_plan_id, demand_id, amount_received_inr,
+                      payment_method, received_date, received_by_user_id, receipt_number,
+                      plc_amount, status, approval_status, print_status,
+                      is_advance, advance_from_demand_id)
+                   VALUES ($1,$2,$3,$4,'advance',CURRENT_DATE,$5,$6,0,'pending','pending','not_printed',true,$7)`,
+                  [demand.consumer_id, resolvedPlanId, nextId, excess,
+                   req.userId, advanceNum, demand.id]
+                );
+                await db.query(
+                  `UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`,
+                  [excess, resolvedPlanId]
+                );
+              }
+            }
+          } else {
+            // Partial payment
+            await db.query(
+              `UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`,
+              [demand.id]
+            );
+          }
+        }
       }
     } catch (matchErr: any) {
       console.warn('Demand auto-match failed:', matchErr.message);
@@ -470,14 +534,19 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
                         u.unit_number as unit_address, u.bhk_type as unit_type, u.floor,
                         tw.tower_name,
                         p.name as project_name,
-                        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = c.id AND status = 'authorized') as total_paid
+                        COALESCE(pst.installment_name, 'Instalment ' || d.installment_index::text) AS installment_name,
+                        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = c.id AND status != 'cancelled') as total_paid
                  FROM demands d
                  JOIN consumers c ON d.consumer_id = c.id
                  JOIN payment_plans pp ON pp.id = d.payment_plan_id
                  JOIN units u ON u.id = pp.unit_id
                  JOIN projects p ON u.project_id = p.id
                  LEFT JOIN towers tw ON u.tower_id = tw.id
-                 LEFT JOIN booking_records br ON br.consumer_id = c.id
+                 LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id IS NOT NULL
+                 LEFT JOIN plan_schedule_templates pst
+                   ON pst.project_id = u.project_id
+                   AND pst.installment_index = d.installment_index
+                   AND pst.plan_name = br.selected_plan_name
                  WHERE 1=1`;
     const params: any[] = [];
 
@@ -584,7 +653,6 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
     const raisedIds: string[] = [];
     const skippedIds: { id: string; reason: string }[] = [];
     const dueDate = new Date(installmentDate);
-    dueDate.setDate(dueDate.getDate() + 15); // Legacy Rule: Due Date = Installment Date + 15 days
 
     for (const id of demandIds) {
       // 1. Load demand
@@ -604,7 +672,7 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
       }
 
       // 2. Sequential validation — skip (not throw) if prior stages pending
-      if (installment_index > 1) {
+      if (installment_index > 0) {
         const prevPending = await client.query(
           'SELECT id FROM demands WHERE consumer_id = $1 AND installment_index < $2 AND status = $3',
           [consumer_id, installment_index, 'pending']
@@ -621,6 +689,7 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
          SET status = 'demanded',
              due_date = $1,
              generated_at = NOW(),
+             raised_at = NOW(),
              delivery_status = 'queued'
          WHERE id = $2
          RETURNING id`,
@@ -635,6 +704,75 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
       );
 
       raisedIds.push(updateResult.rows[0].id);
+
+      // 4b. Retroactively link orphan receipts that targeted this installment_index
+      // (recorded before the demand existed: installment_index set, demand_id=NULL)
+      const retroResult = await client.query(
+        `UPDATE receipts
+         SET demand_id = $1, updated_at = NOW()
+         WHERE consumer_id = $2
+           AND installment_index = $3
+           AND demand_id IS NULL
+           AND status != 'cancelled'
+         RETURNING receipt_number, amount_received_inr`,
+        [id, consumer_id, installment_index]
+      );
+
+      if (retroResult.rows.length > 0) {
+        const totalLinked = retroResult.rows.reduce(
+          (s: number, r: any) => s + parseFloat(r.amount_received_inr), 0
+        );
+        try {
+          await client.query(
+            `INSERT INTO financial_audit_logs
+               (consumer_id, action_type, old_value, new_value, remarks)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [
+              consumer_id,
+              'receipts_retroactively_linked',
+              JSON.stringify({ demand_id: null }),
+              JSON.stringify({ demand_id: id }),
+              `${retroResult.rows.length} receipt(s) totalling ₹${totalLinked} retroactively linked to demand ${id} (installment_index=${installment_index})`,
+            ]
+          );
+        } catch (auditErr: any) {
+          console.error('Retro-link audit log failed (non-fatal):', auditErr.message);
+        }
+      }
+
+      // Waterfall check: if advance receipts already fully cover this demand, auto-mark paid
+      const [wfRcpts, wfDemands] = await Promise.all([
+        client.query<WaterfallReceipt>(
+          `SELECT id, amount_received_inr, demand_id, installment_index, status
+           FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+          [consumer_id]
+        ),
+        client.query<WaterfallDemand>(
+          `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+           FROM demands WHERE consumer_id = $1`,
+          [consumer_id]
+        ),
+      ]);
+
+      const wfResult = applyWaterfall(wfRcpts.rows, wfDemands.rows)
+        .find(w => w.demand_id === id);
+
+      if (wfResult?.fully_covered) {
+        await client.query(
+          `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
+          [id]
+        );
+        await client.query(
+          `INSERT INTO financial_audit_logs
+             (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
+           SELECT $1, pp.id, $2, 'demand_auto_paid',
+             '{"status":"demanded","delivery_status":"queued"}',
+             '{"status":"paid","delivery_status":"paid"}',
+             'Auto-marked paid: fully covered by advance/booking receipts via waterfall allocation'
+           FROM payment_plans pp WHERE pp.consumer_id = $1 LIMIT 1`,
+          [consumer_id, req.userId || null]
+        );
+      }
     }
 
     await client.query('COMMIT');
@@ -1296,7 +1434,8 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
 
     // 1. Get receipt details
     const receiptRes = await client.query(
-      `SELECT consumer_id, demand_id, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`,
+      `SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index
+       FROM receipts WHERE id = $1 FOR UPDATE`,
       [id]
     );
 
@@ -1305,7 +1444,21 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       return res.status(404).json({ error: 'Receipt not found' });
     }
 
-    const { consumer_id, demand_id, amount_received_inr } = receiptRes.rows[0];
+    let { consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index } = receiptRes.rows[0];
+
+    // 1b. If receipt has no payment_plan_id, fall back to linked demand's plan
+    if (!payment_plan_id && demand_id) {
+      const demandPlan = await client.query(
+        `SELECT payment_plan_id, installment_index FROM demands WHERE id = $1`,
+        [demand_id]
+      );
+      if (demandPlan.rows.length > 0) {
+        payment_plan_id = payment_plan_id || demandPlan.rows[0].payment_plan_id;
+        installment_index = installment_index ?? demandPlan.rows[0].installment_index;
+      }
+    }
+    // Use 999 as sentinel installment_index for penalty demands with no installment context
+    installment_index = installment_index ?? 999;
 
     // 2. Update receipt status
     await client.query(
@@ -1328,11 +1481,17 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']
     );
 
-    // 5. Create a "Penalty" demand
+    // 5. Create a "Penalty" demand (requires valid payment_plan_id — NOT NULL constraint)
+    if (!payment_plan_id) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Cannot raise penalty demand: receipt has no linked payment plan.' });
+    }
     await client.query(
-      `INSERT INTO demands (consumer_id, amount_due_inr, status, demand_type, due_date, remarks)
-       VALUES ($1, $2, 'pending', 'Cheque Bounce Penalty', CURRENT_DATE + INTERVAL '7 days', $3)`,
-      [consumer_id, penaltyAmount, 'Penalty for bounced receipt ' + id]
+      `INSERT INTO demands (
+         consumer_id, payment_plan_id, installment_index,
+         amount_due_inr, status, demand_type, due_date
+       ) VALUES ($1, $2, $3, $4, 'pending', 'bounce_penalty', CURRENT_DATE + INTERVAL '7 days')`,
+      [consumer_id, payment_plan_id, installment_index, penaltyAmount]
     );
 
     await client.query('COMMIT');
@@ -1385,13 +1544,63 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
       [id]
     );
 
-    // Step 2: Reverse demand delivery_status if linked and paid
+    // Step 2: Revert demand status AND delivery_status if linked and paid
     if (receipt.demand_id) {
       await client.query(
-        `UPDATE demands SET delivery_status = 'queued', updated_at = NOW()
+        `UPDATE demands
+         SET status = 'demanded', delivery_status = 'queued', updated_at = NOW()
          WHERE id = $1 AND delivery_status = 'paid'`,
         [receipt.demand_id]
       );
+    }
+
+    // Step 2b: Waterfall recheck — revert any demands no longer covered after cancellation
+    const [wfRcpts, wfDemands] = await Promise.all([
+      client.query(
+        `SELECT id, amount_received_inr, demand_id, installment_index, status
+         FROM receipts
+         WHERE consumer_id = $1 AND status != 'cancelled'`,
+        [receipt.consumer_id]
+      ),
+      client.query(
+        `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status, delivery_status
+         FROM demands
+         WHERE consumer_id = $1`,
+        [receipt.consumer_id]
+      ),
+    ]);
+
+    const wfResults = applyWaterfall(wfRcpts.rows as WaterfallReceipt[], wfDemands.rows as WaterfallDemand[]);
+
+    for (const wf of wfResults) {
+      if (!wf.fully_covered) {
+        const dbDemand = wfDemands.rows.find((d: any) => d.id === wf.demand_id);
+        if (dbDemand && (dbDemand.status === 'paid' || dbDemand.delivery_status === 'paid')) {
+          await client.query(
+            `UPDATE demands SET status = 'demanded', delivery_status = 'queued', updated_at = NOW()
+             WHERE id = $1`,
+            [wf.demand_id]
+          );
+          try {
+            await client.query(
+              `INSERT INTO financial_audit_logs
+                 (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [
+                receipt.consumer_id,
+                receipt.payment_plan_id,
+                req.userId || null,
+                'demand_revert_on_cancel',
+                JSON.stringify({ status: dbDemand.status, delivery_status: dbDemand.delivery_status }),
+                JSON.stringify({ status: 'demanded', delivery_status: 'queued' }),
+                `Demand reverted: covering advance receipt cancelled. Receipt: ${receipt.receipt_number}`,
+              ]
+            );
+          } catch (auditErr: any) {
+            console.error('Audit log failed (non-fatal):', auditErr.message);
+          }
+        }
+      }
     }
 
     // Step 3: Write audit log (non-fatal)
@@ -2206,9 +2415,10 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
   const today = new Date().toISOString().split('T')[0];
   const inp = `width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;box-sizing:border-box;height:30px;`;
 
-  const instOpts = installments.map((x: any) =>
-    `<option value="${x.installment_index}">${x.installment_name}</option>`
-  ).join('') + `<option value="-1">Other</option>`;
+  const instOpts = installments.map((x: any) => {
+    const isPaid = x.demand_status === 'paid' || x.demand_delivery_status === 'paid';
+    return `<option value="${x.installment_index}"${isPaid ? ' disabled style="color:#999;background:#f5f5f5;"' : ''}>${x.installment_name}${isPaid ? ' (Already Paid)' : ''}</option>`;
+  }).join('') + `<option value="-1">Other</option>`;
 
   const bankOpts = `<option value="">&lt;-Select-&gt;</option>` + banks.map((b: any) =>
     `<option value="${b.name}">${b.name}</option>`
@@ -2499,7 +2709,8 @@ async function saveReceipt() {
   if (!receiptDate) { showMsg('Please select receipt date', true); return; }
 
   const accountOfSel = document.getElementById('rf-account-of');
-  const installmentIndex = accountOfSel && accountOfSel.value !== '-1'
+  const isOther = !accountOfSel || accountOfSel.value === '-1';
+  const installmentIndex = !isOther && accountOfSel.value
     ? parseInt(accountOfSel.value)
     : null;
 
@@ -2531,6 +2742,10 @@ async function saveReceipt() {
     chequeDate: chequeDate || undefined,
     remarks: getFieldVal('rf-remark') || undefined,
     installmentIndex: installmentIndex !== null ? installmentIndex : undefined,
+    isOtherPayment: isOther || undefined,
+    otherChargeDesc: isOther
+      ? ((document.getElementById('rf-account-of-other')?.value || '').trim() || undefined)
+      : undefined,
   };
 
   const saveBtn = document.getElementById('rf-save-btn');
@@ -2646,17 +2861,22 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
     }
     const consumer = consumerResult.rows[0];
 
-    // 2. Installments from plan_schedule_templates
+    // 2. Installments from plan_schedule_templates with demand status for dropdown guard
     const instResult = await db.query(`
       SELECT DISTINCT ON (pst.installment_index)
         pst.installment_index,
         pst.installment_name,
         pst.percentage,
-        COALESCE(pst.flat_amount_inr, 0) AS flat_amount
+        COALESCE(pst.flat_amount_inr, 0) AS flat_amount,
+        COALESCE(d.status, 'pending') AS demand_status,
+        COALESCE(d.delivery_status, 'pending') AS demand_delivery_status
       FROM plan_schedule_templates pst
+      LEFT JOIN demands d
+        ON d.consumer_id = $2
+       AND d.installment_index = pst.installment_index
       WHERE pst.project_id = $1
       ORDER BY pst.installment_index
-    `, [consumer.project_id]);
+    `, [consumer.project_id, consumerId]);
 
     // 3. Banks
     const banksResult = await db.query(`SELECT id, name FROM banks ORDER BY name`);
@@ -2760,7 +2980,6 @@ function buildReceiptDetailHtml(rows: any[]): string {
 
     const detailRowsHtml = drows.map((dr: any) => `
         <tr>
-          <td style="${dtdStyle}text-align:center;">${dr.sno}</td>
           <td style="${dtdStyle}">${dr.installmentName}</td>
           <td style="${dtdStyle}">${dr.head}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dr.amount)}</td>
@@ -2769,7 +2988,7 @@ function buildReceiptDetailHtml(rows: any[]): string {
           <td style="${dtdStyle}text-align:right;font-weight:600;">${fmtN(dr.netAmount)}</td>
         </tr>`).join('') + `
         <tr style="background:#d0e8f0;font-weight:bold;">
-          <td colspan="3" style="${dtdStyle}text-align:right;">Total</td>
+          <td colspan="2" style="${dtdStyle}text-align:right;">Total</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.amount)}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.cgst)}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dtotal.sgst)}</td>
@@ -2793,7 +3012,6 @@ function buildReceiptDetailHtml(rows: any[]): string {
         <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">
           <thead>
             <tr style="background:#1e3a5f;color:white;">
-              <th style="${dthStyle}width:36px;">S.No</th>
               <th style="${dthStyle}">Installment Name</th>
               <th style="${dthStyle}">Head</th>
               <th style="${dthStyle}text-align:right;">Amount</th>
@@ -2890,7 +3108,17 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
         r.status,
         r.created_at,
         COALESCE(u.name, 'System')                            AS entry_by,
-        COALESCE(pst.installment_name, 'General Payment')     AS installment_name,
+        CASE
+          WHEN pst.installment_name IS NOT NULL
+            THEN pst.installment_name
+          WHEN r.installment_index IS NULL
+            AND r.other_charge_desc IS NOT NULL
+            AND r.other_charge_desc != ''
+            THEN r.other_charge_desc
+          WHEN r.installment_index IS NULL
+            THEN 'Booking Amount'
+          ELSE 'General Payment'
+        END                                                    AS installment_name,
         c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
         c.registration_no,
         p.name  AS project_name,

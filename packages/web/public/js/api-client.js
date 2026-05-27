@@ -3,7 +3,7 @@
 
 const Api = {
   _buildHeaders(extra = {}) {
-    const token = Auth.getToken() || 'mock-jwt-token';
+    const token = Auth.getToken();
     return {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
@@ -67,7 +67,7 @@ const Api = {
   },
 
   async uploadFile(path, formData) {
-    const token = Auth.getToken() || 'mock-jwt-token';
+    const token = Auth.getToken();
     const res = await fetch(`${ROF.API_BASE}${path}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },

@@ -162,9 +162,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
       cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
       selected_plan_name = null,
+      // Staff-entered unit pricing (migration 051)
+      basic_price = 0,        // rate ₹/sqft entered in the booking form
+      carpet_area_sqft = 0,   // carpet area submitted by the form
     } = req.body;
 
     if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
+    if (!unit_id || String(unit_id).trim() === '') return res.status(400).json({ error: 'Unit selection is required' });
+    if (!selected_plan_name || String(selected_plan_name).trim() === '') return res.status(400).json({ error: 'Payment plan is required' });
 
     const client = await db.connect();
     try {
@@ -184,6 +189,20 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         if (unitCheck.rows[0].status !== 'available') {
           throw new Error('Double Booking Prevented: Unit is no longer available');
         }
+      }
+
+      // Prevent duplicate bookings: consumer can only have one complete booking
+      const existingBooking = await client.query(
+        `SELECT br.id, u.unit_number FROM booking_records br
+         LEFT JOIN units u ON u.id = br.unit_id
+         WHERE br.consumer_id = $1 AND br.status = 'complete' LIMIT 1`,
+        [consumer_id]
+      );
+      if (existingBooking.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Consumer already has a completed booking for unit ${existingBooking.rows[0].unit_number}. Please cancel the existing booking first.`
+        });
       }
 
       // Generate registration and form numbers
@@ -212,12 +231,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
            invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan,
            interest_amount, dealer_adjustment_amount, tds_challan_id,
            selected_plan_name,
-           status
+           status,
+           basic_rate_inr_sqft, carpet_area_sqft
          ) VALUES (
            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,
            $24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,
            $43,$44,$45,$46,$47,$48,$49,$50,$51,$52,$53,$54,
-           $55,$56
+           $55,$56,$57,$58
          )
          RETURNING *`,
         [
@@ -249,6 +269,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           tds_challan_id||null,
           selected_plan_name||null,
           bookingStatus,
+          parseFloat(basic_price||0) > 0 ? parseFloat(basic_price) : null,
+          parseFloat(carpet_area_sqft||0) > 0 ? parseFloat(carpet_area_sqft) : null,
         ]
       );
 
@@ -484,8 +506,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             `SELECT base_price_inr FROM units WHERE id = $1`,
             [booking.unit_id]
           );
-          const basePriceInr = parseInt(unitRow.rows[0]?.base_price_inr || 0);
-          const totalAmount = basePriceInr
+          const unitBasePriceInr = parseInt(unitRow.rows[0]?.base_price_inr || 0);
+          const bookingRate   = parseFloat(booking.basic_rate_inr_sqft || 0);
+          const bookingCarpet = parseFloat(booking.carpet_area_sqft || 0);
+          const basicCost = (bookingRate > 0 && bookingCarpet > 0)
+            ? Math.round(bookingRate * bookingCarpet)
+            : unitBasePriceInr;
+          const totalAmount = basicCost
             + parseFloat(booking.plc_amount || 0)
             + parseFloat(booking.other_charge_amount || 0)
             - parseFloat(booking.company_inaugural_disc || 0);
@@ -530,8 +557,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               [booking.project_id, selectedPlanName]
             );
             const bookingDateStr = booking.booking_date
-              ? new Date(booking.booking_date).toISOString().split('T')[0]
-              : new Date().toISOString().split('T')[0];
+              ? safeLocalDate(booking.booking_date)
+              : safeLocalDate(new Date());
             for (const tmpl of templates.rows) {
               const pct = parseFloat(tmpl.percentage || 0) / 100;
               const amountDue = tmpl.flat_amount_inr
@@ -540,21 +567,30 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               const cgstAmount = Math.round(amountDue * 0.005);
               const sgstAmount = Math.round(amountDue * 0.005);
               const offsetDays = parseInt(tmpl.due_date_offset_days || 0);
-              // offset_days > 0 → time-based installment: set due date relative to booking date
-              // offset_days = 0 → milestone-based: due date set NULL until formally raised
-              const dueDateExpr = offsetDays > 0
-                ? `$4::date + ($5 * INTERVAL '1 day')`
-                : `NULL`;
-              await client.query(
-                `INSERT INTO demands (payment_plan_id, installment_index, consumer_id,
-                                      due_date, amount_due_inr, cgst_amount, sgst_amount,
-                                      status, demand_type, delivery_status, generated_at)
-                 VALUES ($1, $2, $3, ${dueDateExpr}, $6, $7, $8,
-                         'pending', $9, 'pending', NOW())`,
-                [paymentPlanId, tmpl.installment_index, booking.consumer_id,
-                 bookingDateStr, offsetDays, amountDue, cgstAmount, sgstAmount,
-                 tmpl.installment_type || tmpl.installment_name]
-              );
+              // Two separate queries to avoid unreferenced $4/$5 params when due_date is NULL
+              if (offsetDays > 0) {
+                await client.query(
+                  `INSERT INTO demands (payment_plan_id, installment_index, consumer_id,
+                                        due_date, amount_due_inr, cgst_amount, sgst_amount,
+                                        status, demand_type, delivery_status, generated_at)
+                   VALUES ($1, $2, $3, $4::date + ($5 * INTERVAL '1 day'), $6, $7, $8,
+                           'pending', $9, 'pending', NOW())`,
+                  [paymentPlanId, tmpl.installment_index, booking.consumer_id,
+                   bookingDateStr, offsetDays, amountDue, cgstAmount, sgstAmount,
+                   tmpl.installment_type || tmpl.installment_name]
+                );
+              } else {
+                await client.query(
+                  `INSERT INTO demands (payment_plan_id, installment_index, consumer_id,
+                                        due_date, amount_due_inr, cgst_amount, sgst_amount,
+                                        status, demand_type, delivery_status, generated_at)
+                   VALUES ($1, $2, $3, NULL, $4, $5, $6,
+                           'pending', $7, 'pending', NOW())`,
+                  [paymentPlanId, tmpl.installment_index, booking.consumer_id,
+                   amountDue, cgstAmount, sgstAmount,
+                   tmpl.installment_type || tmpl.installment_name]
+                );
+              }
             }
           }
 
@@ -564,8 +600,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const validPayMethods = ['bank_transfer', 'cheque', 'neft', 'rtgs', 'upi'];
             const payMethod = validPayMethods.includes(booking.payment_mode) ? booking.payment_mode : 'bank_transfer';
             const bookingDateStr = booking.booking_date
-              ? new Date(booking.booking_date).toISOString().split('T')[0]
-              : new Date().toISOString().split('T')[0];
+              ? safeLocalDate(booking.booking_date)
+              : safeLocalDate(new Date());
             const receiptNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
             await client.query(
               `INSERT INTO receipts
@@ -672,6 +708,18 @@ function fmtDate(d: any): string {
 function fmtAmt(v: any): string {
   const n = parseFloat(v ?? 0) || 0;
   return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Returns YYYY-MM-DD using local (IST) time components.
+// Avoids the pg DATE→JS Date bug where midnight IST = prior day in UTC.
+function safeLocalDate(d: any): string {
+  if (!d) return '';
+  const dt = d instanceof Date ? d : new Date(d);
+  if (isNaN(dt.getTime())) return '';
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function instrumentLabel(mode: string): string {
@@ -825,10 +873,16 @@ function buildApplicantPage1(
     consumer.present_state, consumer.present_pin ? `- ${consumer.present_pin}` : '']
     .filter(Boolean).join(', ');
 
-  const carpetArea    = parseFloat(b.carpet_area_sqft  || 0);
-  const superArea     = parseFloat(b.super_area_sqft   || 0);
-  const basePrice     = parseFloat(b.base_price_inr    || 0);
-  const ratePerSqft   = carpetArea > 0 ? basePrice / carpetArea : 0;
+  const carpetArea       = parseFloat(b.carpet_area_sqft     || 0);
+  const superArea        = parseFloat(b.super_area_sqft      || 0);
+  const balconyArea      = parseFloat(b.balcony_area_sqft    || 0);
+  const storedRate       = parseFloat(b.basic_rate_inr_sqft  || 0);
+  const unitBasePrice    = parseFloat(b.base_price_inr       || 0);
+  const ratePerSqft      = storedRate > 0 ? storedRate
+                         : (carpetArea > 0 ? unitBasePrice / carpetArea : 0);
+  const basePrice        = storedRate > 0 && carpetArea > 0
+                         ? Math.round(storedRate * carpetArea)
+                         : unitBasePrice;
   const plcAmount     = parseFloat(b.plc_amount        || 0);
   const otherCharge   = parseFloat(b.other_charge_amount || 0);
   const isGstExempt   = ['nri','oci','pio'].includes((consumer.nationality || '').toLowerCase());
@@ -986,7 +1040,7 @@ function buildApplicantPage1(
       ${pRow('Carpet Area (Sq. Ft.)',
         `<span data-field-key="carpetArea" data-field-label="Carpet Area (sqft)" data-value-type="number" data-section="pricing">${carpetArea.toFixed(3)}</span>`)}
       ${pRow('Balcony Area (Sq. Ft.)',
-        `<span data-field-key="balconyArea" data-field-label="Balcony Area (sqft)" data-value-type="number" data-section="pricing">${superArea.toFixed(3)}</span>`)}
+        `<span data-field-key="balconyArea" data-field-label="Balcony Area (sqft)" data-value-type="number" data-section="pricing">${balconyArea.toFixed(3)}</span>`)}
       ${pRow('Rate (Rs./Sq. Ft.)',
         `<span data-field-key="ratePerSqft" data-field-label="Rate per Sqft" data-value-type="currency" data-section="pricing">${ratePerSqft.toFixed(3)}</span>`)}
       ${pRow(`Net Basic Price (Rs. ${ratePerSqft.toFixed(2)}/Sq. Ft.)`,
@@ -1088,20 +1142,29 @@ function buildApplicantPage1(
     </table>`;
 
   // ── SECTION 7 — ADDON CHARGES TABLE ──────
+  // Reserved for future addon_charges table (parking, club membership, etc.)
+  // PLC and other_charge belong exclusively in Section 6 above.
+  const addonRows: { desc: string; amount: number }[] = [];
+  const addonTotal = addonRows.reduce((s, r) => s + r.amount, 0);
+
+  const addonBodyRows = addonRows.length > 0
+    ? addonRows.map((r, i) => `<tr>
+        <td ${tdStyle}>${i + 1}</td>
+        <td ${tdL}>${r.desc}</td>
+        <td ${tdR}>${fmtIndianNumber(r.amount)}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="3" style="${baseFont}border:1px solid #999;padding:4px 8px;text-align:center;color:#666;">No addon charges</td></tr>`;
+
   const addonSection = `
     <div ${sectionHd}>Other/Addon Charges</div>
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr>
         <th ${thStyle}>S.NO.</th><th ${thStyle}>CHARGE TYPE</th><th ${thStyle}>AMOUNT</th>
       </tr></thead>
-      <tbody><tr>
-        <td ${tdStyle}>1</td>
-        <td ${tdL}>Add on Charges</td>
-        <td ${tdR}>Rs. 0.00</td>
-      </tr></tbody>
+      <tbody>${addonBodyRows}</tbody>
       <tfoot><tr>
         <td colspan="2" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
-        <td ${tdR}><strong>Rs. 0.00</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotal)}</strong></td>
       </tr></tfoot>
     </table>`;
 
@@ -1255,7 +1318,12 @@ function buildApplicantPage2(
     consumer.middle_name || '', consumer.last_name].filter(Boolean).join(' ').trim() || '—';
   const customerId  = esc(consumer.form_no || consumer.registration_no || '—');
 
-  const basePrice     = parseFloat(b.base_price_inr      || 0);
+  const storedRate    = parseFloat(b.basic_rate_inr_sqft  || 0);
+  const carpetAreaP2  = parseFloat(b.carpet_area_sqft     || 0);
+  const unitBasePrice = parseFloat(b.base_price_inr       || 0);
+  const basePrice     = storedRate > 0 && carpetAreaP2 > 0
+    ? Math.round(storedRate * carpetAreaP2)
+    : unitBasePrice;
   const plcAmount     = parseFloat(b.plc_amount           || 0);
   const otherCharge   = parseFloat(b.other_charge_amount  || 0);
   const cgstPct       = parseFloat(b.cgst_pct             || 0);
@@ -1320,7 +1388,7 @@ function buildApplicantPage2(
       const dueDate    = dueDateStr(t.due_date_offset_days);
 
       const paidForRow    = paidMap[t.installment_index] || 0;
-      const balanceForRow = netDue - paidForRow;
+      const balanceForRow = Math.max(0, netDue - paidForRow);
 
       totPct     += pct;
       totNetBsp  += netBsp;
@@ -2045,8 +2113,8 @@ export function buildApplicantFileHtml(
         alert(documentType.replace(/_/g, ' ') + ' template coming soon');
         return;
       }
-      if (!dueDate) {
-        alert('Please select a due date first');
+      if (!dueDate || dueDate.trim() === '') {
+        alert('Please enter a Due Date before printing the Demand Letter.');
         return;
       }
       // Open window synchronously before any await so popup blocker won't trigger
