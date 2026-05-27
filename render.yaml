@@ -5,7 +5,7 @@ services:
     region: singapore
     plan: free
     rootDir: .
-    buildCommand: cd packages/api && npm install --omit=dev
+    buildCommand: cd packages/api && npm install && npm run build
     startCommand: node packages/api/dist/index.js
     envVars:
       - key: NODE_ENV

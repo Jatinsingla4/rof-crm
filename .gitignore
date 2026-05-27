@@ -5,7 +5,7 @@ yarn.lock
 package-lock.json
 
 # Build output
-# NOTE: packages/api/dist is committed for Render deployment (no compile step needed)
+packages/api/dist/
 packages/web/dist/
 packages/design-system/dist/
 build/
