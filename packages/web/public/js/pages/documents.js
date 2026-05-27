@@ -903,11 +903,11 @@ const DocsPage = {
                   <td class="td-bold">${Utils.currency(parseFloat(d.amount_due_inr || 0))}</td>
                   <td>
                     <div style="display:flex; flex-direction:column; gap:4px;">
-                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: true})" class="legacy-link">Print (Interest)</a>
-                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: false})" class="legacy-link">Print (Normal)</a>
+                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: true, demandId: '${d.id}'})" class="legacy-link">Print (Interest)</a>
+                      <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {includeInterest: false, demandId: '${d.id}'})" class="legacy-link">Print (Normal)</a>
                       <div style="display:flex; gap:6px; margin-top:2px;">
                         <a href="javascript:void(0)" onclick="Utils.info('Email sent successfully')" class="legacy-link">Email</a>
-                        <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter')" class="legacy-link">PDF</a>
+                        <a href="javascript:void(0)" onclick="DocsPage.generateDoc('${d.consumer_id}', 'demand_letter', {demandId: '${d.id}'})" class="legacy-link">PDF</a>
                       </div>
                     </div>
                   </td>
