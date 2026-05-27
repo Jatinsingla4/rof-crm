@@ -5,7 +5,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs'),p=require('path');['allotment_letter_template.html','demand_letter_template.html'].forEach(f=>{try{fs.copyFileSync(p.join('src','db',f),p.join('dist','db',f));}catch(e){}})\"",
     "start": "node dist/index.js",
     "db:migrate": "node dist/db/migrations.js",
     "seed:demo": "tsx src/scripts/seed-demo-data.ts",
