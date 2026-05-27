@@ -5,7 +5,7 @@ services:
     region: singapore
     plan: free
     rootDir: .
-    buildCommand: NODE_ENV=development npx --yes pnpm@9 install --no-frozen-lockfile --filter @rof-crm/api... && cd packages/api && npx pnpm@9 run build
+    buildCommand: cd packages/api && npm install --omit=dev
     startCommand: node packages/api/dist/index.js
     envVars:
       - key: NODE_ENV

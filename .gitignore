@@ -5,7 +5,9 @@ yarn.lock
 package-lock.json
 
 # Build output
-dist/
+# NOTE: packages/api/dist is committed for Render deployment (no compile step needed)
+packages/web/dist/
+packages/design-system/dist/
 build/
 .storybook-static/
 
