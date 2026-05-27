@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: rof-crm
+    runtime: node
+    region: singapore
+    plan: free
+    rootDir: .
+    buildCommand: npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --filter @rof-crm/api... && cd packages/api && pnpm run build
+    startCommand: node packages/api/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 7d
