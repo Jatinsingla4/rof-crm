@@ -5,7 +5,7 @@ yarn.lock
 package-lock.json
 
 # Build output
-packages/api/dist/
+# packages/api/dist is committed — Render serves pre-built files (no tsc on server)
 packages/web/dist/
 packages/design-system/dist/
 build/
