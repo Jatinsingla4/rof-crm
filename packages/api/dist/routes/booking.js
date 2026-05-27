@@ -1,10 +1,13 @@
+"use strict";
 /**
  * Booking Routes
  * Handles booking form submission, list, view, and edit booking records
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildApplicantFileHtml = buildApplicantFileHtml;
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // Generate registration number with project-based prefix and sequential numbering
 async function generateRegistrationNo(projectId, client) {
     const year = new Date().getFullYear();
@@ -55,12 +58,12 @@ router.get('/check-cheque', async (req, res, next) => {
         }
         // Run both table checks in parallel
         const [bookingResult, receiptResult] = await Promise.all([
-            db.query(`SELECT id, registration_no, booking_date, payment_mode
+            index_js_1.db.query(`SELECT id, registration_no, booking_date, payment_mode
          FROM booking_records
          WHERE payment_ref = $1
            AND ($2::uuid IS NULL OR id != $2::uuid)
          LIMIT 1`, [ref, excludeId]),
-            db.query(`SELECT id, receipt_number, received_date, payment_method
+            index_js_1.db.query(`SELECT id, receipt_number, received_date, payment_method
          FROM receipts
          WHERE transaction_ref = $1
          LIMIT 1`, [ref]),
@@ -115,7 +118,7 @@ router.post('/', async (req, res, next) => {
             return res.status(400).json({ error: 'Unit selection is required' });
         if (!selected_plan_name || String(selected_plan_name).trim() === '')
             return res.status(400).json({ error: 'Payment plan is required' });
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             // Prevent Double Booking: Check if unit is available
@@ -278,7 +281,7 @@ router.get('/', async (req, res, next) => {
         }
         const offset = (page - 1) * pageSize;
         params.push(pageSize, offset);
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT br.*, c.name as consumer_name, c.mobile, p.name as project_name, u.unit_number
       FROM booking_records br
       JOIN consumers c ON c.id = br.consumer_id
@@ -308,8 +311,8 @@ router.patch('/:id', async (req, res, next) => {
         // Duplicate cheque/reference check (excluding current booking)
         if (payment_ref) {
             const [bookingDup, receiptDup] = await Promise.all([
-                db.query(`SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND id != $2 LIMIT 1`, [payment_ref, id]),
-                db.query(`SELECT receipt_number FROM receipts WHERE transaction_ref = $1 LIMIT 1`, [payment_ref]),
+                index_js_1.db.query(`SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND id != $2 LIMIT 1`, [payment_ref, id]),
+                index_js_1.db.query(`SELECT receipt_number FROM receipts WHERE transaction_ref = $1 LIMIT 1`, [payment_ref]),
             ]);
             if (bookingDup.rows.length > 0) {
                 return res.status(409).json({
@@ -322,7 +325,7 @@ router.patch('/:id', async (req, res, next) => {
                 });
             }
         }
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             const updateResult = await client.query(`UPDATE booking_records SET
@@ -1689,7 +1692,7 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-export function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = []) {
+function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = []) {
     const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
@@ -2261,8 +2264,8 @@ router.get('/:id/receipt-html', async (req, res) => {
         const bookingId = req.params.id;
         // Run settings query and booking query in parallel
         const [settingsResult, bookingResult] = await Promise.all([
-            db.query('SELECT key, value FROM global_settings'),
-            db.query(`
+            index_js_1.db.query('SELECT key, value FROM global_settings'),
+            index_js_1.db.query(`
         SELECT br.*,
           c.salutation, c.first_name, c.last_name,
           c.mobile, c.email,
@@ -2299,7 +2302,7 @@ router.get('/:id/receipt-html', async (req, res) => {
         // Load co-applicants using consumer_id from booking result
         let coApplicants = [];
         try {
-            const coResult = await db.query(`SELECT salutation, first_name, last_name, applicant_number
+            const coResult = await index_js_1.db.query(`SELECT salutation, first_name, last_name, applicant_number
          FROM co_applicants
          WHERE consumer_id = $1
          ORDER BY applicant_number ASC`, [booking.consumer_id]);
@@ -2320,7 +2323,7 @@ router.get('/:id/receipt-html', async (req, res) => {
 // GET /api/booking/:id
 router.get('/:id', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT br.*,
              c.name as consumer_name, c.mobile, c.nationality,
              p.name as project_name,
@@ -2354,5 +2357,5 @@ router.get('/:id', async (req, res, next) => {
         next(err);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=booking.js.map

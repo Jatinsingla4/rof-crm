@@ -1,6 +1,8 @@
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 /**
  * POST /api/transfers - Initiate Ownership Transfer
  * Steps:
@@ -10,7 +12,7 @@ const router = Router();
  * 4. Log the transfer.
  */
 router.post('/', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { unitId, oldConsumerId, newConsumerId, transferFee, adminCharges, remarks } = req.body;
         if (!unitId || !oldConsumerId || !newConsumerId) {
@@ -52,7 +54,7 @@ router.post('/', async (req, res, next) => {
 router.get('/history/:unitId', async (req, res, next) => {
     try {
         const { unitId } = req.params;
-        const result = await db.query(`SELECT t.*, 
+        const result = await index_js_1.db.query(`SELECT t.*, 
               oc.name as old_consumer_name, nc.name as new_consumer_name,
               u.unit_number
        FROM ownership_transfers t
@@ -67,5 +69,5 @@ router.get('/history/:unitId', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=transfers.js.map

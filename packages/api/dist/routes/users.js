@@ -1,11 +1,16 @@
+"use strict";
 /**
  * Users Routes - Module G
  * RBAC, user management, role definitions, permissions, audit logs
  */
-import { Router } from 'express';
-import bcrypt from 'bcryptjs';
-import { db } from '../index.js';
-const router = Router();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // Pre-defined roles
 const ROLES = {
     SUPER_ADMIN: 'super_admin',
@@ -27,9 +32,9 @@ router.post('/', async (req, res, next) => {
         }
         let passwordHash = null;
         if (password && typeof password === 'string' && password.length >= 8) {
-            passwordHash = await bcrypt.hash(password, 12);
+            passwordHash = await bcryptjs_1.default.hash(password, 12);
         }
-        const result = await db.query(`INSERT INTO users (name, email, mobile, role, password_hash, assigned_project_ids, is_active, created_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO users (name, email, mobile, role, password_hash, assigned_project_ids, is_active, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, true, $7)
        RETURNING id, name, email, role, assigned_project_ids, created_at`, [name, email, mobile || null, role, passwordHash, JSON.stringify(assignedProjectIds || []), req.userId]);
         res.status(201).json({
@@ -59,7 +64,7 @@ router.get('/', async (req, res, next) => {
         }
         query += ` ORDER BY created_at DESC`;
         query += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -120,7 +125,7 @@ router.post('/permissions', async (req, res, next) => {
     try {
         const { userId, module, action, resourceId } = req.body;
         // Get user role
-        const userResult = await db.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+        const userResult = await index_js_1.db.query(`SELECT role FROM users WHERE id = $1`, [userId]);
         if (userResult.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -167,7 +172,7 @@ router.get('/audit-logs', async (req, res, next) => {
         }
         query += ` ORDER BY timestamp DESC`;
         query += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -181,7 +186,7 @@ router.get('/audit-logs', async (req, res, next) => {
 router.post('/audit-logs', async (req, res, next) => {
     try {
         const { action, resourceType, resourceId, newValues, previousValues } = req.body;
-        await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values, previous_values)
+        await index_js_1.db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values, previous_values)
        VALUES ($1, $2, $3, $4, $5, $6)`, [req.userId, action, resourceType, resourceId || null, JSON.stringify(newValues || {}), JSON.stringify(previousValues || {})]);
         res.json({
             success: true,
@@ -196,7 +201,7 @@ router.post('/audit-logs', async (req, res, next) => {
 router.get('/activity', async (req, res, next) => {
     try {
         const { projectId, period = '30' } = req.query;
-        const result = await db.query(`SELECT user_id, COUNT(*) as action_count,
+        const result = await index_js_1.db.query(`SELECT user_id, COUNT(*) as action_count,
               COUNT(DISTINCT DATE(timestamp)) as active_days,
               MAX(timestamp) as last_activity
        FROM audit_logs
@@ -217,7 +222,7 @@ router.get('/activity', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
+        const result = await index_js_1.db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
        FROM users WHERE id = $1`, [id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
@@ -236,7 +241,7 @@ router.patch('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { name, email, mobile, role, assignedProjectIds, isActive } = req.body;
-        const result = await db.query(`UPDATE users
+        const result = await index_js_1.db.query(`UPDATE users
        SET name = COALESCE($1, name),
            email = COALESCE($2, email),
            mobile = COALESCE($3, mobile),
@@ -283,11 +288,11 @@ router.post('/:id/change-password', async (req, res, next) => {
             if (!currentPassword) {
                 return res.status(400).json({ error: 'Current password is required' });
             }
-            const userRes = await db.query(`SELECT password_hash FROM users WHERE id = $1`, [id]);
+            const userRes = await index_js_1.db.query(`SELECT password_hash FROM users WHERE id = $1`, [id]);
             const existingHash = userRes.rows[0]?.password_hash;
             let currentValid = false;
             if (existingHash?.startsWith('$2')) {
-                currentValid = await bcrypt.compare(currentPassword, existingHash);
+                currentValid = await bcryptjs_1.default.compare(currentPassword, existingHash);
             }
             else {
                 currentValid = Buffer.from(currentPassword).toString('base64') === existingHash;
@@ -296,8 +301,8 @@ router.post('/:id/change-password', async (req, res, next) => {
                 return res.status(401).json({ error: 'Current password is incorrect' });
             }
         }
-        const hashedPassword = await bcrypt.hash(newPassword, 12);
-        const result = await db.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2
+        const hashedPassword = await bcryptjs_1.default.hash(newPassword, 12);
+        const result = await index_js_1.db.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2
        RETURNING id, name, email`, [hashedPassword, id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
@@ -311,5 +316,5 @@ router.post('/:id/change-password', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=users.js.map

@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Automation Rules Routes
  * Create, toggle, run, and delete custom workflow automation rules
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/automation
 router.get('/', async (req, res, next) => {
     try {
@@ -19,7 +21,7 @@ router.get('/', async (req, res, next) => {
             params.push(isActive === 'true');
         }
         query += ` ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -33,7 +35,7 @@ router.post('/', async (req, res, next) => {
         if (!name || !triggerEvent || !actionType) {
             return res.status(400).json({ error: 'name, triggerEvent, and actionType are required' });
         }
-        const result = await db.query(`INSERT INTO automation_rules (name, trigger_event, action_type, message_template, delay_minutes, is_active, created_by)
+        const result = await index_js_1.db.query(`INSERT INTO automation_rules (name, trigger_event, action_type, message_template, delay_minutes, is_active, created_by)
        VALUES ($1, $2, $3, $4, $5, true, $6)
        RETURNING id, name, trigger_event, action_type, is_active, created_at`, [name, triggerEvent, actionType, messageTemplate || null, delayMinutes, req.userId]);
         res.status(201).json({ success: true, data: result.rows[0] });
@@ -47,7 +49,7 @@ router.patch('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { isActive, name, triggerEvent, actionType, messageTemplate, delayMinutes } = req.body;
-        const result = await db.query(`UPDATE automation_rules
+        const result = await index_js_1.db.query(`UPDATE automation_rules
        SET is_active = COALESCE($1, is_active),
            name = COALESCE($2, name),
            trigger_event = COALESCE($3, trigger_event),
@@ -70,11 +72,11 @@ router.patch('/:id', async (req, res, next) => {
 router.post('/:id/run', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const ruleRes = await db.query(`SELECT id, name, trigger_event, action_type, message_template, is_active FROM automation_rules WHERE id = $1`, [id]);
+        const ruleRes = await index_js_1.db.query(`SELECT id, name, trigger_event, action_type, message_template, is_active FROM automation_rules WHERE id = $1`, [id]);
         if (ruleRes.rows.length === 0)
             return res.status(404).json({ error: 'Rule not found' });
         // Increment execution count and update timestamp
-        await db.query(`UPDATE automation_rules SET execution_count = execution_count + 1, last_executed_at = NOW() WHERE id = $1`, [id]);
+        await index_js_1.db.query(`UPDATE automation_rules SET execution_count = execution_count + 1, last_executed_at = NOW() WHERE id = $1`, [id]);
         // Real trigger dispatch would queue the job via Bull — stubbed here
         res.json({
             success: true,
@@ -89,7 +91,7 @@ router.post('/:id/run', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`DELETE FROM automation_rules WHERE id = $1 RETURNING id`, [id]);
+        const result = await index_js_1.db.query(`DELETE FROM automation_rules WHERE id = $1 RETURNING id`, [id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Rule not found' });
         res.json({ success: true, data: { id } });
@@ -98,5 +100,5 @@ router.delete('/:id', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=automation.js.map

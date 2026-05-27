@@ -1,12 +1,14 @@
+"use strict";
 /**
  * SMS Queue Worker
  * Processes SMS jobs from the SMS queue
  * For now: logs SMS details (real DLT-compliant gateway integration pending)
  */
-import { db } from '../../index.js';
-import { smsQueue } from '../index.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+const index_js_1 = require("../../index.js");
+const index_js_2 = require("../index.js");
 // Process SMS jobs with retry strategy
-smsQueue.process(3, async (job) => {
+index_js_2.smsQueue.process(3, async (job) => {
     const { to, message, consumerId, notificationId } = job.data;
     try {
         console.log(`Processing SMS job ${job.id} - to: ${to}`);
@@ -17,14 +19,14 @@ smsQueue.process(3, async (job) => {
         // and ensure DLT compliance for Indian SMS
         console.log(`SMS stub processed for ${to} - notification ${notificationId}`);
         // Update database: mark notification as sent
-        await db.query(`UPDATE whatsapps SET delivery_status = 'sent', delivered_at = NOW() WHERE id = $1`, [notificationId]);
+        await index_js_1.db.query(`UPDATE whatsapps SET delivery_status = 'sent', delivered_at = NOW() WHERE id = $1`, [notificationId]);
         return { success: true, phoneNumber: to };
     }
     catch (error) {
         console.error(`Failed to process SMS ${notificationId}:`, error);
         // Update database: mark notification as failed
         try {
-            await db.query(`UPDATE whatsapps SET delivery_status = 'failed' WHERE id = $1`, [notificationId]);
+            await index_js_1.db.query(`UPDATE whatsapps SET delivery_status = 'failed' WHERE id = $1`, [notificationId]);
         }
         catch (dbError) {
             console.error(`Failed to update SMS status in DB:`, dbError);
@@ -34,7 +36,7 @@ smsQueue.process(3, async (job) => {
     }
 });
 // Configure retry strategy
-smsQueue.on('failed', async (job, err) => {
+index_js_2.smsQueue.on('failed', async (job, err) => {
     const attempt = job.attemptsMade;
     const maxAttempts = 3;
     console.warn(`SMS job ${job.id} failed (attempt ${attempt}/${maxAttempts}):`, err.message);
@@ -43,7 +45,7 @@ smsQueue.on('failed', async (job, err) => {
         // Update database to mark as permanently failed
         try {
             const data = job.data;
-            await db.query(`UPDATE whatsapps SET delivery_status = 'failed' WHERE id = $1`, [data.notificationId]);
+            await index_js_1.db.query(`UPDATE whatsapps SET delivery_status = 'failed' WHERE id = $1`, [data.notificationId]);
         }
         catch (dbError) {
             console.error('Failed to update final SMS failure status:', dbError);

@@ -1,7 +1,10 @@
+"use strict";
 /**
  * Role-Based Access Control (RBAC) Middleware
  * Enforces role-based permissions across all API routes
  */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.requirePermission = void 0;
 const rolePermissions = {
     super_admin: {
         consumers: ['view', 'create', 'edit', 'delete'],
@@ -73,7 +76,7 @@ const rolePermissions = {
         users: [],
     },
 };
-export const requirePermission = (resource, action) => {
+const requirePermission = (resource, action) => {
     return (req, res, next) => {
         const userRole = req.userRole;
         if (!userRole) {
@@ -96,4 +99,5 @@ export const requirePermission = (resource, action) => {
         next();
     };
 };
+exports.requirePermission = requirePermission;
 //# sourceMappingURL=rbac.js.map

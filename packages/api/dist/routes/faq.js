@@ -1,15 +1,17 @@
+"use strict";
 /**
  * FAQ and Knowledge Base Routes - Module F
  * Internal staff-facing FAQ system with full-text search
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-import { requirePermission } from '../middleware/rbac.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const rbac_js_1 = require("../middleware/rbac.js");
+const router = (0, express_1.Router)();
 // GET /api/faq/categories - List all active FAQ categories with article count
-router.get('/categories', requirePermission('communications', 'view'), async (req, res, next) => {
+router.get('/categories', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         c.id, c.name, c.description, c.sort_order, c.is_active,
         COUNT(a.id) as article_count
        FROM faq_categories c
@@ -27,7 +29,7 @@ router.get('/categories', requirePermission('communications', 'view'), async (re
     }
 });
 // GET /api/faq/articles - Search and filter FAQ articles with full-text search
-router.get('/articles', requirePermission('communications', 'view'), async (req, res, next) => {
+router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
         const { search = '', categoryId = '', tags = '', page = 1, pageSize = 20 } = req.query;
         let query = `SELECT
@@ -78,8 +80,8 @@ router.get('/articles', requirePermission('communications', 'view'), async (req,
             countParams.push(tagsArray);
         }
         const [dataResult, countResult] = await Promise.all([
-            db.query(query, params),
-            db.query(countQuery, countParams),
+            index_js_1.db.query(query, params),
+            index_js_1.db.query(countQuery, countParams),
         ]);
         res.json({
             success: true,
@@ -96,11 +98,11 @@ router.get('/articles', requirePermission('communications', 'view'), async (req,
     }
 });
 // GET /api/faq/articles/:id - Get single FAQ article and increment view count
-router.get('/articles/:id', requirePermission('communications', 'view'), async (req, res, next) => {
+router.get('/articles/:id', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
         const { id } = req.params;
         // Get article and increment view count in one query
-        const result = await db.query(`UPDATE faq_articles
+        const result = await index_js_1.db.query(`UPDATE faq_articles
        SET view_count = view_count + 1
        WHERE id = $1
        RETURNING id, category_id, title, content, tags, is_published,
@@ -111,7 +113,7 @@ router.get('/articles/:id', requirePermission('communications', 'view'), async (
         }
         // Fetch category name
         const article = result.rows[0];
-        const categoryResult = await db.query(`SELECT name FROM faq_categories WHERE id = $1`, [article.category_id]);
+        const categoryResult = await index_js_1.db.query(`SELECT name FROM faq_categories WHERE id = $1`, [article.category_id]);
         res.json({
             success: true,
             data: {
@@ -125,7 +127,7 @@ router.get('/articles/:id', requirePermission('communications', 'view'), async (
     }
 });
 // POST /api/faq/articles - Create new FAQ article
-router.post('/articles', requirePermission('communications', 'create'), async (req, res, next) => {
+router.post('/articles', (0, rbac_js_1.requirePermission)('communications', 'create'), async (req, res, next) => {
     try {
         const { categoryId, title, content, tags = [], isPublished = false } = req.body;
         // Validate required fields
@@ -133,11 +135,11 @@ router.post('/articles', requirePermission('communications', 'create'), async (r
             return res.status(400).json({ error: 'Missing required fields: categoryId, title, content' });
         }
         // Verify category exists
-        const categoryCheck = await db.query(`SELECT id FROM faq_categories WHERE id = $1`, [categoryId]);
+        const categoryCheck = await index_js_1.db.query(`SELECT id FROM faq_categories WHERE id = $1`, [categoryId]);
         if (categoryCheck.rows.length === 0) {
             return res.status(404).json({ error: 'Category not found' });
         }
-        const result = await db.query(`INSERT INTO faq_articles (category_id, title, content, tags, is_published, created_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO faq_articles (category_id, title, content, tags, is_published, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, created_at`, [categoryId, title, content, tags, isPublished, req.userId]);
         res.status(201).json({
@@ -150,7 +152,7 @@ router.post('/articles', requirePermission('communications', 'create'), async (r
     }
 });
 // PATCH /api/faq/articles/:id - Update FAQ article
-router.patch('/articles/:id', requirePermission('communications', 'edit'), async (req, res, next) => {
+router.patch('/articles/:id', (0, rbac_js_1.requirePermission)('communications', 'edit'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { title, content, tags, isPublished } = req.body;
@@ -181,7 +183,7 @@ router.patch('/articles/:id', requirePermission('communications', 'edit'), async
         params.push(req.userId);
         updates.push(`updated_at = NOW()`);
         params.push(id);
-        const result = await db.query(`UPDATE faq_articles
+        const result = await index_js_1.db.query(`UPDATE faq_articles
        SET ${updates.join(', ')}
        WHERE id = $${paramCount}
        RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, updated_at`, params);
@@ -198,7 +200,7 @@ router.patch('/articles/:id', requirePermission('communications', 'edit'), async
     }
 });
 // POST /api/faq/articles/:id/feedback - Record helpful/not helpful feedback
-router.post('/articles/:id/feedback', requirePermission('communications', 'view'), async (req, res, next) => {
+router.post('/articles/:id/feedback', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { helpful } = req.body;
@@ -206,7 +208,7 @@ router.post('/articles/:id/feedback', requirePermission('communications', 'view'
             return res.status(400).json({ error: 'helpful field must be boolean' });
         }
         const updateField = helpful ? 'helpful_count' : 'not_helpful_count';
-        const result = await db.query(`UPDATE faq_articles
+        const result = await index_js_1.db.query(`UPDATE faq_articles
        SET ${updateField} = ${updateField} + 1
        WHERE id = $1
        RETURNING id, helpful_count, not_helpful_count`, [id]);
@@ -227,5 +229,5 @@ router.post('/articles/:id/feedback', requirePermission('communications', 'view'
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=faq.js.map

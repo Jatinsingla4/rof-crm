@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Allocation Routes - Module C
  * E-draw import, allotments, waitlist, cancellations
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // POST /api/allocations - Create allocation (one-click allotment)
 router.post('/', async (req, res, next) => {
     try {
@@ -22,7 +24,7 @@ router.post('/', async (req, res, next) => {
             }
         }
         // Validate eligibility (SERIALIZABLE transaction)
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
             // Check unit status
@@ -99,7 +101,7 @@ router.get('/waitlist', async (req, res, next) => {
             query += ` AND w.project_id = $${params.length}`;
         }
         query += ` ORDER BY w.position_ordered ASC`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -179,7 +181,7 @@ router.get('/', async (req, res, next) => {
             params.push(dateTo);
         }
         query += ` ORDER BY a.allocated_date DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -195,13 +197,13 @@ router.post('/:id/cancel', async (req, res, next) => {
         const { id } = req.params;
         const { reason } = req.body;
         // Get allocation details
-        const allocationResult = await db.query(`SELECT consumer_id, unit_id FROM allocations WHERE id = $1`, [id]);
+        const allocationResult = await index_js_1.db.query(`SELECT consumer_id, unit_id FROM allocations WHERE id = $1`, [id]);
         if (allocationResult.rows.length === 0) {
             return res.status(404).json({ error: 'Allocation not found' });
         }
         const { consumer_id: consumerId, unit_id: unitId } = allocationResult.rows[0];
         // SERIALIZABLE transaction
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
             // Calculate forfeiture (₹25,000 + 18% GST = ₹29,500)
@@ -275,30 +277,30 @@ router.post('/import-edraw', async (req, res, next) => {
         const mismatches = [];
         for (const row of results) {
             // Try to find consumer by Aadhaar
-            const consumerResult = await db.query(`SELECT id, lead_stage FROM consumers WHERE aadhaar_hash = $1 AND project_id = $2`, [row.applicantId, projectId]);
+            const consumerResult = await index_js_1.db.query(`SELECT id, lead_stage FROM consumers WHERE aadhaar_hash = $1 AND project_id = $2`, [row.applicantId, projectId]);
             if (consumerResult.rows.length > 0) {
                 const consumerId = consumerResult.rows[0].id;
                 const currentLeadStage = consumerResult.rows[0].lead_stage;
                 // Auto-advance from application_filed to draw_entered
                 if (currentLeadStage === 'application_filed') {
-                    await db.query(`UPDATE consumers SET lead_stage = 'draw_entered' WHERE id = $1`, [consumerId]);
+                    await index_js_1.db.query(`UPDATE consumers SET lead_stage = 'draw_entered' WHERE id = $1`, [consumerId]);
                 }
                 // Handle unsuccessful draw applicants - create refund record
                 if (row.result === 'unsuccessful' || row.result === 'unsuccessful_draw') {
                     // Get booking amount from receipts
-                    const bookingResult = await db.query(`SELECT COALESCE(SUM(r.amount_received_inr), 0) as total_paid
+                    const bookingResult = await index_js_1.db.query(`SELECT COALESCE(SUM(r.amount_received_inr), 0) as total_paid
              FROM receipts r
              WHERE r.consumer_id = $1`, [consumerId]);
                     const bookingAmountPaid = bookingResult.rows[0].total_paid || 0;
                     if (bookingAmountPaid > 0) {
                         // Create draw refund record (due within 30 days per AHP policy)
-                        await db.query(`INSERT INTO draw_refunds (
+                        await index_js_1.db.query(`INSERT INTO draw_refunds (
                 consumer_id, project_id, draw_result,
                 booking_amount_paid_inr, refund_amount_inr,
                 refund_due_by, refund_status, created_by_user_id
                ) VALUES ($1, $2, 'unsuccessful', $3, $4, CURRENT_DATE + INTERVAL '30 days', 'pending', $5)`, [consumerId, projectId, bookingAmountPaid, bookingAmountPaid, req.userId]);
                         // Update consumer lead_stage to cancelled
-                        await db.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
+                        await index_js_1.db.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
                         refundsCreated++;
                     }
                 }
@@ -331,7 +333,7 @@ router.post('/shift', async (req, res, next) => {
         if (!consumerId || !newUnitId) {
             return res.status(400).json({ error: 'consumerId and newUnitId are required' });
         }
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
             // Verify consumer has current allocation
@@ -390,7 +392,7 @@ router.get('/shifts', async (req, res, next) => {
             where += ` AND us.shift_date <= $${params.length}`;
         }
         // Try unit_shifts table, fall back gracefully
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT us.*, c.name as consumer_name, c.mobile,
              ou.unit_number as old_unit_number, nu.unit_number as new_unit_number,
              p.name as project_name
@@ -427,14 +429,14 @@ router.post('/generate-letters', async (req, res, next) => {
             query += ` AND u.project_id = $${params.length + 1}`;
             params.push(projectId);
         }
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         let generated = 0;
         for (const allotment of result.rows) {
             // Insert into allotment_letters and link back
-            const letterRes = await db.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date)
+            const letterRes = await index_js_1.db.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date)
          VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE)) RETURNING id`, [allotment.id, allotment.consumer_id, allotment.unit_id, allotment.allotment_date || null]);
             const letterId = letterRes.rows[0].id;
-            await db.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [letterId, allotment.id]);
+            await index_js_1.db.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [letterId, allotment.id]);
             generated++;
         }
         res.json({
@@ -446,5 +448,5 @@ router.post('/generate-letters', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=allocations.js.map

@@ -1,8 +1,11 @@
+"use strict";
 /**
  * Response Formatter Middleware
  * Fixes field name mismatches between backend and frontend
  * Converts units, renames fields, adds computed fields
  */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.responseFormatter = void 0;
 // ============================================
 // UNIT STATUS → COLOR MAPPING
 // ============================================
@@ -174,7 +177,7 @@ const formatResponseData = (data, endpoint) => {
  * Response Formatter Middleware
  * Intercepts all API responses and applies formatting
  */
-export const responseFormatter = (req, res, next) => {
+const responseFormatter = (req, res, next) => {
     // Override res.json to format responses
     const originalJson = res.json.bind(res);
     res.json = function (data) {
@@ -198,5 +201,6 @@ export const responseFormatter = (req, res, next) => {
     };
     next();
 };
-export default responseFormatter;
+exports.responseFormatter = responseFormatter;
+exports.default = exports.responseFormatter;
 //# sourceMappingURL=responseFormatter.js.map

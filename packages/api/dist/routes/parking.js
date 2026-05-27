@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Parking Routes
  * Parking slot inventory, allotment, and reporting
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/parking
 router.get('/', async (req, res, next) => {
     try {
@@ -34,7 +36,7 @@ router.get('/', async (req, res, next) => {
             params.push(parkingType);
         }
         query += ` ORDER BY ps.slot_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -49,7 +51,7 @@ router.post('/', async (req, res, next) => {
             return res.status(400).json({ error: 'projectId and slotNumber are required' });
         }
         // Upsert: create slot if it doesn't exist, then allot if consumerId provided
-        const result = await db.query(`INSERT INTO parking_slots (project_id, slot_number, parking_type, floor, status,
+        const result = await index_js_1.db.query(`INSERT INTO parking_slots (project_id, slot_number, parking_type, floor, status,
          allotted_to_consumer_id, allotted_unit_id, amount_inr, allotted_at, created_by)
        VALUES ($1, $2, $3, $4,
          CASE WHEN $5::UUID IS NOT NULL THEN 'allotted' ELSE 'available' END,
@@ -70,5 +72,5 @@ router.post('/', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=parking.js.map

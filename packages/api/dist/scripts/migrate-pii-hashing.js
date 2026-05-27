@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Data Migration: Re-hash PII from Base64 to HMAC-SHA256
  *
@@ -7,11 +8,15 @@
  * - This script identifies and re-hashes those records securely
  * - Script is idempotent: safe to run multiple times
  */
-import { Pool } from 'pg';
-import crypto from 'crypto';
-import dotenv from 'dotenv';
-dotenv.config();
-const pool = new Pool({
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const pg_1 = require("pg");
+const crypto_1 = __importDefault(require("crypto"));
+const dotenv_1 = __importDefault(require("dotenv"));
+dotenv_1.default.config();
+const pool = new pg_1.Pool({
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT || '5432'),
     database: process.env.DB_NAME,
@@ -23,7 +28,7 @@ if (!HASH_SECRET) {
     throw new Error('HASH_SECRET not set in environment');
 }
 const hashPII = (value) => {
-    return crypto
+    return crypto_1.default
         .createHmac('sha256', HASH_SECRET)
         .update(value.toLowerCase().trim())
         .digest('hex');

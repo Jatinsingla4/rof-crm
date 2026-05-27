@@ -1,6 +1,8 @@
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 /**
  * GET /api/registry - List registry status
  */
@@ -24,7 +26,7 @@ router.get('/', async (req, res, next) => {
             query += ` AND rd.status = $${params.length + 1}`;
             params.push(status);
         }
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -38,7 +40,7 @@ router.post('/schedule', async (req, res, next) => {
     try {
         const { allocationId, appointmentDate, remarks } = req.body;
         // Check if fully paid (Ledger Balance = 0)
-        const ledgerRes = await db.query(`SELECT (COALESCE(SUM(amount_due_inr), 0) - (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = a.consumer_id)) as balance
+        const ledgerRes = await index_js_1.db.query(`SELECT (COALESCE(SUM(amount_due_inr), 0) - (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = a.consumer_id)) as balance
        FROM demands d
        JOIN allocations a ON d.consumer_id = a.consumer_id
        WHERE a.id = $1
@@ -47,7 +49,7 @@ router.post('/schedule', async (req, res, next) => {
         if (balance > 0) {
             return res.status(400).json({ error: 'Registry cannot be scheduled until all dues are cleared. Current balance: ' + balance });
         }
-        const result = await db.query(`INSERT INTO registry_details (allocation_id, unit_id, consumer_id, appointment_date, remarks, status)
+        const result = await index_js_1.db.query(`INSERT INTO registry_details (allocation_id, unit_id, consumer_id, appointment_date, remarks, status)
        SELECT id, unit_id, consumer_id, $2, $3, 'scheduled' FROM allocations WHERE id = $1
        RETURNING id, status`, [allocationId, appointmentDate, remarks]);
         res.status(201).json({ success: true, data: result.rows[0] });
@@ -56,5 +58,5 @@ router.post('/schedule', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=registry.js.map

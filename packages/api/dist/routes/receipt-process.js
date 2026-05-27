@@ -1,6 +1,8 @@
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // --- JOURNAL ENTRIES ---
 // GET /api/payments/journals - List all journal entries
 router.get('/journals', async (req, res, next) => {
@@ -16,7 +18,7 @@ router.get('/journals', async (req, res, next) => {
             query += ` AND je.consumer_id = $${params.length}`;
         }
         query += ` ORDER BY je.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -30,10 +32,10 @@ router.post('/journals', async (req, res, next) => {
         if (!consumerId || !ledgerHead) {
             return res.status(400).json({ error: 'consumerId and ledgerHead required' });
         }
-        const seqResult = await db.query(`SELECT nextval('journal_entry_seq') AS seq`);
+        const seqResult = await index_js_1.db.query(`SELECT nextval('journal_entry_seq') AS seq`);
         const seq = String(seqResult.rows[0].seq).padStart(4, '0');
         const entryNo = `JE/${new Date().getFullYear()}/${seq}`;
-        const result = await db.query(`INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks)
+        const result = await index_js_1.db.query(`INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`, [entryNo, entryDate || new Date(), consumerId, debitAmount || 0, creditAmount || 0, ledgerHead, remarks]);
         res.status(201).json({ success: true, data: result.rows[0] });
@@ -46,7 +48,7 @@ router.post('/journals', async (req, res, next) => {
 // GET /api/payments/tds/challans - List TDS challans
 router.get('/tds/challans', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT * FROM tds_challans ORDER BY challan_date DESC`);
+        const result = await index_js_1.db.query(`SELECT * FROM tds_challans ORDER BY challan_date DESC`);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -57,7 +59,7 @@ router.get('/tds/challans', async (req, res, next) => {
 router.post('/tds/challans', async (req, res, next) => {
     try {
         const { challanNumber, challanDate, amount, bankName, fileUrl } = req.body;
-        const result = await db.query(`INSERT INTO tds_challans (challan_number, challan_date, amount, bank_name, file_url)
+        const result = await index_js_1.db.query(`INSERT INTO tds_challans (challan_number, challan_date, amount, bank_name, file_url)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING *`, [challanNumber, challanDate, amount, bankName, fileUrl]);
         res.status(201).json({ success: true, data: result.rows[0] });
@@ -68,7 +70,7 @@ router.post('/tds/challans', async (req, res, next) => {
 });
 // POST /api/payments/tds/assign - Assign TDS to Receipt
 router.post('/tds/assign', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { challanId, receiptId, amount } = req.body;
         await client.query('BEGIN');
@@ -91,5 +93,5 @@ router.post('/tds/assign', async (req, res, next) => {
         client.release();
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=receipt-process.js.map

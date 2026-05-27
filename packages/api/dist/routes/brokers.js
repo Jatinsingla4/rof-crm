@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Brokers Routes
  * Broker registration, listing, and commission management
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/brokers/commission
 router.get('/commission', async (req, res, next) => {
     try {
@@ -35,7 +37,7 @@ router.get('/commission', async (req, res, next) => {
             params.push(status);
         }
         query += ` ORDER BY bc.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -47,7 +49,7 @@ router.patch('/commission/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
-        const result = await db.query(`UPDATE broker_commissions
+        const result = await index_js_1.db.query(`UPDATE broker_commissions
        SET status = COALESCE($1, status),
            notes = COALESCE($2, notes),
            paid_at = CASE WHEN $1 = 'paid' THEN NOW() ELSE paid_at END
@@ -83,7 +85,7 @@ router.get('/', async (req, res, next) => {
             params.push(`%${search}%`);
         }
         query += ` GROUP BY b.id ORDER BY b.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -101,7 +103,7 @@ router.post('/', async (req, res, next) => {
         const resolvedGst = gstNo || gst_no;
         if (!resolvedName || !mobile || !resolvedFirmName)
             return res.status(400).json({ error: 'name, firmName, and mobile are required' });
-        const result = await db.query(`INSERT INTO brokers (name, firm_name, mobile, email, rera_number, pan, address, commission_pct, status, created_by, parent_broker_id, tax_id_gst, tax_id_pan, bank_account_details)
+        const result = await index_js_1.db.query(`INSERT INTO brokers (name, firm_name, mobile, email, rera_number, pan, address, commission_pct, status, created_by, parent_broker_id, tax_id_gst, tax_id_pan, bank_account_details)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $12, $13)
        RETURNING id, name, firm_name, mobile, status, commission_pct, created_at`, [resolvedName, resolvedFirmName, mobile, email || null, resolvedReraNo || null, resolvedPan || null,
             address || null, commissionPct, req.userId, parentBrokerId || null, resolvedGst || null, resolvedPan || null, bankAccountDetails ? JSON.stringify(bankAccountDetails) : null]);
@@ -115,7 +117,7 @@ router.post('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT * FROM brokers WHERE id = $1`, [id]);
+        const result = await index_js_1.db.query(`SELECT * FROM brokers WHERE id = $1`, [id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Broker not found' });
         res.json({ success: true, data: result.rows[0] });
@@ -129,7 +131,7 @@ router.patch('/:id/approve', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { notes } = req.body;
-        const result = await db.query(`UPDATE brokers SET status = 'active', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`, [notes || null, req.userId, id]);
+        const result = await index_js_1.db.query(`UPDATE brokers SET status = 'active', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`, [notes || null, req.userId, id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Broker not found' });
         res.json({ success: true, data: result.rows[0] });
@@ -143,7 +145,7 @@ router.patch('/:id/reject', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { notes } = req.body;
-        const result = await db.query(`UPDATE brokers SET status = 'rejected', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`, [notes || null, req.userId, id]);
+        const result = await index_js_1.db.query(`UPDATE brokers SET status = 'rejected', approval_notes = $1, approved_at = NOW(), approved_by = $2 WHERE id = $3 RETURNING id, status`, [notes || null, req.userId, id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Broker not found' });
         res.json({ success: true, data: result.rows[0] });
@@ -156,7 +158,7 @@ router.patch('/:id/reject', async (req, res, next) => {
 router.get('/:id/projects', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT p.id, p.name FROM projects p JOIN broker_project_mapping bpm ON p.id = bpm.project_id WHERE bpm.broker_id = $1`, [id]);
+        const result = await index_js_1.db.query(`SELECT p.id, p.name FROM projects p JOIN broker_project_mapping bpm ON p.id = bpm.project_id WHERE bpm.broker_id = $1`, [id]);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -168,11 +170,11 @@ router.post('/:id/projects', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { projectIds } = req.body; // Array of UUIDs
-        await db.query(`DELETE FROM broker_project_mapping WHERE broker_id = $1`, [id]);
+        await index_js_1.db.query(`DELETE FROM broker_project_mapping WHERE broker_id = $1`, [id]);
         if (projectIds && projectIds.length > 0) {
             const values = projectIds.map((pid, idx) => `($1, $${idx + 3}, $2)`).join(',');
             const params = [id, req.userId, ...projectIds];
-            await db.query(`INSERT INTO broker_project_mapping (broker_id, mapped_by, project_id) VALUES ${values}`, params);
+            await index_js_1.db.query(`INSERT INTO broker_project_mapping (broker_id, mapped_by, project_id) VALUES ${values}`, params);
         }
         res.json({ success: true, message: 'Projects mapped successfully' });
     }
@@ -184,12 +186,12 @@ router.post('/:id/projects', async (req, res, next) => {
 router.get('/:id/sub-brokers', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT id, name, firm_name, status, commission_pct FROM brokers WHERE parent_broker_id = $1`, [id]);
+        const result = await index_js_1.db.query(`SELECT id, name, firm_name, status, commission_pct FROM brokers WHERE parent_broker_id = $1`, [id]);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=brokers.js.map

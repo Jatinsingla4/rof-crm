@@ -1,19 +1,21 @@
+"use strict";
 /**
  * Import Routes
  * CSV file import: preview (parse + validate) and confirm (persist)
  * Also serves import history log
  */
-import { Router } from 'express';
-import { parse } from 'csv-parse/sync';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const sync_1 = require("csv-parse/sync");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // POST /api/import/preview — parse CSV and return preview rows (no DB writes)
 router.post('/preview', async (req, res, next) => {
     try {
         const { csvText, importType = 'units' } = req.body;
         if (!csvText)
             return res.status(400).json({ error: 'csvText is required in body' });
-        const rows = parse(csvText, {
+        const rows = (0, sync_1.parse)(csvText, {
             columns: true,
             skip_empty_lines: true,
             trim: true,
@@ -53,14 +55,14 @@ router.post('/', async (req, res, next) => {
         const { csvText, importType = 'units', projectId, fileName = 'import.csv' } = req.body;
         if (!csvText)
             return res.status(400).json({ error: 'csvText is required' });
-        const rows = parse(csvText, { columns: true, skip_empty_lines: true, trim: true });
+        const rows = (0, sync_1.parse)(csvText, { columns: true, skip_empty_lines: true, trim: true });
         let created = 0, skipped = 0;
         const errors = [];
         if (importType === 'units' && projectId) {
             for (const row of rows) {
                 try {
                     // Resolve tower
-                    const towerRes = await db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
+                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
              ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
              RETURNING id`, [projectId, row.tower || 'A']);
                     const towerId = towerRes.rows[0].id;
@@ -69,7 +71,7 @@ router.post('/', async (req, res, next) => {
                         errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
                         continue;
                     }
-                    await db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
+                    await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
                carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
                status, created_by_user_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
@@ -89,12 +91,12 @@ router.post('/', async (req, res, next) => {
                 try {
                     // 1. Update consumer lead stage
                     const stage = row.result === 'allotted' ? 'allotted' : 'draw_refund_pending';
-                    const updateRes = await db.query(`UPDATE consumers SET lead_stage = $1, updated_at = NOW() 
+                    const updateRes = await index_js_1.db.query(`UPDATE consumers SET lead_stage = $1, updated_at = NOW() 
              WHERE (id = $2 OR mobile = $3) AND project_id = $4
              RETURNING id`, [stage, row.consumerId || null, row.mobile, projectId]);
                     if (updateRes.rowCount > 0 && row.result !== 'allotted') {
                         // 2. Create refund entry if not allotted
-                        await db.query(`INSERT INTO draw_refunds (consumer_id, project_id, draw_result, refund_status, refund_due_by)
+                        await index_js_1.db.query(`INSERT INTO draw_refunds (consumer_id, project_id, draw_result, refund_status, refund_due_by)
                VALUES ($1, $2, $3, 'pending', NOW() + INTERVAL '30 days')
                ON CONFLICT DO NOTHING`, [updateRes.rows[0].id, projectId, row.result]);
                     }
@@ -111,7 +113,7 @@ router.post('/', async (req, res, next) => {
             skipped = rows.length;
         }
         // Log import history
-        await db.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by)
+        await index_js_1.db.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [fileName, importType, rows.length, created, skipped, errors.length,
             errors.length === rows.length ? 'failed' : errors.length > 0 ? 'partial' : 'completed',
             JSON.stringify(errors), req.userId]);
@@ -138,12 +140,12 @@ router.get('/history', async (req, res, next) => {
             params.push(importType);
         }
         query += ` ORDER BY ih.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=import.js.map

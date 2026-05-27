@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Units Routes - Module A
  * Unit inventory, status management, floor plans, bulk import
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // POST /api/units - Create unit
 router.post('/', async (req, res, next) => {
     try {
@@ -15,7 +17,7 @@ router.post('/', async (req, res, next) => {
         if (floor === undefined || floor === null || floor === '') {
             return res.status(400).json({ error: 'Floor number is required for each unit' });
         }
-        const result = await db.query(`INSERT INTO units (
+        const result = await index_js_1.db.query(`INSERT INTO units (
         project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft,
         super_area_sqft, balcony_area_sqft, balcony_rate_inr_sqft, balcony_rate_cap_inr,
         base_price_inr, total_price_inr, facing, floor_plan_url,
@@ -108,7 +110,7 @@ router.get('/', async (req, res, next) => {
       ORDER BY u.id
     `;
         const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, innerParams);
+        const result = await index_js_1.db.query(query, innerParams);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -119,7 +121,7 @@ router.get('/', async (req, res, next) => {
 router.get('/tower/:projectId', async (req, res, next) => {
     try {
         const { projectId } = req.params;
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         t.id as tower_id,
         t.tower_name,
         COUNT(*) as total_units,
@@ -171,7 +173,7 @@ router.get('/tower/:projectId', async (req, res, next) => {
 router.get('/inventory-summary/:projectId', async (req, res, next) => {
     try {
         const { projectId } = req.params;
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         COUNT(*) as total_units,
         COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
         COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
@@ -190,7 +192,7 @@ router.get('/inventory-summary/:projectId', async (req, res, next) => {
 // GET /api/units/projects - List all distinct projects (must be before /:id)
 router.get('/projects', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT id, name, rera_number, tcp_licence, location, land_area_sqft, total_units, created_at
+        const result = await index_js_1.db.query(`SELECT id, name, rera_number, tcp_licence, location, land_area_sqft, total_units, created_at
        FROM projects
        ORDER BY name ASC`);
         res.json({ success: true, data: result.rows });
@@ -209,7 +211,7 @@ router.get('/status-counts', async (req, res, next) => {
             params.push(projectId);
             where += ` AND u.project_id = $${params.length}`;
         }
-        const result = await db.query(`SELECT u.status::text as status, COUNT(*)::int as count,
+        const result = await index_js_1.db.query(`SELECT u.status::text as status, COUNT(*)::int as count,
               COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
        FROM units u ${where}
        GROUP BY u.status ORDER BY u.status`, params);
@@ -247,7 +249,7 @@ router.get('/tower-detail', async (req, res, next) => {
         const queryParams = statuses.length > 0
             ? [projectId, towerId, statuses]
             : [projectId, towerId];
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         u.unit_number,
         u.bhk_type as unit_type,
         ROUND(u.carpet_area_sqft::numeric, 4) as area,
@@ -302,7 +304,7 @@ router.get('/status', async (req, res, next) => {
             params.push(projectId);
             where += ` AND u.project_id = $${params.length}`;
         }
-        const result = await db.query(`SELECT u.status::text as status, COUNT(*)::int as count,
+        const result = await index_js_1.db.query(`SELECT u.status::text as status, COUNT(*)::int as count,
               COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
        FROM units u ${where}
        GROUP BY u.status ORDER BY u.status`, params);
@@ -323,7 +325,7 @@ router.get('/status', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT u.id, u.project_id, p.name as project_name,
+        const result = await index_js_1.db.query(`SELECT u.id, u.project_id, p.name as project_name,
               u.tower_id, t.tower_name,
               u.floor, u.unit_number, u.bhk_type,
               u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr,
@@ -337,7 +339,7 @@ router.get('/:id', async (req, res, next) => {
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Unit not found' });
         }
-        const historyResult = await db.query(`SELECT previous_status, new_status, changed_by_user_id, reason, changed_at
+        const historyResult = await index_js_1.db.query(`SELECT previous_status, new_status, changed_by_user_id, reason, changed_at
        FROM unit_status_history WHERE unit_id = $1
        ORDER BY changed_at DESC`, [id]);
         res.json({
@@ -354,7 +356,7 @@ router.patch('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft, balconyRateInrSqft, balconyRateCapInr } = req.body;
-        const result = await db.query(`UPDATE units
+        const result = await index_js_1.db.query(`UPDATE units
        SET floor = COALESCE($1, floor),
            facing = COALESCE($2, facing),
            floor_plan_url = COALESCE($3, floor_plan_url),
@@ -393,12 +395,12 @@ router.post('/bulk-import', async (req, res, next) => {
                 // Resolve tower by name — create if doesn't exist
                 let towerId = row.towerId;
                 if (!towerId && row.tower) {
-                    const towerRes = await db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
+                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
              ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
              RETURNING id`, [projectId, row.tower]);
                     towerId = towerRes.rows[0].id;
                 }
-                await db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
+                await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
             carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
             status, created_by_user_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
@@ -418,5 +420,5 @@ router.post('/bulk-import', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=units.js.map

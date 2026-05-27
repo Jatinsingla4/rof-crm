@@ -1,77 +1,81 @@
+"use strict";
 /**
  * ROF CRM API
  * Node.js + Express RESTful API
  * PostgreSQL database, Bull/Redis for async jobs, JWT authentication
  */
-import express from 'express';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import jwt from 'jsonwebtoken';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import bcrypt from 'bcryptjs';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.authenticateToken = exports.db = void 0;
+const express_1 = __importDefault(require("express"));
+const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
+const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const helmet_1 = __importDefault(require("helmet"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 // Route imports
-import consumerRoutes from './routes/consumers.js';
-import unitRoutes from './routes/units.js';
-import allocationRoutes from './routes/allocations.js';
-import paymentRoutes from './routes/payments.js';
-import documentRoutes from './routes/documents.js';
-import communicationRoutes from './routes/communications.js';
-import userRoutes from './routes/users.js';
-import reportRoutes from './routes/reports.js';
-import milestonesRoutes from './routes/milestones.js';
-import reconciliationRoutes from './routes/reconciliation.js';
-import smtpRoutes from './routes/smtp_config.js';
-import faqRoutes from './routes/faq.js';
-import tasksRoutes from './routes/tasks.js';
-import automationRoutes from './routes/automation.js';
-import brokersRoutes from './routes/brokers.js';
-import parkingRoutes from './routes/parking.js';
-import importRoutes from './routes/import.js';
-import projectsRoutes from './routes/projects.js';
-import brokerSetupRoutes from './routes/broker_setup.js';
-import inventoryHoldRoutes from './routes/inventory_hold.js';
-import dashboardRoutes from './routes/dashboard.js';
-import masterRoutes from './routes/master.js';
-import bookingRoutes from './routes/booking.js';
-import bookingDocumentsRoutes from './routes/booking_documents.js';
-import employeesRoutes from './routes/employees.js';
-import operationsRoutes from './routes/operations.js';
-import transfersRoutes from './routes/transfers.js';
-import registryRoutes from './routes/registry.js';
-import loansRoutes from './routes/loans.js';
-import receiptProcessRoutes from './routes/receipt-process.js';
-import testDataImportRoutes from './routes/test-data-import.js';
-import { requirePermission } from './middleware/rbac.js';
-import { logAudit } from './middleware/auditLogger.js';
+const consumers_js_1 = __importDefault(require("./routes/consumers.js"));
+const units_js_1 = __importDefault(require("./routes/units.js"));
+const allocations_js_1 = __importDefault(require("./routes/allocations.js"));
+const payments_js_1 = __importDefault(require("./routes/payments.js"));
+const documents_js_1 = __importDefault(require("./routes/documents.js"));
+const communications_js_1 = __importDefault(require("./routes/communications.js"));
+const users_js_1 = __importDefault(require("./routes/users.js"));
+const reports_js_1 = __importDefault(require("./routes/reports.js"));
+const milestones_js_1 = __importDefault(require("./routes/milestones.js"));
+const reconciliation_js_1 = __importDefault(require("./routes/reconciliation.js"));
+const smtp_config_js_1 = __importDefault(require("./routes/smtp_config.js"));
+const faq_js_1 = __importDefault(require("./routes/faq.js"));
+const tasks_js_1 = __importDefault(require("./routes/tasks.js"));
+const automation_js_1 = __importDefault(require("./routes/automation.js"));
+const brokers_js_1 = __importDefault(require("./routes/brokers.js"));
+const parking_js_1 = __importDefault(require("./routes/parking.js"));
+const import_js_1 = __importDefault(require("./routes/import.js"));
+const projects_js_1 = __importDefault(require("./routes/projects.js"));
+const broker_setup_js_1 = __importDefault(require("./routes/broker_setup.js"));
+const inventory_hold_js_1 = __importDefault(require("./routes/inventory_hold.js"));
+const dashboard_js_1 = __importDefault(require("./routes/dashboard.js"));
+const master_js_1 = __importDefault(require("./routes/master.js"));
+const booking_js_1 = __importDefault(require("./routes/booking.js"));
+const booking_documents_js_1 = __importDefault(require("./routes/booking_documents.js"));
+const employees_js_1 = __importDefault(require("./routes/employees.js"));
+const operations_js_1 = __importDefault(require("./routes/operations.js"));
+const transfers_js_1 = __importDefault(require("./routes/transfers.js"));
+const registry_js_1 = __importDefault(require("./routes/registry.js"));
+const loans_js_1 = __importDefault(require("./routes/loans.js"));
+const receipt_process_js_1 = __importDefault(require("./routes/receipt-process.js"));
+const test_data_import_js_1 = __importDefault(require("./routes/test-data-import.js"));
+const rbac_js_1 = require("./middleware/rbac.js");
+const auditLogger_js_1 = require("./middleware/auditLogger.js");
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
-dotenv.config();
-const app = express();
+dotenv_1.default.config();
+const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
-import { db } from './db/pool';
-export { db } from './db/pool';
+const pool_1 = require("./db/pool");
+var pool_2 = require("./db/pool");
+Object.defineProperty(exports, "db", { enumerable: true, get: function () { return pool_2.db; } });
 // ============================================
 // SECURITY HEADERS (helmet)
 // ============================================
-app.use(helmet({
+app.use((0, helmet_1.default)({
     contentSecurityPolicy: false, // SPA serves from same origin; CSP configured separately if needed
     crossOriginEmbedderPolicy: false,
 }));
 // ============================================
 // RATE LIMITING
 // ============================================
-const authLimiter = rateLimit({
+const authLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: isDev ? 1000 : 10, // relax in dev so mock-token testing is unaffected
     message: { error: 'Too many login attempts, please try again after 15 minutes' },
     standardHeaders: true,
     legacyHeaders: false,
 });
-const apiLimiter = rateLimit({
+const apiLimiter = (0, express_rate_limit_1.default)({
     windowMs: 60 * 1000, // 1 minute
     max: isDev ? 5000 : 300,
     message: { error: 'Too many requests, please slow down' },
@@ -81,8 +85,8 @@ const apiLimiter = rateLimit({
 // ============================================
 // BODY PARSING
 // ============================================
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express_1.default.json({ limit: '10mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
 // ============================================
 // CORS
 // ============================================
@@ -102,7 +106,7 @@ app.use((req, res, next) => {
     }
     next();
 });
-export const authenticateToken = (req, res, next) => {
+const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     // Accept ?token= query param as fallback for window.open() navigations (e.g. receipt HTML)
     const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || null;
@@ -127,7 +131,7 @@ export const authenticateToken = (req, res, next) => {
         return next();
     }
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'secret');
         req.userId = decoded.userId;
         req.userName = decoded.name || decoded.email || 'Unknown';
         req.userRole = decoded.role;
@@ -138,6 +142,7 @@ export const authenticateToken = (req, res, next) => {
         return res.status(403).json({ error: 'Invalid or expired token' });
     }
 };
+exports.authenticateToken = authenticateToken;
 // ============================================
 // RBAC HELPER — maps HTTP method → action
 // ============================================
@@ -146,7 +151,7 @@ const rbac = (resource) => (req, res, next) => {
         GET: 'view', POST: 'create', PATCH: 'edit', PUT: 'edit', DELETE: 'delete',
     };
     const action = methodToAction[req.method] || 'view';
-    return requirePermission(resource, action)(req, res, next);
+    return (0, rbac_js_1.requirePermission)(resource, action)(req, res, next);
 };
 // ============================================
 // AUTO AUDIT MIDDLEWARE
@@ -162,7 +167,7 @@ const autoAudit = (req, res, next) => {
             const pathParts = req.path.split('/').filter(Boolean);
             const resourceType = pathParts[0] || 'unknown';
             const action = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'update';
-            logAudit(db, req.userId || null, action, resourceType, data.data.id, {}, data.data);
+            (0, auditLogger_js_1.logAudit)(pool_1.db, req.userId || null, action, resourceType, data.data.id, {}, data.data);
         }
         return origJson(data);
     };
@@ -171,11 +176,11 @@ const autoAudit = (req, res, next) => {
 // ============================================
 // STATIC FILES — Static HTML frontend
 // ============================================
-const webPublicDir = path.join(__dirname, '../../web/public');
-app.use(express.static(webPublicDir));
+const webPublicDir = path_1.default.join(__dirname, '../../web/public');
+app.use(express_1.default.static(webPublicDir));
 // Serve uploaded consumer photos
-const uploadsDir = path.join(__dirname, '../uploads');
-app.use('/uploads', express.static(uploadsDir));
+const uploadsDir = path_1.default.join(__dirname, '../uploads');
+app.use('/uploads', express_1.default.static(uploadsDir));
 // ============================================
 // HEALTH CHECK
 // ============================================
@@ -204,7 +209,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         return res.status(400).json({ error: 'Invalid input' });
     }
     try {
-        const result = await db.query(`SELECT id, name, email, role, password_hash, is_active FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
+        const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
         const user = result.rows[0];
         // Always return same error to prevent email enumeration
         if (!user || user.is_active === false) {
@@ -217,7 +222,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         }
         else if (user.password_hash.startsWith('$2')) {
             // bcrypt hash
-            validPassword = await bcrypt.compare(password, user.password_hash);
+            validPassword = await bcryptjs_1.default.compare(password, user.password_hash);
         }
         else {
             // Legacy base64 placeholder — compare and migrate on success
@@ -225,15 +230,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             validPassword = user.password_hash === base64Attempt || user.password_hash === password;
             if (validPassword) {
                 // Silently migrate to bcrypt on successful login
-                const newHash = await bcrypt.hash(password, 12);
-                db.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [newHash, user.id]).catch(() => { });
+                const newHash = await bcryptjs_1.default.hash(password, 12);
+                pool_1.db.query(`UPDATE users SET password_hash = $1 WHERE id = $2`, [newHash, user.id]).catch(() => { });
             }
         }
         if (!validPassword) {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
         const secret = process.env.JWT_SECRET || 'secret';
-        const token = jwt.sign({ userId: user.id, email: user.email, name: user.name, role: user.role }, secret, { expiresIn: '8h' });
+        const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email, name: user.name, role: user.role }, secret, { expiresIn: '8h' });
         return res.json({
             success: true,
             token,
@@ -250,42 +255,42 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 // ============================================
 app.use('/api', apiLimiter);
 app.use('/api', autoAudit);
-app.use('/api/consumers', authenticateToken, rbac('consumers'), consumerRoutes);
-app.use('/api/units', authenticateToken, rbac('units'), unitRoutes);
-app.use('/api/allocations', authenticateToken, rbac('allocations'), allocationRoutes);
-app.use('/api/payments', authenticateToken, rbac('payments'), paymentRoutes);
-app.use('/api/documents', authenticateToken, rbac('documents'), documentRoutes);
-app.use('/api/communications', authenticateToken, rbac('communications'), communicationRoutes);
-app.use('/api/users', authenticateToken, rbac('users'), userRoutes);
-app.use('/api/reports', authenticateToken, rbac('reports'), reportRoutes);
-app.use('/api/milestones', authenticateToken, rbac('payments'), milestonesRoutes);
-app.use('/api/reconciliation', authenticateToken, rbac('payments'), reconciliationRoutes);
-app.use('/api/smtp-configs', authenticateToken, rbac('smtp_configs'), smtpRoutes);
-app.use('/api/faq', authenticateToken, faqRoutes);
-app.use('/api/tasks', authenticateToken, rbac('consumers'), tasksRoutes);
-app.use('/api/automation', authenticateToken, rbac('reports'), automationRoutes);
-app.use('/api/brokers', authenticateToken, rbac('consumers'), brokersRoutes);
-app.use('/api/parking', authenticateToken, rbac('units'), parkingRoutes);
-app.use('/api/import', authenticateToken, rbac('units'), importRoutes);
-app.use('/api/projects', authenticateToken, rbac('units'), projectsRoutes);
-app.use('/api/broker-setup', authenticateToken, rbac('broker_setup'), brokerSetupRoutes);
-app.use('/api/inventory-hold', authenticateToken, rbac('inventory_hold'), inventoryHoldRoutes);
-app.use('/api/dashboard', authenticateToken, dashboardRoutes);
-app.use('/api/master', authenticateToken, masterRoutes);
-app.use('/api/booking', authenticateToken, bookingRoutes);
-app.use('/api/booking-documents', authenticateToken, bookingDocumentsRoutes);
-app.use('/api/employees', authenticateToken, employeesRoutes);
-app.use('/api/operations', authenticateToken, operationsRoutes);
-app.use('/api/transfers', authenticateToken, transfersRoutes);
-app.use('/api/registry', authenticateToken, registryRoutes);
-app.use('/api/loans', authenticateToken, loansRoutes);
-app.use('/api/payments', authenticateToken, receiptProcessRoutes);
-app.use('/api/test-data', authenticateToken, testDataImportRoutes);
+app.use('/api/consumers', exports.authenticateToken, rbac('consumers'), consumers_js_1.default);
+app.use('/api/units', exports.authenticateToken, rbac('units'), units_js_1.default);
+app.use('/api/allocations', exports.authenticateToken, rbac('allocations'), allocations_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), payments_js_1.default);
+app.use('/api/documents', exports.authenticateToken, rbac('documents'), documents_js_1.default);
+app.use('/api/communications', exports.authenticateToken, rbac('communications'), communications_js_1.default);
+app.use('/api/users', exports.authenticateToken, rbac('users'), users_js_1.default);
+app.use('/api/reports', exports.authenticateToken, rbac('reports'), reports_js_1.default);
+app.use('/api/milestones', exports.authenticateToken, rbac('payments'), milestones_js_1.default);
+app.use('/api/reconciliation', exports.authenticateToken, rbac('payments'), reconciliation_js_1.default);
+app.use('/api/smtp-configs', exports.authenticateToken, rbac('smtp_configs'), smtp_config_js_1.default);
+app.use('/api/faq', exports.authenticateToken, faq_js_1.default);
+app.use('/api/tasks', exports.authenticateToken, rbac('consumers'), tasks_js_1.default);
+app.use('/api/automation', exports.authenticateToken, rbac('reports'), automation_js_1.default);
+app.use('/api/brokers', exports.authenticateToken, rbac('consumers'), brokers_js_1.default);
+app.use('/api/parking', exports.authenticateToken, rbac('units'), parking_js_1.default);
+app.use('/api/import', exports.authenticateToken, rbac('units'), import_js_1.default);
+app.use('/api/projects', exports.authenticateToken, rbac('units'), projects_js_1.default);
+app.use('/api/broker-setup', exports.authenticateToken, rbac('broker_setup'), broker_setup_js_1.default);
+app.use('/api/inventory-hold', exports.authenticateToken, rbac('inventory_hold'), inventory_hold_js_1.default);
+app.use('/api/dashboard', exports.authenticateToken, dashboard_js_1.default);
+app.use('/api/master', exports.authenticateToken, master_js_1.default);
+app.use('/api/booking', exports.authenticateToken, booking_js_1.default);
+app.use('/api/booking-documents', exports.authenticateToken, booking_documents_js_1.default);
+app.use('/api/employees', exports.authenticateToken, employees_js_1.default);
+app.use('/api/operations', exports.authenticateToken, operations_js_1.default);
+app.use('/api/transfers', exports.authenticateToken, transfers_js_1.default);
+app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
+app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
+app.use('/api/payments', exports.authenticateToken, receipt_process_js_1.default);
+app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);
 // ============================================
 // SPA FALLBACK
 // ============================================
 app.get(/^(?!\/api\/).*/, (req, res) => {
-    res.sendFile(path.join(webPublicDir, 'index.html'));
+    res.sendFile(path_1.default.join(webPublicDir, 'index.html'));
 });
 // ============================================
 // ERROR HANDLING
@@ -304,5 +309,5 @@ app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`ROF CRM API running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
-export default app;
+exports.default = app;
 //# sourceMappingURL=index.js.map

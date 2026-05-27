@@ -1,13 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
 /**
  * Broker Setup Routes (Compliance & Tax)
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/broker-setup
 router.get('/', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT btc.*, b.name as broker_name, b.firm_name
+        const result = await index_js_1.db.query(`SELECT btc.*, b.name as broker_name, b.firm_name
        FROM broker_tax_config btc
        JOIN brokers b ON btc.broker_id = b.id`);
         res.json({ success: true, data: result.rows });
@@ -20,7 +22,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:brokerId', async (req, res, next) => {
     try {
         const { brokerId } = req.params;
-        const result = await db.query(`SELECT * FROM broker_tax_config WHERE broker_id = $1`, [brokerId]);
+        const result = await index_js_1.db.query(`SELECT * FROM broker_tax_config WHERE broker_id = $1`, [brokerId]);
         if (result.rows.length === 0) {
             // Return default config if none exists
             return res.json({ success: true, data: { broker_id: brokerId, tds_rate_pct: 5.00, gst_rate_pct: 18.00, is_gst_exempt: false } });
@@ -36,7 +38,7 @@ router.post('/:brokerId', async (req, res, next) => {
     try {
         const { brokerId } = req.params;
         const { tdsRatePct, gstRatePct, isGstExempt } = req.body;
-        const result = await db.query(`INSERT INTO broker_tax_config (broker_id, tds_rate_pct, gst_rate_pct, is_gst_exempt, updated_by)
+        const result = await index_js_1.db.query(`INSERT INTO broker_tax_config (broker_id, tds_rate_pct, gst_rate_pct, is_gst_exempt, updated_by)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (broker_id) 
        DO UPDATE SET 
@@ -52,5 +54,5 @@ router.post('/:brokerId', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=broker_setup.js.map

@@ -1,7 +1,17 @@
+"use strict";
 /**
  * Document Recalculation Engine — Phase 2
  * Applies field overrides to stored document HTML using data-field-key attributes.
  */
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.applyOverridesToHtml = applyOverridesToHtml;
+exports.extractFieldValue = extractFieldValue;
+exports.recalcDemandLetter = recalcDemandLetter;
+exports.recalcReceipt = recalcReceipt;
+exports.recalcAllotmentLetter = recalcAllotmentLetter;
+exports.recalcApplicantFile = recalcApplicantFile;
+exports.buildEditScript = buildEditScript;
+exports.applyRecalc = applyRecalc;
 function escapeRegex(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -10,7 +20,7 @@ function escapeRegex(s) {
  * that carry  data-field-key="fieldKey"  attributes.
  * Replaces the text content between the opening tag and the next closing tag.
  */
-export function applyOverridesToHtml(html, overrides) {
+function applyOverridesToHtml(html, overrides) {
     let result = html;
     for (const [key, value] of Object.entries(overrides)) {
         const safeKey = escapeRegex(key);
@@ -24,7 +34,7 @@ export function applyOverridesToHtml(html, overrides) {
  * Extracts the current rendered value of a field from the stored HTML.
  * Returns null if the field is not tagged with data-field-key.
  */
-export function extractFieldValue(html, fieldKey) {
+function extractFieldValue(html, fieldKey) {
     const safeKey = escapeRegex(fieldKey);
     const match = html.match(new RegExp(`data-field-key="${safeKey}"[^>]*>([^<]*)<`));
     return match ? match[1].trim() : null;
@@ -32,16 +42,16 @@ export function extractFieldValue(html, fieldKey) {
 // ── Per-document-type recalc functions ────────────────────────────────────────
 // Phase 2: text/date/number override application.
 // Phase 3 will add cascade recalculation (totals, GST, interest).
-export function recalcDemandLetter(html, overrides) {
+function recalcDemandLetter(html, overrides) {
     return applyOverridesToHtml(html, overrides);
 }
-export function recalcReceipt(html, overrides) {
+function recalcReceipt(html, overrides) {
     return applyOverridesToHtml(html, overrides);
 }
-export function recalcAllotmentLetter(html, overrides) {
+function recalcAllotmentLetter(html, overrides) {
     return applyOverridesToHtml(html, overrides);
 }
-export function recalcApplicantFile(html, overrides) {
+function recalcApplicantFile(html, overrides) {
     return applyOverridesToHtml(html, overrides);
 }
 /**
@@ -49,7 +59,7 @@ export function recalcApplicantFile(html, overrides) {
  * Call with the concrete docId, auth token, and document type so no placeholder replacement
  * is needed by the caller.
  */
-export function buildEditScript(docId, token, docType) {
+function buildEditScript(docId, token, docType) {
     return `<script>
 (function() {
   var DOC_ID   = '${docId.replace(/'/g, "\\'")}';
@@ -649,7 +659,7 @@ export function buildEditScript(docId, token, docType) {
 </style>`;
 }
 /** Dispatch to the correct recalc function based on document_type. */
-export function applyRecalc(documentType, html, overrides) {
+function applyRecalc(documentType, html, overrides) {
     switch (documentType) {
         case 'demand_letter': return recalcDemandLetter(html, overrides);
         case 'payment_receipt': return recalcReceipt(html, overrides);

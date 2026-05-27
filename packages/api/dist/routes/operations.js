@@ -1,12 +1,14 @@
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 /**
  * UNIT SHIFTING LOGIC
  * Transfers a consumer from one unit to another within the same or different project.
  */
 router.post('/unit-shift', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { consumerId, oldUnitId, newUnitId, reason } = req.body;
         if (!consumerId || !oldUnitId || !newUnitId) {
@@ -48,7 +50,7 @@ router.post('/unit-shift', async (req, res, next) => {
  * Transfers a booking from one consumer to another (e.g., resale or family transfer).
  */
 router.post('/application-transfer', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { oldConsumerId, newConsumerId, unitId, reason } = req.body;
         if (!oldConsumerId || !newConsumerId || !unitId) {
@@ -79,5 +81,5 @@ router.post('/application-transfer', async (req, res, next) => {
         client.release();
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=operations.js.map

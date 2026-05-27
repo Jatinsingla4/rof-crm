@@ -1,12 +1,14 @@
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // ═══════════════════════════════════════════════════════════
 // DEPARTMENTS  (all static routes before /:id)
 // ═══════════════════════════════════════════════════════════
 router.get('/departments', async (req, res) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT d.*, u.name AS head_name
       FROM   departments d
       LEFT JOIN users u ON u.id = d.head_user_id
@@ -24,7 +26,7 @@ router.post('/departments', async (req, res) => {
     if (!name)
         return res.status(400).json({ error: 'Department name is required' });
     try {
-        const r = await db.query(`INSERT INTO departments (name, description, head_user_id, created_by)
+        const r = await index_js_1.db.query(`INSERT INTO departments (name, description, head_user_id, created_by)
        VALUES ($1,$2,$3,$4) RETURNING *`, [name.trim(), description || null, head_user_id || null, req.userId]);
         res.status(201).json({ success: true, data: r.rows[0] });
     }
@@ -38,7 +40,7 @@ router.patch('/departments/:id', async (req, res) => {
     const { id } = req.params;
     const { name, description, head_user_id, is_active } = req.body;
     try {
-        const r = await db.query(`UPDATE departments
+        const r = await index_js_1.db.query(`UPDATE departments
        SET name = COALESCE($1, name), description = COALESCE($2, description),
            head_user_id = $3, is_active = COALESCE($4, is_active), updated_at = NOW()
        WHERE id = $5 RETURNING *`, [name || null, description || null, head_user_id || null, is_active ?? null, id]);
@@ -53,7 +55,7 @@ router.patch('/departments/:id', async (req, res) => {
 router.delete('/departments/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const r = await db.query(`DELETE FROM departments WHERE id = $1 RETURNING id`, [id]);
+        const r = await index_js_1.db.query(`DELETE FROM departments WHERE id = $1 RETURNING id`, [id]);
         if (!r.rows.length)
             return res.status(404).json({ error: 'Department not found' });
         res.json({ success: true, data: { id } });
@@ -70,7 +72,7 @@ router.get('/teams', async (req, res) => {
     try {
         const cond = department_id ? 'WHERE t.department_id = $1' : '';
         const params = department_id ? [department_id] : [];
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT t.*, d.name AS department_name, u.name AS team_head_name,
              COUNT(tm.id) AS member_count
       FROM   teams t
@@ -92,7 +94,7 @@ router.post('/teams', async (req, res) => {
     if (!name)
         return res.status(400).json({ error: 'Team name is required' });
     try {
-        const r = await db.query(`INSERT INTO teams (name, department_id, team_head_id, description, created_by)
+        const r = await index_js_1.db.query(`INSERT INTO teams (name, department_id, team_head_id, description, created_by)
        VALUES ($1,$2,$3,$4,$5) RETURNING *`, [name.trim(), department_id || null, team_head_id || null, description || null, req.userId]);
         res.status(201).json({ success: true, data: r.rows[0] });
     }
@@ -104,7 +106,7 @@ router.patch('/teams/:id', async (req, res) => {
     const { id } = req.params;
     const { name, department_id, team_head_id, description, is_active } = req.body;
     try {
-        const r = await db.query(`UPDATE teams SET
+        const r = await index_js_1.db.query(`UPDATE teams SET
          name = COALESCE($1, name), department_id = COALESCE($2, department_id),
          team_head_id = $3, description = COALESCE($4, description),
          is_active = COALESCE($5, is_active), updated_at = NOW()
@@ -121,7 +123,7 @@ router.patch('/teams/:id', async (req, res) => {
 router.delete('/teams/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const r = await db.query(`DELETE FROM teams WHERE id = $1 RETURNING id`, [id]);
+        const r = await index_js_1.db.query(`DELETE FROM teams WHERE id = $1 RETURNING id`, [id]);
         if (!r.rows.length)
             return res.status(404).json({ error: 'Team not found' });
         res.json({ success: true, data: { id } });
@@ -133,7 +135,7 @@ router.delete('/teams/:id', async (req, res) => {
 router.get('/teams/:id/members', async (req, res) => {
     const { id } = req.params;
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT tm.*, u.name, u.email, u.role, ep.designation, ep.employee_code
       FROM   team_members tm
       JOIN   users u ON u.id = tm.user_id
@@ -153,7 +155,7 @@ router.post('/teams/:id/members', async (req, res) => {
     if (!user_id)
         return res.status(400).json({ error: 'user_id is required' });
     try {
-        const r = await db.query(`INSERT INTO team_members (team_id, user_id, role_in_team)
+        const r = await index_js_1.db.query(`INSERT INTO team_members (team_id, user_id, role_in_team)
        VALUES ($1,$2,$3)
        ON CONFLICT (team_id, user_id) DO UPDATE SET role_in_team = EXCLUDED.role_in_team
        RETURNING *`, [id, user_id, role_in_team || 'member']);
@@ -166,7 +168,7 @@ router.post('/teams/:id/members', async (req, res) => {
 router.delete('/teams/:id/members/:userId', async (req, res) => {
     const { id, userId } = req.params;
     try {
-        await db.query(`DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`, [id, userId]);
+        await index_js_1.db.query(`DELETE FROM team_members WHERE team_id = $1 AND user_id = $2`, [id, userId]);
         res.json({ success: true });
     }
     catch (err) {
@@ -177,7 +179,7 @@ router.patch('/teams/:id/set-head', async (req, res) => {
     const { id } = req.params;
     const { team_head_id } = req.body;
     try {
-        const r = await db.query(`UPDATE teams SET team_head_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *`, [team_head_id || null, id]);
+        const r = await index_js_1.db.query(`UPDATE teams SET team_head_id = $1, updated_at = NOW() WHERE id = $2 RETURNING *`, [team_head_id || null, id]);
         if (!r.rows.length)
             return res.status(404).json({ error: 'Team not found' });
         res.json({ success: true, data: r.rows[0] });
@@ -210,7 +212,7 @@ router.get('/', async (req, res) => {
             idx++;
         }
         const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT ep.*, u.name, u.email, u.role, d.name AS department_name, m.name AS manager_name
       FROM   employee_profiles ep
       JOIN   users u        ON u.id  = ep.user_id
@@ -228,7 +230,7 @@ router.get('/', async (req, res) => {
 // GET /api/employees/report  — department summary (static, must be before /:id)
 router.get('/report', async (req, res) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT d.name AS department,
              COUNT(ep.id)                               AS total,
              COUNT(ep.id) FILTER (WHERE ep.is_active)   AS active,
@@ -247,7 +249,7 @@ router.get('/report', async (req, res) => {
 // GET /api/employees/tree  — org hierarchy (static, must be before /:id)
 router.get('/tree', async (req, res) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT ep.user_id AS id, u.name, u.email, ep.designation,
              ep.manager_id, ep.employee_code, d.name AS department_name, ep.is_active
       FROM   employee_profiles ep
@@ -280,7 +282,7 @@ router.post('/', async (req, res) => {
     if (!user_id)
         return res.status(400).json({ error: 'user_id is required' });
     try {
-        const r = await db.query(`INSERT INTO employee_profiles
+        const r = await index_js_1.db.query(`INSERT INTO employee_profiles
          (user_id, department_id, employee_code, designation, joining_date,
           salary_grade, manager_id, mobile_office, mobile_personal,
           emergency_contact, address, city, state, created_by)
@@ -313,7 +315,7 @@ router.post('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        const r = await db.query(`
+        const r = await index_js_1.db.query(`
       SELECT ep.*, u.name, u.email, u.role, d.name AS department_name, m.name AS manager_name
       FROM   employee_profiles ep
       JOIN   users u ON u.id = ep.user_id
@@ -334,7 +336,7 @@ router.patch('/:id/set-manager', async (req, res) => {
     const { id } = req.params;
     const { manager_id } = req.body;
     try {
-        const r = await db.query(`UPDATE employee_profiles SET manager_id = $1, updated_at = NOW()
+        const r = await index_js_1.db.query(`UPDATE employee_profiles SET manager_id = $1, updated_at = NOW()
        WHERE user_id = $2 OR id = $2 RETURNING *`, [manager_id || null, id]);
         if (!r.rows.length)
             return res.status(404).json({ error: 'Employee not found' });
@@ -349,7 +351,7 @@ router.patch('/:id', async (req, res) => {
     const { id } = req.params;
     const { department_id, employee_code, designation, joining_date, salary_grade, manager_id, mobile_office, mobile_personal, emergency_contact, address, city, state, is_active, } = req.body;
     try {
-        const r = await db.query(`UPDATE employee_profiles SET
+        const r = await index_js_1.db.query(`UPDATE employee_profiles SET
          department_id     = COALESCE($1,  department_id),
          employee_code     = COALESCE($2,  employee_code),
          designation       = COALESCE($3,  designation),
@@ -376,5 +378,5 @@ router.patch('/:id', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=employees.js.map

@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Document Field Write-back Engine — Phase 3/4
  *
@@ -27,8 +28,10 @@
  *   Display-only labels (installmentName_{n}, chargeType_{n})
  *   Fields with no DB column (fatherName, landlineNo, projectSector, hareraDate, etc.)
  */
-import { createHash } from 'crypto';
-import { extractFieldValue } from './document-recalc.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.writebackField = writebackField;
+const crypto_1 = require("crypto");
+const document_recalc_js_1 = require("./document-recalc.js");
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 /**
  * Parses display date strings to ISO 8601 (YYYY-MM-DD).
@@ -115,7 +118,7 @@ const WRITEBACK_MAP = {
         const cleaned = v.replace(/[\s\-]/g, '').trim();
         if (!/^\d{12}$/.test(cleaned))
             return { written: false, error: `invalid aadhaar: must be 12 digits, got "${cleaned}"` };
-        const hash = createHash('sha256').update(cleaned).digest('hex');
+        const hash = (0, crypto_1.createHash)('sha256').update(cleaned).digest('hex');
         await client.query(`UPDATE consumers SET aadhaar_no = $1, aadhaar_hash = $2, updated_at = NOW() WHERE id = $3`, [cleaned, hash, ctx.consumerId]);
         return { written: true, table: 'consumers', column: 'aadhaar_no + aadhaar_hash' };
     },
@@ -531,7 +534,7 @@ async function handleIndexedField(fieldKey, value, ctx, client) {
         if (amount === null)
             return { written: false, error: `invalid amount: ${value}` };
         // Resolve charge type from the pre-edit HTML passed in context.
-        const chargeType = extractFieldValue(ctx.currentHtml, `chargeType_${index}`) || '';
+        const chargeType = (0, document_recalc_js_1.extractFieldValue)(ctx.currentHtml, `chargeType_${index}`) || '';
         const col = getReceiptColumn(chargeType);
         if (col === null)
             return { written: false, error: `no DB column for charge type: ${chargeType || '(empty)'}` };
@@ -610,7 +613,7 @@ async function handleIndexedField(fieldKey, value, ctx, client) {
  * @param client     - A pg PoolClient (from db.connect()) for transactional writes
  * @returns WritebackResult — written: false means "no write-back needed" (not an error)
  */
-export async function writebackField(fieldKey, value, ctx, client) {
+async function writebackField(fieldKey, value, ctx, client) {
     try {
         // 1. Try static map
         if (WRITEBACK_MAP[fieldKey]) {

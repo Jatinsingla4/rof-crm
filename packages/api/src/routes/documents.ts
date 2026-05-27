@@ -1011,8 +1011,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           try {
             const fsM = await import('fs');
             const pathM = await import('path');
-            const urlM = await import('url');
-            const currentDir = pathM.dirname(urlM.fileURLToPath(import.meta.url));
+            const currentDir = __dirname;
             const templatePath2 = pathM.resolve(currentDir, '../db/allotment_letter_template.html');
             if (fsM.existsSync(templatePath2)) {
               htmlContent = fsM.readFileSync(templatePath2, 'utf8');

@@ -7,13 +7,10 @@
 import { Router, Response, NextFunction } from 'express';
 import { existsSync, unlinkSync } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const docStorage = multer.diskStorage({
   destination(_req, _file, cb) {

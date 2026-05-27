@@ -1,7 +1,9 @@
-import { db } from '../index';
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const index_1 = require("../index");
 async function testDemandGeneration() {
     const consumerId = '349d44c4-7932-4752-944d-3b5643440784'; // Example consumer
-    const demandsRes = await db.query(`SELECT d.*, 
+    const demandsRes = await index_1.db.query(`SELECT d.*, 
       (SELECT COALESCE(SUM(amount_received_inr),0) FROM receipts WHERE payment_plan_id = d.payment_plan_id AND installment_index = d.installment_index) as amount_paid,
       EXTRACT(DAY FROM NOW() - d.due_date)::INT as days_overdue
      FROM demands d 

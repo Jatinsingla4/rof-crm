@@ -1,17 +1,19 @@
+"use strict";
 /**
  * Demand Letter Queue Worker
  * Processes scheduled demand letter generation jobs
  * Triggered by the scheduler for 15/7/3 day before due date emails
  */
-import { db } from '../../index.js';
-import { demandLetterQueue, emailQueue } from '../index.js';
+Object.defineProperty(exports, "__esModule", { value: true });
+const index_js_1 = require("../../index.js");
+const index_js_2 = require("../index.js");
 // Process demand letter jobs
-demandLetterQueue.process(5, async (job) => {
+index_js_2.demandLetterQueue.process(5, async (job) => {
     const { demandId, consumerId, dueDate, amountInr, daysUntilDue } = job.data;
     try {
         console.log(`Processing demand letter job ${job.id} - demand ${demandId}, due in ${daysUntilDue} days`);
         // Fetch consumer details
-        const consumerResult = await db.query(`SELECT name, email, mobile FROM consumers WHERE id = $1`, [consumerId]);
+        const consumerResult = await index_js_1.db.query(`SELECT name, email, mobile FROM consumers WHERE id = $1`, [consumerId]);
         if (consumerResult.rows.length === 0) {
             throw new Error(`Consumer ${consumerId} not found`);
         }
@@ -19,7 +21,7 @@ demandLetterQueue.process(5, async (job) => {
         // Generate demand letter content
         const letterContent = generateDemandLetterHTML(consumer.name, dueDate, amountInr, daysUntilDue);
         // Create email record in database
-        const emailResult = await db.query(`INSERT INTO emails (consumer_id, from_email, to_email, subject, body, sent_at)
+        const emailResult = await index_js_1.db.query(`INSERT INTO emails (consumer_id, from_email, to_email, subject, body, sent_at)
        VALUES ($1, $2, $3, $4, $5, NULL)
        RETURNING id`, [
             consumerId,
@@ -30,7 +32,7 @@ demandLetterQueue.process(5, async (job) => {
         ]);
         const emailId = emailResult.rows[0].id;
         // Add to email queue for actual sending
-        await emailQueue.add({
+        await index_js_2.emailQueue.add({
             to: consumer.email,
             subject: `Payment Reminder: Amount ₹${amountInr} due on ${dueDate}`,
             body: letterContent,

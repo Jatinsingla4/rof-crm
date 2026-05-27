@@ -1,17 +1,19 @@
+"use strict";
 /**
  * Master Data Routes
  * CRUD for: Countries, States, Cities, Banks, Salutations,
  *           Professions, Nationalities, Sources of Enquiry,
  *           Document Types, Document Dispatch
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // ─── Generic list/add/delete helper ──────────────────────────────────────────
 function listRoute(table, orderBy = 'name') {
     return async (req, res, next) => {
         try {
-            const result = await db.query(`SELECT * FROM ${table} ORDER BY ${orderBy}`);
+            const result = await index_js_1.db.query(`SELECT * FROM ${table} ORDER BY ${orderBy}`);
             res.json({ success: true, data: result.rows });
         }
         catch (err) {
@@ -25,7 +27,7 @@ function addRoute(table, fields) {
             const values = fields.map(f => req.body[f]);
             const cols = fields.join(', ');
             const params = fields.map((_, i) => `$${i + 1}`).join(', ');
-            const result = await db.query(`INSERT INTO ${table} (${cols}) VALUES (${params}) RETURNING *`, values);
+            const result = await index_js_1.db.query(`INSERT INTO ${table} (${cols}) VALUES (${params}) RETURNING *`, values);
             res.status(201).json({ success: true, data: result.rows[0] });
         }
         catch (err) {
@@ -36,7 +38,7 @@ function addRoute(table, fields) {
 function deleteRoute(table) {
     return async (req, res, next) => {
         try {
-            await db.query(`DELETE FROM ${table} WHERE id = $1`, [req.params.id]);
+            await index_js_1.db.query(`DELETE FROM ${table} WHERE id = $1`, [req.params.id]);
             res.json({ success: true });
         }
         catch (err) {
@@ -50,7 +52,7 @@ function updateRoute(table, fields) {
             const sets = fields.map((f, i) => `${f} = $${i + 1}`).join(', ');
             const values = fields.map(f => req.body[f]);
             values.push(req.params.id);
-            const result = await db.query(`UPDATE ${table} SET ${sets} WHERE id = $${values.length} RETURNING *`, values);
+            const result = await index_js_1.db.query(`UPDATE ${table} SET ${sets} WHERE id = $${values.length} RETURNING *`, values);
             if (!result.rows[0])
                 return res.status(404).json({ error: 'Not found' });
             res.json({ success: true, data: result.rows[0] });
@@ -71,7 +73,7 @@ router.get('/states', async (req, res, next) => {
         const { country_id } = req.query;
         const where = country_id ? `WHERE s.country_id = $1` : '';
         const params = country_id ? [country_id] : [];
-        const result = await db.query(`SELECT s.*, c.name as country_name
+        const result = await index_js_1.db.query(`SELECT s.*, c.name as country_name
        FROM states s JOIN countries c ON c.id = s.country_id
        ${where} ORDER BY s.name`, params);
         res.json({ success: true, data: result.rows });
@@ -89,7 +91,7 @@ router.get('/cities', async (req, res, next) => {
         const { state_id } = req.query;
         const where = state_id ? `WHERE ci.state_id = $1` : '';
         const params = state_id ? [state_id] : [];
-        const result = await db.query(`SELECT ci.*, s.name as state_name, c.name as country_name
+        const result = await index_js_1.db.query(`SELECT ci.*, s.name as state_name, c.name as country_name
        FROM cities ci
        JOIN states s ON s.id = ci.state_id
        JOIN countries c ON c.id = s.country_id
@@ -130,7 +132,7 @@ router.get('/document-types', listRoute('document_types', 'name'));
 router.post('/document-types', async (req, res, next) => {
     try {
         const { name, category, description } = req.body;
-        const result = await db.query(`INSERT INTO document_types (name, category, description) VALUES ($1, $2, $3) RETURNING *`, [name, category || null, description || null]);
+        const result = await index_js_1.db.query(`INSERT INTO document_types (name, category, description) VALUES ($1, $2, $3) RETURNING *`, [name, category || null, description || null]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (err) {
@@ -142,7 +144,7 @@ router.delete('/document-types/:id', deleteRoute('document_types'));
 // ─── DOCUMENT DISPATCH ────────────────────────────────────────────────────────
 router.get('/document-dispatch', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT dd.*, c.name as consumer_name
       FROM document_dispatch dd
       LEFT JOIN consumers c ON c.id = dd.consumer_id
@@ -158,7 +160,7 @@ router.get('/document-dispatch', async (req, res, next) => {
 router.post('/document-dispatch', async (req, res, next) => {
     try {
         const { document_type, dispatch_mode, tracking_no, consumer_id, dispatched_at } = req.body;
-        const result = await db.query(`INSERT INTO document_dispatch (document_type, dispatch_mode, tracking_no, consumer_id, dispatched_at, created_by)
+        const result = await index_js_1.db.query(`INSERT INTO document_dispatch (document_type, dispatch_mode, tracking_no, consumer_id, dispatched_at, created_by)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [document_type, dispatch_mode, tracking_no || null, consumer_id || null, dispatched_at || null, req.userId]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
@@ -172,7 +174,7 @@ router.delete('/document-dispatch/:id', deleteRoute('document_dispatch'));
 // Return aliases so frontend receives: id, name, days_before, channel
 router.get('/reminder-master', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT id, reminder_name AS name, days AS days_before,
+        const result = await index_js_1.db.query(`SELECT id, reminder_name AS name, days AS days_before,
               COALESCE(prefix_name, 'all') AS channel, is_active, created_at
        FROM reminder_master ORDER BY days`);
         res.json({ success: true, data: result.rows });
@@ -186,7 +188,7 @@ router.post('/reminder-master', async (req, res, next) => {
         const { name, days_before, channel } = req.body;
         if (!name || !days_before)
             return res.status(400).json({ error: 'name and days_before are required' });
-        const result = await db.query(`INSERT INTO reminder_master (reminder_name, days, prefix_name)
+        const result = await index_js_1.db.query(`INSERT INTO reminder_master (reminder_name, days, prefix_name)
        VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`, [name, parseInt(days_before), channel || null]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
@@ -201,7 +203,7 @@ router.get('/unit-types', async (req, res, next) => {
         const { project_id } = req.query;
         const where = project_id ? `WHERE ut.project_id = $1` : '';
         const params = project_id ? [project_id] : [];
-        const result = await db.query(`SELECT ut.*, p.name as project_name FROM unit_types ut JOIN projects p ON p.id = ut.project_id ${where} ORDER BY ut.name`, params);
+        const result = await index_js_1.db.query(`SELECT ut.*, p.name as project_name FROM unit_types ut JOIN projects p ON p.id = ut.project_id ${where} ORDER BY ut.name`, params);
         res.json({ success: true, data: result.rows });
     }
     catch (err) {
@@ -217,7 +219,7 @@ router.get('/floors', async (req, res, next) => {
         const { tower_id } = req.query;
         const where = tower_id ? `WHERE f.tower_id = $1` : '';
         const params = tower_id ? [tower_id] : [];
-        const result = await db.query(`SELECT f.*, t.tower_name FROM floors f JOIN towers t ON t.id = f.tower_id ${where} ORDER BY f.floor_number`, params);
+        const result = await index_js_1.db.query(`SELECT f.*, t.tower_name FROM floors f JOIN towers t ON t.id = f.tower_id ${where} ORDER BY f.floor_number`, params);
         res.json({ success: true, data: result.rows });
     }
     catch (err) {
@@ -232,5 +234,5 @@ router.get('/tax-slabs', listRoute('tax_slabs', 'name'));
 router.post('/tax-slabs', addRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
 router.put('/tax-slabs/:id', updateRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
 router.delete('/tax-slabs/:id', deleteRoute('tax_slabs'));
-export default router;
+exports.default = router;
 //# sourceMappingURL=master.js.map

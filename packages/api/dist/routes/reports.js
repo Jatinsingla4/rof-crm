@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Reports Routes - Module G (Analytics & Reporting)
  * Dashboards, campaign ROI, custom reports, analytics
  */
-import { Router } from 'express';
-import { db } from '../db/pool';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const pool_1 = require("../db/pool");
+const router = (0, express_1.Router)();
 // GET /api/reports/sales-dashboard - Sales metrics dashboard
 router.get('/sales-dashboard', async (req, res, next) => {
     try {
@@ -20,7 +22,7 @@ router.get('/sales-dashboard', async (req, res, next) => {
             params.push(dateFrom, dateTo);
         }
         // Get sales metrics
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
         COUNT(*) as total_leads,
         COUNT(CASE WHEN c.lead_stage = 'enquiry' THEN 1 END) as enquiry_stage,
         COUNT(CASE WHEN c.lead_stage = 'interested' THEN 1 END) as interested_stage,
@@ -61,7 +63,7 @@ router.get('/financial-dashboard', async (req, res, next) => {
             params.push(projectId);
         }
         // Get financial metrics
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
         COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
         COALESCE((SELECT SUM(amount_received_inr) FROM receipts), 0) as total_collected,
         COALESCE(SUM(pp.total_amount_inr), 0) - COALESCE((SELECT SUM(amount_received_inr) FROM receipts), 0) as outstanding,
@@ -97,7 +99,7 @@ router.get('/project-dashboard', async (req, res, next) => {
         const { projectId } = req.query;
         const pid = projectId || null;
         // Get project unit inventory stats
-        const inventoryResult = await db.query(`SELECT
+        const inventoryResult = await pool_1.db.query(`SELECT
         COUNT(*) as total_units,
         COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
         COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
@@ -105,14 +107,14 @@ router.get('/project-dashboard', async (req, res, next) => {
         ROUND(100.0 * COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as fill_percentage
        FROM units WHERE ($1::uuid IS NULL OR project_id = $1::uuid)`, [pid]);
         // Get payment collection stats for project
-        const paymentResult = await db.query(`SELECT
+        const paymentResult = await pool_1.db.query(`SELECT
         COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r
                   JOIN payment_plans pp2 ON r.payment_plan_id = pp2.id
                   WHERE ($1::uuid IS NULL OR pp2.project_id = $1::uuid)), 0) as total_collected
        FROM payment_plans pp WHERE ($1::uuid IS NULL OR pp.project_id = $1::uuid)`, [pid]);
         // Get construction milestone progress
-        const milestonesResult = await db.query(`SELECT
+        const milestonesResult = await pool_1.db.query(`SELECT
         COUNT(*) as total_milestones,
         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_milestones,
         ROUND(AVG(CASE WHEN status = 'completed' THEN completion_percentage ELSE 0 END), 1) as avg_completion
@@ -166,7 +168,7 @@ router.get('/campaign-roi', async (req, res, next) => {
             params.push(campaignType);
         }
         query += ` ORDER BY roi_percentage DESC`;
-        const result = await db.query(query, params);
+        const result = await pool_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -196,7 +198,7 @@ router.get('/lead-source-analysis', async (req, res, next) => {
             params.push(projectId);
         }
         query += ` GROUP BY COALESCE(cam.channel, 'direct') ORDER BY total_leads DESC`;
-        const result = await db.query(query, params);
+        const result = await pool_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -237,7 +239,7 @@ router.get('/payment-ageing', async (req, res, next) => {
                      WHEN '91-180 days' THEN 3
                      ELSE 4
                    END`;
-        const result = await db.query(query, params);
+        const result = await pool_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -264,7 +266,7 @@ router.get('/monthly-collection', async (req, res, next) => {
             params.push(projectId);
         }
         query += ` GROUP BY DATE_TRUNC('month', r.received_date) ORDER BY month DESC`;
-        const result = await db.query(query, params);
+        const result = await pool_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -283,7 +285,7 @@ router.post('/custom-report', async (req, res, next) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
         // Store report definition
-        const result = await db.query(`INSERT INTO custom_reports (project_id, report_type, filter_criteria, columns_selected, created_by_user_id)
+        const result = await pool_1.db.query(`INSERT INTO custom_reports (project_id, report_type, filter_criteria, columns_selected, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, report_type, created_at`, [projectId, reportType, JSON.stringify(filters || {}), JSON.stringify(columns), req.userId]);
         res.status(201).json({
@@ -300,7 +302,7 @@ router.post('/custom-report', async (req, res, next) => {
 router.get('/custom-reports', async (req, res, next) => {
     try {
         const { projectId } = req.query;
-        const result = await db.query(`SELECT id, project_id, report_type, columns_selected, created_at
+        const result = await pool_1.db.query(`SELECT id, project_id, report_type, columns_selected, created_at
        FROM custom_reports
        WHERE project_id = $1
        ORDER BY created_at DESC`, [projectId]);
@@ -332,7 +334,7 @@ router.get('/allotment-dashboard', async (req, res, next) => {
             summaryQuery += ` WHERE c.project_id = $${summaryParams.length + 1}`;
             summaryParams.push(projectId);
         }
-        const summaryResult = await db.query(summaryQuery, summaryParams);
+        const summaryResult = await pool_1.db.query(summaryQuery, summaryParams);
         const summary = summaryResult.rows[0];
         // Get by-project metrics
         let byProjectQuery = `SELECT
@@ -363,7 +365,7 @@ router.get('/allotment-dashboard', async (req, res, next) => {
         }
         byProjectQuery += ` GROUP BY p.id, p.name, p.rera_number, p.total_units
      ORDER BY p.name`;
-        const byProjectResult = await db.query(byProjectQuery, byProjectParams);
+        const byProjectResult = await pool_1.db.query(byProjectQuery, byProjectParams);
         // Get by-unit-type metrics
         let byUnitTypeQuery = `SELECT
       u.project_id,
@@ -382,7 +384,7 @@ router.get('/allotment-dashboard', async (req, res, next) => {
         }
         byUnitTypeQuery += ` GROUP BY u.project_id, u.bhk_type
      ORDER BY u.project_id, u.bhk_type`;
-        const byUnitTypeResult = await db.query(byUnitTypeQuery, byUnitTypeParams);
+        const byUnitTypeResult = await pool_1.db.query(byUnitTypeQuery, byUnitTypeParams);
         // Get waitlist summary
         let waitlistQuery = `SELECT
       p.id as project_id,
@@ -398,7 +400,7 @@ router.get('/allotment-dashboard', async (req, res, next) => {
         }
         waitlistQuery += ` GROUP BY p.id, p.name
      ORDER BY p.name`;
-        const waitlistResult = await db.query(waitlistQuery, waitlistParams);
+        const waitlistResult = await pool_1.db.query(waitlistQuery, waitlistParams);
         res.json({
             success: true,
             data: {
@@ -447,7 +449,7 @@ router.get('/inventory-full', async (req, res, next) => {
     try {
         const { projectId } = req.query;
         const pid = projectId || null;
-        const summary = await db.query(`SELECT
+        const summary = await pool_1.db.query(`SELECT
         COUNT(*) as total_units,
         COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
         COUNT(CASE WHEN status::text = 'booked' THEN 1 END) as booked,
@@ -457,7 +459,7 @@ router.get('/inventory-full', async (req, res, next) => {
         COUNT(CASE WHEN status::text = 'held' OR hold_status = true THEN 1 END) as hold,
         SUM(super_area_sqft) as total_area
        FROM units WHERE ($1::uuid IS NULL OR project_id = $1::uuid)`, [pid]);
-        const units = await db.query(`SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name
+        const units = await pool_1.db.query(`SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name
        FROM units u
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN allocations a ON u.id = a.unit_id AND a.status = 'allotted'
@@ -485,7 +487,7 @@ router.get('/unit-wise-plc', async (req, res, next) => {
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
         const bhkP = p(bhk || null);
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
          p.name   AS project_name,
          t.tower_name,
          u.unit_number,
@@ -519,7 +521,7 @@ router.get('/unit-sold-area', async (req, res, next) => {
         const qp = [];
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
          CASE
            WHEN u.carpet_area_sqft < 400  THEN 'Below 400 sqft'
            WHEN u.carpet_area_sqft < 600  THEN '400–600 sqft'
@@ -551,7 +553,7 @@ router.get('/unit-cost', async (req, res, next) => {
     try {
         const { projectId } = req.query;
         const pid = projectId || null;
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
          u.unit_number,
          t.tower_name,
          u.bhk_type,
@@ -730,8 +732,8 @@ router.get('/applicant-payment-file', async (req, res, next) => {
     `;
         const countQuery = `SELECT COUNT(DISTINCT c.id) AS total ${baseJoins} ${where}`;
         const [dataResult, countResult] = await Promise.all([
-            db.query(dataQuery, dataParams),
-            db.query(countQuery, countParams),
+            pool_1.db.query(dataQuery, dataParams),
+            pool_1.db.query(countQuery, countParams),
         ]);
         const total = parseInt(countResult.rows[0]?.total ?? '0', 10);
         const totalPages = Math.ceil(total / pageSizeNum);
@@ -802,7 +804,7 @@ router.get('/collection-pivot', async (req, res, next) => {
             query += ` AND d.due_date <= $${params.length}`;
         }
         query += ` ORDER BY c.registration_no, d.due_date`;
-        const result = await db.query(query, params);
+        const result = await pool_1.db.query(query, params);
         // Group by Consumer and Pivot by Month
         const consumers = {};
         const monthsSet = new Set();
@@ -846,7 +848,7 @@ router.get('/project-details', async (req, res, next) => {
         const whereClause = projectId ? `WHERE p.id = $1` : '';
         if (projectId)
             params.push(projectId);
-        const result = await db.query(`SELECT
+        const result = await pool_1.db.query(`SELECT
          p.id,
          p.name                                                       AS project_name,
          p.location,
@@ -926,8 +928,8 @@ router.get('/project-collection', async (req, res, next) => {
       GROUP BY p.id, p.name
       ORDER BY p.name
     `;
-        const result = await db.query(query, queryParams);
-        const settingsRes = await db.query(`SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1`);
+        const result = await pool_1.db.query(query, queryParams);
+        const settingsRes = await pool_1.db.query(`SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1`);
         const companyName = settingsRes.rows[0]?.value || 'Company';
         const zero = { cheque_amount: 0, draft_amount: 0, online_amount: 0, cash_amount: 0, total_amount: 0, normal_count: 0, cancel_count: 0, bounce_count: 0, total_collection: 0 };
         const totals = result.rows.reduce((acc, r) => ({
@@ -1029,9 +1031,9 @@ router.get('/due-report', async (req, res, next) => {
         // Use same params for count/sum (no limit/offset params needed — slice qp)
         const sharedParams = qp.slice(0, qp.length - 2); // remove limit + offset params
         const [dataRes, countRes, sumRes] = await Promise.all([
-            db.query(dataQuery, qp),
-            db.query(countQuery, sharedParams),
-            db.query(sumQuery, sharedParams),
+            pool_1.db.query(dataQuery, qp),
+            pool_1.db.query(countQuery, sharedParams),
+            pool_1.db.query(sumQuery, sharedParams),
         ]);
         const s = sumRes.rows[0] || {};
         res.json({
@@ -1150,9 +1152,9 @@ router.get('/customer-balance', async (req, res, next) => {
       ${baseFrom}
     `;
         const [dataRes, countRes, sumRes] = await Promise.all([
-            db.query(dataQuery, qp),
-            db.query(countQuery, sharedParams),
-            db.query(sumQuery, sharedParams),
+            pool_1.db.query(dataQuery, qp),
+            pool_1.db.query(countQuery, sharedParams),
+            pool_1.db.query(sumQuery, sharedParams),
         ]);
         const s = sumRes.rows[0] || {};
         res.json({
@@ -1316,8 +1318,8 @@ router.get('/customer-dues', async (req, res, next) => {
         const sharedParams = qp.slice(0, qp.length - 2);
         const countQuery = `SELECT COUNT(*) AS total ${baseFrom}`;
         const [dataRes, countRes] = await Promise.all([
-            db.query(dataQuery, qp),
-            db.query(countQuery, sharedParams),
+            pool_1.db.query(dataQuery, qp),
+            pool_1.db.query(countQuery, sharedParams),
         ]);
         // Build summary matrix from JS aggregation
         const rows = dataRes.rows;
@@ -1406,7 +1408,7 @@ router.get('/stage-wise-dues', async (req, res, next) => {
       GROUP BY d.installment_index, d.demand_type
       ORDER BY d.installment_index
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((acc, r) => ({
             consumer_count: Math.max(acc.consumer_count, parseInt(r.consumer_count || 0)),
@@ -1538,7 +1540,7 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
       GROUP BY pct_bucket, bucket_order
       ORDER BY bucket_order
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const buckets = result.rows;
         const totals = buckets.reduce((acc, r) => ({
             total_consumers: acc.total_consumers + parseInt(String(r.consumer_count || 0)),
@@ -1600,7 +1602,7 @@ router.get('/project-wise-dues', async (req, res, next) => {
       GROUP BY p.id, p.name
       ORDER BY p.name
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             consumer_count: a.consumer_count + parseInt(String(r.consumer_count || 0)),
@@ -1666,7 +1668,7 @@ router.get('/ageing-project', async (req, res, next) => {
       GROUP BY project_id, project_name
       ORDER BY project_name
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
@@ -1732,7 +1734,7 @@ router.get('/ageing-installment', async (req, res, next) => {
       GROUP BY installment_index, demand_type
       ORDER BY installment_index
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
@@ -1800,7 +1802,7 @@ router.get('/ageing-tower', async (req, res, next) => {
       GROUP BY project_name, tower_name
       ORDER BY project_name, tower_name
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
@@ -1867,7 +1869,7 @@ router.get('/ageing-plan', async (req, res, next) => {
       GROUP BY project_name, plan_name
       ORDER BY project_name, plan_name
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
@@ -1926,7 +1928,7 @@ router.get('/month-wise-dues', async (req, res, next) => {
       GROUP BY 1, 2
       ORDER BY 2
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             consumer_count: Math.max(a.consumer_count, parseInt(String(r.consumer_count || 0))),
@@ -1999,7 +2001,7 @@ router.get('/customer-dues-detail', async (req, res, next) => {
         AND (${stP}::text  IS NULL OR d.status = ${stP})
       ORDER BY t.tower_name NULLS LAST, u.unit_number, d.installment_index
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         res.json({ success: true, data: result.rows, total: result.rows.length });
     }
     catch (err) {
@@ -2051,7 +2053,7 @@ router.get('/other-charges', async (req, res, next) => {
         )
       ORDER BY t.tower_name NULLS LAST, u.unit_number
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         const rows = result.rows;
         const totals = rows.reduce((a, r) => ({
             booking_plc: a.booking_plc + parseFloat(r.booking_plc || 0),
@@ -2100,7 +2102,7 @@ router.get('/opening-details', async (req, res, next) => {
       WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
       ORDER BY br.booking_date DESC, consumer_name ASC
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         res.json({ success: true, data: result.rows });
     }
     catch (err) {
@@ -2146,7 +2148,7 @@ router.get('/booking-authentication', async (req, res, next) => {
         AND (${toP}::date   IS NULL OR br.booking_date <= ${toP}::date)
       ORDER BY br.booking_date DESC, consumer_name ASC
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         res.json({ success: true, data: result.rows, total: result.rows.length });
     }
     catch (err) {
@@ -2201,7 +2203,7 @@ router.get('/tds-status', async (req, res, next) => {
         AND (${stP}::text   IS NULL OR tc.status         = ${stP}::text)
       ORDER BY tc.challan_date DESC, consumer_name ASC
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         res.json({ success: true, data: result.rows, total: result.rows.length });
     }
     catch (err) {
@@ -2266,8 +2268,8 @@ router.get('/customer-forecasting', async (req, res, next) => {
       ORDER BY d.due_date ASC, c.registration_no ASC, d.installment_index ASC
     `;
         const [monthlyResult, detailResult] = await Promise.all([
-            db.query(monthlyQuery, [pid]),
-            db.query(detailQuery, [pid]),
+            pool_1.db.query(monthlyQuery, [pid]),
+            pool_1.db.query(detailQuery, [pid]),
         ]);
         const monthly = monthlyResult.rows;
         const detail = detailResult.rows;
@@ -2314,12 +2316,12 @@ router.get('/conveyance-deed-date', async (req, res, next) => {
       WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
       ORDER BY rd.appointment_date DESC NULLS LAST, consumer_name ASC NULLS LAST
     `;
-        const result = await db.query(query, qp);
+        const result = await pool_1.db.query(query, qp);
         res.json({ success: true, data: result.rows, total: result.rows.length });
     }
     catch (err) {
         next(err);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=reports.js.map

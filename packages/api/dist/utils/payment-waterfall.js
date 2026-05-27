@@ -1,3 +1,4 @@
+"use strict";
 /**
  * Payment Waterfall Allocation
  *
@@ -8,7 +9,9 @@
  * Receipts that already carry a demand_id are counted directly against that
  * demand and do not enter the advance pool.
  */
-export function applyWaterfall(receipts, demands) {
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.applyWaterfall = applyWaterfall;
+function applyWaterfall(receipts, demands) {
     const sorted = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     // Linked receipts → count directly against their demand
     const linkedMap = {};

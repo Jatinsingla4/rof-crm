@@ -1,18 +1,20 @@
+"use strict";
 /**
  * Test Data Import Routes
  * Endpoints to verify and explore the imported test data
  */
-import { Router } from 'express';
-import { importService } from '../services/test-data-import.service';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const test_data_import_service_1 = require("../services/test-data-import.service");
+const router = (0, express_1.Router)();
 /**
  * GET /api/test-data/verify
  * Verify that test data has been imported correctly
  */
 router.get('/verify', async (req, res, next) => {
     try {
-        const stats = await importService.verifyImport();
-        const validation = await importService.validateDataIntegrity();
+        const stats = await test_data_import_service_1.importService.verifyImport();
+        const validation = await test_data_import_service_1.importService.validateDataIntegrity();
         res.json({
             success: true,
             data: {
@@ -32,7 +34,7 @@ router.get('/verify', async (req, res, next) => {
  */
 router.get('/projects', async (req, res, next) => {
     try {
-        const projects = await importService.getProjectDetails();
+        const projects = await test_data_import_service_1.importService.getProjectDetails();
         res.json({
             success: true,
             data: projects,
@@ -48,7 +50,7 @@ router.get('/projects', async (req, res, next) => {
  */
 router.get('/units-breakdown', async (req, res, next) => {
     try {
-        const breakdown = await importService.getUnitsBreakdown();
+        const breakdown = await test_data_import_service_1.importService.getUnitsBreakdown();
         res.json({
             success: true,
             data: breakdown,
@@ -64,7 +66,7 @@ router.get('/units-breakdown', async (req, res, next) => {
  */
 router.get('/payment-plans', async (req, res, next) => {
     try {
-        const plans = await importService.getPaymentPlansBreakdown();
+        const plans = await test_data_import_service_1.importService.getPaymentPlansBreakdown();
         res.json({
             success: true,
             data: plans,
@@ -80,7 +82,7 @@ router.get('/payment-plans', async (req, res, next) => {
  */
 router.get('/consumers', async (req, res, next) => {
     try {
-        const consumers = await importService.getImportedConsumers();
+        const consumers = await test_data_import_service_1.importService.getImportedConsumers();
         res.json({
             success: true,
             data: consumers,
@@ -97,7 +99,7 @@ router.get('/consumers', async (req, res, next) => {
  */
 router.get('/co-applicants', async (req, res, next) => {
     try {
-        const coApplicants = await importService.getCoApplicants();
+        const coApplicants = await test_data_import_service_1.importService.getCoApplicants();
         res.json({
             success: true,
             data: coApplicants,
@@ -115,13 +117,13 @@ router.get('/co-applicants', async (req, res, next) => {
 router.get('/summary', async (req, res, next) => {
     try {
         const [stats, projects, unitsBreakdown, paymentPlans, consumers, coApplicants, validation] = await Promise.all([
-            importService.verifyImport(),
-            importService.getProjectDetails(),
-            importService.getUnitsBreakdown(),
-            importService.getPaymentPlansBreakdown(),
-            importService.getImportedConsumers(),
-            importService.getCoApplicants(),
-            importService.validateDataIntegrity(),
+            test_data_import_service_1.importService.verifyImport(),
+            test_data_import_service_1.importService.getProjectDetails(),
+            test_data_import_service_1.importService.getUnitsBreakdown(),
+            test_data_import_service_1.importService.getPaymentPlansBreakdown(),
+            test_data_import_service_1.importService.getImportedConsumers(),
+            test_data_import_service_1.importService.getCoApplicants(),
+            test_data_import_service_1.importService.validateDataIntegrity(),
         ]);
         res.json({
             success: true,
@@ -154,5 +156,5 @@ router.get('/summary', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=test-data-import.js.map

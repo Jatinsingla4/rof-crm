@@ -1,19 +1,21 @@
+"use strict";
 /**
  * Payment Routes - Module D
  * Payment plans, demand letters, receipts, HRERA Rule 15 penal interest
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall } from '../utils/payment-waterfall.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const document_recalc_js_1 = require("../utils/document-recalc.js");
+const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
  * HRERA Rule 15: 11.10% per annum
  */
 const getPenalInterestRate = async () => {
     try {
-        const res = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
+        const res = await index_js_1.db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
         return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 11.10;
     }
     catch {
@@ -27,7 +29,7 @@ const calculatePenalInterest = (principalInr, daysOverdue, rate = 11.10) => {
 router.post('/payment-plans', async (req, res, next) => {
     try {
         const { allocationId, consumerId, unitId, projectId, totalAmountInr, allotmentDate } = req.body;
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             const result = await client.query(`INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr, created_by_user_id)
@@ -84,7 +86,7 @@ router.post('/payment-plans', async (req, res, next) => {
 // GET /api/payments/overdue - List overdue payments with HRERA interest
 router.get('/overdue', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         d.id, d.payment_plan_id, d.consumer_id, d.amount_due_inr, d.due_date,
         EXTRACT(DAY FROM NOW() - d.due_date)::INT as days_overdue,
         c.name as consumer_name, c.mobile
@@ -118,11 +120,11 @@ router.post('/receipts', async (req, res, next) => {
             return res.status(400).json({ error: 'consumerId and amount are required' });
         }
         // Look up the consumer's payment plan
-        const planResult = await db.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
+        const planResult = await index_js_1.db.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
         let resolvedPlanId = legacyPlanId || (planResult.rows[0]?.id) || null;
         // Fallback: find any payment plan for this consumer's project
         if (!resolvedPlanId) {
-            const projResult = await db.query(`SELECT pp.id FROM payment_plans pp
+            const projResult = await index_js_1.db.query(`SELECT pp.id FROM payment_plans pp
          JOIN units u ON u.id = pp.unit_id
          JOIN booking_records br ON br.consumer_id = $1
          WHERE u.project_id = (
@@ -137,7 +139,7 @@ router.post('/receipts', async (req, res, next) => {
         let resolvedIdx = (legacyIdx != null ? Number(legacyIdx) : null);
         // Auto-increment only when a plan exists, no index given, AND it's not an explicit "Other" payment
         if (resolvedPlanId && resolvedIdx == null && !isOtherPayment) {
-            const idxResult = await db.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [resolvedPlanId]);
+            const idxResult = await index_js_1.db.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [resolvedPlanId]);
             resolvedIdx = idxResult.rows[0].next_idx;
         }
         const receiptDate = paymentDate || receivedDate || new Date().toISOString().split('T')[0];
@@ -149,7 +151,7 @@ router.post('/receipts', async (req, res, next) => {
         const branchVal = branch || null;
         const chequeNoVal = req.body.chequeNo || req.body.cheque_no || null;
         const chequeDateVal = req.body.chequeDate || req.body.cheque_date || null;
-        const result = await db.query(`INSERT INTO receipts
+        const result = await index_js_1.db.query(`INSERT INTO receipts
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,
           payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,
           plc_amount, edc_amount, idc_amount, other_charge_amount, other_charge_desc, interest_amount,
@@ -163,7 +165,7 @@ router.post('/receipts', async (req, res, next) => {
         // Auto-match receipt to demand, then apply partial/full/excess payment logic
         try {
             if (resolvedPlanId && resolvedIdx != null) {
-                const matchedDemand = await db.query(`SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
+                const matchedDemand = await index_js_1.db.query(`SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
                   d.installment_index, d.consumer_id
            FROM demands d
            WHERE d.payment_plan_id = $1
@@ -173,9 +175,9 @@ router.post('/receipts', async (req, res, next) => {
            LIMIT 1`, [resolvedPlanId, resolvedIdx]);
                 if (matchedDemand.rows[0]) {
                     const demand = matchedDemand.rows[0];
-                    await db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
+                    await index_js_1.db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
                     // Sum all non-cancelled receipts linked to this demand
-                    const paidResult = await db.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
+                    const paidResult = await index_js_1.db.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
              FROM receipts
              WHERE demand_id = $1 AND status != 'cancelled'`, [demand.id]);
                     const totalPaid = parseFloat(paidResult.rows[0].total_paid);
@@ -184,11 +186,11 @@ router.post('/receipts', async (req, res, next) => {
                         + parseFloat(demand.sgst_amount || 0);
                     if (totalPaid >= amountDue) {
                         // Fully paid (or excess)
-                        await db.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
+                        await index_js_1.db.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
                         const excess = totalPaid - amountDue;
                         if (excess > 0) {
                             // Find next unpaid demand in the same plan
-                            const nextDemand = await db.query(`SELECT id FROM demands
+                            const nextDemand = await index_js_1.db.query(`SELECT id FROM demands
                  WHERE payment_plan_id = $1
                    AND consumer_id = $2
                    AND installment_index > $3
@@ -198,20 +200,20 @@ router.post('/receipts', async (req, res, next) => {
                             if (nextDemand.rows[0]) {
                                 const nextId = nextDemand.rows[0].id;
                                 const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
-                                await db.query(`INSERT INTO receipts
+                                await index_js_1.db.query(`INSERT INTO receipts
                      (consumer_id, payment_plan_id, demand_id, amount_received_inr,
                       payment_method, received_date, received_by_user_id, receipt_number,
                       plc_amount, status, approval_status, print_status,
                       is_advance, advance_from_demand_id)
                    VALUES ($1,$2,$3,$4,'advance',CURRENT_DATE,$5,$6,0,'pending','pending','not_printed',true,$7)`, [demand.consumer_id, resolvedPlanId, nextId, excess,
                                     req.userId, advanceNum, demand.id]);
-                                await db.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, resolvedPlanId]);
+                                await index_js_1.db.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, resolvedPlanId]);
                             }
                         }
                     }
                     else {
                         // Partial payment
-                        await db.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [demand.id]);
+                        await index_js_1.db.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [demand.id]);
                     }
                 }
             }
@@ -239,7 +241,7 @@ router.get('/dashboard', async (req, res, next) => {
         if (projectId) {
             query += ` WHERE project_id = $1`;
         }
-        const result = await db.query(query, projectId ? [projectId] : []);
+        const result = await index_js_1.db.query(query, projectId ? [projectId] : []);
         const { total_receivables: totalReceivables, total_collected: totalCollected, overdue_count: overdueCount, } = result.rows[0];
         const collectionPercentage = totalReceivables > 0 ? Math.round((totalCollected / totalReceivables) * 100) : 0;
         const outstanding = totalReceivables - totalCollected;
@@ -286,11 +288,11 @@ router.post('/demands/generate', async (req, res, next) => {
             planQuery += ` AND pp.project_id = $${planParams.length + 1}`;
             planParams.push(projectId);
         }
-        const plans = await db.query(planQuery, planParams);
+        const plans = await index_js_1.db.query(planQuery, planParams);
         if (plans.rows.length === 0) {
             return res.status(404).json({ error: 'No payment plans found for the given criteria' });
         }
-        const gstRes = await db.query(`SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`);
+        const gstRes = await index_js_1.db.query(`SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`);
         const gstMap = Object.fromEntries(gstRes.rows.map((r) => [r.key, parseFloat(r.value)]));
         const basicCgstPct = (gstMap['basic_cgst_percent'] ?? 0.5) / 100;
         const basicSgstPct = (gstMap['basic_sgst_percent'] ?? 0.5) / 100;
@@ -300,25 +302,25 @@ router.post('/demands/generate', async (req, res, next) => {
             // Resolve the plan name: use provided → consumer's booking_records.selected_plan_name → alphabetically first
             let resolvedPlanName = planName;
             if (!resolvedPlanName) {
-                const brRow = await db.query(`SELECT selected_plan_name FROM booking_records
+                const brRow = await index_js_1.db.query(`SELECT selected_plan_name FROM booking_records
            WHERE consumer_id = $1 AND unit_id IS NOT NULL AND selected_plan_name IS NOT NULL
            ORDER BY created_at DESC LIMIT 1`, [plan.consumer_id]);
                 resolvedPlanName = brRow.rows[0]?.selected_plan_name;
             }
             if (!resolvedPlanName) {
-                const firstPlan = await db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name LIMIT 1`, [plan.project_id]);
+                const firstPlan = await index_js_1.db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name LIMIT 1`, [plan.project_id]);
                 resolvedPlanName = firstPlan.rows[0]?.plan_name;
             }
             if (!resolvedPlanName)
                 continue;
             // Get installment templates for this plan
-            const templates = await db.query(`SELECT installment_index, installment_name, percentage, installment_type
+            const templates = await index_js_1.db.query(`SELECT installment_index, installment_name, percentage, installment_type
          FROM plan_schedule_templates
          WHERE project_id = $1 AND plan_name = $2
          ORDER BY installment_index`, [plan.project_id, resolvedPlanName]);
             for (const tmpl of templates.rows) {
                 // Skip if a demand already exists for this consumer + installment index
-                const existing = await db.query(`SELECT id FROM demands WHERE consumer_id = $1 AND installment_index = $2 AND payment_plan_id = $3`, [plan.consumer_id, tmpl.installment_index, plan.payment_plan_id]);
+                const existing = await index_js_1.db.query(`SELECT id FROM demands WHERE consumer_id = $1 AND installment_index = $2 AND payment_plan_id = $3`, [plan.consumer_id, tmpl.installment_index, plan.payment_plan_id]);
                 if (existing.rows.length > 0)
                     continue;
                 const pct = parseFloat(tmpl.percentage) / 100;
@@ -329,7 +331,7 @@ router.post('/demands/generate', async (req, res, next) => {
                 const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
                 const cgstAmount = isNri ? 0 : Math.round(amountDue * basicCgstPct);
                 const sgstAmount = isNri ? 0 : Math.round(amountDue * basicSgstPct);
-                const ins = await db.query(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr,
+                const ins = await index_js_1.db.query(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr,
                                 cgst_amount, sgst_amount,
                                 status, demand_type, delivery_status, generated_at)
            VALUES ($1, $2, $3, CURRENT_DATE + INTERVAL '30 days', $4, $5, $6, 'pending', $7, 'pending', NOW())
@@ -351,7 +353,7 @@ router.get('/demands/by-stage', async (req, res, next) => {
         const { projectId } = req.query;
         if (!projectId)
             return res.status(400).json({ error: 'projectId is required' });
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         d.installment_index,
         COALESCE(
@@ -506,7 +508,7 @@ router.get('/demands', async (req, res, next) => {
             params.push(raisedTo);
         }
         query += ` ORDER BY d.installment_index ASC, d.due_date ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         // Add Balance calculation in memory for speed
         const data = result.rows.map(r => ({
             ...r,
@@ -521,7 +523,7 @@ router.get('/demands', async (req, res, next) => {
 // PATCH /api/payments/demands/activate - Transition scheduled installment to active demand
 // Option A: skip invalid (sequential check fails), raise all valid — no full rollback on partial failure
 router.patch('/demands/activate', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { demandIds, installmentDate } = req.body;
         if (!demandIds || !Array.isArray(demandIds) || !installmentDate) {
@@ -597,7 +599,7 @@ router.patch('/demands/activate', async (req, res, next) => {
                 client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
            FROM demands WHERE consumer_id = $1`, [consumer_id]),
             ]);
-            const wfResult = applyWaterfall(wfRcpts.rows, wfDemands.rows)
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(wfRcpts.rows, wfDemands.rows)
                 .find(w => w.demand_id === id);
             if (wfResult?.fully_covered) {
                 await client.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [id]);
@@ -634,10 +636,10 @@ router.post('/demands/bulk', async (req, res, next) => {
         if (!projectId) {
             return res.status(400).json({ error: 'projectId required' });
         }
-        const plans = await db.query(`SELECT id, consumer_id FROM payment_plans WHERE project_id = $1`, [projectId]);
+        const plans = await index_js_1.db.query(`SELECT id, consumer_id FROM payment_plans WHERE project_id = $1`, [projectId]);
         let created = 0;
         for (const plan of plans.rows) {
-            await db.query(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr, sent_via, delivery_status)
+            await index_js_1.db.query(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr, sent_via, delivery_status)
          VALUES ($1, 0, $2, $3, $4, $5, 'queued')`, [plan.id, plan.consumer_id, dueDate || new Date().toISOString().slice(0, 10), amountDueInr || 0, sentVia || 'email']);
             created++;
         }
@@ -649,7 +651,7 @@ router.post('/demands/bulk', async (req, res, next) => {
 });
 // PATCH /api/payments/demands/bulk-cancel - Reset multiple demands to pending
 router.patch('/demands/bulk-cancel', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { demandIds } = req.body;
         if (!demandIds || !Array.isArray(demandIds) || demandIds.length === 0) {
@@ -690,7 +692,7 @@ router.patch('/demands/:id/send', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { sentVia } = req.body;
-        const result = await db.query(`UPDATE demands SET delivery_status = 'sent', sent_at = NOW(), sent_via = COALESCE($1, sent_via)
+        const result = await index_js_1.db.query(`UPDATE demands SET delivery_status = 'sent', sent_at = NOW(), sent_via = COALESCE($1, sent_via)
        WHERE id = $2
        RETURNING id, delivery_status, sent_at`, [sentVia, id]);
         if (result.rows.length === 0) {
@@ -707,14 +709,14 @@ router.patch('/demands/:id/cancel', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { reason } = req.body;
-        const current = await db.query(`SELECT id, status FROM demands WHERE id = $1`, [id]);
+        const current = await index_js_1.db.query(`SELECT id, status FROM demands WHERE id = $1`, [id]);
         if (current.rows.length === 0) {
             return res.status(404).json({ error: 'Demand not found' });
         }
         if (current.rows[0].status !== 'demanded') {
             return res.status(400).json({ error: `Cannot cancel a demand with status '${current.rows[0].status}'. Only 'demanded' demands can be cancelled.` });
         }
-        const result = await db.query(`UPDATE demands
+        const result = await index_js_1.db.query(`UPDATE demands
        SET status = 'pending', delivery_status = 'pending',
            raised_at = NULL, updated_at = NOW()
        WHERE id = $1
@@ -812,7 +814,7 @@ router.get('/receipts', async (req, res, next) => {
             params.push(approvalStatus);
         }
         query += ` ORDER BY r.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -823,7 +825,7 @@ router.get('/receipts', async (req, res, next) => {
 router.get('/receipts/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT r.*, c.name AS consumer_name, c.mobile
+        const result = await index_js_1.db.query(`SELECT r.*, c.name AS consumer_name, c.mobile
        FROM receipts r
        JOIN consumers c ON r.consumer_id = c.id
        WHERE r.id = $1`, [id]);
@@ -840,7 +842,7 @@ router.patch('/receipts/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { paymentMethod, transactionRef, bankName, branch, chequeNo, chequeDate, receivedDate, amountReceivedInr, plcAmount, edcAmount, idcAmount, interestAmount, otherChargeAmount, otherChargeDesc } = req.body;
-        const existing = await db.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref
+        const existing = await index_js_1.db.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref
        FROM receipts WHERE id = $1`, [id]);
         if (existing.rows.length === 0)
             return res.status(404).json({ error: 'Receipt not found' });
@@ -852,13 +854,13 @@ router.patch('/receipts/:id', async (req, res, next) => {
             return res.status(403).json({ error: 'Cannot edit a cancelled receipt' });
         }
         if (transactionRef && transactionRef !== receipt.transaction_ref) {
-            const dup = await db.query(`SELECT id FROM receipts WHERE transaction_ref = $1 AND id != $2`, [transactionRef, id]);
+            const dup = await index_js_1.db.query(`SELECT id FROM receipts WHERE transaction_ref = $1 AND id != $2`, [transactionRef, id]);
             if (dup.rows.length > 0) {
                 return res.status(409).json({ error: 'Transaction reference already exists on another receipt' });
             }
         }
         const isPending = receipt.approval_status === 'pending';
-        const result = await db.query(`UPDATE receipts SET
+        const result = await index_js_1.db.query(`UPDATE receipts SET
          payment_method  = COALESCE($1, payment_method),
          transaction_ref = COALESCE($2, transaction_ref),
          bank_name       = COALESCE($3, bank_name),
@@ -917,7 +919,7 @@ router.patch('/receipts/:id', async (req, res, next) => {
 router.patch('/receipts/:id/approve', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`UPDATE receipts 
+        const result = await index_js_1.db.query(`UPDATE receipts 
        SET status = 'authorized', 
            authorized_by = $1, 
            authorized_at = NOW(),
@@ -956,7 +958,7 @@ router.get('/gst-invoices', async (req, res, next) => {
             params.push(status);
         }
         query += ` ORDER BY gi.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -975,7 +977,7 @@ router.post('/gst-invoices', async (req, res, next) => {
         const sgstAmount = Math.round(baseAmountInr * (sgstRate || 9) / 100);
         const igstAmount = igstRate ? Math.round(baseAmountInr * igstRate / 100) : 0;
         const totalAmount = baseAmountInr + cgstAmount + sgstAmount + igstAmount;
-        const result = await db.query(`INSERT INTO gst_invoices (
+        const result = await index_js_1.db.query(`INSERT INTO gst_invoices (
         invoice_no, invoice_date, project_id, consumer_id, unit_id, 
         installment_name, base_amount_inr, taxable_amount_inr,
         cgst_rate, sgst_rate, igst_rate,
@@ -1020,7 +1022,7 @@ router.get('/gst-invoices/:id/pdf', async (req, res, next) => {
 router.get('/:paymentPlanId/demands', async (req, res, next) => {
     try {
         const { paymentPlanId } = req.params;
-        const result = await db.query(`SELECT id, installment_index, amount_due_inr, due_date, delivery_status
+        const result = await index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, due_date, delivery_status
        FROM demands WHERE payment_plan_id = $1
        ORDER BY installment_index ASC`, [paymentPlanId]);
         res.json({
@@ -1075,7 +1077,7 @@ router.get('/draw-refunds', async (req, res, next) => {
         }
         query += ` ORDER BY refund_due_by ASC
               LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -1088,7 +1090,7 @@ router.get('/draw-refunds', async (req, res, next) => {
 // GET /api/payments/draw-refunds/overdue - Get overdue draw refunds
 router.get('/draw-refunds/overdue', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT
+        const result = await index_js_1.db.query(`SELECT
         id, consumer_id, project_id, draw_result,
         booking_amount_paid_inr, refund_amount_inr,
         refund_due_by, refund_status,
@@ -1112,7 +1114,7 @@ router.patch('/draw-refunds/:id/initiate', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { refundReference, notes } = req.body;
-        const result = await db.query(`UPDATE draw_refunds
+        const result = await index_js_1.db.query(`UPDATE draw_refunds
        SET refund_status = 'initiated',
            refund_initiated_at = NOW(),
            refund_reference = $1,
@@ -1137,7 +1139,7 @@ router.patch('/draw-refunds/:id/complete', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { refundReference } = req.body;
-        const result = await db.query(`UPDATE draw_refunds
+        const result = await index_js_1.db.query(`UPDATE draw_refunds
        SET refund_status = 'completed',
            refund_completed_at = NOW(),
            refund_reference = COALESCE($1, refund_reference),
@@ -1160,7 +1162,7 @@ router.patch('/draw-refunds/:id/complete', async (req, res, next) => {
  * PATCH /api/payments/receipts/:id/bounce - Mark receipt as bounced
  */
 router.patch('/receipts/:id/bounce', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { id } = req.params;
         const { reason, penaltyAmount = 500 } = req.body;
@@ -1214,7 +1216,7 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
 });
 // POST /api/payments/receipts/:id/cancel - Cancel a receipt and reverse demand payment state
 router.post('/receipts/:id/cancel', async (req, res, next) => {
-    const client = await db.connect();
+    const client = await index_js_1.db.connect();
     try {
         const { id } = req.params;
         const reason = req.body?.reason || 'Cancelled by user';
@@ -1252,7 +1254,7 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
          FROM demands
          WHERE consumer_id = $1`, [receipt.consumer_id]),
         ]);
-        const wfResults = applyWaterfall(wfRcpts.rows, wfDemands.rows);
+        const wfResults = (0, payment_waterfall_js_1.applyWaterfall)(wfRcpts.rows, wfDemands.rows);
         for (const wf of wfResults) {
             if (!wf.fully_covered) {
                 const dbDemand = wfDemands.rows.find((d) => d.id === wf.demand_id);
@@ -1315,11 +1317,11 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
 router.patch('/receipts/:id/mark-printed', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const existing = await db.query(`SELECT id FROM receipts WHERE id = $1`, [id]);
+        const existing = await index_js_1.db.query(`SELECT id FROM receipts WHERE id = $1`, [id]);
         if (existing.rows.length === 0) {
             return res.status(404).json({ error: 'Receipt not found' });
         }
-        await db.query(`UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2`, [req.userId, id]);
+        await index_js_1.db.query(`UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2`, [req.userId, id]);
         res.json({ success: true, printedBy: req.userName, printedAt: new Date() });
     }
     catch (error) {
@@ -1898,8 +1900,8 @@ router.get('/receipts/:id/html', async (req, res, next) => {
     try {
         const { id } = req.params;
         const [settingsResult, receiptResult] = await Promise.all([
-            db.query('SELECT key, value FROM global_settings'),
-            db.query(`
+            index_js_1.db.query('SELECT key, value FROM global_settings'),
+            index_js_1.db.query(`
         SELECT
           r.id, r.receipt_number, r.installment_index,
           r.consumer_id, r.payment_plan_id,
@@ -1941,7 +1943,7 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         let allInstallments = [];
         if (receipt.payment_plan_id) {
             try {
-                const instResult = await db.query(`
+                const instResult = await index_js_1.db.query(`
           SELECT
             d.id AS demand_id,
             d.installment_index,
@@ -1993,7 +1995,7 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         }
         let coApplicants = [];
         try {
-            const coResult = await db.query(`SELECT salutation, first_name, last_name, applicant_number
+            const coResult = await index_js_1.db.query(`SELECT salutation, first_name, last_name, applicant_number
          FROM co_applicants WHERE consumer_id = $1 ORDER BY applicant_number ASC`, [receipt.consumer_id]);
             coApplicants = coResult.rows;
         }
@@ -2003,7 +2005,7 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         // Fetch penal interest for this receipt's consumer + installment
         if (!receipt.interest_amount || parseFloat(receipt.interest_amount) === 0) {
             try {
-                const penalResult = await db.query(`SELECT amount_inr, interest_waived_inr, rate_percent
+                const penalResult = await index_js_1.db.query(`SELECT amount_inr, interest_waived_inr, rate_percent
            FROM penal_interests
            WHERE consumer_id = $1
              AND payment_plan_id = $2
@@ -2022,12 +2024,12 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         // Persist to documents table on first view so it can be edited later
         let receiptDocId = null;
         try {
-            const existing = await db.query(`SELECT id FROM documents WHERE document_type = 'payment_receipt' AND reference_id = $1 LIMIT 1`, [id]);
+            const existing = await index_js_1.db.query(`SELECT id FROM documents WHERE document_type = 'payment_receipt' AND reference_id = $1 LIMIT 1`, [id]);
             if (existing.rows.length === 0) {
-                const docInsert = await db.query(`INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
+                const docInsert = await index_js_1.db.query(`INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
            VALUES ('payment_receipt', $1, $2, $3, 'receipt', 1, 0, FALSE, $4) RETURNING id`, [receipt.consumer_id, html, id, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);
                 receiptDocId = docInsert.rows[0].id;
-                await db.query(`INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
+                await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
            VALUES ($1, 1, $2, TRUE, 'Original generation')`, [receiptDocId, html]);
             }
             else {
@@ -2039,23 +2041,23 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         let finalHtml = html;
         if (receiptDocId) {
             try {
-                const overridesRes = await db.query(`SELECT field_key, current_value FROM document_field_overrides
+                const overridesRes = await index_js_1.db.query(`SELECT field_key, current_value FROM document_field_overrides
            WHERE document_id = $1 AND is_active = TRUE`, [receiptDocId]);
                 if (overridesRes.rows.length > 0) {
                     const overridesMap = {};
                     overridesRes.rows.forEach((o) => {
                         overridesMap[o.field_key] = o.current_value;
                     });
-                    finalHtml = applyOverridesToHtml(html, overridesMap);
+                    finalHtml = (0, document_recalc_js_1.applyOverridesToHtml)(html, overridesMap);
                     // Keep stored html_content in sync
-                    await db.query(`UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`, [finalHtml, receiptDocId]);
+                    await index_js_1.db.query(`UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`, [finalHtml, receiptDocId]);
                 }
             }
             catch { /* non-fatal */ }
         }
         const token = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
         const htmlWithEdit = receiptDocId
-            ? finalHtml.replace('</body>', buildEditScript(receiptDocId, token, 'payment_receipt') + '\n</body>')
+            ? finalHtml.replace('</body>', (0, document_recalc_js_1.buildEditScript)(receiptDocId, token, 'payment_receipt') + '\n</body>')
             : finalHtml;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(htmlWithEdit);
@@ -2428,7 +2430,7 @@ router.get('/receipt-form/:consumerId', async (req, res, next) => {
         const { consumerId } = req.params;
         const token = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
         // 1. Consumer + financial summary
-        const consumerResult = await db.query(`
+        const consumerResult = await index_js_1.db.query(`
       SELECT
         c.id AS consumer_id,
         c.registration_no,
@@ -2494,7 +2496,7 @@ router.get('/receipt-form/:consumerId', async (req, res, next) => {
         }
         const consumer = consumerResult.rows[0];
         // 2. Installments from plan_schedule_templates with demand status for dropdown guard
-        const instResult = await db.query(`
+        const instResult = await index_js_1.db.query(`
       SELECT DISTINCT ON (pst.installment_index)
         pst.installment_index,
         pst.installment_name,
@@ -2510,9 +2512,9 @@ router.get('/receipt-form/:consumerId', async (req, res, next) => {
       ORDER BY pst.installment_index
     `, [consumer.project_id, consumerId]);
         // 3. Banks
-        const banksResult = await db.query(`SELECT id, name FROM banks ORDER BY name`);
+        const banksResult = await index_js_1.db.query(`SELECT id, name FROM banks ORDER BY name`);
         // 4. Users
-        const usersResult = await db.query(`SELECT id, name, email FROM users ORDER BY name LIMIT 50`);
+        const usersResult = await index_js_1.db.query(`SELECT id, name, email FROM users ORDER BY name LIMIT 50`);
         const html = buildReceiptFormHtml(consumer, instResult.rows, banksResult.rows, usersResult.rows, token);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
@@ -2713,7 +2715,7 @@ function buildReceiptDetailHtml(rows) {
 router.get('/receipt-detail/:consumerId', async (req, res, next) => {
     try {
         const { consumerId } = req.params;
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         r.id,
         r.receipt_number,
@@ -2772,5 +2774,5 @@ router.get('/receipt-detail/:consumerId', async (req, res, next) => {
         next(err);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=payments.js.map

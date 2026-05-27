@@ -1,8 +1,11 @@
+"use strict";
 /**
  * Audit Logger Middleware
  * Logs all create/update/delete operations to audit_logs table
  */
-export const logAudit = async (db, userId, action, resourceType, resourceId, previousValues, newValues) => {
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.logAudit = void 0;
+const logAudit = async (db, userId, action, resourceType, resourceId, previousValues, newValues) => {
     try {
         await db.query(`INSERT INTO audit_logs
        (user_id, action, resource_type, resource_id,
@@ -22,4 +25,5 @@ export const logAudit = async (db, userId, action, resourceType, resourceId, pre
         console.error('Audit log failed:', error);
     }
 };
+exports.logAudit = logAudit;
 //# sourceMappingURL=auditLogger.js.map

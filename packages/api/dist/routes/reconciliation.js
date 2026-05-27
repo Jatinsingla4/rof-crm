@@ -1,18 +1,20 @@
+"use strict";
 /**
  * Bank Reconciliation Routes - Module D
  * Import bank statements, auto-match to demands/receipts, manual reconciliation
  */
-import { Router } from 'express';
-import { parse } from 'csv-parse/sync';
-import { db } from '../index.js';
-import { requirePermission } from '../middleware/rbac.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const sync_1 = require("csv-parse/sync");
+const index_js_1 = require("../index.js");
+const rbac_js_1 = require("../middleware/rbac.js");
+const router = (0, express_1.Router)();
 // Auto-matching algorithm
 const autoMatchTransaction = async (transaction) => {
     let bestMatch = null;
     // Strategy 1: Exact reference match (confidence: 95)
     if (transaction.transaction_ref) {
-        const refMatch = await db.query(`SELECT id FROM receipts WHERE transaction_ref = $1 LIMIT 1`, [transaction.transaction_ref]);
+        const refMatch = await index_js_1.db.query(`SELECT id FROM receipts WHERE transaction_ref = $1 LIMIT 1`, [transaction.transaction_ref]);
         if (refMatch.rows.length > 0) {
             return {
                 transactionId: '',
@@ -23,7 +25,7 @@ const autoMatchTransaction = async (transaction) => {
         }
     }
     // Strategy 2: Amount + date proximity match (confidence: 75 if single, 50 if multiple)
-    const amountMatch = await db.query(`SELECT d.id as demand_id
+    const amountMatch = await index_js_1.db.query(`SELECT d.id as demand_id
      FROM demands d
      WHERE d.amount_due_inr = $1
      AND d.due_date BETWEEN $2::DATE - INTERVAL '7 days' AND $3::DATE + INTERVAL '7 days'
@@ -49,7 +51,7 @@ const autoMatchTransaction = async (transaction) => {
     return null;
 };
 // POST /api/reconciliation/import - Import bank statement CSV
-router.post('/import', requirePermission('payments', 'create'), async (req, res, next) => {
+router.post('/import', (0, rbac_js_1.requirePermission)('payments', 'create'), async (req, res, next) => {
     try {
         const { projectId, fileName, csvContent } = req.body;
         // Validate required fields
@@ -59,7 +61,7 @@ router.post('/import', requirePermission('payments', 'create'), async (req, res,
         // Parse CSV content
         let records;
         try {
-            records = parse(csvContent, {
+            records = (0, sync_1.parse)(csvContent, {
                 columns: true,
                 skip_empty_lines: true,
                 trim: true,
@@ -73,7 +75,7 @@ router.post('/import', requirePermission('payments', 'create'), async (req, res,
             return res.status(400).json({ error: 'CSV file is empty' });
         }
         // Create import record
-        const importResult = await db.query(`INSERT INTO bank_statement_imports (project_id, file_name, imported_by_user_id, import_date, total_transactions)
+        const importResult = await index_js_1.db.query(`INSERT INTO bank_statement_imports (project_id, file_name, imported_by_user_id, import_date, total_transactions)
        VALUES ($1, $2, $3, CURRENT_DATE, $4)
        RETURNING id`, [projectId, fileName, req.userId, records.length]);
         const importId = importResult.rows[0].id;
@@ -109,7 +111,7 @@ router.post('/import', requirePermission('payments', 'create'), async (req, res,
                 matchedCount++;
             }
             // Insert transaction
-            const txnResult = await db.query(`INSERT INTO bank_transactions (
+            const txnResult = await index_js_1.db.query(`INSERT INTO bank_transactions (
           import_id, transaction_date, description, amount_inr,
           transaction_ref, bank_account, matched_receipt_id, matched_demand_id,
           match_status, match_confidence
@@ -137,7 +139,7 @@ router.post('/import', requirePermission('payments', 'create'), async (req, res,
         }
         // Update import summary
         const unmatchedCount = records.length - matchedCount;
-        await db.query(`UPDATE bank_statement_imports
+        await index_js_1.db.query(`UPDATE bank_statement_imports
        SET matched_count = $1, unmatched_count = $2, total_amount_inr = $3, status = 'completed'
        WHERE id = $4`, [matchedCount, unmatchedCount, totalAmount, importId]);
         res.status(201).json({
@@ -158,7 +160,7 @@ router.post('/import', requirePermission('payments', 'create'), async (req, res,
     }
 });
 // GET /api/reconciliation/imports - List all imports
-router.get('/imports', requirePermission('payments', 'view'), async (req, res, next) => {
+router.get('/imports', (0, rbac_js_1.requirePermission)('payments', 'view'), async (req, res, next) => {
     try {
         const { projectId, page = 1, pageSize = 20 } = req.query;
         let query = `SELECT
@@ -183,8 +185,8 @@ router.get('/imports', requirePermission('payments', 'view'), async (req, res, n
             countParams.push(projectId);
         }
         const [dataResult, countResult] = await Promise.all([
-            db.query(query, params),
-            db.query(countQuery, countParams),
+            index_js_1.db.query(query, params),
+            index_js_1.db.query(countQuery, countParams),
         ]);
         res.json({
             success: true,
@@ -201,7 +203,7 @@ router.get('/imports', requirePermission('payments', 'view'), async (req, res, n
     }
 });
 // GET /api/reconciliation/imports/:importId/transactions - Get transactions in import
-router.get('/imports/:importId/transactions', requirePermission('payments', 'view'), async (req, res, next) => {
+router.get('/imports/:importId/transactions', (0, rbac_js_1.requirePermission)('payments', 'view'), async (req, res, next) => {
     try {
         const { importId } = req.params;
         const { matchStatus, page = 1, pageSize = 50 } = req.query;
@@ -228,8 +230,8 @@ router.get('/imports/:importId/transactions', requirePermission('payments', 'vie
             countParams.push(matchStatus);
         }
         const [dataResult, countResult] = await Promise.all([
-            db.query(query, params),
-            db.query(countQuery, countParams),
+            index_js_1.db.query(query, params),
+            index_js_1.db.query(countQuery, countParams),
         ]);
         res.json({
             success: true,
@@ -246,14 +248,14 @@ router.get('/imports/:importId/transactions', requirePermission('payments', 'vie
     }
 });
 // PATCH /api/reconciliation/transactions/:id/match - Manual match
-router.patch('/transactions/:id/match', requirePermission('payments', 'edit'), async (req, res, next) => {
+router.patch('/transactions/:id/match', (0, rbac_js_1.requirePermission)('payments', 'edit'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { receiptId, demandId, notes } = req.body;
         if (!receiptId && !demandId) {
             return res.status(400).json({ error: 'Must provide either receiptId or demandId' });
         }
-        const result = await db.query(`UPDATE bank_transactions
+        const result = await index_js_1.db.query(`UPDATE bank_transactions
        SET matched_receipt_id = COALESCE($1, matched_receipt_id),
            matched_demand_id = COALESCE($2, matched_demand_id),
            match_status = 'manually_matched',
@@ -275,11 +277,11 @@ router.patch('/transactions/:id/match', requirePermission('payments', 'edit'), a
     }
 });
 // PATCH /api/reconciliation/transactions/:id/ignore - Mark as ignored
-router.patch('/transactions/:id/ignore', requirePermission('payments', 'edit'), async (req, res, next) => {
+router.patch('/transactions/:id/ignore', (0, rbac_js_1.requirePermission)('payments', 'edit'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { notes } = req.body;
-        const result = await db.query(`UPDATE bank_transactions
+        const result = await index_js_1.db.query(`UPDATE bank_transactions
        SET match_status = 'ignored',
            matched_by_user_id = $1,
            matched_at = NOW(),
@@ -298,5 +300,5 @@ router.patch('/transactions/:id/ignore', requirePermission('payments', 'edit'), 
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=reconciliation.js.map

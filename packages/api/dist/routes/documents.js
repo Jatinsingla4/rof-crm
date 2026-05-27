@@ -1,22 +1,60 @@
+"use strict";
 /**
  * Documents Routes - Module E
  * Template engine, PDF generation, scanned contract vault, document management
  */
-import { Router } from 'express';
-import crypto from 'crypto';
-import { db } from '../index.js';
-import { applyRecalc, extractFieldValue, buildEditScript } from '../utils/document-recalc.js';
-import { writebackField } from '../utils/document-writeback.js';
-import { applyWaterfall } from '../utils/payment-waterfall.js';
-const router = Router();
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const crypto_1 = __importDefault(require("crypto"));
+const index_js_1 = require("../index.js");
+const document_recalc_js_1 = require("../utils/document-recalc.js");
+const document_writeback_js_1 = require("../utils/document-writeback.js");
+const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const router = (0, express_1.Router)();
 // AES-256 Encryption Configuration
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
 const IV_LENGTH = 16;
 function encrypt(text) {
     if (!text)
         return text;
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+    const iv = crypto_1.default.randomBytes(IV_LENGTH);
+    const cipher = crypto_1.default.createCipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
     let encrypted = cipher.update(text);
     encrypted = Buffer.concat([encrypted, cipher.final()]);
     return iv.toString('hex') + ':' + encrypted.toString('hex');
@@ -30,7 +68,7 @@ function decrypt(text) {
         const textParts = text.split(':');
         const iv = Buffer.from(textParts.shift(), 'hex');
         const encryptedText = Buffer.from(textParts.join(':'), 'hex');
-        const decipher = crypto.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
+        const decipher = crypto_1.default.createDecipheriv('aes-256-cbc', Buffer.from(ENCRYPTION_KEY), iv);
         let decrypted = decipher.update(encryptedText);
         decrypted = Buffer.concat([decrypted, decipher.final()]);
         return decrypted.toString();
@@ -97,12 +135,12 @@ router.post('/templates', async (req, res, next) => {
         // project_id is NOT NULL — use provided value or fall back to first available project
         let resolvedProjectId = projectId || null;
         if (!resolvedProjectId) {
-            const pRes = await db.query(`SELECT id FROM projects LIMIT 1`);
+            const pRes = await index_js_1.db.query(`SELECT id FROM projects LIMIT 1`);
             if (pRes.rows.length === 0)
                 return res.status(400).json({ error: 'No projects available' });
             resolvedProjectId = pRes.rows[0].id;
         }
-        const result = await db.query(`INSERT INTO document_templates (project_id, document_type, name, body_html, merge_fields, created_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO document_templates (project_id, document_type, name, body_html, merge_fields, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, document_type, name, created_at`, [resolvedProjectId, documentType, templateName, templateBody, mergeFields || [], req.userId]);
         res.status(201).json({
@@ -130,7 +168,7 @@ router.get('/templates', async (req, res, next) => {
             params.push(documentType);
         }
         query += ` ORDER BY created_at DESC`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -144,7 +182,7 @@ router.get('/templates', async (req, res, next) => {
 router.get('/templates/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT id, project_id, document_type, name, body_html, merge_fields, created_at, updated_at
+        const result = await index_js_1.db.query(`SELECT id, project_id, document_type, name, body_html, merge_fields, created_at, updated_at
        FROM document_templates WHERE id = $1`, [id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Template not found' });
@@ -163,7 +201,7 @@ router.patch('/templates/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { title, name, htmlContent, bodyHtml, mergeFields } = req.body;
-        const result = await db.query(`UPDATE document_templates
+        const result = await index_js_1.db.query(`UPDATE document_templates
        SET name = COALESCE($1, name),
            body_html = COALESCE($2, body_html),
            merge_fields = COALESCE($3, merge_fields),
@@ -193,11 +231,11 @@ router.post('/generate', async (req, res, next) => {
         // 1. Resolve Template
         let template;
         if (templateId) {
-            const tRes = await db.query(`SELECT * FROM document_templates WHERE id = $1`, [templateId]);
+            const tRes = await index_js_1.db.query(`SELECT * FROM document_templates WHERE id = $1`, [templateId]);
             template = tRes.rows[0];
         }
         else if (documentType) {
-            const tRes = await db.query(`SELECT * FROM document_templates WHERE document_type = $1 ORDER BY created_at DESC LIMIT 1`, [documentType]);
+            const tRes = await index_js_1.db.query(`SELECT * FROM document_templates WHERE document_type = $1 ORDER BY created_at DESC LIMIT 1`, [documentType]);
             template = tRes.rows[0];
         }
         if (!template) {
@@ -206,7 +244,7 @@ router.post('/generate', async (req, res, next) => {
         // 2. Auto-Merge Logic (if mergeData missing)
         let htmlContent = template.body_html || '';
         if (!mergeData) {
-            const dataRes = await db.query(`SELECT c.*, u.unit_number, u.bhk_type as unit_category, u.carpet_area_sqft as carpet_area, p.name as project_name, p.location as project_sector, p.rera_number as project_rera
+            const dataRes = await index_js_1.db.query(`SELECT c.*, u.unit_number, u.bhk_type as unit_category, u.carpet_area_sqft as carpet_area, p.name as project_name, p.location as project_sector, p.rera_number as project_rera
          FROM consumers c
          LEFT JOIN units u ON c.allocated_unit_id = u.id
          LEFT JOIN projects p ON u.project_id = p.id
@@ -236,13 +274,13 @@ router.post('/generate', async (req, res, next) => {
                     const includeInterest = req.body.includeInterest !== false;
                     const demandIdFilter = req.body.demandId;
                     // Fetch global_settings as key→value map
-                    const settingsRes = await db.query(`SELECT key, value FROM global_settings`);
+                    const settingsRes = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
                     const settings = {};
                     settingsRes.rows.forEach((r) => { settings[r.key] = r.value; });
                     const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '11.10');
                     // Fetch consumer + unit + tower + project + payment_plan
                     // Unit resolved: allocation → payment_plan → booking_record (three-level fallback)
-                    const planRes = await db.query(`
+                    const planRes = await index_js_1.db.query(`
             SELECT
               c.name AS consumer_name, c.father_name, c.mobile, c.email,
               c.registration_no, c.income_category, c.present_address,
@@ -307,7 +345,7 @@ router.post('/generate', async (req, res, next) => {
           `, [consumerId]);
                     const plan = planRes.rows[0] || {};
                     // Fetch co-applicants
-                    const coRes = await db.query(`SELECT name, relationship FROM co_applicants WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 3`, [consumerId]);
+                    const coRes = await index_js_1.db.query(`SELECT name, relationship FROM co_applicants WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 3`, [consumerId]);
                     const coApplicants = coRes.rows
                         .map((r) => r.name + (r.relationship ? ` (${r.relationship})` : ''))
                         .join(', ');
@@ -374,20 +412,20 @@ router.post('/generate', async (req, res, next) => {
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
-                        demandsRes = await db.query(fallbackQuery, [consumerId, dueDate]);
+                        demandsRes = await index_js_1.db.query(fallbackQuery, [consumerId, dueDate]);
                     }
                     else {
-                        demandsRes = await db.query(demandQuery, demandParams);
+                        demandsRes = await index_js_1.db.query(demandQuery, demandParams);
                     }
                     // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
                     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-                        db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
+                        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`, [consumerId]),
-                        db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+                        index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
                FROM demands WHERE consumer_id = $1`, [consumerId]),
                     ]);
-                    const allWfResults = applyWaterfall(wfRcptsRes.rows, wfDemandsRes.rows);
+                    const allWfResults = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsRes.rows, wfDemandsRes.rows);
                     const wfMap = new Map(allWfResults.map(w => [w.demand_id, w.paid]));
                     let totalDue = 0, totalPaid = 0, totalCgst = 0, totalSgst = 0;
                     let totalInterestCalc = 0; // always-calculated interest for with-interest mode
@@ -728,20 +766,20 @@ router.post('/generate', async (req, res, next) => {
                 // ── ALLOTMENT LETTER ─────────────────────────────────────────────────
                 else if (template.document_type === 'allotment_letter') {
                     // Fetch global settings
-                    const settingsRes2 = await db.query(`SELECT key, value FROM global_settings`);
+                    const settingsRes2 = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
                     const s2 = {};
                     settingsRes2.rows.forEach((r) => { s2[r.key] = r.value; });
                     // Resolve allocationId — use body param or look up latest for this consumer
                     let resolvedAllocId = allocationId;
                     if (!resolvedAllocId) {
-                        const aRes = await db.query(`SELECT id FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
+                        const aRes = await index_js_1.db.query(`SELECT id FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
                         resolvedAllocId = aRes.rows[0]?.id || null;
                     }
                     if (!resolvedAllocId) {
                         return res.status(400).json({ error: 'No allocation found for this consumer' });
                     }
                     // Main data fetch — allocation as anchor
-                    const alRes = await db.query(`
+                    const alRes = await index_js_1.db.query(`
             SELECT
               c.first_name, c.last_name,
               COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
@@ -795,12 +833,12 @@ router.post('/generate', async (req, res, next) => {
                     const projectId2 = al.project_id;
                     const planName2 = al.selected_plan_name || 'CLP';
                     // Fetch payment plan total — includes PLC and other charges (not base-only like units.total_price_inr)
-                    const ppRes = await db.query(`SELECT total_amount_inr FROM payment_plans
+                    const ppRes = await index_js_1.db.query(`SELECT total_amount_inr FROM payment_plans
              WHERE consumer_id = $1 AND unit_id = $2
              ORDER BY created_at DESC LIMIT 1`, [al.consumer_id, al.unit_id]);
                     const totalPriceInr = parseFloat(ppRes.rows[0]?.total_amount_inr || al.total_price_inr || 0);
                     // Fetch payment plan installments with fallback to first available plan
-                    let schedRows = await db.query(`
+                    let schedRows = await index_js_1.db.query(`
             SELECT installment_index, installment_name,
                    COALESCE(percentage, 0) AS percentage, flat_amount_inr
             FROM plan_schedule_templates
@@ -809,9 +847,9 @@ router.post('/generate', async (req, res, next) => {
           `, [projectId2, planName2]);
                     // Fallback to first plan if no rows
                     if (schedRows.rows.length === 0) {
-                        const firstPlan = await db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name ASC LIMIT 1`, [projectId2]);
+                        const firstPlan = await index_js_1.db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name ASC LIMIT 1`, [projectId2]);
                         const fallbackPlan = firstPlan.rows[0]?.plan_name || 'CLP';
-                        schedRows = await db.query(`
+                        schedRows = await index_js_1.db.query(`
               SELECT installment_index, installment_name,
                      COALESCE(percentage, 0) AS percentage, flat_amount_inr
               FROM plan_schedule_templates
@@ -909,10 +947,9 @@ router.post('/generate', async (req, res, next) => {
                     };
                     // Override htmlContent with the file-based template
                     try {
-                        const fsM = await import('fs');
-                        const pathM = await import('path');
-                        const urlM = await import('url');
-                        const currentDir = pathM.dirname(urlM.fileURLToPath(import.meta.url));
+                        const fsM = await Promise.resolve().then(() => __importStar(require('fs')));
+                        const pathM = await Promise.resolve().then(() => __importStar(require('path')));
+                        const currentDir = __dirname;
                         const templatePath2 = pathM.resolve(currentDir, '../db/allotment_letter_template.html');
                         if (fsM.existsSync(templatePath2)) {
                             htmlContent = fsM.readFileSync(templatePath2, 'utf8');
@@ -1095,12 +1132,12 @@ router.post('/generate', async (req, res, next) => {
             }
         }
         // 4. Save and return
-        const result = await db.query(`INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
        RETURNING id`, [consumerId, allocationId || null, template.id, template.document_type, htmlContent, deliveryMethod || 'none', req.userId]);
         const newDocId = result.rows[0].id;
         // Save original version snapshot so every document has a v1 baseline
-        await db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
+        await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
        VALUES ($1, 1, $2, $3, 'Original generation', '[]'::jsonb, TRUE)`, [newDocId, htmlContent, req.userId]);
         res.status(201).json({ success: true, data: { documentId: newDocId } });
     }
@@ -1114,12 +1151,12 @@ router.post('/:id/send', async (req, res, next) => {
         const { id } = req.params;
         const { recipientEmail, recipientPhone } = req.body;
         // Get document
-        const docResult = await db.query(`SELECT id, consumer_id, document_type, delivery_method FROM documents WHERE id = $1`, [id]);
+        const docResult = await index_js_1.db.query(`SELECT id, consumer_id, document_type, delivery_method FROM documents WHERE id = $1`, [id]);
         if (docResult.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
         }
         // Update delivery status (in production, queue async job to send via email/WhatsApp)
-        const result = await db.query(`UPDATE documents
+        const result = await index_js_1.db.query(`UPDATE documents
        SET delivery_status = 'sent', sent_at = NOW(), sent_by_user_id = $1
        WHERE id = $2
        RETURNING id, document_type, delivery_status, sent_at`, [req.userId, id]);
@@ -1141,7 +1178,7 @@ router.get('/search', async (req, res, next) => {
         if (!term) {
             return res.status(400).json({ error: 'Search query required' });
         }
-        const result = await db.query(`SELECT id, consumer_id, document_type, html_content, created_at
+        const result = await index_js_1.db.query(`SELECT id, consumer_id, document_type, html_content, created_at
        FROM documents
        WHERE html_content ILIKE $1
        ${projectId ? `AND allocation_id IN (SELECT id FROM allocations WHERE project_id = $2)` : ''}
@@ -1193,8 +1230,8 @@ router.get('/edits-report', async (req, res, next) => {
       ${whereClause}
     `;
         const [countRes, dataRes] = await Promise.all([
-            db.query(`SELECT COUNT(*) AS total ${baseQuery}`, params),
-            db.query(`SELECT
+            index_js_1.db.query(`SELECT COUNT(*) AS total ${baseQuery}`, params),
+            index_js_1.db.query(`SELECT
           dfo.id                AS override_id,
           dfo.document_id,
           dfo.field_key,
@@ -1262,7 +1299,7 @@ router.get('/', async (req, res, next) => {
             query += ` AND d.created_at <= $${params.length}::date + interval '1 day'`;
         }
         query += ` ORDER BY d.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -1282,7 +1319,7 @@ router.post('/vault', async (req, res, next) => {
         }
         // Encrypt the file URL before storing (AES-256)
         const encryptedFileUrl = encrypt(fileUrl);
-        const result = await db.query(`INSERT INTO document_vault (consumer_id, allocation_id, document_category, file_url, file_name, uploaded_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO document_vault (consumer_id, allocation_id, document_category, file_url, file_name, uploaded_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, document_category, file_url, created_at`, [consumerId, allocationId || null, documentCategory, encryptedFileUrl, fileName || null, req.userId]);
         const data = result.rows[0];
@@ -1311,7 +1348,7 @@ router.get('/vault', async (req, res, next) => {
             query += ` AND dv.document_category = $${params.length}`;
         }
         query += ` ORDER BY dv.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         // Decrypt URLs for client
         const decryptedRows = result.rows.map(row => ({
             ...row,
@@ -1339,7 +1376,7 @@ router.get('/vault/:consumerId', async (req, res, next) => {
             params.push(documentCategory);
         }
         query += ` ORDER BY document_category, created_at DESC`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         // Decrypt URLs for client
         const decryptedRows = result.rows.map(row => ({
             ...row,
@@ -1367,7 +1404,7 @@ router.get('/:consumerId', async (req, res, next) => {
             params.push(documentType);
         }
         query += ` ORDER BY created_at DESC`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({
             success: true,
             data: result.rows,
@@ -1380,7 +1417,7 @@ router.get('/:consumerId', async (req, res, next) => {
 // GET /api/documents/:id/overrides — List all active field overrides for a document
 router.get('/:id/overrides', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT dfo.id, dfo.field_key, dfo.field_label, dfo.section,
+        const result = await index_js_1.db.query(`SELECT dfo.id, dfo.field_key, dfo.field_label, dfo.section,
               dfo.original_value, dfo.current_value, dfo.value_type,
               dfo.edit_reason, dfo.edited_at, dfo.is_active,
               u.name AS edited_by_name
@@ -1397,7 +1434,7 @@ router.get('/:id/overrides', async (req, res, next) => {
 // GET /api/documents/:id/versions — Version history for a document
 router.get('/:id/versions', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT dv.id, dv.version_number, dv.edit_reason, dv.fields_changed,
+        const result = await index_js_1.db.query(`SELECT dv.id, dv.version_number, dv.edit_reason, dv.fields_changed,
               dv.is_original, dv.created_at, u.name AS created_by_name
        FROM document_versions dv
        LEFT JOIN users u ON u.id = dv.created_by_user_id
@@ -1423,7 +1460,7 @@ router.patch('/:id/edit', async (req, res, next) => {
             return res.status(400).json({ error: 'fields array is required and must be non-empty' });
         }
         // Step 2: Get current document
-        const docResult = await db.query(`SELECT id, document_type, html_content, original_html_content, version_number, is_edited,
+        const docResult = await index_js_1.db.query(`SELECT id, document_type, html_content, original_html_content, version_number, is_edited,
               consumer_id, reference_id, allocation_id
        FROM documents WHERE id = $1 AND deleted_at IS NULL`, [docId]);
         if (!docResult.rows[0])
@@ -1433,18 +1470,18 @@ router.patch('/:id/edit', async (req, res, next) => {
         const currentVersion = doc.version_number || 1;
         // Step 3: Snapshot original HTML on first edit
         if (!doc.is_edited && !doc.original_html_content) {
-            await db.query(`UPDATE documents SET original_html_content = html_content WHERE id = $1`, [docId]);
+            await index_js_1.db.query(`UPDATE documents SET original_html_content = html_content WHERE id = $1`, [docId]);
         }
         // Step 4: Upsert field overrides
         const fieldsChanged = [];
         for (const field of fields) {
             const { field_key, field_label, section, new_value, value_type } = field;
             // Preserve original_value from first override or extract from current HTML
-            const existingRes = await db.query(`SELECT original_value FROM document_field_overrides WHERE document_id = $1 AND field_key = $2`, [docId, field_key]);
+            const existingRes = await index_js_1.db.query(`SELECT original_value FROM document_field_overrides WHERE document_id = $1 AND field_key = $2`, [docId, field_key]);
             const originalValue = existingRes.rows[0]?.original_value
-                ?? extractFieldValue(currentHtml, field_key)
+                ?? (0, document_recalc_js_1.extractFieldValue)(currentHtml, field_key)
                 ?? '';
-            await db.query(`INSERT INTO document_field_overrides
+            await index_js_1.db.query(`INSERT INTO document_field_overrides
            (document_id, field_key, field_label, section, original_value, current_value, value_type, edit_reason, edited_by_user_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (document_id, field_key) DO UPDATE SET
@@ -1468,11 +1505,11 @@ router.patch('/:id/edit', async (req, res, next) => {
         };
         const writtenFields = [];
         let writebackCount = 0;
-        const wbClient = await db.connect();
+        const wbClient = await index_js_1.db.connect();
         try {
             for (const field of fields) {
                 try {
-                    const result = await writebackField(field.field_key, field.new_value, wbCtx, wbClient);
+                    const result = await (0, document_writeback_js_1.writebackField)(field.field_key, field.new_value, wbCtx, wbClient);
                     if (result.written) {
                         writtenFields.push(field.field_key);
                         writebackCount++;
@@ -1487,17 +1524,17 @@ router.patch('/:id/edit', async (req, res, next) => {
             wbClient.release();
         }
         // Step 5: Re-render with all active overrides
-        const allOverridesRes = await db.query(`SELECT field_key, current_value FROM document_field_overrides WHERE document_id = $1 AND is_active = TRUE`, [docId]);
+        const allOverridesRes = await index_js_1.db.query(`SELECT field_key, current_value FROM document_field_overrides WHERE document_id = $1 AND is_active = TRUE`, [docId]);
         const overridesMap = {};
         for (const row of allOverridesRes.rows)
             overridesMap[row.field_key] = row.current_value;
-        const newHtml = applyRecalc(doc.document_type, currentHtml, overridesMap);
+        const newHtml = (0, document_recalc_js_1.applyRecalc)(doc.document_type, currentHtml, overridesMap);
         const newVersion = currentVersion + 1;
         // Step 6: Save new version snapshot
-        await db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
+        await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
        VALUES ($1,$2,$3,$4,$5,$6,FALSE)`, [docId, newVersion, newHtml, userId, edit_reason, JSON.stringify(fieldsChanged)]);
         // Step 7: Update documents table
-        await db.query(`UPDATE documents SET
+        await index_js_1.db.query(`UPDATE documents SET
          html_content    = $1,
          version_number  = $2,
          last_edited_by  = $3,
@@ -1507,7 +1544,7 @@ router.patch('/:id/edit', async (req, res, next) => {
        WHERE id = $4`, [newHtml, newVersion, userId, docId]);
         // Step 8: Audit log (non-fatal)
         try {
-            await db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, previous_values, new_values)
+            await index_js_1.db.query(`INSERT INTO audit_logs (user_id, action, resource_type, resource_id, previous_values, new_values)
          VALUES ($1,'DOCUMENT_EDIT','document',$2,$3,$4)`, [userId, docId,
                 JSON.stringify({ version: currentVersion }),
                 JSON.stringify({ version: newVersion, fields_changed: fieldsChanged, edit_reason })]);
@@ -1531,7 +1568,7 @@ router.patch('/:id/edit', async (req, res, next) => {
 // GET /api/documents/:id/html - Return rendered html_content for a document (used by frontend print)
 router.get('/:id/html', async (req, res, next) => {
     try {
-        const result = await db.query(`SELECT d.html_content, d.document_type, d.id AS doc_id,
+        const result = await index_js_1.db.query(`SELECT d.html_content, d.document_type, d.id AS doc_id,
               c.email AS consumer_email,
               COALESCE(c.name, TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))) AS consumer_name
        FROM documents d
@@ -1659,7 +1696,7 @@ function toggleInterest(mode) {
   <button id="btn-no-interest" onclick="toggleInterest('no-interest')" style="background:#17a2b8;color:#fff;border:2px solid #17a2b8;padding:8px 18px;font-size:12px;font-weight:bold;cursor:pointer;border-radius:3px;font-family:Arial">Without Interest</button>
   </div>
 </div>`;
-            const editScriptDL = buildEditScript(row.doc_id, (req.headers.authorization?.split(' ')[1] || req.query.token || ''), 'demand_letter');
+            const editScriptDL = (0, document_recalc_js_1.buildEditScript)(row.doc_id, (req.headers.authorization?.split(' ')[1] || req.query.token || ''), 'demand_letter');
             htmlContent = htmlContent.replace('</body>', injection + '\n' + editScriptDL + '\n</body>');
         }
         if (row.document_type === 'allotment_letter') {
@@ -1689,7 +1726,7 @@ function downloadPdfAL() {
   <button onclick="downloadPdfAL()" style="background:#007bff;color:#fff;border:none;padding:7px 16px;border-radius:3px;cursor:pointer;font-size:12px;font-weight:bold;font-family:Arial">Download PDF</button>
   <button onclick="window.close()" style="background:#6c757d;color:#fff;border:none;padding:7px 16px;border-radius:3px;cursor:pointer;font-size:12px;font-weight:bold;font-family:Arial">&#x2715; Close</button>
 </div>`;
-            const editScriptAL = buildEditScript(row.doc_id, (req.headers.authorization?.split(' ')[1] || req.query.token || ''), 'allotment_letter');
+            const editScriptAL = (0, document_recalc_js_1.buildEditScript)(row.doc_id, (req.headers.authorization?.split(' ')[1] || req.query.token || ''), 'allotment_letter');
             htmlContent = htmlContent.replace('</body>', alInjection + '\n' + editScriptAL + '\n</body>');
         }
         res.set('Content-Type', 'text/html; charset=utf-8').send(htmlContent);
@@ -1702,7 +1739,7 @@ function downloadPdfAL() {
 router.delete('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`UPDATE documents SET deleted_at = NOW(), deleted_by_user_id = $1 WHERE id = $2
+        const result = await index_js_1.db.query(`UPDATE documents SET deleted_at = NOW(), deleted_by_user_id = $1 WHERE id = $2
        RETURNING id, document_type`, [req.userId, id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Document not found' });
@@ -1716,5 +1753,5 @@ router.delete('/:id', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=documents.js.map

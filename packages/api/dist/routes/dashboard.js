@@ -1,15 +1,17 @@
+"use strict";
 /**
  * Dashboard Routes
  * Provides all panels: Pending Cheques, Demand Status, Pending Approval,
  * Employee Ticket Details, Daily Status, Parking Detail, Forthcoming Due
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/dashboard/pending-cheques
 router.get('/pending-cheques', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         p.name as project,
         COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
@@ -42,7 +44,7 @@ router.get('/pending-cheques', async (req, res, next) => {
 // GET /api/dashboard/demand-status
 router.get('/demand-status', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         p.name as project,
         COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'pending') as demand_unsend,
@@ -70,7 +72,7 @@ router.get('/demand-status', async (req, res, next) => {
 // GET /api/dashboard/pending-approval
 router.get('/pending-approval', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         r.id, r.amount_received_inr, r.payment_method, r.received_date,
         r.transaction_ref as reference_number, r.status,
@@ -95,7 +97,7 @@ router.get('/pending-approval', async (req, res, next) => {
 // GET /api/dashboard/daily-status
 router.get('/daily-status', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         p.name as project,
         COUNT(br.id) FILTER (WHERE br.created_at::date = CURRENT_DATE) as sales_today,
@@ -116,7 +118,7 @@ router.get('/daily-status', async (req, res, next) => {
     catch (error) {
         // Fallback if booking_records doesn't have data yet
         try {
-            const result2 = await db.query(`
+            const result2 = await index_js_1.db.query(`
         SELECT
           p.name as project,
           0 as sales_today, 0 as sales_month, 0 as sales_total,
@@ -139,7 +141,7 @@ router.get('/daily-status', async (req, res, next) => {
 // GET /api/dashboard/parking-detail
 router.get('/parking-detail', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         p.name as project,
         ps.parking_type,
@@ -163,7 +165,7 @@ router.get('/parking-detail', async (req, res, next) => {
 // GET /api/dashboard/forthcoming-due
 router.get('/forthcoming-due', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         p.name as project_name,
         COUNT(d.id) FILTER (WHERE d.due_date = CURRENT_DATE) as today_dues,
@@ -186,7 +188,7 @@ router.get('/forthcoming-due', async (req, res, next) => {
 // GET /api/dashboard/employee-tickets
 router.get('/employee-tickets', async (req, res, next) => {
     try {
-        const result = await db.query(`
+        const result = await index_js_1.db.query(`
       SELECT
         u.name as employee_name,
         COUNT(t.id) as total_tickets,
@@ -212,7 +214,7 @@ router.get('/employee-tickets', async (req, res, next) => {
 router.get('/summary', async (req, res, next) => {
     try {
         const [cheques, demandStatus, pendingApproval, forthcomingDue] = await Promise.all([
-            db.query(`
+            index_js_1.db.query(`
         SELECT p.name as project,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
@@ -225,7 +227,7 @@ router.get('/summary', async (req, res, next) => {
         LEFT JOIN receipts r ON r.payment_plan_id = pp.id
         GROUP BY p.id, p.name ORDER BY p.name
       `),
-            db.query(`
+            index_js_1.db.query(`
         SELECT p.name as project,
           COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'pending') as demand_unsend,
           COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'sent') as demand_send,
@@ -242,7 +244,7 @@ router.get('/summary', async (req, res, next) => {
         LEFT JOIN demands d ON d.payment_plan_id = pp.id
         GROUP BY p.id, p.name ORDER BY p.name
       `),
-            db.query(`
+            index_js_1.db.query(`
         SELECT r.id, r.amount_received_inr, r.payment_method, r.received_date, r.transaction_ref as reference_number,
                c.name as consumer_name, p.name as project_name, r.status
         FROM receipts r
@@ -251,7 +253,7 @@ router.get('/summary', async (req, res, next) => {
         LEFT JOIN projects p ON pp.project_id = p.id
         WHERE r.status::text = 'pending' ORDER BY r.received_date DESC LIMIT 20
       `),
-            db.query(`
+            index_js_1.db.query(`
         SELECT p.name as project_name,
           COUNT(d.id) FILTER (WHERE d.due_date = CURRENT_DATE) as today_dues,
           COUNT(d.id) FILTER (WHERE d.due_date > CURRENT_DATE AND d.due_date <= CURRENT_DATE + INTERVAL '7 days') as days_1_7,
@@ -278,5 +280,5 @@ router.get('/summary', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=dashboard.js.map

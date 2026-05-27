@@ -7,7 +7,6 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import { existsSync, unlinkSync } from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import multer from 'multer';
 import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
@@ -15,8 +14,6 @@ import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall } from '../utils/payment-waterfall.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const photoStorage = multer.diskStorage({
   destination(_req, _file, cb) {

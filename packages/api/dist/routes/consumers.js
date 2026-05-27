@@ -1,29 +1,31 @@
+"use strict";
 /**
  * Consumer Routes - Module B
  * All consumer endpoints: create, list, get, update, KYC, remarks
  */
-import { Router } from 'express';
-import { createHash } from 'crypto';
-import { existsSync, unlinkSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import multer from 'multer';
-import { db } from '../index.js';
-import { buildApplicantFileHtml } from './booking.js';
-import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall } from '../utils/payment-waterfall.js';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const photoStorage = multer.diskStorage({
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const crypto_1 = require("crypto");
+const fs_1 = require("fs");
+const path_1 = __importDefault(require("path"));
+const multer_1 = __importDefault(require("multer"));
+const index_js_1 = require("../index.js");
+const booking_js_1 = require("./booking.js");
+const document_recalc_js_1 = require("../utils/document-recalc.js");
+const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const photoStorage = multer_1.default.diskStorage({
     destination(_req, _file, cb) {
-        cb(null, path.join(__dirname, '../../uploads/consumer-photos'));
+        cb(null, path_1.default.join(__dirname, '../../uploads/consumer-photos'));
     },
     filename(req, file, cb) {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = path_1.default.extname(file.originalname).toLowerCase();
         cb(null, `${req.params.id}${ext}`);
     },
 });
-const photoUpload = multer({
+const photoUpload = (0, multer_1.default)({
     storage: photoStorage,
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter(_req, file, cb) {
@@ -35,16 +37,16 @@ const photoUpload = multer({
         }
     },
 });
-const coPhotoStorage = multer.diskStorage({
+const coPhotoStorage = multer_1.default.diskStorage({
     destination(_req, _file, cb) {
-        cb(null, path.join(__dirname, '../../uploads/co-applicant-photos'));
+        cb(null, path_1.default.join(__dirname, '../../uploads/co-applicant-photos'));
     },
     filename(req, file, cb) {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = path_1.default.extname(file.originalname).toLowerCase();
         cb(null, `co-${req.params.id}${ext}`);
     },
 });
-const coPhotoUpload = multer({
+const coPhotoUpload = (0, multer_1.default)({
     storage: coPhotoStorage,
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter(_req, file, cb) {
@@ -56,16 +58,16 @@ const coPhotoUpload = multer({
         }
     },
 });
-const addlPhotoStorage = multer.diskStorage({
+const addlPhotoStorage = multer_1.default.diskStorage({
     destination(_req, _file, cb) {
-        cb(null, path.join(__dirname, '../../uploads/multi-applicant-photos'));
+        cb(null, path_1.default.join(__dirname, '../../uploads/multi-applicant-photos'));
     },
     filename(req, file, cb) {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = path_1.default.extname(file.originalname).toLowerCase();
         cb(null, `addl-${req.params.applicantId}${ext}`);
     },
 });
-const addlPhotoUpload = multer({
+const addlPhotoUpload = (0, multer_1.default)({
     storage: addlPhotoStorage,
     limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter(_req, file, cb) {
@@ -77,7 +79,7 @@ const addlPhotoUpload = multer({
         }
     },
 });
-const router = Router();
+const router = (0, express_1.Router)();
 // POST /api/consumers - Create consumer
 router.post('/', async (req, res, next) => {
     try {
@@ -115,9 +117,9 @@ router.post('/', async (req, res, next) => {
         // SHA-256 hash Aadhaar & PAN
         const rawAadhaar = aadhaar || aadhaar_no;
         const rawPan = pan || pan_no;
-        const aadhaarHash = rawAadhaar ? createHash('sha256').update(rawAadhaar.replace(/\s/g, '')).digest('hex') : null;
-        const panHash = rawPan ? createHash('sha256').update(rawPan.toUpperCase().trim()).digest('hex') : null;
-        const result = await db.query(`INSERT INTO consumers (
+        const aadhaarHash = rawAadhaar ? (0, crypto_1.createHash)('sha256').update(rawAadhaar.replace(/\s/g, '')).digest('hex') : null;
+        const panHash = rawPan ? (0, crypto_1.createHash)('sha256').update(rawPan.toUpperCase().trim()).digest('hex') : null;
+        const result = await index_js_1.db.query(`INSERT INTO consumers (
          name, mobile, email, aadhaar_hash, aadhaar_no, pan_hash, pan_no, parivar_pehchan_patra,
          income_category, lead_stage, project_id, created_by_user_id,
          first_name, last_name, middle_name, salutation, dob, gender, profession, nationality,
@@ -209,7 +211,7 @@ router.post('/', async (req, res, next) => {
         // If multiple applicant type and co-applicant data provided, insert co-applicant record
         if ((applicant_type === 'multiple') && co_applicant_first_name) {
             const coName = `${co_applicant_first_name || ''} ${co_applicant_last_name || ''}`.trim();
-            await db.query(`INSERT INTO co_applicants
+            await index_js_1.db.query(`INSERT INTO co_applicants
            (consumer_id, name, first_name, last_name, salutation, relationship,
             pan_no, aadhaar_no, mobile, email, dob,
             middle_name, gender, father_name, anniversary_date, marital_status,
@@ -381,8 +383,8 @@ router.get('/', async (req, res, next) => {
             countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
         }
         const [dataResult, countResult] = await Promise.all([
-            db.query(query, params),
-            db.query(countQuery, countParams),
+            index_js_1.db.query(query, params),
+            index_js_1.db.query(countQuery, countParams),
         ]);
         res.json({
             success: true,
@@ -403,7 +405,7 @@ router.get('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT c.id, c.name, c.first_name, c.last_name, c.middle_name, c.photo_url,
+        const result = await index_js_1.db.query(`SELECT c.id, c.name, c.first_name, c.last_name, c.middle_name, c.photo_url,
               c.salutation, c.dob, c.gender, c.profession, c.nationality,
               c.annual_income, c.education, c.company, c.ppp_id, c.alt_mobile,
               c.mobile, c.email, c.email_2,
@@ -436,9 +438,9 @@ router.get('/:id', async (req, res, next) => {
             return res.status(404).json({ error: 'Consumer not found' });
         }
         // Fetch KYC documents
-        const kycResult = await db.query(`SELECT id, document_type, file_url, expiry_date, verified FROM kyc_documents WHERE consumer_id = $1`, [id]);
+        const kycResult = await index_js_1.db.query(`SELECT id, document_type, file_url, expiry_date, verified FROM kyc_documents WHERE consumer_id = $1`, [id]);
         // Fetch payment summary
-        const paymentResult = await db.query(`SELECT
+        const paymentResult = await index_js_1.db.query(`SELECT
         SUM(total_amount_inr) as total_due,
         (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1) as collected
        FROM payment_plans WHERE consumer_id = $1`, [id]);
@@ -464,7 +466,7 @@ router.patch('/:id', async (req, res, next) => {
         salutation, first_name, last_name, middle_name, dob, gender, education, annual_income, pan_no, aadhaar_no, ppp_id, 
         // New fields (migration 035)
         father_name, anniversary_date, marital_status, no_of_children, passport_no, email_2, designation, has_poa, } = req.body;
-        const result = await db.query(`UPDATE consumers
+        const result = await index_js_1.db.query(`UPDATE consumers
        SET name                = COALESCE($1,  name),
            email               = COALESCE($2,  email),
            income_category     = COALESCE($3,  income_category),
@@ -581,18 +583,18 @@ router.post('/:id/photo', photoUpload.single('photo'), async (req, res, next) =>
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
         }
         // Delete old photo from disk if one exists
-        const existing = await db.query(`SELECT photo_url FROM consumers WHERE id = $1`, [id]);
+        const existing = await index_js_1.db.query(`SELECT photo_url FROM consumers WHERE id = $1`, [id]);
         if (existing.rows[0]?.photo_url) {
-            const oldPath = path.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if (existsSync(oldPath)) {
+            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
+            if ((0, fs_1.existsSync)(oldPath)) {
                 try {
-                    unlinkSync(oldPath);
+                    (0, fs_1.unlinkSync)(oldPath);
                 }
                 catch { /* ignore if already deleted */ }
             }
         }
         const photoUrl = `/uploads/consumer-photos/${req.file.filename}`;
-        await db.query(`UPDATE consumers SET photo_url = $1, updated_at = NOW() WHERE id = $2`, [photoUrl, id]);
+        await index_js_1.db.query(`UPDATE consumers SET photo_url = $1, updated_at = NOW() WHERE id = $2`, [photoUrl, id]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
@@ -609,18 +611,18 @@ router.post('/:id/co-applicant-photo', coPhotoUpload.single('photo'), async (req
         if (!req.file) {
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
         }
-        const existing = await db.query(`SELECT photo_url FROM co_applicants WHERE consumer_id = $1`, [id]);
+        const existing = await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE consumer_id = $1`, [id]);
         if (existing.rows[0]?.photo_url) {
-            const oldPath = path.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if (existsSync(oldPath)) {
+            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
+            if ((0, fs_1.existsSync)(oldPath)) {
                 try {
-                    unlinkSync(oldPath);
+                    (0, fs_1.unlinkSync)(oldPath);
                 }
                 catch { /* ignore */ }
             }
         }
         const photoUrl = `/uploads/co-applicant-photos/${req.file.filename}`;
-        await db.query(`UPDATE co_applicants SET photo_url = $1 WHERE consumer_id = $2`, [photoUrl, id]);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE consumer_id = $2`, [photoUrl, id]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
@@ -635,7 +637,7 @@ router.post('/:id/kyc-documents', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { documentType, fileUrl, expiryDate } = req.body;
-        const result = await db.query(`INSERT INTO kyc_documents (consumer_id, document_type, file_url, expiry_date, uploaded_by_user_id)
+        const result = await index_js_1.db.query(`INSERT INTO kyc_documents (consumer_id, document_type, file_url, expiry_date, uploaded_by_user_id)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, document_type, file_url, expiry_date`, [id, documentType, fileUrl, expiryDate, req.userId]);
         res.status(201).json({
@@ -652,7 +654,7 @@ router.post('/:id/remarks', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { channel, subject, notes, followUpDate, tags } = req.body;
-        const result = await db.query(`INSERT INTO remarks (consumer_id, user_id, channel, subject, notes, follow_up_date, tags)
+        const result = await index_js_1.db.query(`INSERT INTO remarks (consumer_id, user_id, channel, subject, notes, follow_up_date, tags)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING id, channel, subject, notes, timestamp`, [id, req.userId, channel, subject, notes, followUpDate, JSON.stringify(tags || [])]);
         res.status(201).json({
@@ -668,7 +670,7 @@ router.post('/:id/remarks', async (req, res, next) => {
 router.get('/:id/remarks', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT id, channel, subject, notes, timestamp, follow_up_date, tags
+        const result = await index_js_1.db.query(`SELECT id, channel, subject, notes, timestamp, follow_up_date, tags
        FROM remarks WHERE consumer_id = $1
        ORDER BY timestamp DESC`, [id]);
         res.json({
@@ -685,15 +687,15 @@ router.post('/:id/base-rate', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { baseRate } = req.body;
-        const consumerResult = await db.query(`SELECT allocated_unit_id FROM consumers WHERE id = $1`, [id]);
+        const consumerResult = await index_js_1.db.query(`SELECT allocated_unit_id FROM consumers WHERE id = $1`, [id]);
         if (consumerResult.rows.length === 0 || !consumerResult.rows[0].allocated_unit_id) {
             return res.status(400).json({ error: 'Consumer has no allocated unit' });
         }
         const unitId = consumerResult.rows[0].allocated_unit_id;
         // Get old basic price
-        const unitResult = await db.query(`SELECT basic_price FROM units WHERE id = $1`, [unitId]);
+        const unitResult = await index_js_1.db.query(`SELECT basic_price FROM units WHERE id = $1`, [unitId]);
         const oldPrice = unitResult.rows[0].basic_price;
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             await client.query(`UPDATE units SET basic_price = $1, updated_at = NOW() WHERE id = $2`, [baseRate, unitId]);
@@ -719,7 +721,7 @@ router.post('/:id/multi-applicants', async (req, res, next) => {
     try {
         const { id } = req.params;
         const applicants = req.body.applicants || [];
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             // Remove existing additional applicants (keep co-applicant at applicant_number = 2)
@@ -768,7 +770,7 @@ router.post('/:id/multi-applicants', async (req, res, next) => {
 router.get('/:id/multi-applicants', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`SELECT id, consumer_id, name, first_name, last_name, salutation, relationship,
+        const result = await index_js_1.db.query(`SELECT id, consumer_id, name, first_name, last_name, salutation, relationship,
               pan_no, aadhaar_no, mobile, email, dob,
               middle_name, gender, father_name, anniversary_date, marital_status,
               no_of_children, passport_no, email_2, designation, has_poa,
@@ -786,7 +788,7 @@ router.get('/:id/multi-applicants', async (req, res, next) => {
 router.delete('/:id/multi-applicants/:applicantId', async (req, res, next) => {
     try {
         const { id, applicantId } = req.params;
-        const client = await db.connect();
+        const client = await index_js_1.db.connect();
         try {
             await client.query('BEGIN');
             await client.query(`DELETE FROM co_applicants WHERE id = $1 AND consumer_id = $2 AND applicant_number > 2`, [applicantId, id]);
@@ -817,18 +819,18 @@ router.post('/:id/multi-applicant-photo/:applicantId', addlPhotoUpload.single('p
         if (!req.file) {
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
         }
-        const existing = await db.query(`SELECT photo_url FROM co_applicants WHERE id = $1`, [applicantId]);
+        const existing = await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE id = $1`, [applicantId]);
         if (existing.rows[0]?.photo_url) {
-            const oldPath = path.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if (existsSync(oldPath)) {
+            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
+            if ((0, fs_1.existsSync)(oldPath)) {
                 try {
-                    unlinkSync(oldPath);
+                    (0, fs_1.unlinkSync)(oldPath);
                 }
                 catch { /* ignore */ }
             }
         }
         const photoUrl = `/uploads/multi-applicant-photos/${req.file.filename}`;
-        await db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2`, [photoUrl, applicantId]);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2`, [photoUrl, applicantId]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
@@ -846,8 +848,8 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         const consumerId = req.params.id;
         // ── parallel queries ─────────────────
         const [settingsRes, consumerBookingRes, coApplicantsRes, parkingRes] = await Promise.all([
-            db.query(`SELECT key, value FROM global_settings`),
-            db.query(`
+            index_js_1.db.query(`SELECT key, value FROM global_settings`),
+            index_js_1.db.query(`
         SELECT br.*, br.communication_mode, br.mailing_address_type,
           c.first_name, c.last_name, c.middle_name, c.salutation,
           c.father_name, c.dob, c.mobile, c.email, c.email_2,
@@ -907,8 +909,8 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         WHERE c.id = $1
         ORDER BY br.created_at DESC
         LIMIT 1`, [consumerId]),
-            db.query(`SELECT * FROM co_applicants WHERE consumer_id = $1 ORDER BY applicant_number ASC`, [consumerId]),
-            db.query(`SELECT slot_number, parking_type AS type, floor, amount_inr
+            index_js_1.db.query(`SELECT * FROM co_applicants WHERE consumer_id = $1 ORDER BY applicant_number ASC`, [consumerId]),
+            index_js_1.db.query(`SELECT slot_number, parking_type AS type, floor, amount_inr
          FROM parking_slots WHERE allotted_to_consumer_id = $1`, [consumerId]),
         ]);
         if (consumerBookingRes.rows.length === 0) {
@@ -974,13 +976,13 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         const selectedPlan = row.selected_plan_name || null;
         const [templatesRes, allocationRes, dispatchRes, receiptsRes] = await Promise.all([
             projectId && selectedPlan
-                ? db.query(`SELECT * FROM plan_schedule_templates
+                ? index_js_1.db.query(`SELECT * FROM plan_schedule_templates
              WHERE project_id = $1 AND plan_name = $2
              ORDER BY installment_index ASC`, [projectId, selectedPlan])
                 : Promise.resolve({ rows: [] }),
-            db.query(`SELECT * FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]),
-            db.query(`SELECT * FROM document_dispatch WHERE consumer_id = $1 ORDER BY dispatched_at DESC`, [consumerId]),
-            db.query(`SELECT r.receipt_number, r.received_date, r.amount_received_inr,
+            index_js_1.db.query(`SELECT * FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]),
+            index_js_1.db.query(`SELECT * FROM document_dispatch WHERE consumer_id = $1 ORDER BY dispatched_at DESC`, [consumerId]),
+            index_js_1.db.query(`SELECT r.receipt_number, r.received_date, r.amount_received_inr,
                 r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
                 r.bank_name, r.branch, r.interest_amount, r.status,
                 COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
@@ -995,25 +997,25 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-            db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
+            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
          FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`, [consumerId]),
-            db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+            index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
          FROM demands WHERE consumer_id = $1`, [consumerId]),
         ]);
-        row.installment_payments = applyWaterfall(wfRcptsRes.rows, wfDemandsRes.rows).map(w => ({
+        row.installment_payments = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsRes.rows, wfDemandsRes.rows).map(w => ({
             installment_index: w.installment_index,
             total_paid: w.paid,
         }));
-        const html = buildApplicantFileHtml(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows);
+        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {
-            const existing = await db.query(`SELECT id FROM documents WHERE document_type = 'applicant_file' AND consumer_id = $1 LIMIT 1`, [consumerId]);
+            const existing = await index_js_1.db.query(`SELECT id FROM documents WHERE document_type = 'applicant_file' AND consumer_id = $1 LIMIT 1`, [consumerId]);
             if (existing.rows.length === 0) {
-                const docInsert = await db.query(`INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
+                const docInsert = await index_js_1.db.query(`INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
            VALUES ('applicant_file', $1, $2, $1, 'applicant_file', 1, 0, FALSE, $3) RETURNING id`, [consumerId, html, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);
                 applicantDocId = docInsert.rows[0].id;
-                await db.query(`INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
+                await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
            VALUES ($1, 1, $2, TRUE, 'Original generation')`, [applicantDocId, html]);
             }
             else {
@@ -1025,23 +1027,23 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         let finalHtml = html;
         if (applicantDocId) {
             try {
-                const overridesRes = await db.query(`SELECT field_key, current_value FROM document_field_overrides
+                const overridesRes = await index_js_1.db.query(`SELECT field_key, current_value FROM document_field_overrides
            WHERE document_id = $1 AND is_active = TRUE`, [applicantDocId]);
                 if (overridesRes.rows.length > 0) {
                     const overridesMap = {};
                     overridesRes.rows.forEach((o) => {
                         overridesMap[o.field_key] = o.current_value;
                     });
-                    finalHtml = applyOverridesToHtml(html, overridesMap);
+                    finalHtml = (0, document_recalc_js_1.applyOverridesToHtml)(html, overridesMap);
                     // Keep stored html_content in sync with override-applied version
-                    await db.query(`UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`, [finalHtml, applicantDocId]);
+                    await index_js_1.db.query(`UPDATE documents SET html_content = $1, updated_at = NOW() WHERE id = $2`, [finalHtml, applicantDocId]);
                 }
             }
             catch { /* non-fatal */ }
         }
         const token = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
         const htmlWithEdit = applicantDocId
-            ? finalHtml.replace('</body>', buildEditScript(applicantDocId, token, 'applicant_file') + '\n</body>')
+            ? finalHtml.replace('</body>', (0, document_recalc_js_1.buildEditScript)(applicantDocId, token, 'applicant_file') + '\n</body>')
             : finalHtml;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(htmlWithEdit);
@@ -1050,5 +1052,5 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         next(err);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=consumers.js.map

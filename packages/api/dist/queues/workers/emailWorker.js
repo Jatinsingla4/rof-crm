@@ -1,12 +1,17 @@
+"use strict";
 /**
  * Email Queue Worker
  * Processes email jobs from the email queue
  */
-import nodemailer from 'nodemailer';
-import { db } from '../../index.js';
-import { emailQueue } from '../index.js';
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const nodemailer_1 = __importDefault(require("nodemailer"));
+const index_js_1 = require("../../index.js");
+const index_js_2 = require("../index.js");
 // Initialize transporter from environment variables
-const transporter = nodemailer.createTransport({
+const transporter = nodemailer_1.default.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
@@ -16,7 +21,7 @@ const transporter = nodemailer.createTransport({
     },
 });
 // Process email jobs with retry strategy
-emailQueue.process(3, async (job) => {
+index_js_2.emailQueue.process(3, async (job) => {
     const { to, subject, body, consumerId, emailId } = job.data;
     try {
         console.log(`Processing email job ${job.id} - to: ${to}`);
@@ -29,14 +34,14 @@ emailQueue.process(3, async (job) => {
         });
         console.log(`Email sent successfully: ${info.messageId}`);
         // Update database: mark email as sent
-        await db.query(`UPDATE emails SET delivery_status = 'sent', sent_at = NOW() WHERE id = $1`, [emailId]);
+        await index_js_1.db.query(`UPDATE emails SET delivery_status = 'sent', sent_at = NOW() WHERE id = $1`, [emailId]);
         return { success: true, messageId: info.messageId };
     }
     catch (error) {
         console.error(`Failed to send email ${emailId}:`, error);
         // Update database: mark email as failed
         try {
-            await db.query(`UPDATE emails SET delivery_status = 'failed' WHERE id = $1`, [emailId]);
+            await index_js_1.db.query(`UPDATE emails SET delivery_status = 'failed' WHERE id = $1`, [emailId]);
         }
         catch (dbError) {
             console.error(`Failed to update email status in DB:`, dbError);
@@ -46,7 +51,7 @@ emailQueue.process(3, async (job) => {
     }
 });
 // Configure retry strategy
-emailQueue.on('failed', async (job, err) => {
+index_js_2.emailQueue.on('failed', async (job, err) => {
     const attempt = job.attemptsMade;
     const maxAttempts = 3;
     console.warn(`Email job ${job.id} failed (attempt ${attempt}/${maxAttempts}):`, err.message);
@@ -55,7 +60,7 @@ emailQueue.on('failed', async (job, err) => {
         // Update database to mark as permanently failed
         try {
             const data = job.data;
-            await db.query(`UPDATE emails SET delivery_status = 'failed' WHERE id = $1`, [data.emailId]);
+            await index_js_1.db.query(`UPDATE emails SET delivery_status = 'failed' WHERE id = $1`, [data.emailId]);
         }
         catch (dbError) {
             console.error('Failed to update final failure status:', dbError);

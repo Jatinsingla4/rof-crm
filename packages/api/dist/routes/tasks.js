@@ -1,10 +1,12 @@
+"use strict";
 /**
  * Tasks Routes
  * CRM task management — create, list, complete, delete
  */
-import { Router } from 'express';
-import { db } from '../index.js';
-const router = Router();
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const index_js_1 = require("../index.js");
+const router = (0, express_1.Router)();
 // GET /api/tasks
 router.get('/', async (req, res, next) => {
     try {
@@ -37,7 +39,7 @@ router.get('/', async (req, res, next) => {
         }
         query += ` ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 ELSE 3 END, t.due_date ASC NULLS LAST, t.created_at DESC`;
         query += ` LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await db.query(query, params);
+        const result = await index_js_1.db.query(query, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -50,7 +52,7 @@ router.post('/', async (req, res, next) => {
         const { title, description, assignedTo, consumerId, dueDate, priority = 'normal' } = req.body;
         if (!title)
             return res.status(400).json({ error: 'Task title is required' });
-        const result = await db.query(`INSERT INTO tasks (title, description, assigned_to, consumer_id, due_date, priority, status, created_by)
+        const result = await index_js_1.db.query(`INSERT INTO tasks (title, description, assigned_to, consumer_id, due_date, priority, status, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
        RETURNING id, title, status, priority, due_date, created_at`, [title, description || null, assignedTo || null, consumerId || null, dueDate || null, priority, req.userId]);
         res.status(201).json({ success: true, data: result.rows[0] });
@@ -65,7 +67,7 @@ router.patch('/:id', async (req, res, next) => {
         const { id } = req.params;
         const { status, title, description, dueDate, priority } = req.body;
         const completedAt = status === 'completed' ? 'NOW()' : 'NULL';
-        const result = await db.query(`UPDATE tasks
+        const result = await index_js_1.db.query(`UPDATE tasks
        SET status = COALESCE($1, status),
            title = COALESCE($2, title),
            description = COALESCE($3, description),
@@ -87,7 +89,7 @@ router.patch('/:id', async (req, res, next) => {
 router.delete('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const result = await db.query(`DELETE FROM tasks WHERE id = $1 RETURNING id`, [id]);
+        const result = await index_js_1.db.query(`DELETE FROM tasks WHERE id = $1 RETURNING id`, [id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Task not found' });
         res.json({ success: true, data: { id } });
@@ -96,5 +98,5 @@ router.delete('/:id', async (req, res, next) => {
         next(error);
     }
 });
-export default router;
+exports.default = router;
 //# sourceMappingURL=tasks.js.map
