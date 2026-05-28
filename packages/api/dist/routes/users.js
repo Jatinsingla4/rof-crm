@@ -255,16 +255,17 @@ const ROLE_LABELS = [
 // GET /api/users/employee-login/form-data
 router.get('/employee-login/form-data', async (req, res, next) => {
     try {
-        const [employeesRes, companiesRes] = await Promise.all([
+        const [employeesRes, companiesRes, rolesRes] = await Promise.all([
             index_js_1.db.query(`SELECT ep.id, u.name, ep.designation, d.name as department FROM employee_profiles ep LEFT JOIN users u ON u.id = ep.user_id LEFT JOIN departments d ON d.id = ep.department_id WHERE ep.is_active = true OR ep.is_active IS NULL ORDER BY u.name`),
             index_js_1.db.query(`SELECT id, name FROM companies ORDER BY name`),
+            index_js_1.db.query(`SELECT name AS value, label FROM roles WHERE is_active = true ORDER BY is_system DESC, label ASC`),
         ]);
         return res.json({
             success: true,
             data: {
                 employees: employeesRes.rows,
                 companies: companiesRes.rows,
-                roles: ROLE_LABELS,
+                roles: rolesRes.rows,
                 processes: PROCESSES,
                 homePageWidgets: HOME_PAGE_WIDGETS,
             },
@@ -449,6 +450,46 @@ router.patch('/employee-login/:id', async (req, res, next) => {
         finally {
             client.release();
         }
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// ============================================================
+// GET /api/users/me - Get current user with process permissions
+router.get('/me', async (req, res, next) => {
+    try {
+        const userId = req.userId;
+        if (!userId)
+            return res.status(401).json({ error: 'Not authenticated' });
+        const userResult = await index_js_1.db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active
+       FROM users WHERE id = $1`, [userId]);
+        if (userResult.rows.length === 0)
+            return res.status(404).json({ error: 'User not found' });
+        const user = userResult.rows[0];
+        const permResult = await index_js_1.db.query(`SELECT process_name, is_maker, is_checker, is_approver
+       FROM user_process_permissions
+       WHERE user_id = $1`, [userId]);
+        const companyResult = await index_js_1.db.query(`SELECT company_id FROM user_company_access WHERE user_id = $1`, [userId]).catch(() => ({ rows: [] }));
+        const processPermissions = {};
+        for (const row of permResult.rows) {
+            const roles = [];
+            if (row.is_maker)
+                roles.push('maker');
+            if (row.is_checker)
+                roles.push('checker');
+            if (row.is_approver)
+                roles.push('approver');
+            processPermissions[row.process_name] = roles;
+        }
+        res.json({
+            success: true,
+            data: {
+                ...user,
+                processPermissions,
+                companyIds: companyResult.rows.map((r) => r.company_id),
+            },
+        });
     }
     catch (error) {
         next(error);
