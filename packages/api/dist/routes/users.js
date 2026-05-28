@@ -218,6 +218,243 @@ router.get('/activity', async (req, res, next) => {
         next(error);
     }
 });
+// ============================================================
+// EMPLOYEE LOGIN CREATION â€” static routes MUST be before /:id
+// ============================================================
+const PROCESSES = [
+    { name: 'new_applicant', label: 'New Applicant', has_checker: true, has_maker: true },
+    { name: 'edit_applicant', label: 'Edit Applicant', has_checker: false, has_maker: true },
+    { name: 'unit_shifting', label: 'Unit Shifting', has_checker: false, has_maker: true },
+    { name: 'applicant_transfer', label: 'Applicant Transfer', has_checker: false, has_maker: true },
+    { name: 'receipt', label: 'Receipt', has_checker: true, has_maker: false },
+    { name: 'interest_waiver', label: 'Interest Waiver', has_checker: false, has_maker: true },
+    { name: 'jv_refund_drcr', label: 'JV/Refund/DrCr', has_checker: false, has_maker: true },
+    { name: 'broker_range_entry', label: 'Broker Range Entry', has_checker: true, has_maker: true },
+    { name: 'broker_payment_entry', label: 'Broker Payment Entry', has_checker: true, has_maker: true },
+];
+const HOME_PAGE_WIDGETS = [
+    { key: 'enquiry', label: 'Enquiry' },
+    { key: 'pending_cheque', label: 'Pending Cheque' },
+    { key: 'parking_detail', label: 'Parking Detail' },
+    { key: 'demand_status', label: 'Demand Status' },
+    { key: 'daily_status', label: 'Daily Status' },
+    { key: 'forthcoming_due', label: 'Forthcoming Due' },
+    { key: 'head_wise_task', label: 'Head Wise Task' },
+    { key: 'birthday_message', label: 'Birthday Message' },
+    { key: 'finance_voucher_approval', label: 'Finance Voucher Approval' },
+    { key: 'unit_status', label: 'Unit Status' },
+];
+const ROLE_LABELS = [
+    { value: 'super_admin', label: 'Super Admin' },
+    { value: 'project_manager', label: 'Project Manager' },
+    { value: 'sales_executive', label: 'Sales Executive' },
+    { value: 'accounts_finance', label: 'Accounts / Finance' },
+    { value: 'support_agent', label: 'Support Agent' },
+    { value: 'read_only_viewer', label: 'Viewer' },
+];
+// GET /api/users/employee-login/form-data
+router.get('/employee-login/form-data', async (req, res, next) => {
+    try {
+        const [employeesRes, companiesRes] = await Promise.all([
+            index_js_1.db.query(`SELECT ep.id, u.name, ep.designation, d.name as department FROM employee_profiles ep LEFT JOIN users u ON u.id = ep.user_id LEFT JOIN departments d ON d.id = ep.department_id WHERE ep.is_active = true OR ep.is_active IS NULL ORDER BY u.name`),
+            index_js_1.db.query(`SELECT id, name FROM companies ORDER BY name`),
+        ]);
+        return res.json({
+            success: true,
+            data: {
+                employees: employeesRes.rows,
+                companies: companiesRes.rows,
+                roles: ROLE_LABELS,
+                processes: PROCESSES,
+                homePageWidgets: HOME_PAGE_WIDGETS,
+            },
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// POST /api/users/employee-login
+router.post('/employee-login', async (req, res, next) => {
+    try {
+        const { employeeId, role, username, email, password, confirmPassword, authorizedPrint, authorizedDownload, unitStatusAccess, homePageWidgets, processPermissions, companyIds, } = req.body;
+        if (!username || !email || !password || !role) {
+            return res.status(400).json({ error: 'Username, email, password and role are required' });
+        }
+        if (password !== confirmPassword) {
+            return res.status(400).json({ error: 'Passwords do not match' });
+        }
+        if (password.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters' });
+        }
+        const hash = await bcryptjs_1.default.hash(password, 12);
+        let userName = username;
+        if (employeeId) {
+            const empRes = await index_js_1.db.query(`SELECT u.name FROM employee_profiles ep JOIN users u ON u.id = ep.user_id WHERE ep.id = $1`, [employeeId]);
+            if (empRes.rows[0])
+                userName = empRes.rows[0].name;
+        }
+        const client = await index_js_1.db.connect();
+        try {
+            await client.query('BEGIN');
+            const userRes = await client.query(`
+        INSERT INTO users (email, name, username, employee_id, role, password_hash,
+          authorized_print, authorized_download, unit_status_access, home_page_widgets, is_active, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,NOW())
+        RETURNING id
+      `, [email, userName, username, employeeId || null, role, hash,
+                authorizedPrint || false, authorizedDownload || false,
+                unitStatusAccess || 'all', JSON.stringify(homePageWidgets || [])]);
+            const userId = userRes.rows[0].id;
+            if (Array.isArray(processPermissions)) {
+                for (const pp of processPermissions) {
+                    if (pp.isMaker || pp.isChecker || pp.isApprover) {
+                        await client.query(`
+              INSERT INTO user_process_permissions (user_id, process_name, is_maker, is_checker, is_approver)
+              VALUES ($1,$2,$3,$4,$5)
+              ON CONFLICT (user_id, process_name) DO UPDATE SET
+                is_maker = $3, is_checker = $4, is_approver = $5, updated_at = NOW()
+            `, [userId, pp.processName, pp.isMaker || false, pp.isChecker || false, pp.isApprover || false]);
+                    }
+                }
+            }
+            if (Array.isArray(companyIds)) {
+                for (const companyId of companyIds) {
+                    await client.query(`INSERT INTO user_company_access (user_id, company_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [userId, companyId]);
+                }
+            }
+            await client.query('COMMIT');
+            return res.json({ success: true, data: { userId, username } });
+        }
+        catch (err) {
+            await client.query('ROLLBACK');
+            if (err.code === '23505') {
+                return res.status(409).json({ error: 'Username or email already exists' });
+            }
+            throw err;
+        }
+        finally {
+            client.release();
+        }
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// GET /api/users/employee-login
+router.get('/employee-login', async (req, res, next) => {
+    try {
+        const result = await index_js_1.db.query(`
+      SELECT
+        u.id, u.name, u.username, u.email, u.role,
+        u.unit_status_access, u.authorized_print, u.authorized_download,
+        u.home_page_widgets, u.is_active, u.created_at,
+        eu.name as employee_name, ep.designation,
+        COALESCE(
+          json_agg(DISTINCT jsonb_build_object(
+            'process_name', upp.process_name,
+            'is_maker', upp.is_maker,
+            'is_checker', upp.is_checker,
+            'is_approver', upp.is_approver
+          )) FILTER (WHERE upp.id IS NOT NULL),
+          '[]'
+        ) as process_permissions,
+        COALESCE(
+          array_agg(DISTINCT c.name) FILTER (WHERE c.id IS NOT NULL),
+          '{}'
+        ) as company_names
+      FROM users u
+      LEFT JOIN employee_profiles ep ON ep.id = u.employee_id
+      LEFT JOIN users eu ON eu.id = ep.user_id
+      LEFT JOIN user_process_permissions upp ON upp.user_id = u.id
+      LEFT JOIN user_company_access uca ON uca.user_id = u.id
+      LEFT JOIN companies c ON c.id = uca.company_id
+      GROUP BY u.id, eu.name, ep.designation
+      ORDER BY u.created_at DESC
+    `);
+        return res.json({ success: true, data: result.rows });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/users/employee-login/:id
+router.patch('/employee-login/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { role, authorizedPrint, authorizedDownload, unitStatusAccess, homePageWidgets, processPermissions, companyIds, isActive, password, } = req.body;
+        const updates = [];
+        const values = [];
+        let idx = 1;
+        if (role !== undefined) {
+            updates.push(`role = $${idx++}`);
+            values.push(role);
+        }
+        if (authorizedPrint !== undefined) {
+            updates.push(`authorized_print = $${idx++}`);
+            values.push(authorizedPrint);
+        }
+        if (authorizedDownload !== undefined) {
+            updates.push(`authorized_download = $${idx++}`);
+            values.push(authorizedDownload);
+        }
+        if (unitStatusAccess !== undefined) {
+            updates.push(`unit_status_access = $${idx++}`);
+            values.push(unitStatusAccess);
+        }
+        if (homePageWidgets !== undefined) {
+            updates.push(`home_page_widgets = $${idx++}`);
+            values.push(JSON.stringify(homePageWidgets));
+        }
+        if (isActive !== undefined) {
+            updates.push(`is_active = $${idx++}`);
+            values.push(isActive);
+        }
+        if (password) {
+            const hash = await bcryptjs_1.default.hash(password, 12);
+            updates.push(`password_hash = $${idx++}`);
+            values.push(hash);
+        }
+        const client = await index_js_1.db.connect();
+        try {
+            await client.query('BEGIN');
+            if (updates.length) {
+                values.push(id);
+                await client.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`, values);
+            }
+            if (Array.isArray(processPermissions)) {
+                await client.query(`DELETE FROM user_process_permissions WHERE user_id = $1`, [id]);
+                for (const pp of processPermissions) {
+                    if (pp.isMaker || pp.isChecker || pp.isApprover) {
+                        await client.query(`
+              INSERT INTO user_process_permissions (user_id, process_name, is_maker, is_checker, is_approver)
+              VALUES ($1,$2,$3,$4,$5)
+            `, [id, pp.processName, pp.isMaker || false, pp.isChecker || false, pp.isApprover || false]);
+                    }
+                }
+            }
+            if (Array.isArray(companyIds)) {
+                await client.query(`DELETE FROM user_company_access WHERE user_id = $1`, [id]);
+                for (const companyId of companyIds) {
+                    await client.query(`INSERT INTO user_company_access (user_id, company_id) VALUES ($1,$2)`, [id, companyId]);
+                }
+            }
+            await client.query('COMMIT');
+            return res.json({ success: true });
+        }
+        catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        }
+        finally {
+            client.release();
+        }
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// ============================================================
 // GET /api/users/:id - Get user detail
 router.get('/:id', async (req, res, next) => {
     try {

@@ -6,6 +6,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { requireProcess } from '../middleware/processPermission.js';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/commission', async (req: AuthRequest, res: Response, next: NextFunc
 });
 
 // PATCH /api/brokers/commission/:id
-router.patch('/commission/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/commission/:id', requireProcess('broker_payment_entry', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
@@ -95,7 +96,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // POST /api/brokers
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', requireProcess('broker_range_entry', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { name, contact_person, firmName, firm_name, mobile, email, rera_no, reraNumber, pan, pan_no, address, commissionPct = 2.00, parentBrokerId, bankAccountDetails, gstNo, gst_no } = req.body;
     const resolvedFirmName = firmName || firm_name;
@@ -133,7 +134,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 // PATCH /api/brokers/:id/approve
-router.patch('/:id/approve', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id/approve', requireProcess('broker_range_entry', 'checker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { notes } = req.body;

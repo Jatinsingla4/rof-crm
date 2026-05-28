@@ -2,12 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const processPermission_js_1 = require("../middleware/processPermission.js");
 const router = (0, express_1.Router)();
 /**
  * UNIT SHIFTING LOGIC
  * Transfers a consumer from one unit to another within the same or different project.
  */
-router.post('/unit-shift', async (req, res, next) => {
+router.post('/unit-shift', (0, processPermission_js_1.requireProcess)('unit_shifting', 'maker'), async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
         const { consumerId, oldUnitId, newUnitId, reason } = req.body;
@@ -49,7 +50,7 @@ router.post('/unit-shift', async (req, res, next) => {
  * APPLICATION TRANSFER LOGIC
  * Transfers a booking from one consumer to another (e.g., resale or family transfer).
  */
-router.post('/application-transfer', async (req, res, next) => {
+router.post('/application-transfer', (0, processPermission_js_1.requireProcess)('applicant_transfer', 'maker'), async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
         const { oldConsumerId, newConsumerId, unitId, reason } = req.body;

@@ -44,6 +44,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // ── 2b. LOAD PROCESS PERMISSIONS + PAGE ACCESS ───────────────
+  if (!isLoginPage) {
+    await Permissions.load();
+    await Permissions.loadPageAccess();
+  }
+
   // ── 3. TOPBAR ─────────────────────────────────
   const tbDate = document.getElementById('tb-date');
   if (tbDate) tbDate.textContent = Utils.displayDate();
@@ -135,6 +141,52 @@ function applyTheme(theme) {
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme');
   applyTheme(current === 'dark' ? 'light' : 'dark');
+}
+
+// ── PERMISSION GATING ────────────────────────────────────────
+// Called after each page render to hide/disable elements per process permissions
+function applyPermissions() {
+  // Tab visibility: Receipt Entry (maker of receipt_process)
+  document.querySelectorAll('[data-action="receipt-entry-tab"]').forEach(el => {
+    Permissions.guard(el, 'receipt_process');
+  });
+
+  // Tab visibility: Journal Entry (maker/checker of jv_refund_drcr)
+  document.querySelectorAll('[data-action="journal-entry-tab"]').forEach(el => {
+    Permissions.guard(el, 'jv_refund_drcr');
+  });
+
+  // Tab visibility: Unit Shifting (maker of unit_shifting)
+  document.querySelectorAll('[data-action="unit-shifting-tab"]').forEach(el => {
+    Permissions.guard(el, 'unit_shifting');
+  });
+
+  // Tab visibility: Interest Waiver (any access to interest_waiver)
+  document.querySelectorAll('[data-action="interest-waiver-tab"]').forEach(el => {
+    Permissions.guard(el, 'interest_waiver');
+  });
+
+  // Tab visibility: Credit/Debit Notes (any access to jv_refund_drcr)
+  document.querySelectorAll('[data-action="credit-debit-tab"]').forEach(el => {
+    Permissions.guard(el, 'jv_refund_drcr');
+  });
+
+  // Approve buttons: receipt approval (checker of receipt_process)
+  document.querySelectorAll('[data-action="approve-receipt"]').forEach(el => {
+    if (!Permissions.canCheck('receipt_process')) el.style.display = 'none';
+  });
+
+  // Approve buttons: journal entry approval (checker of jv_refund_drcr)
+  document.querySelectorAll('[data-action="approve-journal"]').forEach(el => {
+    if (!Permissions.canCheck('jv_refund_drcr')) el.style.display = 'none';
+  });
+
+  // Approve buttons: broker commission (checker of broker_payment_entry)
+  document.querySelectorAll('[data-action="approve-broker"]').forEach(el => {
+    if (!Permissions.canCheck('broker_payment_entry')) el.style.display = 'none';
+  });
+
+  // Print/download buttons: always visible (no permission gate)
 }
 
 // ── GLOBAL HELPERS (used by inline HTML onclick attrs) ──

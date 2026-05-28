@@ -45,9 +45,21 @@ const Router = {
     // Update nav active state
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
 
+    // Page access gate
+    if (typeof Permissions !== 'undefined' && !Permissions.canAccessPage(path)) {
+      document.getElementById('content').innerHTML = `
+        <div style="text-align:center;padding:80px 20px;color:var(--text3)">
+          <div style="font-size:52px;margin-bottom:16px">🔒</div>
+          <h3 style="color:var(--text1);margin-bottom:8px">Access Denied</h3>
+          <p>You don't have permission to view this page.</p>
+        </div>`;
+      return;
+    }
+
     this.currentPage = path;
     try {
       await handler(params);
+      if (typeof applyPermissions === 'function') applyPermissions();
     } catch (err) {
       console.error('Route handler error:', err);
       Utils.error('Failed to load page: ' + err.message);

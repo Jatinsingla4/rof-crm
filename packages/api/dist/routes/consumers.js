@@ -14,6 +14,7 @@ const path_1 = __importDefault(require("path"));
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
+const processPermission_js_1 = require("../middleware/processPermission.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const photoStorage = multer_1.default.diskStorage({
@@ -81,7 +82,7 @@ const addlPhotoUpload = (0, multer_1.default)({
 });
 const router = (0, express_1.Router)();
 // POST /api/consumers - Create consumer
-router.post('/', async (req, res, next) => {
+router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'maker'), async (req, res, next) => {
     try {
         const { 
         // Legacy / simple fields
@@ -458,7 +459,7 @@ router.get('/:id', async (req, res, next) => {
     }
 });
 // PATCH /api/consumers/:id - Update consumer
-router.patch('/:id', async (req, res, next) => {
+router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant', 'maker'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { name, email, incomeCategory, income_category, leadStage, lead_stage, present_address_line1, present_city, present_state, present_pin, present_country, present_phone_no, present_fax_no, present_mobile_no, office_address_line1, office_city, office_state, office_pin, office_country, office_phone_no, office_fax_no, office_mobile_no, perm_address_line1, perm_city, perm_state, perm_pin, perm_country, perm_phone_no, perm_fax_no, perm_mobile_no, mobile, alt_mobile, profession, nationality, company, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, comm_phone_no, comm_fax_no, comm_mobile_no, phone_no, fax_no, 

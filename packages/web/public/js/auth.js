@@ -58,6 +58,7 @@ const Auth = {
   },
 
   logout() {
+    if (typeof Permissions !== 'undefined') Permissions.clear();
     this.clearToken();
     window.location.href = '/pages/login.html';
   },

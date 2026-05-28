@@ -1,6 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { requireProcess } from '../middleware/processPermission.js';
 
 const router = Router();
 
@@ -8,7 +9,7 @@ const router = Router();
  * UNIT SHIFTING LOGIC
  * Transfers a consumer from one unit to another within the same or different project.
  */
-router.post('/unit-shift', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/unit-shift', requireProcess('unit_shifting', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   const client = await db.connect();
   try {
     const { consumerId, oldUnitId, newUnitId, reason } = req.body;
@@ -76,7 +77,7 @@ router.post('/unit-shift', async (req: AuthRequest, res: Response, next: NextFun
  * APPLICATION TRANSFER LOGIC
  * Transfers a booking from one consumer to another (e.g., resale or family transfer).
  */
-router.post('/application-transfer', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/application-transfer', requireProcess('applicant_transfer', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   const client = await db.connect();
   try {
     const { oldConsumerId, newConsumerId, unitId, reason } = req.body;

@@ -6,6 +6,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const processPermission_js_1 = require("../middleware/processPermission.js");
 const router = (0, express_1.Router)();
 // GET /api/brokers/commission
 router.get('/commission', async (req, res, next) => {
@@ -45,7 +46,7 @@ router.get('/commission', async (req, res, next) => {
     }
 });
 // PATCH /api/brokers/commission/:id
-router.patch('/commission/:id', async (req, res, next) => {
+router.patch('/commission/:id', (0, processPermission_js_1.requireProcess)('broker_payment_entry', 'maker'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
@@ -93,7 +94,7 @@ router.get('/', async (req, res, next) => {
     }
 });
 // POST /api/brokers
-router.post('/', async (req, res, next) => {
+router.post('/', (0, processPermission_js_1.requireProcess)('broker_range_entry', 'maker'), async (req, res, next) => {
     try {
         const { name, contact_person, firmName, firm_name, mobile, email, rera_no, reraNumber, pan, pan_no, address, commissionPct = 2.00, parentBrokerId, bankAccountDetails, gstNo, gst_no } = req.body;
         const resolvedFirmName = firmName || firm_name;
@@ -127,7 +128,7 @@ router.get('/:id', async (req, res, next) => {
     }
 });
 // PATCH /api/brokers/:id/approve
-router.patch('/:id/approve', async (req, res, next) => {
+router.patch('/:id/approve', (0, processPermission_js_1.requireProcess)('broker_range_entry', 'checker'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const { notes } = req.body;

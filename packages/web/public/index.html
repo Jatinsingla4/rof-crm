@@ -54,9 +54,8 @@
 
       <div class="dd-link has-sub">Employee Login Creation <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:220px">
-          <a class="dd-link" onclick="Router.navigate('/users',{tab:'create'})">Create Login</a>
-          <a class="dd-link" onclick="Router.navigate('/users',{tab:'edit'})">Edit Login</a>
-          <a class="dd-link" onclick="Router.navigate('/users',{tab:'view'})">View Logins</a>
+          <a class="dd-link" onclick="window.location.href='/pages/employee-login.html'">Create Login</a>
+          <a class="dd-link" onclick="window.location.href='/pages/employee-login.html'">View Logins</a>
           <div class="dd-link has-sub">Employee <span class="arr">▶</span>
             <div class="sub-sub-dd" style="min-width:220px">
               <a class="dd-link" onclick="Router.navigate('/employees',{tab:'department'})">Department</a>
@@ -421,6 +420,7 @@
 <!-- ═══ SCRIPTS (load order matters) ═══ -->
 <script src="/js/constants.js"></script>
 <script src="/js/auth.js"></script>
+<script src="/js/permissions.js"></script>
 <script src="/js/api-client.js"></script>
 <script src="/js/utils.js"></script>
 <script src="/js/router.js"></script>

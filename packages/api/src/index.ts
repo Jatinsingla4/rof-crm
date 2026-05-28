@@ -43,7 +43,9 @@ import transfersRoutes from './routes/transfers.js';
 import registryRoutes from './routes/registry.js';
 import loansRoutes from './routes/loans.js';
 import receiptProcessRoutes from './routes/receipt-process.js';
+import financialOpsRoutes from './routes/financial-ops.js';
 import testDataImportRoutes from './routes/test-data-import.js';
+import rolesRoutes from './routes/roles.js';
 import { requirePermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
@@ -125,6 +127,7 @@ export interface AuthRequest extends Request {
   userName?: string;
   userRole?: string;
   userPermissions?: string[];
+  unitStatusFilter?: string[] | null;
 }
 
 export interface DocumentFieldOverride {
@@ -368,7 +371,9 @@ app.use('/api/transfers', authenticateToken, transfersRoutes);
 app.use('/api/registry', authenticateToken, registryRoutes);
 app.use('/api/loans', authenticateToken, loansRoutes);
 app.use('/api/payments', authenticateToken, receiptProcessRoutes);
+app.use('/api/payments', authenticateToken, financialOpsRoutes);
 app.use('/api/test-data', authenticateToken, testDataImportRoutes);
+app.use('/api/roles',    authenticateToken, rolesRoutes);
 
 // ============================================
 // SPA FALLBACK

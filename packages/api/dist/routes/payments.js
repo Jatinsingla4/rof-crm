@@ -8,6 +8,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const processPermission_js_1 = require("../middleware/processPermission.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -110,7 +111,7 @@ router.get('/overdue', async (req, res, next) => {
     }
 });
 // POST /api/payments/receipts - Record payment receipt
-router.post('/receipts', async (req, res, next) => {
+router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', 'maker'), async (req, res, next) => {
     try {
         const { consumerId, amountReceivedInr, paymentDate, paymentMode, referenceNumber, bankName, branch, remarks, baseAmount, plcAmount, edcAmount, idcAmount, otherChargeAmount, otherChargeDesc, interestAmount, isOtherPayment, 
         // legacy fields
@@ -916,7 +917,7 @@ router.patch('/receipts/:id', async (req, res, next) => {
     }
 });
 // PATCH /api/payments/receipts/:id/approve - Approve a pending receipt (Authentication)
-router.patch('/receipts/:id/approve', async (req, res, next) => {
+router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), async (req, res, next) => {
     try {
         const { id } = req.params;
         const result = await index_js_1.db.query(`UPDATE receipts 
@@ -997,16 +998,35 @@ router.post('/gst-invoices', async (req, res, next) => {
         next(error);
     }
 });
-// POST /api/payments/gst-invoices/cancel - Cancel GST invoice
+// POST /api/payments/gst-invoices/cancel - Cancel GST invoice and create credit note
 router.post('/gst-invoices/cancel', async (req, res, next) => {
     try {
         const { invoiceNumber, reason } = req.body;
         if (!invoiceNumber) {
             return res.status(400).json({ error: 'invoiceNumber required' });
         }
+        // Look up the invoice to get its details
+        const invoiceRes = await index_js_1.db.query(`SELECT id, consumer_id, total_amount, gst_rate FROM gst_invoices WHERE invoice_number = $1`, [invoiceNumber]);
+        if (!invoiceRes.rows[0]) {
+            return res.status(404).json({ error: 'Invoice not found' });
+        }
+        const invoice = invoiceRes.rows[0];
+        const year = new Date().getFullYear();
+        const countRes = await index_js_1.db.query(`SELECT COUNT(*) AS cnt FROM credit_debit_notes WHERE note_number LIKE $1`, [`CDN/${year}/%`]);
+        const seq = String(Number(countRes.rows[0].cnt) + 1).padStart(4, '0');
+        const noteNumber = `CDN/${year}/${seq}`;
+        const gstRate = invoice.gst_rate || 5;
+        const adjAmt = Number(invoice.total_amount) || 0;
+        const gstAmt = (adjAmt * gstRate) / 100;
+        const noteRes = await index_js_1.db.query(`INSERT INTO credit_debit_notes
+         (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, reason, status, created_by_user_id)
+       VALUES ($1,$2,$3,'credit',$4,$5,$6,$7,$8,$9,'issued',$10)
+       RETURNING *`, [invoice.consumer_id, invoice.id, noteNumber, invoiceNumber, adjAmt, gstRate, gstAmt, adjAmt + gstAmt, reason || 'Invoice cancelled', req.userId]);
+        // Mark the invoice as cancelled
+        await index_js_1.db.query(`UPDATE gst_invoices SET status = 'cancelled' WHERE id = $1`, [invoice.id]);
         res.json({
             success: true,
-            data: { invoiceNumber, status: 'cancelled', reason, creditNoteNumber: `CN-${invoiceNumber}` },
+            data: { invoiceNumber, status: 'cancelled', reason, creditNoteNumber: noteNumber, creditNote: noteRes.rows[0] },
             message: 'Invoice cancelled and credit note issued',
         });
     }

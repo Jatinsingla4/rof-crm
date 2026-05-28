@@ -11,6 +11,7 @@ import multer from 'multer';
 import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
 import { AuthRequest } from '../index.js';
+import { requireProcess } from '../middleware/processPermission.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall } from '../utils/payment-waterfall.js';
 
@@ -84,7 +85,7 @@ const addlPhotoUpload = multer({
 const router = Router();
 
 // POST /api/consumers - Create consumer
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', requireProcess('new_applicant', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const {
       // Legacy / simple fields
@@ -552,7 +553,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 // PATCH /api/consumers/:id - Update consumer
-router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/:id', requireProcess('edit_applicant', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const {

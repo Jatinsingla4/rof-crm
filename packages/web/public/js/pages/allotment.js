@@ -11,7 +11,7 @@ Pages.allotment = async function(params = {}) {
       <button class="tab-line active" data-group="allot" data-tab="allot" onclick="switchTab('allot','allot')">Allotment Form</button>
       <button class="tab-line" data-group="allot" data-tab="letter" onclick="switchTab('allot','letter');AllotmentPage.loadAllotmentList('letter-search-body')">Allotment Letter</button>
       <button class="tab-line" data-group="allot" data-tab="search" onclick="switchTab('allot','search');AllotmentPage.loadAllotmentList('allot-search-body')">Search Allotment</button>
-      <button class="tab-line" data-group="allot" data-tab="shifting" onclick="switchTab('allot','shifting');AllotmentPage.loadShiftingList()">Unit Shifting</button>
+      <button class="tab-line" data-group="allot" data-tab="shifting" data-action="unit-shifting-tab" onclick="switchTab('allot','shifting');AllotmentPage.loadShiftingList()">Unit Shifting</button>
       <button class="tab-line" data-group="allot" data-tab="cancel" onclick="switchTab('allot','cancel');AllotmentPage.loadCancellations()">Cancel Allotment</button>
       <button class="tab-line" data-group="allot" data-tab="waitlist" onclick="switchTab('allot','waitlist');AllotmentPage.loadWaitlist()">Waitlist</button>
       <button class="tab-line" data-group="allot" data-tab="edraw" onclick="switchTab('allot','edraw')">E-Draw Import</button>

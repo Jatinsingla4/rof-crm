@@ -6,6 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
 
 const router = Router();
 
@@ -62,7 +63,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 });
 
 // GET /api/units - List units with filters
-router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId, towerId, status, bhkType, consumerName, registrationNo, page = 1, pageSize = 200 } = req.query;
 
@@ -93,6 +94,12 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (registrationNo) {
       innerParams.push(`%${registrationNo}%`);
       innerWhere += ` AND c.registration_no ILIKE $${innerParams.length}`;
+    }
+
+    if (req.unitStatusFilter !== null && req.unitStatusFilter !== undefined) {
+      const placeholders = req.unitStatusFilter.map((_, i) => `$${innerParams.length + i + 1}`).join(', ');
+      innerWhere += ` AND u.status::text IN (${placeholders})`;
+      innerParams.push(...req.unitStatusFilter);
     }
 
     const innerQuery = `

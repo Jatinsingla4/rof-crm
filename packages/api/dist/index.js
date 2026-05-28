@@ -47,6 +47,7 @@ const transfers_js_1 = __importDefault(require("./routes/transfers.js"));
 const registry_js_1 = __importDefault(require("./routes/registry.js"));
 const loans_js_1 = __importDefault(require("./routes/loans.js"));
 const receipt_process_js_1 = __importDefault(require("./routes/receipt-process.js"));
+const financial_ops_js_1 = __importDefault(require("./routes/financial-ops.js"));
 const test_data_import_js_1 = __importDefault(require("./routes/test-data-import.js"));
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
@@ -285,6 +286,7 @@ app.use('/api/transfers', exports.authenticateToken, transfers_js_1.default);
 app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
 app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
 app.use('/api/payments', exports.authenticateToken, receipt_process_js_1.default);
+app.use('/api/payments', exports.authenticateToken, financial_ops_js_1.default);
 app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);
 // ============================================
 // SPA FALLBACK

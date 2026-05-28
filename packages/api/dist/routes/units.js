@@ -6,6 +6,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const router = (0, express_1.Router)();
 // POST /api/units - Create unit
 router.post('/', async (req, res, next) => {
@@ -39,7 +40,7 @@ router.post('/', async (req, res, next) => {
     }
 });
 // GET /api/units - List units with filters
-router.get('/', async (req, res, next) => {
+router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const { projectId, towerId, status, bhkType, consumerName, registrationNo, page = 1, pageSize = 200 } = req.query;
         const innerParams = [];
@@ -68,6 +69,11 @@ router.get('/', async (req, res, next) => {
         if (registrationNo) {
             innerParams.push(`%${registrationNo}%`);
             innerWhere += ` AND c.registration_no ILIKE $${innerParams.length}`;
+        }
+        if (req.unitStatusFilter !== null && req.unitStatusFilter !== undefined) {
+            const placeholders = req.unitStatusFilter.map((_, i) => `$${innerParams.length + i + 1}`).join(', ');
+            innerWhere += ` AND u.status::text IN (${placeholders})`;
+            innerParams.push(...req.unitStatusFilter);
         }
         const innerQuery = `
       SELECT DISTINCT ON (u.id)

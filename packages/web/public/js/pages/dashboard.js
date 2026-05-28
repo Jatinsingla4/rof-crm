@@ -243,7 +243,7 @@ Pages.dashboard = async function() {
             <td class="txt-right" style="color:var(--teal);font-weight:600">${Utils.currency(r.amount_received_inr)}</td>
             <td><span class="chip chip-blue">${r.payment_method || '—'}</span></td>
             <td style="font-size:10.5px">${Utils.date(r.payment_date)}</td>
-            <td><button class="btn btn-teal btn-sm" onclick="DashboardPage.approveReceipt('${r.id}', this)">Approve</button></td>
+            <td><button class="btn btn-teal btn-sm" data-action="approve-receipt" onclick="DashboardPage.approveReceipt('${r.id}', this)">Approve</button></td>
           </tr>`).join('')}
         </tbody>
       </table></div>`;

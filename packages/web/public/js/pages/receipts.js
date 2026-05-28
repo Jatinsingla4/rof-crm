@@ -9,10 +9,10 @@ Pages.receipts = async function(params = {}) {
       <div class="breadcrumb">Application / Receipt Process / <b>Receipt Entry</b></div>
     </div>
     <div class="tabs-line">
-      <button class="tab-line active" data-group="rec" data-tab="entry" onclick="switchTab('rec','entry')">Receipt Generation</button>
+      <button class="tab-line active" data-group="rec" data-tab="entry" data-action="receipt-entry-tab" onclick="switchTab('rec','entry')">Receipt Generation</button>
       <button class="tab-line" data-group="rec" data-tab="print" onclick="switchTab('rec','print');ReceiptsPage.initPrintTab()">Receipt Print</button>
       <button class="tab-line" data-group="rec" data-tab="list" onclick="switchTab('rec','list');ReceiptsPage.loadList()">Receipt List</button>
-      <button class="tab-line" data-group="rec" data-tab="journal" onclick="switchTab('rec','journal');ReceiptsPage.jeInit()">Journal Entry</button>
+      <button class="tab-line" data-group="rec" data-tab="journal" data-action="journal-entry-tab" onclick="switchTab('rec','journal');ReceiptsPage.jeInit()">Journal Entry</button>
       <button class="tab-line" data-group="rec" data-tab="edit" onclick="switchTab('rec','edit');ReceiptsPage.loadEditSearch()">Edit Receipt</button>
       <button class="tab-line" data-group="rec" data-tab="cancel" onclick="switchTab('rec','cancel');ReceiptsPage.loadCancelSearch()">Cancel Receipt</button>
       <button class="tab-line" data-group="rec" data-tab="tds-report" onclick="switchTab('rec','tds-report');ReceiptsPage.loadTDSReport()">TDS Challan Report</button>
@@ -980,8 +980,8 @@ const ReceiptsPage = {
                 <td>${r.bank_name||r.bankName||'—'}</td>
                 <td>${Utils.date(r.payment_date||r.created_at)}</td>
                 <td style="display:flex;gap:4px">
-                  <button class="btn btn-teal btn-sm" onclick="ReceiptsPage.approve('${r.id}',this)">Approve</button>
-                  <button class="btn btn-danger btn-sm" onclick="ReceiptsPage.reject('${r.id}',this)">Reject</button>
+                  <button class="btn btn-teal btn-sm" data-action="approve-receipt" onclick="ReceiptsPage.approve('${r.id}',this)">Approve</button>
+                  <button class="btn btn-danger btn-sm" data-action="approve-receipt" onclick="ReceiptsPage.reject('${r.id}',this)">Reject</button>
                 </td>
               </tr>`).join('')}
             </tbody>
