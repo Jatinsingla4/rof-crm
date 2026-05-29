@@ -5,7 +5,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && cpx \"src/db/**/*.{html,sql,md}\" dist/db/",
+    "build": "tsc && cpx \"src/db/**/*.{html,sql,md}\" dist/db/ && cpx \"src/templates/legal/**/*.html\" dist/templates/legal/",
     "start": "node dist/index.js",
     "db:migrate": "node dist/db/migrations.js",
     "seed:demo": "tsx src/scripts/seed-demo-data.ts",
