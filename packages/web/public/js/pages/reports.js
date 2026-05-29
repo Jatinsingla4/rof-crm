@@ -3543,6 +3543,8 @@ Pages.reports = async function(params = {}) {
 // ─────────────────────────────────────────────────────────────
 
 const DOC_TYPE_LABELS = {
+  buyer_builder_agreement: 'Agreement for Sale',
+  conveyance_deed:  'Conveyance Deed',
   demand_letter:    'Demand Letter',
   payment_receipt:  'Payment Receipt',
   allotment_letter: 'Allotment Letter',
@@ -3550,6 +3552,8 @@ const DOC_TYPE_LABELS = {
   booking_form:     'Booking Form',
 };
 const DOC_TYPE_COLORS = {
+  buyer_builder_agreement: '#0277bd',
+  conveyance_deed:  '#c62828',
   demand_letter:    '#1565c0',
   payment_receipt:  '#00796b',
   allotment_letter: '#6a1b9a',
@@ -3776,6 +3780,8 @@ Pages.documentEdits = async function(params = {}) {
             <label class="fl">Document Type</label>
             <select class="fc" id="ef-docType" style="border-radius:2px">
               <option value="">All Types</option>
+              <option value="buyer_builder_agreement">Agreement for Sale</option>
+              <option value="conveyance_deed">Conveyance Deed</option>
               <option value="demand_letter">Demand Letter</option>
               <option value="payment_receipt">Payment Receipt</option>
               <option value="allotment_letter">Allotment Letter</option>

@@ -1160,7 +1160,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             promoter_cin: ats.cin || '—',
             promoter_pan: ats.company_pan || '—',
             promoter_address: ats.promoter_address || '—',
-            project_name: ats.project_name || '—',
+            project_name: (ats.project_name || '—').replace(/_TEST$/i, '').trim() || '—',
             harera_reg_no: ats.rera_number || '—',
             license_no: ats.license_no || '—',
             license_date: fmtDateIndia(ats.license_date),
@@ -1184,8 +1184,10 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             tower_name: ats.tower_name || '—',
             floor_no: ordinalFloor(ats.floor),
             unit_type: ats.bhk_type || '—',
-            carpet_area: fmtIndianNumber(carpetSqft3),
-            balcony_area: fmtIndianNumber(balconySqft3),
+            carpet_area: carpetSqft3 > 0 ? carpetSqft3.toFixed(3) : '___',
+            carpet_area_raw: carpetSqft3 > 0 ? carpetSqft3.toFixed(3) : '0',
+            balcony_area: balconySqft3 > 0 ? balconySqft3.toFixed(3) : '___',
+            balcony_area_raw: balconySqft3 > 0 ? balconySqft3.toFixed(3) : '0',
             parking_no: '—',
             total_price: fmtIndianNumber(totalPrice3),
             total_price_words: numberToWordsIndian(totalPrice3),
@@ -1278,15 +1280,17 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             property_no: cd.unit_number || '—',
             tower_name: cd.tower_name || '—',
             floor_no: ordinalFloor(cd.floor),
-            carpet_area: fmtIndianNumber(parseFloat(cd.carpet_area_sqft || 0)),
-            balcony_area: fmtIndianNumber(parseFloat(cd.balcony_area_sqft || 0)),
+            carpet_area: (() => { const val = parseFloat(cd.carpet_area_sqft || '0'); return val > 0 ? val.toFixed(3) : '___'; })(),
+            carpet_area_raw: (() => { const val = parseFloat(cd.carpet_area_sqft || '0'); return val > 0 ? val.toFixed(3) : '0'; })(),
+            balcony_area: (() => { const val = parseFloat(cd.balcony_area_sqft || '0'); return val > 0 ? val.toFixed(3) : '___'; })(),
+            balcony_area_raw: (() => { const val = parseFloat(cd.balcony_area_sqft || '0'); return val > 0 ? val.toFixed(3) : '0'; })(),
             parking_no: '—',
             allotment_letter_date: fmtDateIndia(cd.allotment_date),
             consideration: fmtIndianNumber(consideration),
             consideration_words: numberToWordsIndian(consideration),
             stamp_duty: '—',
             e_stamp_no: '—',
-            project_name: cd.project_name || '—',
+            project_name: (cd.project_name || '—').replace(/_TEST$/i, '').trim() || '—',
             license_no: cd.license_no || '—',
             harera_reg_no: cd.rera_number || '—',
             village_name: cd.village_name || '—',
@@ -1403,13 +1407,18 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
       ['deed_month',         'text'],  ['deed_year',         'text'],
     ]);
     if (mergeData) {
+      const NO_WRAP_FIELDS = ['payment_plan_rows'];
       for (const [key, value] of Object.entries(mergeData)) {
         const strVal = String(value ?? '');
-        const vtype = EDITABLE_TEXT_FIELDS.get(key);
-        const wrapped = vtype !== undefined
-          ? `<span data-field-key="${key}" data-value-type="${vtype}">${strVal}</span>`
-          : strVal;
-        htmlContent = htmlContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => wrapped);
+        if (NO_WRAP_FIELDS.includes(key)) {
+          htmlContent = htmlContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => strVal);
+        } else {
+          const vtype = EDITABLE_TEXT_FIELDS.get(key);
+          const wrapped = vtype !== undefined
+            ? `<span class="doc-field" data-field-key="${key}" data-value-type="${vtype}">${strVal}</span>`
+            : `<span class="doc-field" data-field-key="${key}">${strVal}</span>`;
+          htmlContent = htmlContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => wrapped);
+        }
       }
     }
 
@@ -1534,86 +1543,186 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     const newDocId = result.rows[0].id;
 
     // 4.5 Build and inject edit toolbar WITH actual docId (for ATS and Conveyance Deed only)
+    console.log(`[TOOLBAR DEBUG] template.document_type = "${template.document_type}"`);
+    console.log(`[TOOLBAR DEBUG] Check result: includes buyer_builder_agreement? ${['buyer_builder_agreement', 'conveyance_deed'].includes(template.document_type)}`);
+
     if (['buyer_builder_agreement', 'conveyance_deed'].includes(template.document_type)) {
       const docTitle = template.document_type === 'buyer_builder_agreement' ? 'AGREEMENT FOR SALE' : 'CONVEYANCE DEED';
       const editToolbar = `
-<div id="doc-edit-toolbar" style="position:sticky;top:0;background:#1a3c5e;color:white;padding:10px 20px;display:flex;align-items:center;gap:15px;z-index:1000;font-family:Arial,sans-serif;font-size:13px;border-bottom:2px solid #0d9e8c;">
-  <span style="font-weight:bold">${docTitle}</span>
-  <span style="margin-left:auto;font-size:11px;">Document ID: ${newDocId}</span>
-  <button onclick="enableEditMode()" id="edit-btn" style="background:#e67e22;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">✏️ Edit</button>
-  <button onclick="saveEdits()" id="save-btn" style="display:none;background:#27ae60;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">💾 Save</button>
-  <button onclick="cancelEdit()" id="cancel-btn" style="display:none;background:#e74c3c;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">✕ Cancel</button>
-  <span id="edit-status" style="font-size:11px;color:#aed6f1;"></span>
+<style>
+  body {
+    background: #f0f0f0 !important;
+    margin: 0 !important;
+    padding: 0 0 80px 0 !important;
+  }
+  .doc-body {
+    max-width: 820px;
+    margin: 30px auto !important;
+    padding: 40px 50px !important;
+    background: #ffffff;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.18);
+    border-radius: 2px;
+  }
+  #doc-bottom-toolbar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: #2c2c2c;
+    z-index: 9999;
+    box-sizing: border-box;
+    border-top: 2px solid #444;
+  }
+  #doc-bottom-toolbar .toolbar-inner {
+    padding: 8px 20px 10px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  #doc-bottom-toolbar .doc-title {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    font-weight: bold;
+    color: #ffffff;
+    letter-spacing: 1px;
+    margin-right: 10px;
+  }
+  #doc-bottom-toolbar button {
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: bold;
+    padding: 7px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-print { background: #17a2b8; color: white; }
+  .btn-download { background: #17a2b8; color: white; }
+  .btn-edit { background: transparent !important; color: white !important; border: 2px solid #e67e22 !important; }
+  .btn-save { background: #27ae60; color: white; display: none; }
+  .btn-cancel { background: #e74c3c; color: white; display: none; }
+  #edit-status { font-family: Arial, sans-serif; font-size: 11px; color: #a9dfbf; margin-left: auto; }
+  .doc-field {
+    background: #fff9c4;
+    border-bottom: 1.5px solid #f0c040;
+    border-radius: 2px;
+    padding: 0 3px;
+    display: inline;
+    transition: all 0.2s;
+  }
+  .doc-field[contenteditable="true"] {
+    background: #ffe082 !important;
+    border-bottom: 2px dashed #f39c12 !important;
+    outline: none !important;
+    cursor: text;
+    box-shadow: 0 0 0 2px rgba(243,156,18,0.3);
+  }
+  @media print {
+    #doc-bottom-toolbar { display: none !important; }
+    body { background: white !important; padding: 0 !important; }
+    .doc-body { box-shadow: none !important; margin: 0 !important; padding: 2cm !important; max-width: 100% !important; }
+    .doc-field { background: transparent !important; border: none !important; }
+  }
+</style>
+
+<div id="doc-bottom-toolbar">
+  <div class="toolbar-inner">
+    <span class="doc-title">${docTitle}</span>
+    <button class="btn-print" onclick="window.print()">🖨️ PRINT</button>
+    <button class="btn-download" onclick="downloadDoc()">⬇️ DOWNLOAD PDF</button>
+    <button class="btn-edit" id="edit-btn" onclick="enableEditMode()">✏️ Edit Document</button>
+    <button class="btn-save" id="save-btn" onclick="saveEdits()">💾 Save Changes</button>
+    <button class="btn-cancel" id="cancel-btn" onclick="cancelEdit()">✕ Cancel</button>
+    <span id="edit-status"></span>
+  </div>
 </div>
 
 <script>
 const DOC_ID = '${newDocId}';
-const DOC_TYPE = '${template.document_type}';
 const TOKEN = new URLSearchParams(window.location.search).get('token') || localStorage.getItem('rof-jwt') || '';
-const EDITABLE_FIELDS = ['allottee_name','allottee_address','allottee_aadhaar','allottee_pan','allottee_age','allottee_relation','allottee_relative_name','vendee_name','vendee_address','vendee_aadhaar','vendee_pan','vendee_relation','vendee_relative_name','flat_no','property_no','carpet_area','balcony_area','parking_no','agreement_date','agreement_day','agreement_month','agreement_year','deed_day','deed_month','deed_year','consideration','total_price','booking_amount','harera_reg_no','license_no'];
+
+function downloadDoc() {
+  const msg = document.createElement('div');
+  msg.id = 'pdf-instruction';
+  msg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#1a3c5e;color:white;padding:25px 35px;border-radius:8px;z-index:99999;font-family:Arial,sans-serif;font-size:14px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.5);max-width:400px;line-height:1.6;';
+  msg.innerHTML = '<div style="font-size:18px;margin-bottom:12px;">📄 Save as PDF</div><div>In the print dialog:</div><div style="margin:8px 0;color:#17a2b8;font-weight:bold;">1. Set Destination to "Save as PDF"</div><div style="color:#17a2b8;font-weight:bold;">2. Click Save</div><div style="margin-top:15px;font-size:12px;opacity:0.8;">Click OK to open print dialog</div><button onclick="document.getElementById(\'pdf-instruction\').remove();window.print();" style="margin-top:15px;background:#27ae60;color:white;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">OK, Open Print Dialog</button><button onclick="document.getElementById(\'pdf-instruction\').remove();" style="margin-top:15px;margin-left:10px;background:#e74c3c;color:white;border:none;padding:8px 24px;border-radius:4px;cursor:pointer;font-size:14px;">Cancel</button>';
+  document.body.appendChild(msg);
+}
+
+const EDITABLE_FIELDS = ['allottee_name','allottee_address','allottee_aadhaar','allottee_pan','allottee_age','allottee_relation','allottee_relative_name','vendee_name','vendee_address','vendee_aadhaar','vendee_pan','vendee_relation','vendee_relative_name','property_no','carpet_area','balcony_area','parking_no','auth_signatory_name','board_resolution_date','stamp_duty','e_stamp_no','allotment_letter_date','flat_no','tower_name','floor_no','unit_type','total_price','booking_amount','agreement_date','agreement_day','agreement_month','agreement_year','deed_day','deed_month','deed_year','project_name','promoter_name','harera_reg_no','license_no','village_name','sector_name'];
 let editedFields={},originalValues={};
 
 function enableEditMode(){
   document.getElementById('edit-btn').style.display='none';
+  document.querySelector('.btn-print').style.display='none';
+  document.querySelector('.btn-download').style.display='none';
   document.getElementById('save-btn').style.display='inline-block';
   document.getElementById('cancel-btn').style.display='inline-block';
-  document.getElementById('edit-status').textContent='✏️ Edit mode — click highlighted fields to edit';
-  EDITABLE_FIELDS.forEach(fk=>{
-    const els=document.querySelectorAll('[data-field-key="'+fk+'"]');
-    els.forEach(el=>{
-      originalValues[fk]=el.textContent;
+  document.getElementById('edit-status').textContent='✏️ Click any highlighted field to edit';
+  EDITABLE_FIELDS.forEach(key=>{
+    document.querySelectorAll('[data-field-key="'+key+'"]').forEach(el=>{
+      originalValues[key]=el.textContent;
       el.contentEditable='true';
-      el.style.background='#fff9c4';
-      el.style.border='1px dashed #f39c12';
-      el.style.borderRadius='2px';
-      el.style.minWidth='30px';
-      el.style.display='inline-block';
-      el.addEventListener('input',()=>{editedFields[fk]=el.textContent;el.style.background='#d5f5e3';});
+      el.style.cssText+='background:#fff9c4!important;border-bottom:2px solid #f39c12!important;outline:none;padding:0 3px;min-width:20px;display:inline-block;';
+      el.addEventListener('input',()=>{editedFields[key]=el.textContent;el.style.background='#d5f5e3!important';});
     });
   });
 }
 
 function cancelEdit(){
-  Object.entries(originalValues).forEach(([key,val])=>{document.querySelectorAll('[data-field-key="'+key+'"]').forEach(el=>{el.textContent=val;el.contentEditable='false';el.style.background='';el.style.border='';});});
+  Object.entries(originalValues).forEach(([k,v])=>{
+    document.querySelectorAll('[data-field-key="'+k+'"]').forEach(el=>{
+      el.textContent=v;
+      el.contentEditable='false';
+      el.style.background='';
+      el.style.border='';
+      el.style.padding='';
+    });
+  });
   editedFields={};originalValues={};
   document.getElementById('edit-btn').style.display='inline-block';
+  document.querySelector('.btn-print').style.display='inline-block';
+  document.querySelector('.btn-download').style.display='inline-block';
   document.getElementById('save-btn').style.display='none';
   document.getElementById('cancel-btn').style.display='none';
   document.getElementById('edit-status').textContent='';
 }
 
 async function saveEdits(){
-  if(Object.keys(editedFields).length===0){alert('No changes to save.');return;}
+  if(!Object.keys(editedFields).length){alert('No changes made.');return;}
   const reason=prompt('Reason for edit (required):');
-  if(!reason||!reason.trim()){alert('Edit reason is required.');return;}
-  const saveBtn=document.getElementById('save-btn');
-  saveBtn.textContent='Saving...';saveBtn.disabled=true;
+  if(!reason||!reason.trim()){alert('Reason is required.');return;}
+  const btn=document.getElementById('save-btn');
+  btn.textContent='Saving...';btn.disabled=true;
   try{
-    const edits=Object.entries(editedFields).map(([fk,nv])=>({fieldKey:fk,newValue:nv,originalValue:originalValues[fk]||'',fieldLabel:fk.replace(/_/g,' ').replace(/\\b\\w/g,l=>l.toUpperCase())}));
-    const resp=await fetch('/api/documents/'+DOC_ID+'/edit',{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({edits,editReason:reason})});
-    if(!resp.ok)throw new Error('Save failed: '+resp.statusText);
-    document.getElementById('edit-status').textContent='✅ Saved successfully';
-    document.getElementById('edit-status').style.color='#a9dfbf';
-    Object.keys(originalValues).forEach(key=>{document.querySelectorAll('[data-field-key="'+key+'"]').forEach(el=>{el.contentEditable='false';el.style.background='';el.style.border='';});});
+    const edits=Object.entries(editedFields).map(([fieldKey,newValue])=>({fieldKey,newValue,originalValue:originalValues[fieldKey]||'',fieldLabel:fieldKey.replace(/_/g,' ')}));
+    const r=await fetch('/api/documents/'+DOC_ID+'/edit',{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({edits,editReason:reason})});
+    if(!r.ok)throw new Error(await r.text());
+    document.getElementById('edit-status').textContent='✅ Saved!';
+    Object.keys(originalValues).forEach(k=>{document.querySelectorAll('[data-field-key="'+k+'"]').forEach(el=>{el.contentEditable='false';el.style.background='';el.style.border='';});});
     editedFields={};originalValues={};
     document.getElementById('edit-btn').style.display='inline-block';
+    document.querySelector('.btn-print').style.display='inline-block';
+    document.querySelector('.btn-download').style.display='inline-block';
     document.getElementById('save-btn').style.display='none';
     document.getElementById('cancel-btn').style.display='none';
-    saveBtn.textContent='💾 Save';saveBtn.disabled=false;
-  }catch(err){alert('Error saving: '+err.message);saveBtn.textContent='💾 Save';saveBtn.disabled=false;}
+    btn.textContent='💾 Save Changes';btn.disabled=false;
+  }catch(e){alert('Error: '+e.message);btn.textContent='💾 Save Changes';btn.disabled=false;}
 }
 </script>`;
 
-      // Update document with toolbar prepended
+      // Update document with toolbar appended (before </body>)
+      const finalHtml = htmlContent.replace('</body>', editToolbar + '\n</body>');
       await db.query(
         `UPDATE documents SET html_content = $1 WHERE id = $2`,
-        [editToolbar + htmlContent, newDocId]
+        [finalHtml, newDocId]
       );
 
-      // Also update the version snapshot with toolbar
+      // Also update the version snapshot with toolbar (appended before </body>)
+      const versionHtml = htmlContent.replace('</body>', editToolbar + '\n</body>');
       await db.query(
         `UPDATE document_versions SET html_content = $1 WHERE document_id = $2 AND is_original = TRUE`,
-        [editToolbar + htmlContent, newDocId]
+        [versionHtml, newDocId]
       );
     } else {
       // Save original version snapshot for non-edit-toolbar documents
