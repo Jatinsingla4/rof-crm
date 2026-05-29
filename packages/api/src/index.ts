@@ -46,6 +46,8 @@ import receiptProcessRoutes from './routes/receipt-process.js';
 import financialOpsRoutes from './routes/financial-ops.js';
 import testDataImportRoutes from './routes/test-data-import.js';
 import rolesRoutes from './routes/roles.js';
+import companiesRoutes from './routes/companies.js';
+import customLettersRoutes from './routes/custom-letters.js';
 import { requirePermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
@@ -373,7 +375,9 @@ app.use('/api/loans', authenticateToken, loansRoutes);
 app.use('/api/payments', authenticateToken, receiptProcessRoutes);
 app.use('/api/payments', authenticateToken, financialOpsRoutes);
 app.use('/api/test-data', authenticateToken, testDataImportRoutes);
-app.use('/api/roles',    authenticateToken, rolesRoutes);
+app.use('/api/roles',          authenticateToken, rolesRoutes);
+app.use('/api/companies',      authenticateToken, companiesRoutes);
+app.use('/api/custom-letters', authenticateToken, customLettersRoutes);
 
 // ============================================
 // SPA FALLBACK

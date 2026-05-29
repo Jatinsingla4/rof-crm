@@ -42,11 +42,31 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
+const fs = __importStar(require("fs"));
+const path = __importStar(require("path"));
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const document_writeback_js_1 = require("../utils/document-writeback.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const router = (0, express_1.Router)();
+// Helper function to load legal templates from filesystem
+function loadLegalTemplate(filename) {
+    // Try multiple possible paths (handles both src and dist)
+    const possiblePaths = [
+        // When running from dist/ after TypeScript compilation
+        path.join(__dirname, '../templates/legal', filename),
+        // When running directly from src/ in development
+        path.join(process.cwd(), 'src/templates/legal', filename),
+        // From project root for absolute safety
+        path.join(process.cwd(), 'packages/api/src/templates/legal', filename),
+    ];
+    for (const p of possiblePaths) {
+        if (fs.existsSync(p)) {
+            return fs.readFileSync(p, 'utf-8');
+        }
+    }
+    throw new Error(`Legal template not found: ${filename}. Searched paths: ${possiblePaths.join('; ')}`);
+}
 // AES-256 Encryption Configuration
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
 const IV_LENGTH = 16;
@@ -224,7 +244,7 @@ router.patch('/templates/:id', async (req, res, next) => {
 // POST /api/documents/generate - Generate document from template
 router.post('/generate', async (req, res, next) => {
     try {
-        let { consumerId, allocationId, templateId, documentType, mergeData, deliveryMethod, dueDate } = req.body;
+        let { consumerId, allocationId, templateId, documentType, mergeData, deliveryMethod, dueDate, includeAllDemands } = req.body;
         if (!consumerId && !allocationId) {
             return res.status(400).json({ error: 'consumerId or allocationId is required' });
         }
@@ -241,8 +261,21 @@ router.post('/generate', async (req, res, next) => {
         if (!template) {
             return res.status(404).json({ error: 'Document template not found' });
         }
-        // 2. Auto-Merge Logic (if mergeData missing)
-        let htmlContent = template.body_html || '';
+        // 2. Load template from file if FILE: reference, otherwise use body_html
+        let htmlContent = '';
+        if (template.body_html && template.body_html.startsWith('FILE:')) {
+            const filename = template.body_html.substring(5); // Remove 'FILE:' prefix
+            try {
+                htmlContent = loadLegalTemplate(filename);
+            }
+            catch (fileError) {
+                return res.status(500).json({ error: `Failed to load template file: ${fileError.message}` });
+            }
+        }
+        else {
+            htmlContent = template.body_html || '';
+        }
+        // 3. Auto-Merge Logic (if mergeData missing)
         if (!mergeData) {
             const dataRes = await index_js_1.db.query(`SELECT c.*, u.unit_number, u.bhk_type as unit_category, u.carpet_area_sqft as carpet_area, p.name as project_name, p.location as project_sector, p.rera_number as project_rera
          FROM consumers c
@@ -278,6 +311,21 @@ router.post('/generate', async (req, res, next) => {
                     const settings = {};
                     settingsRes.rows.forEach((r) => { settings[r.key] = r.value; });
                     const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '11.10');
+                    // Fetch per-project company details (overrides global_settings if found)
+                    const projCompanyRes = await index_js_1.db.query(`
+            SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
+                   c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
+                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
+                   c.bank_name, c.bank_branch
+            FROM companies c
+            JOIN projects p ON p.company_id = c.id
+            JOIN units u ON u.project_id = p.id
+            LEFT JOIN allocations al ON al.unit_id = u.id AND al.consumer_id = $1
+            LEFT JOIN payment_plans pp ON pp.consumer_id = $1
+            LEFT JOIN booking_records br ON br.consumer_id = $1
+            WHERE al.consumer_id = $1 OR pp.consumer_id = $1 OR br.consumer_id = $1
+            LIMIT 1`, [consumerId]);
+                    const projCompany = projCompanyRes.rows[0] || null;
                     // Fetch consumer + unit + tower + project + payment_plan
                     // Unit resolved: allocation → payment_plan → booking_record (three-level fallback)
                     const planRes = await index_js_1.db.query(`
@@ -359,6 +407,32 @@ router.post('/generate', async (req, res, next) => {
                     // AHP GST: 1% total (0.5% CGST + 0.5% SGST) for residents, 0 for NRI
                     const defaultCgstPct = isNri ? 0 : 0.5;
                     const defaultSgstPct = isNri ? 0 : 0.5;
+                    const allInstallmentsQuery = `
+            SELECT DISTINCT ON (d.installment_index)
+              COALESCE(pst.installment_index, d.installment_index) AS installment_index,
+              COALESCE(pst.installment_name, d.demand_type, 'Installment') AS installment_name,
+              COALESCE(pst.percentage, 0) AS percentage,
+              COALESCE(pst.due_date_offset_days, 0) AS due_date_offset_days,
+              d.id AS demand_id,
+              d.status AS demand_status,
+              d.delivery_status,
+              d.amount_due_inr,
+              d.cgst_amount,
+              d.sgst_amount,
+              d.due_date,
+              COALESCE(
+                (SELECT SUM(r.amount_received_inr) FROM receipts r
+                 WHERE r.demand_id = d.id AND r.status != 'cancelled'), 0
+              ) AS amount_paid,
+              GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
+            FROM demands d
+            LEFT JOIN plan_schedule_templates pst
+              ON pst.project_id = $1
+              AND pst.plan_name = $2
+              AND pst.installment_index = d.installment_index
+            WHERE d.consumer_id = $3
+            ORDER BY d.installment_index ASC, d.created_at DESC
+          `;
                     const demandQuery = `
             SELECT
               pst.installment_index,
@@ -384,7 +458,7 @@ router.post('/generate', async (req, res, next) => {
               AND pst.plan_name = $3
               AND pst.installment_index = d.installment_index
             WHERE d.payment_plan_id = $1
-              AND d.status = 'demanded'
+              AND d.status IN ('demanded', 'pending', 'paid')
               AND d.due_date IS NOT NULL
               AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
@@ -392,7 +466,10 @@ router.post('/generate', async (req, res, next) => {
                     const demandParams = [planId, projectId, planName, dueDate];
                     // Fallback: only if no project could be resolved at all
                     let demandsRes;
-                    if (!projectId) {
+                    if (includeAllDemands) {
+                        demandsRes = await index_js_1.db.query(allInstallmentsQuery, [projectId || null, planName || '', consumerId]);
+                    }
+                    else if (!projectId) {
                         const fallbackQuery = `
               SELECT DISTINCT ON (d.installment_index) d.*,
                 COALESCE(pst2.installment_name, d.demand_type, 'Installment') AS installment_name,
@@ -408,7 +485,7 @@ router.post('/generate', async (req, res, next) => {
               LEFT JOIN plan_schedule_templates pst2
                 ON pst2.project_id = pp2.project_id AND pst2.installment_index = d.installment_index
               WHERE d.consumer_id = $1
-                AND d.status = 'demanded'
+                AND d.status IN ('demanded', 'pending', 'paid')
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
@@ -675,93 +752,40 @@ router.post('/generate', async (req, res, next) => {
                         bookingBankName: plan.booking_bank_name || '',
                         bookingChequeDate: plan.booking_cheque_date ? fmtDateIndia(plan.booking_cheque_date) : '',
                     };
-                    // ── ADVANCE PAYMENT ADJUSTMENT section ───────────────────────────────
-                    // Build HTML for the section and store it for injection during post-processing.
-                    // Computed here while wfRcptsRes, demandsRes, allWfResults, and totalPayable are in scope.
-                    const advanceReceipts = wfRcptsRes.rows.filter(r => !r.demand_id && r.installment_index === null && r.status !== 'cancelled');
-                    const totalAdvancePool = advanceReceipts.reduce((s, r) => s + Number(r.amount_received_inr), 0);
-                    let advanceSectionHtml = '';
-                    if (totalAdvancePool > 0) {
-                        // Identify the primary demand for this letter.
-                        // Prefer the explicit demandIdFilter; fall back to the lowest-index demand in wfDemandsRes
-                        // (use wfDemandsRes because it includes ALL statuses, not just 'demanded').
-                        const primaryDemand = demandIdFilter
-                            ? wfDemandsRes.rows.find((d) => d.id === demandIdFilter)
-                            : wfDemandsRes.rows.slice().sort((a, b) => a.installment_index - b.installment_index)[0];
-                        const currentDemandId = primaryDemand?.id ?? null;
-                        const currentIndex = primaryDemand?.installment_index ?? 0;
-                        const currentWf = currentDemandId ? allWfResults.find(w => w.demand_id === currentDemandId) : null;
-                        // Walk the waterfall in index order to find how much of the pool went to this demand
-                        let poolLeft = totalAdvancePool;
-                        let advanceApplied = 0;
-                        for (const w of allWfResults.slice().sort((a, b) => a.installment_index - b.installment_index)) {
-                            const linkedAmt = wfRcptsRes.rows
-                                .filter(r => r.demand_id === w.demand_id && r.status !== 'cancelled')
-                                .reduce((s, r) => s + Number(r.amount_received_inr), 0);
-                            const fromPool = Math.max(0, w.paid - linkedAmt);
-                            if (w.demand_id === currentDemandId) {
-                                advanceApplied = Math.min(fromPool, poolLeft);
-                                break;
-                            }
-                            poolLeft = Math.max(0, poolLeft - fromPool);
-                        }
-                        // Advance consumed by all installments BEFORE the current one
-                        const advanceUsedBefore = allWfResults
-                            .filter(w => w.installment_index < currentIndex)
-                            .reduce((s, w) => {
-                            const lnk = wfRcptsRes.rows
-                                .filter(r => r.demand_id === w.demand_id && r.status !== 'cancelled')
-                                .reduce((a, r) => a + Number(r.amount_received_inr), 0);
-                            return s + Math.max(0, w.paid - lnk);
-                        }, 0);
-                        const advanceRemaining = Math.max(0, totalAdvancePool - advanceUsedBefore - advanceApplied);
-                        if (advanceApplied > 0) {
-                            const fmtINR = (n) => '&#8377;' + Math.round(n).toLocaleString('en-IN');
-                            const advanceSummary = advanceReceipts.map(r => {
-                                const dt = r.received_date
-                                    ? (() => {
-                                        const d = r.received_date instanceof Date ? r.received_date : new Date(r.received_date);
-                                        return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-                                    })()
-                                    : '&#8212;';
-                                return `${r.payment_method || 'Receipt'} dated ${dt}`;
-                            }).join(', ');
-                            // Compute balance directly from waterfall — demandsRes may be empty for non-'demanded' demands
-                            const demandTotalDue = primaryDemand
-                                ? Number(primaryDemand.amount_due_inr) + Number(primaryDemand.cgst_amount) + Number(primaryDemand.sgst_amount)
-                                : 0;
-                            const balancePayable = Math.max(0, Math.round(demandTotalDue - (currentWf?.paid ?? 0)));
-                            const isFullyCovered = currentWf?.fully_covered ?? false;
-                            const noteText = isFullyCovered
-                                ? 'This installment has been fully adjusted against your advance/booking payment. No further payment is required for this installment.'
-                                : `${fmtINR(advanceApplied)} of your advance payment has been adjusted against this installment. Balance payable for this installment: ${fmtINR(balancePayable)}.`;
-                            advanceSectionHtml = `
-<div style="margin:24px 0;border:1px solid #1a1a2e;border-radius:4px;overflow:hidden;font-family:Arial,sans-serif;font-size:12px;">
-  <div style="background:#1a1a2e;color:white;padding:8px 14px;font-weight:bold;font-size:12px;letter-spacing:0.5px;">ADVANCE PAYMENT ADJUSTMENT</div>
-  <div style="padding:14px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <tr>
-        <td style="padding:5px 8px;color:#555;width:65%;">Total Advance / Booking Amount Received<span style="font-size:10px;color:#888;display:block;">${advanceSummary}</span></td>
-        <td style="padding:5px 8px;text-align:right;font-weight:bold;">${fmtINR(totalAdvancePool)}</td>
-      </tr>
-      <tr style="background:#f8f8f8;">
-        <td style="padding:5px 8px;color:#555;">Applied to this installment</td>
-        <td style="padding:5px 8px;text-align:right;font-weight:bold;color:#2a7a2a;">${fmtINR(advanceApplied)}</td>
-      </tr>
-      <tr>
-        <td style="padding:5px 8px;color:#555;border-top:1px solid #ddd;">Advance Balance Remaining (after this installment)</td>
-        <td style="padding:5px 8px;text-align:right;font-weight:bold;border-top:1px solid #ddd;color:${advanceRemaining > 0 ? '#c47a00' : '#888'};">${fmtINR(advanceRemaining)}</td>
-      </tr>
-    </table>
-    <div style="margin-top:12px;padding:10px 12px;background:${isFullyCovered ? '#f0fff0' : '#fffbf0'};border-left:3px solid ${isFullyCovered ? '#2a7a2a' : '#c47a00'};color:#333;font-size:11px;line-height:1.5;">
-      <strong>Note:</strong> ${noteText}
-    </div>
-  </div>
-</div>`;
-                        }
+                    // Override with per-project company if available
+                    if (projCompany) {
+                        if (projCompany.name)
+                            mergeData.companyName = projCompany.name;
+                        if (projCompany.cin)
+                            mergeData.companyCin = projCompany.cin;
+                        if (projCompany.gstin)
+                            mergeData.companyGstin = projCompany.gstin;
+                        if (projCompany.address1)
+                            mergeData.companyAddress = projCompany.address1;
+                        if (projCompany.reg_address)
+                            mergeData.companyRegAddr = projCompany.reg_address;
+                        if (projCompany.phone)
+                            mergeData.companyPhone = projCompany.phone;
+                        if (projCompany.website)
+                            mergeData.companyWebsite = projCompany.website;
+                        if (projCompany.email)
+                            mergeData.companyEmail = projCompany.email;
+                        if (projCompany.place_of_supply)
+                            mergeData.placeOfSupply = projCompany.place_of_supply;
+                        if (projCompany.logo_url)
+                            mergeData.companyLogoUrl = projCompany.logo_url;
+                        if (projCompany.bank_company_name)
+                            mergeData.bankCompanyName = projCompany.bank_company_name;
+                        if (projCompany.bank_account_no)
+                            mergeData.bankAccountNo = projCompany.bank_account_no;
+                        if (projCompany.bank_ifsc)
+                            mergeData.bankIfsc = projCompany.bank_ifsc;
+                        if (projCompany.bank_name)
+                            mergeData.bankName = projCompany.bank_name;
+                        if (projCompany.bank_branch)
+                            mergeData.bankBranch = projCompany.bank_branch;
                     }
-                    // Store in mergeData so post-processing can inject it
-                    mergeData.__advanceSectionHtml = advanceSectionHtml;
+                    // Advance Payment Adjustment section removed — not shown in letter
                 }
                 // ── ALLOTMENT LETTER ─────────────────────────────────────────────────
                 else if (template.document_type === 'allotment_letter') {
@@ -945,6 +969,39 @@ router.post('/generate', async (req, res, next) => {
                         selectedPlanName: planName2,
                         paymentScheduleRows: paymentScheduleRows,
                     };
+                    // Override with per-project company for allotment letter
+                    const alCompanyRes = await index_js_1.db.query(`
+            SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
+                   c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
+                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
+                   c.bank_name, c.bank_branch
+            FROM companies c
+            JOIN projects p ON p.company_id = c.id
+            JOIN allocations al2 ON al2.unit_id IN (
+              SELECT id FROM units WHERE project_id = p.id
+            )
+            WHERE al2.id = $1 LIMIT 1`, [resolvedAllocId]);
+                    const alCompany = alCompanyRes.rows[0] || null;
+                    if (alCompany) {
+                        if (alCompany.name)
+                            mergeData.companyName = alCompany.name;
+                        if (alCompany.address1)
+                            mergeData.companyAddress = alCompany.address1;
+                        if (alCompany.phone)
+                            mergeData.companyPhone = alCompany.phone;
+                        if (alCompany.email)
+                            mergeData.companyEmail = alCompany.email;
+                        if (alCompany.bank_company_name)
+                            mergeData.bankCompanyName = alCompany.bank_company_name;
+                        if (alCompany.bank_account_no)
+                            mergeData.bankAccountNo = alCompany.bank_account_no;
+                        if (alCompany.bank_ifsc)
+                            mergeData.bankIfsc = alCompany.bank_ifsc;
+                        if (alCompany.bank_name)
+                            mergeData.bankName = alCompany.bank_name;
+                        if (alCompany.bank_branch)
+                            mergeData.bankBranch = alCompany.bank_branch;
+                    }
                     // Override htmlContent with the file-based template
                     try {
                         const fsM = await Promise.resolve().then(() => __importStar(require('fs')));
@@ -956,6 +1013,249 @@ router.post('/generate', async (req, res, next) => {
                         }
                     }
                     catch (_e) { /* fallback to DB stub template */ }
+                }
+                // ── BUYER BUILDER AGREEMENT (ATS) ─────────────────────────────────────
+                else if (template.document_type === 'buyer_builder_agreement') {
+                    const settingsRes3 = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
+                    const s3 = {};
+                    settingsRes3.rows.forEach((r) => { s3[r.key] = r.value; });
+                    // Resolve allocationId
+                    let resolvedAllocId3 = allocationId;
+                    if (!resolvedAllocId3) {
+                        const aRes = await index_js_1.db.query(`SELECT id FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
+                        resolvedAllocId3 = aRes.rows[0]?.id || null;
+                    }
+                    if (!resolvedAllocId3) {
+                        return res.status(400).json({ error: 'No allocation found for this consumer' });
+                    }
+                    // Main data fetch
+                    const atsRes = await index_js_1.db.query(`
+            SELECT
+              c.first_name, c.last_name, c.father_name, c.age, c.pan_no, c.aadhaar_number,
+              c.present_address, c.mobile, c.email,
+              a.id AS allotment_id, a.agreement_date,
+              u.unit_number, u.bhk_type, u.floor, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr, u.total_price_inr,
+              t.tower_name,
+              p.name AS project_name, p.location, p.rera_number, p.tcp_licence as license_no, p.license_date,
+              p.env_clearance_no, p.env_clearance_date, p.building_plan_memo_no, p.building_plan_date,
+              p.land_owner_name, p.land_owner_llpin, p.land_owner_pan, p.land_owner_address,
+              p.land_owner_gpa_vasika_no, p.land_owner_gpa_date, p.sale_deed_no, p.sale_deed_date,
+              p.collaboration_agreement_date, p.khasra_details, p.village_name, p.sector_name, p.sub_registrar_office,
+              p.authorised_signatory_name, p.authorised_signatory_aadhaar, p.board_resolution_date,
+              p.id AS project_id, c.id AS consumer_id,
+              br.booking_amount, br.selected_plan_name,
+              co.name AS company_name, co.cin, co.address1 AS promoter_address, co.pan_no AS company_pan
+            FROM allocations a
+            JOIN consumers c ON c.id = a.consumer_id
+            JOIN units u ON u.id = a.unit_id
+            JOIN projects p ON p.id = a.project_id
+            LEFT JOIN towers t ON t.id = u.tower_id
+            LEFT JOIN booking_records br ON br.consumer_id = a.consumer_id AND br.project_id = a.project_id
+            LEFT JOIN companies co ON co.id = p.company_id
+            WHERE a.id = $1
+          `, [resolvedAllocId3]);
+                    const ats = atsRes.rows[0];
+                    if (!ats)
+                        return res.status(404).json({ error: 'Allocation data not found' });
+                    const projectId3 = ats.project_id;
+                    const planName3 = ats.selected_plan_name || 'CLP';
+                    // Fetch payment plan schedule
+                    let schedRes3 = await index_js_1.db.query(`
+            SELECT installment_index, installment_name, COALESCE(percentage, 0) AS percentage, flat_amount_inr
+            FROM plan_schedule_templates
+            WHERE project_id = $1 AND plan_name = $2
+            ORDER BY installment_index
+          `, [projectId3, planName3]);
+                    if (schedRes3.rows.length === 0) {
+                        const firstPlan3 = await index_js_1.db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name ASC LIMIT 1`, [projectId3]);
+                        const fallbackPlan3 = firstPlan3.rows[0]?.plan_name || 'CLP';
+                        schedRes3 = await index_js_1.db.query(`
+              SELECT installment_index, installment_name, COALESCE(percentage, 0) AS percentage, flat_amount_inr
+              FROM plan_schedule_templates
+              WHERE project_id = $1 AND plan_name = $2
+              ORDER BY installment_index
+            `, [projectId3, fallbackPlan3]);
+                    }
+                    const totalPrice3 = parseFloat(ats.total_price_inr || 0);
+                    let paymentPlanRows = '';
+                    schedRes3.rows.forEach((row, idx) => {
+                        const pct = parseFloat(row.percentage || 0);
+                        const amt = row.flat_amount_inr
+                            ? parseFloat(row.flat_amount_inr)
+                            : Math.round((pct / 100) * totalPrice3);
+                        paymentPlanRows += `<tr>
+              <td>${idx + 1}</td>
+              <td>${row.installment_name || 'Installment'}</td>
+              <td>${pct.toFixed(2)}%</td>
+              <td>₹ ${fmtIndianNumber(amt)}</td>
+            </tr>`;
+                    });
+                    const carpetSqft3 = parseFloat(ats.carpet_area_sqft || 0);
+                    const balconySqft3 = parseFloat(ats.balcony_area_sqft || 0);
+                    const basicPrice3 = parseFloat(ats.base_price_inr || 0);
+                    const basicRate3 = carpetSqft3 > 0 ? Math.round(basicPrice3 / carpetSqft3) : 0;
+                    const balconyRate3 = balconySqft3 > 0 ? Math.round((totalPrice3 - basicPrice3) / balconySqft3) : 0;
+                    const balconyPrice3 = totalPrice3 - basicPrice3;
+                    const bookingPct3 = (parseFloat(ats.booking_amount || 0) / totalPrice3 * 100).toFixed(2);
+                    mergeData = {
+                        allottee_name: `${ats.first_name || ''} ${ats.last_name || ''}`.trim() || '—',
+                        allottee_relation: 'S/o',
+                        allottee_relative_name: ats.father_name || '—',
+                        allottee_address: ats.present_address || '—',
+                        allottee_age: ats.age ? String(ats.age) : '—',
+                        allottee_aadhaar: ats.aadhaar_number || '—',
+                        allottee_pan: ats.pan_no || '—',
+                        promoter_name: ats.company_name || '—',
+                        promoter_cin: ats.cin || '—',
+                        promoter_pan: ats.company_pan || '—',
+                        promoter_address: ats.promoter_address || '—',
+                        project_name: ats.project_name || '—',
+                        harera_reg_no: ats.rera_number || '—',
+                        license_no: ats.license_no || '—',
+                        license_date: fmtDateIndia(ats.license_date),
+                        village_name: ats.village_name || '—',
+                        sector_name: ats.sector_name || '—',
+                        district_name: ats.location || '—',
+                        env_clearance_no: ats.env_clearance_no || '—',
+                        env_clearance_date: fmtDateIndia(ats.env_clearance_date),
+                        building_plan_memo_no: ats.building_plan_memo_no || '—',
+                        building_plan_date: fmtDateIndia(ats.building_plan_date),
+                        land_owner_name: ats.land_owner_name || '—',
+                        land_owner_llpin: ats.land_owner_llpin || '—',
+                        land_owner_pan: ats.land_owner_pan || '—',
+                        land_owner_address: ats.land_owner_address || '—',
+                        land_owner_gpa_vasika_no: ats.land_owner_gpa_vasika_no || '—',
+                        land_owner_gpa_date: fmtDateIndia(ats.land_owner_gpa_date),
+                        sale_deed_no: ats.sale_deed_no || '—',
+                        sale_deed_date: fmtDateIndia(ats.sale_deed_date),
+                        collab_agreement_date: fmtDateIndia(ats.collaboration_agreement_date),
+                        flat_no: ats.unit_number || '—',
+                        tower_name: ats.tower_name || '—',
+                        floor_no: ordinalFloor(ats.floor),
+                        unit_type: ats.bhk_type || '—',
+                        carpet_area: fmtIndianNumber(carpetSqft3),
+                        balcony_area: fmtIndianNumber(balconySqft3),
+                        parking_no: '—',
+                        total_price: fmtIndianNumber(totalPrice3),
+                        total_price_words: numberToWordsIndian(totalPrice3),
+                        basic_price: fmtIndianNumber(basicPrice3),
+                        balcony_price: fmtIndianNumber(balconyPrice3),
+                        rate_per_sqft: fmtIndianNumber(basicRate3),
+                        balcony_rate: fmtIndianNumber(balconyRate3),
+                        booking_amount: fmtIndianNumber(parseFloat(ats.booking_amount || 0)),
+                        booking_amount_words: numberToWordsIndian(parseFloat(ats.booking_amount || 0)),
+                        booking_amount_pct: bookingPct3,
+                        application_no: ats.consumer_id?.slice(0, 8).toUpperCase() || '—',
+                        agreement_date: fmtDateIndia(ats.agreement_date || new Date()),
+                        agreement_day: new Date(ats.agreement_date || new Date()).getDate().toString(),
+                        agreement_month: new Date(ats.agreement_date || new Date()).toLocaleString('en-IN', { month: 'long' }),
+                        agreement_year: new Date(ats.agreement_date || new Date()).getFullYear().toString(),
+                        auth_signatory_name: ats.authorised_signatory_name || '—',
+                        board_resolution_date: fmtDateIndia(ats.board_resolution_date),
+                        payment_plan_rows: paymentPlanRows,
+                        sub_registrar_office: ats.sub_registrar_office || '—',
+                        khasra_details: ats.khasra_details || '—',
+                    };
+                }
+                // ── CONVEYANCE DEED ──────────────────────────────────────────────────
+                else if (template.document_type === 'conveyance_deed') {
+                    const settingsRes4 = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
+                    const s4 = {};
+                    settingsRes4.rows.forEach((r) => { s4[r.key] = r.value; });
+                    // Resolve allocationId
+                    let resolvedAllocId4 = allocationId;
+                    if (!resolvedAllocId4) {
+                        const aRes = await index_js_1.db.query(`SELECT id FROM allocations WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
+                        resolvedAllocId4 = aRes.rows[0]?.id || null;
+                    }
+                    if (!resolvedAllocId4) {
+                        return res.status(400).json({ error: 'No allocation found for this consumer' });
+                    }
+                    // Main data fetch
+                    const cdRes = await index_js_1.db.query(`
+            SELECT
+              c.first_name, c.last_name, c.father_name, c.pan_no, c.aadhaar_number,
+              c.present_address,
+              a.id AS allotment_id, a.allotment_date, a.conveyance_deed_date,
+              u.unit_number, u.floor, u.carpet_area_sqft, u.balcony_area_sqft, u.total_price_inr,
+              t.tower_name,
+              p.name AS project_name, p.location, p.rera_number, p.tcp_licence as license_no,
+              p.env_clearance_no, p.building_plan_memo_no,
+              p.land_owner_name, p.land_owner_llpin, p.land_owner_pan, p.land_owner_address,
+              p.land_owner_gpa_vasika_no, p.land_owner_gpa_date, p.sale_deed_no, p.sale_deed_date,
+              p.collaboration_agreement_date, p.khasra_details, p.village_name, p.sector_name,
+              p.occupation_cert_memo_no, p.occupation_cert_date,
+              p.deed_of_declaration_vasika_no, p.deed_of_declaration_date,
+              p.sub_registrar_office, p.authorised_signatory_name, p.authorised_signatory_aadhaar,
+              p.board_resolution_date, p.id AS project_id, c.id AS consumer_id,
+              co.name AS company_name, co.cin, co.address1 AS promoter_address, co.pan_no AS company_pan
+            FROM allocations a
+            JOIN consumers c ON c.id = a.consumer_id
+            JOIN units u ON u.id = a.unit_id
+            JOIN projects p ON p.id = a.project_id
+            LEFT JOIN towers t ON t.id = u.tower_id
+            LEFT JOIN companies co ON co.id = p.company_id
+            WHERE a.id = $1
+          `, [resolvedAllocId4]);
+                    const cd = cdRes.rows[0];
+                    if (!cd)
+                        return res.status(404).json({ error: 'Allocation data not found' });
+                    const deedDate = cd.conveyance_deed_date ? new Date(cd.conveyance_deed_date) : new Date();
+                    const deedDay = String(deedDate.getDate());
+                    const deedMonthNum = deedDate.getMonth();
+                    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+                    const deedMonth = monthNames[deedMonthNum];
+                    const deedYear = String(deedDate.getFullYear());
+                    const consideration = parseFloat(cd.total_price_inr || 0);
+                    mergeData = {
+                        vendee_name: `${cd.first_name || ''} ${cd.last_name || ''}`.trim() || '—',
+                        vendee_relation: 'S/o',
+                        vendee_relative_name: cd.father_name || '—',
+                        vendee_address: cd.present_address || '—',
+                        vendee_aadhaar: cd.aadhaar_number || '—',
+                        vendee_pan: cd.pan_no || '—',
+                        property_no: cd.unit_number || '—',
+                        tower_name: cd.tower_name || '—',
+                        floor_no: ordinalFloor(cd.floor),
+                        carpet_area: fmtIndianNumber(parseFloat(cd.carpet_area_sqft || 0)),
+                        balcony_area: fmtIndianNumber(parseFloat(cd.balcony_area_sqft || 0)),
+                        parking_no: '—',
+                        allotment_letter_date: fmtDateIndia(cd.allotment_date),
+                        consideration: fmtIndianNumber(consideration),
+                        consideration_words: numberToWordsIndian(consideration),
+                        stamp_duty: '—',
+                        e_stamp_no: '—',
+                        project_name: cd.project_name || '—',
+                        license_no: cd.license_no || '—',
+                        harera_reg_no: cd.rera_number || '—',
+                        village_name: cd.village_name || '—',
+                        sector_name: cd.sector_name || '—',
+                        khasra_details: cd.khasra_details || '—',
+                        sale_deed_no: cd.sale_deed_no || '—',
+                        sale_deed_date: fmtDateIndia(cd.sale_deed_date),
+                        collab_agreement_date: fmtDateIndia(cd.collaboration_agreement_date),
+                        oc_memo_no: cd.occupation_cert_memo_no || '—',
+                        oc_date: fmtDateIndia(cd.occupation_cert_date),
+                        deed_of_declaration_vasika_no: cd.deed_of_declaration_vasika_no || '—',
+                        deed_of_declaration_date: fmtDateIndia(cd.deed_of_declaration_date),
+                        deed_day: deedDay,
+                        deed_month: deedMonth,
+                        deed_year: deedYear,
+                        auth_signatory_name: cd.authorised_signatory_name || '—',
+                        auth_signatory_aadhaar: cd.authorised_signatory_aadhaar || '—',
+                        board_resolution_date: fmtDateIndia(cd.board_resolution_date),
+                        promoter_name: cd.company_name || '—',
+                        promoter_cin: cd.cin || '—',
+                        promoter_address: cd.promoter_address || '—',
+                        promoter_pan: cd.company_pan || '—',
+                        land_owner_name: cd.land_owner_name || '—',
+                        land_owner_llpin: cd.land_owner_llpin || '—',
+                        land_owner_pan: cd.land_owner_pan || '—',
+                        land_owner_address: cd.land_owner_address || '—',
+                        land_owner_gpa_vasika_no: cd.land_owner_gpa_vasika_no || '—',
+                        land_owner_gpa_date: fmtDateIndia(cd.land_owner_gpa_date),
+                        sub_registrar_office: cd.sub_registrar_office || '—',
+                    };
                 }
             }
         }
@@ -1005,6 +1305,40 @@ router.post('/generate', async (req, res, next) => {
             ['envClearanceDate', 'date'],
             // Allotment letter — document metadata / plan
             ['letterDate', 'date'], ['selectedPlanName', 'text'],
+            // Agreement for Sale (ATS) — allottee/buyer info
+            ['allottee_name', 'text'], ['allottee_address', 'text'],
+            ['allottee_aadhaar', 'text'], ['allottee_pan', 'text'],
+            ['allottee_age', 'text'], ['allottee_relative_name', 'text'],
+            ['allottee_relation', 'text'],
+            // Agreement for Sale — unit/property details
+            ['flat_no', 'text'], ['tower_name', 'text'],
+            ['floor_no', 'text'], ['unit_type', 'text'],
+            ['carpet_area', 'currency'], ['balcony_area', 'currency'],
+            ['parking_no', 'text'],
+            // Agreement for Sale — financial/pricing
+            ['total_price', 'currency'], ['booking_amount', 'currency'],
+            // Agreement for Sale — project info
+            ['project_name', 'text'], ['promoter_name', 'text'],
+            ['promoter_cin', 'text'], ['promoter_pan', 'text'],
+            ['promoter_address', 'text'],
+            ['harera_reg_no', 'text'], ['license_no', 'text'],
+            ['village_name', 'text'], ['sector_name', 'text'],
+            ['land_owner_name', 'text'], ['land_owner_llpin', 'text'],
+            ['land_owner_pan', 'text'],
+            // Agreement for Sale — dates
+            ['agreement_date', 'date'], ['agreement_day', 'text'],
+            ['agreement_month', 'text'], ['agreement_year', 'text'],
+            // Conveyance Deed — vendee/buyer info
+            ['vendee_name', 'text'], ['vendee_address', 'text'],
+            ['vendee_aadhaar', 'text'], ['vendee_pan', 'text'],
+            ['vendee_relative_name', 'text'], ['vendee_relation', 'text'],
+            // Conveyance Deed — property details
+            ['property_no', 'text'], ['consideration', 'currency'],
+            // Conveyance Deed — stamp and registration
+            ['stamp_duty', 'currency'], ['e_stamp_no', 'text'],
+            // Conveyance Deed — dates
+            ['conveyance_deed_date', 'date'], ['deed_day', 'text'],
+            ['deed_month', 'text'], ['deed_year', 'text'],
         ]);
         if (mergeData) {
             for (const [key, value] of Object.entries(mergeData)) {
@@ -1118,33 +1452,101 @@ router.post('/generate', async (req, res, next) => {
                         `<div id="para-with-interest" style="display:none">${withInterestAmtWords}</div>` +
                         htmlContent.substring(amtWordsEnd);
             }
-            // Inject advance payment adjustment section (computed in first demand_letter block, stored in mergeData)
-            const advanceSectionHtml = md.__advanceSectionHtml || '';
-            if (advanceSectionHtml) {
-                const payParaMarker = '<!-- Payment Para -->';
-                const payParaPos = htmlContent.indexOf(payParaMarker);
-                if (payParaPos !== -1) {
-                    htmlContent =
-                        htmlContent.substring(0, payParaPos) +
-                            advanceSectionHtml + '\n\n  ' +
-                            htmlContent.substring(payParaPos);
-                }
-            }
+            // Advance Payment Adjustment injection removed
         }
-        // 4. Save and return
+        // 4. Save and return (insert WITHOUT toolbar first)
         const result = await index_js_1.db.query(`INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
        RETURNING id`, [consumerId, allocationId || null, template.id, template.document_type, htmlContent, deliveryMethod || 'none', req.userId]);
         const newDocId = result.rows[0].id;
-        // Save original version snapshot so every document has a v1 baseline
-        await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
-       VALUES ($1, 1, $2, $3, 'Original generation', '[]'::jsonb, TRUE)`, [newDocId, htmlContent, req.userId]);
+        // 4.5 Build and inject edit toolbar WITH actual docId (for ATS and Conveyance Deed only)
+        if (['buyer_builder_agreement', 'conveyance_deed'].includes(template.document_type)) {
+            const docTitle = template.document_type === 'buyer_builder_agreement' ? 'AGREEMENT FOR SALE' : 'CONVEYANCE DEED';
+            const editToolbar = `
+<div id="doc-edit-toolbar" style="position:sticky;top:0;background:#1a3c5e;color:white;padding:10px 20px;display:flex;align-items:center;gap:15px;z-index:1000;font-family:Arial,sans-serif;font-size:13px;border-bottom:2px solid #0d9e8c;">
+  <span style="font-weight:bold">${docTitle}</span>
+  <span style="margin-left:auto;font-size:11px;">Document ID: ${newDocId}</span>
+  <button onclick="enableEditMode()" id="edit-btn" style="background:#e67e22;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">✏️ Edit</button>
+  <button onclick="saveEdits()" id="save-btn" style="display:none;background:#27ae60;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">💾 Save</button>
+  <button onclick="cancelEdit()" id="cancel-btn" style="display:none;background:#e74c3c;color:white;border:none;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold;">✕ Cancel</button>
+  <span id="edit-status" style="font-size:11px;color:#aed6f1;"></span>
+</div>
+
+<script>
+const DOC_ID = '${newDocId}';
+const DOC_TYPE = '${template.document_type}';
+const TOKEN = new URLSearchParams(window.location.search).get('token') || localStorage.getItem('rof-jwt') || '';
+const EDITABLE_FIELDS = ['allottee_name','allottee_address','allottee_aadhaar','allottee_pan','allottee_age','allottee_relation','allottee_relative_name','vendee_name','vendee_address','vendee_aadhaar','vendee_pan','vendee_relation','vendee_relative_name','flat_no','property_no','carpet_area','balcony_area','parking_no','agreement_date','agreement_day','agreement_month','agreement_year','deed_day','deed_month','deed_year','consideration','total_price','booking_amount','harera_reg_no','license_no'];
+let editedFields={},originalValues={};
+
+function enableEditMode(){
+  document.getElementById('edit-btn').style.display='none';
+  document.getElementById('save-btn').style.display='inline-block';
+  document.getElementById('cancel-btn').style.display='inline-block';
+  document.getElementById('edit-status').textContent='✏️ Edit mode — click highlighted fields to edit';
+  EDITABLE_FIELDS.forEach(fk=>{
+    const els=document.querySelectorAll('[data-field-key="'+fk+'"]');
+    els.forEach(el=>{
+      originalValues[fk]=el.textContent;
+      el.contentEditable='true';
+      el.style.background='#fff9c4';
+      el.style.border='1px dashed #f39c12';
+      el.style.borderRadius='2px';
+      el.style.minWidth='30px';
+      el.style.display='inline-block';
+      el.addEventListener('input',()=>{editedFields[fk]=el.textContent;el.style.background='#d5f5e3';});
+    });
+  });
+}
+
+function cancelEdit(){
+  Object.entries(originalValues).forEach(([key,val])=>{document.querySelectorAll('[data-field-key="'+key+'"]').forEach(el=>{el.textContent=val;el.contentEditable='false';el.style.background='';el.style.border='';});});
+  editedFields={};originalValues={};
+  document.getElementById('edit-btn').style.display='inline-block';
+  document.getElementById('save-btn').style.display='none';
+  document.getElementById('cancel-btn').style.display='none';
+  document.getElementById('edit-status').textContent='';
+}
+
+async function saveEdits(){
+  if(Object.keys(editedFields).length===0){alert('No changes to save.');return;}
+  const reason=prompt('Reason for edit (required):');
+  if(!reason||!reason.trim()){alert('Edit reason is required.');return;}
+  const saveBtn=document.getElementById('save-btn');
+  saveBtn.textContent='Saving...';saveBtn.disabled=true;
+  try{
+    const edits=Object.entries(editedFields).map(([fk,nv])=>({fieldKey:fk,newValue:nv,originalValue:originalValues[fk]||'',fieldLabel:fk.replace(/_/g,' ').replace(/\\b\\w/g,l=>l.toUpperCase())}));
+    const resp=await fetch('/api/documents/'+DOC_ID+'/edit',{method:'PATCH',headers:{'Content-Type':'application/json','Authorization':'Bearer '+TOKEN},body:JSON.stringify({edits,editReason:reason})});
+    if(!resp.ok)throw new Error('Save failed: '+resp.statusText);
+    document.getElementById('edit-status').textContent='✅ Saved successfully';
+    document.getElementById('edit-status').style.color='#a9dfbf';
+    Object.keys(originalValues).forEach(key=>{document.querySelectorAll('[data-field-key="'+key+'"]').forEach(el=>{el.contentEditable='false';el.style.background='';el.style.border='';});});
+    editedFields={};originalValues={};
+    document.getElementById('edit-btn').style.display='inline-block';
+    document.getElementById('save-btn').style.display='none';
+    document.getElementById('cancel-btn').style.display='none';
+    saveBtn.textContent='💾 Save';saveBtn.disabled=false;
+  }catch(err){alert('Error saving: '+err.message);saveBtn.textContent='💾 Save';saveBtn.disabled=false;}
+}
+</script>`;
+            // Update document with toolbar prepended
+            await index_js_1.db.query(`UPDATE documents SET html_content = $1 WHERE id = $2`, [editToolbar + htmlContent, newDocId]);
+            // Also update the version snapshot with toolbar
+            await index_js_1.db.query(`UPDATE document_versions SET html_content = $1 WHERE document_id = $2 AND is_original = TRUE`, [editToolbar + htmlContent, newDocId]);
+        }
+        else {
+            // Save original version snapshot for non-edit-toolbar documents
+            await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
+         VALUES ($1, 1, $2, $3, 'Original generation', '[]'::jsonb, TRUE)`, [newDocId, htmlContent, req.userId]);
+        }
         res.status(201).json({ success: true, data: { documentId: newDocId } });
     }
     catch (error) {
         next(error);
     }
 });
+// NOTE: To generate a demand letter with ALL installments (no status filter),
+// call POST /api/documents/generate with { consumerId, documentType:'demand_letter', includeAllDemands:true, dueDate:today }
 // POST /api/documents/:id/send - Send generated document via email/WhatsApp
 router.post('/:id/send', async (req, res, next) => {
     try {

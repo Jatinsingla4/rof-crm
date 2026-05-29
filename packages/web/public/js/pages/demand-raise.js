@@ -387,6 +387,109 @@ Pages.demandRaise = async function(params = {}) {
   document.addEventListener('change', DemandRaisePage._updateCount);
 };
 
+// ─── DEMAND RAISE RESULT MODAL ───────────────────────────────────────────────
+function showDemandRaiseResultModal(raised, skipped, skippedIds) {
+  // Remove any existing modal
+  const existing = document.getElementById('demand-raise-result-modal');
+  if (existing) existing.remove();
+
+  // Build skipped reasons list
+  const skippedList = skippedIds.map(s => `
+    <li style="padding:8px 0;border-bottom:1px solid #fecaca;font-size:13px;color:#7f1d1d;">
+      <strong>${s.reason || s.id}</strong>
+    </li>
+  `).join('');
+
+  // Create modal
+  const modal = document.createElement('div');
+  modal.id = 'demand-raise-result-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.6);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Arial, sans-serif;
+  `;
+
+  if (raised === 0 && skipped > 0) {
+    // ALL SKIPPED (0 raised)
+    modal.innerHTML = `
+      <div style="background:white;border-radius:8px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="background:#dc2626;padding:20px 24px;display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⚠️</div>
+          <div>
+            <div style="color:white;font-weight:bold;font-size:16px;">Demand Could Not Be Raised</div>
+            <div style="color:#fecaca;font-size:12px;margin-top:2px;">${skipped} demand(s) were skipped</div>
+          </div>
+        </div>
+        <div style="padding:24px;">
+          <p style="font-size:14px;color:#374151;margin-bottom:16px;line-height:1.6;">
+            The selected demand(s) could <strong>not</strong> be raised because one or more <strong>prior installments</strong> have not been raised yet.
+          </p>
+          <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">
+            You must raise installments <strong>in order</strong>. Please raise the earlier installment(s) first, then come back to raise this one.
+          </p>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;margin-bottom:16px;">
+            <div style="font-size:12px;font-weight:bold;color:#dc2626;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">❌ Skipped Reasons:</div>
+            <ul style="margin:0;padding-left:16px;list-style:disc;">${skippedList}</ul>
+          </div>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:bold;color:#15803d;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">✅ What to do next:</div>
+            <ol style="margin:0;padding-left:18px;font-size:13px;color:#166534;line-height:1.8;">
+              <li>Go back to the demand raise screen</li>
+              <li>Select the <strong>previous installment</strong> that is still pending</li>
+              <li>Set its due date and raise it first</li>
+              <li>Then come back and raise this installment</li>
+            </ol>
+          </div>
+          <button onclick="document.getElementById('demand-raise-result-modal').remove()" style="width:100%;padding:12px;background:#dc2626;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold;letter-spacing:0.5px;">I UNDERSTAND — GO BACK</button>
+        </div>
+      </div>
+    `;
+  } else if (raised > 0 && skipped > 0) {
+    // SOME RAISED, SOME SKIPPED
+    modal.innerHTML = `
+      <div style="background:white;border-radius:8px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="background:#d97706;padding:20px 24px;display:flex;align-items:center;gap:12px;">
+          <div style="width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⚠️</div>
+          <div>
+            <div style="color:white;font-weight:bold;font-size:16px;">Partial Success</div>
+            <div style="color:#fef3c7;font-size:12px;margin-top:2px;">${raised} raised, ${skipped} skipped</div>
+          </div>
+        </div>
+        <div style="padding:24px;">
+          <p style="font-size:14px;color:#374151;margin-bottom:16px;">
+            <strong>${raised}</strong> demand(s) were raised successfully, but <strong>${skipped}</strong> could not be raised because prior installments are still pending.
+          </p>
+          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
+            <div style="font-size:12px;font-weight:bold;color:#dc2626;margin-bottom:8px;">❌ Could not raise:</div>
+            <ul style="margin:0;padding-left:16px;list-style:disc;">${skippedList}</ul>
+          </div>
+          <button onclick="document.getElementById('demand-raise-result-modal').remove()" style="width:100%;padding:12px;background:#d97706;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:bold;">OK, I UNDERSTAND</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // Show modal only if there were skipped demands
+  if (skipped > 0) {
+    document.body.appendChild(modal);
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        modal.remove();
+      }
+    });
+  }
+}
+
 const DemandRaisePage = {
   _data: [],
   _templates: [],
@@ -733,7 +836,26 @@ const DemandRaisePage = {
         demandIds: selected,
         installmentDate: instDate,
       });
-      Utils.success(`Successfully raised ${res.activatedCount || res.data?.activatedCount || selected.length} demands`);
+
+      const raised = res.raised ?? res.activatedCount ?? 0;
+      const skipped = res.skipped ?? 0;
+      const skippedIds = res.skippedIds || [];
+
+      // Show big modal if anything was skipped
+      if (skipped > 0) {
+        showDemandRaiseResultModal(raised, skipped, skippedIds);
+      }
+
+      // Show success toast only if at least 1 was raised
+      if (raised > 0) {
+        Utils.success(`Successfully raised ${raised} demand${raised !== 1 ? 's' : ''}`);
+      }
+
+      // Show error toast if ALL were skipped (modal already shown above)
+      if (raised === 0 && skipped === 0) {
+        Utils.error('No demands were raised. Please try again.');
+      }
+
       this.closeModal();
       this.fetch();
     } catch (err) {

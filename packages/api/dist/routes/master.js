@@ -128,18 +128,79 @@ router.post('/sources-of-enquiry', addRoute('sources_of_enquiry', ['name', 'desc
 router.put('/sources-of-enquiry/:id', updateRoute('sources_of_enquiry', ['name', 'description']));
 router.delete('/sources-of-enquiry/:id', deleteRoute('sources_of_enquiry'));
 // ─── DOCUMENT TYPES ───────────────────────────────────────────────────────────
-router.get('/document-types', listRoute('document_types', 'name'));
+router.get('/document-types', async (req, res, next) => {
+    try {
+        const { project_id } = req.query;
+        const params = [];
+        let where = 'WHERE 1=1';
+        if (project_id) {
+            params.push(project_id);
+            where += ` AND (dt.project_id = $${params.length} OR dt.project_id IS NULL)`;
+        }
+        const result = await index_js_1.db.query(`
+      SELECT dt.id, dt.name, dt.category, dt.description,
+             dt.project_id, dt.document_from, dt.is_mandatory,
+             dt.required_at, dt.created_at, dt.updated_at,
+             p.name AS project_name
+      FROM document_types dt
+      LEFT JOIN projects p ON p.id = dt.project_id
+      ${where}
+      ORDER BY p.name NULLS LAST, dt.required_at, dt.name
+    `, params);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 router.post('/document-types', async (req, res, next) => {
     try {
-        const { name, category, description } = req.body;
-        const result = await index_js_1.db.query(`INSERT INTO document_types (name, category, description) VALUES ($1, $2, $3) RETURNING *`, [name, category || null, description || null]);
+        const { name, category, description, project_id, document_from, is_mandatory, required_at } = req.body;
+        if (!name)
+            return res.status(400).json({ error: 'Document name required' });
+        if (!required_at)
+            return res.status(400).json({ error: 'Document Type required' });
+        const result = await index_js_1.db.query(`INSERT INTO document_types
+         (name, category, description, project_id, document_from, is_mandatory, required_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW()) RETURNING *`, [name, category || null, description || null, project_id || null,
+            document_from || 'Individual', is_mandatory || false, required_at || 'On Booking']);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (err) {
         next(err);
     }
 });
-router.put('/document-types/:id', updateRoute('document_types', ['name', 'category', 'description']));
+router.put('/document-types/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { name, category, description, project_id, document_from, is_mandatory, required_at } = req.body;
+        const oldRes = await index_js_1.db.query(`SELECT name FROM document_types WHERE id = $1`, [id]);
+        const oldName = oldRes.rows[0]?.name;
+        const result = await index_js_1.db.query(`
+      UPDATE document_types SET
+        name          = COALESCE($1, name),
+        category      = $2,
+        description   = $3,
+        project_id    = $4,
+        document_from = $5,
+        is_mandatory  = $6,
+        required_at   = $7,
+        updated_at    = NOW()
+      WHERE id = $8 RETURNING *`, [name, category || null, description || null, project_id || null,
+            document_from || 'Individual', is_mandatory ?? false, required_at || 'On Booking', id]);
+        if (!result.rows[0])
+            return res.status(404).json({ error: 'Document type not found' });
+        const newName = result.rows[0].name;
+        if (oldName && newName && oldName !== newName) {
+            await index_js_1.db.query(`UPDATE booking_documents  SET document_type = $1 WHERE document_type = $2`, [newName, oldName]);
+            await index_js_1.db.query(`UPDATE document_dispatch  SET document_type = $1 WHERE document_type = $2`, [newName, oldName]);
+        }
+        res.json({ success: true, data: result.rows[0] });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 router.delete('/document-types/:id', deleteRoute('document_types'));
 // ─── DOCUMENT DISPATCH ────────────────────────────────────────────────────────
 router.get('/document-dispatch', async (req, res, next) => {

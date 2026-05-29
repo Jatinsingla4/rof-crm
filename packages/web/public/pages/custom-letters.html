@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customized Letters — ROF CRM</title>
+<script src="https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js"></script>
+<style>
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:Arial,sans-serif; background:#f5f5f5; font-size:13px; }
+
+.navbar { background:#1a237e; color:white; padding:8px 16px; display:flex; align-items:center; gap:16px; }
+.navbar .brand { font-size:15px; font-weight:bold; color:#ff6f00; }
+.nav-back { background:#283593; color:white; border:none; padding:5px 14px; cursor:pointer; font-size:12px; border-radius:2px; }
+.nav-back:hover { background:#ff6f00; }
+.page-title { background:#1a237e; color:white; padding:7px 16px; font-size:13px; font-weight:bold; letter-spacing:1px; border-bottom:3px solid #ff6f00; }
+
+.tab-bar { display:flex; padding:0 16px; border-bottom:2px solid #1a237e; background:white; }
+.tab-btn { padding:8px 22px; background:#c5cae9; border:none; cursor:pointer; font-size:12px; font-weight:bold; color:#1a237e; border-radius:4px 4px 0 0; margin-right:4px; margin-top:4px; border:1px solid #9fa8da; border-bottom:none; }
+.tab-btn.active { background:#1a237e; color:white; }
+.tab-content { display:none; padding:14px 16px; }
+.tab-content.active { display:block; }
+
+.form-card { background:white; border:1px solid #e0e0e0; border-radius:3px; }
+.form-title { display:flex; justify-content:space-between; align-items:center; padding:8px 14px; background:#0d9488; border-left:4px solid #065f46; }
+.form-title .title { font-weight:bold; color:white; font-size:14px; letter-spacing:0.5px; }
+.form-title .mandatory { color:#ffe0e0; font-size:12px; }
+
+.main-layout { display:flex; }
+.form-panel { flex:1; padding:14px 16px; border-right:1px solid #e0e0e0; }
+.var-panel { width:300px; padding:12px; background:#f9f9f9; }
+
+.form-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:12px; }
+.form-row { display:flex; align-items:center; margin-bottom:12px; gap:10px; }
+.form-row label { min-width:130px; font-size:12px; color:#333; white-space:nowrap; }
+.form-row label.req::before { content:'* '; color:red; }
+.form-col { display:flex; flex-direction:column; gap:4px; }
+.form-col label { font-size:12px; color:#333; }
+.form-col label.req::before { content:'* '; color:red; }
+
+.form-control { padding:5px 8px; border:1px solid #999; border-radius:2px; font-size:12px; width:100%; }
+select.form-control { background:white; }
+
+.toggle-group { display:flex; border:1px solid #0d9488; border-radius:4px; overflow:hidden; }
+.toggle-btn { padding:5px 14px; border:none; cursor:pointer; font-size:12px; background:white; color:#0d9488; }
+.toggle-btn.active { background:#0d9488; color:white; font-weight:bold; }
+.toggle-btn:not(:first-child) { border-left:1px solid #0d9488; }
+
+.btn-save { background:#ff6f00; color:white; border:none; padding:7px 24px; border-radius:2px; cursor:pointer; font-size:13px; font-weight:bold; }
+.btn-view { background:#1976D2; color:white; border:none; padding:7px 24px; border-radius:2px; cursor:pointer; font-size:13px; font-weight:bold; }
+.btn-clear { background:#6b7280; color:white; border:none; padding:7px 24px; border-radius:2px; cursor:pointer; font-size:13px; }
+
+.flash { padding:8px 16px; margin:6px 16px; border-radius:3px; font-size:12px; font-weight:bold; display:none; }
+.flash-success { background:#c8e6c9; color:#1b5e20; border-left:4px solid #4caf50; }
+.flash-error { background:#ffcdd2; color:#b71c1c; border-left:4px solid #f44336; }
+
+/* Variable Panel */
+.var-header { background:#0d9488; color:white; padding:7px 10px; font-weight:bold; font-size:12px; margin-bottom:8px; border-radius:2px; }
+.var-note { font-size:11px; color:#555; margin-bottom:10px; line-height:1.5; padding:6px; background:#e8f5e9; border-radius:2px; }
+.var-cat-row { background:#e8f5e9; padding:5px 8px; cursor:pointer; font-size:12px; font-weight:bold; color:#1b5e20; display:flex; align-items:center; gap:5px; border-bottom:1px solid #c8e6c9; }
+.var-cat-row:hover { background:#c8e6c9; }
+.var-rows { display:none; }
+.var-item { display:flex; justify-content:space-between; align-items:center; padding:4px 8px; border-bottom:1px solid #f0f0f0; font-size:11px; }
+.var-item:nth-child(even) { background:#fafafa; }
+.var-code { font-family:monospace; background:#fff3e0; padding:2px 5px; border-radius:2px; font-size:10px; cursor:pointer; color:#e65100; border:none; white-space:nowrap; }
+.var-code:hover { background:#ff6f00; color:white; }
+
+/* View Tab */
+.letters-table { width:100%; border-collapse:collapse; font-size:12px; }
+.letters-table th { background:#1a237e; color:white; padding:8px 10px; text-align:left; font-size:11px; }
+.letters-table td { padding:7px 10px; border-bottom:1px solid #e0e0e0; }
+.letters-table tr:hover td { background:#e8eaf6; }
+.filter-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:14px; flex-wrap:wrap; }
+
+/* CKEditor override */
+.ck-editor__editable { min-height:380px !important; }
+</style>
+</head>
+<body>
+
+<div class="navbar">
+  <span class="brand">ROF CRM</span>
+  <button class="nav-back" onclick="window.location.href='/'">← Back to CRM</button>
+</div>
+<div class="page-title">CUSTOMIZED LETTERS</div>
+
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab-create" onclick="CL.switchTab('create')">Create Letter</button>
+  <button class="tab-btn" id="tab-view" onclick="CL.switchTab('view')">View Letters</button>
+</div>
+
+<div class="flash flash-success" id="cl-success"></div>
+<div class="flash flash-error" id="cl-error"></div>
+
+<!-- ══ CREATE TAB ══════════════════════════════════════════════════════════ -->
+<div class="tab-content active" id="content-create">
+<div class="form-card">
+  <div class="form-title">
+    <span class="title">CREATE LETTER</span>
+    <span class="mandatory">*Denotes mandatory fields</span>
+  </div>
+
+  <div class="main-layout">
+
+    <!-- Form Panel -->
+    <div class="form-panel">
+
+      <!-- Row: Project + Subject (2-col) -->
+      <div class="form-grid-2" style="margin-bottom:14px;">
+        <div class="form-col">
+          <label class="req">Project:</label>
+          <select id="cl-project" class="form-control">
+            <option value="">&lt;--Select--&gt;</option>
+          </select>
+        </div>
+        <div class="form-col">
+          <label class="req">Subject:</label>
+          <input type="text" id="cl-subject" class="form-control" placeholder="Subject">
+        </div>
+      </div>
+
+      <!-- Letter Name -->
+      <div class="form-row">
+        <label class="req">Letter Name:</label>
+        <input type="text" id="cl-name" class="form-control" placeholder="e.g. Welcome Letter" style="max-width:340px;">
+      </div>
+
+      <!-- Header + Letter For + Letter Type (3-col) -->
+      <div class="form-grid-2" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px;">
+        <div class="form-col">
+          <label>Header:</label>
+          <div class="toggle-group">
+            <button id="cl-hdr-comp" class="toggle-btn" onclick="CL.toggle('header_type','Computer Generated',['cl-hdr-comp','cl-hdr-own'])">Computer Generated</button>
+            <button id="cl-hdr-own" class="toggle-btn active" onclick="CL.toggle('header_type','Own Header',['cl-hdr-comp','cl-hdr-own'])">Own Header</button>
+          </div>
+        </div>
+        <div class="form-col">
+          <label>Letter For:</label>
+          <div class="toggle-group">
+            <button id="cl-for-all"  class="toggle-btn active" onclick="CL.toggle('letter_for','All',  ['cl-for-all','cl-for-loan','cl-for-self'])">All</button>
+            <button id="cl-for-loan" class="toggle-btn"        onclick="CL.toggle('letter_for','Loan', ['cl-for-all','cl-for-loan','cl-for-self'])">Loan</button>
+            <button id="cl-for-self" class="toggle-btn"        onclick="CL.toggle('letter_for','Self', ['cl-for-all','cl-for-loan','cl-for-self'])">Self</button>
+          </div>
+        </div>
+        <div class="form-col">
+          <label>Letter Type:</label>
+          <div class="toggle-group">
+            <button id="cl-type-other" class="toggle-btn active" onclick="CL.toggle('letter_type','Other',['cl-type-other','cl-type-ptm','cl-type-tpa'])">Other</button>
+            <button id="cl-type-ptm"   class="toggle-btn"        onclick="CL.toggle('letter_type','PTM',  ['cl-type-other','cl-type-ptm','cl-type-tpa'])">PTM</button>
+            <button id="cl-type-tpa"   class="toggle-btn"        onclick="CL.toggle('letter_type','TPA',  ['cl-type-other','cl-type-ptm','cl-type-tpa'])">TPA</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Header Width + Is Ref No + Is Duplicate (3-col) -->
+      <div class="form-grid-2" style="grid-template-columns:1fr 1fr 1fr;margin-bottom:12px;">
+        <div class="form-col">
+          <label>Header Width:</label>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="number" id="cl-hdr-width" value="70" style="width:65px;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;">
+            <span style="font-size:12px;color:#555;">- Px</span>
+          </div>
+        </div>
+        <div class="form-col">
+          <label>Is Ref. No.:</label>
+          <div class="toggle-group">
+            <button id="cl-ref-no"  class="toggle-btn active" onclick="CL.toggle('is_ref_no',false,['cl-ref-no','cl-ref-yes'])">No</button>
+            <button id="cl-ref-yes" class="toggle-btn"        onclick="CL.toggle('is_ref_no',true, ['cl-ref-no','cl-ref-yes'])">Yes</button>
+          </div>
+        </div>
+        <div class="form-col">
+          <label>Is Duplicate:</label>
+          <div class="toggle-group">
+            <button id="cl-dup-no"  class="toggle-btn active" onclick="CL.toggle('is_duplicate',false,['cl-dup-no','cl-dup-yes'])">No</button>
+            <button id="cl-dup-yes" class="toggle-btn"        onclick="CL.toggle('is_duplicate',true, ['cl-dup-no','cl-dup-yes'])">Yes</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Prefix Ref -->
+      <div class="form-row">
+        <label>Prefix Ref.:</label>
+        <input type="text" id="cl-prefix" class="form-control" placeholder="Prefix Ref." style="max-width:250px;">
+      </div>
+
+      <!-- Letter Template -->
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:bold;display:block;margin-bottom:6px;">Letter Template:</label>
+        <textarea id="cl-editor"></textarea>
+      </div>
+
+      <!-- Hidden state -->
+      <input type="hidden" id="cl-editing-id">
+      <input type="hidden" id="cl-header-type" value="Own Header">
+      <input type="hidden" id="cl-letter-for" value="All">
+      <input type="hidden" id="cl-letter-type" value="Other">
+      <input type="hidden" id="cl-is-ref-no" value="false">
+      <input type="hidden" id="cl-is-duplicate" value="false">
+
+      <!-- Buttons -->
+      <div style="padding:10px 0;display:flex;gap:8px;border-top:1px solid #e0e0e0;margin-top:8px;">
+        <button class="btn-save" onclick="CL.save()">SAVE</button>
+        <button class="btn-view" onclick="CL.switchTab('view')">VIEW</button>
+        <button class="btn-clear" onclick="CL.clearForm()">CLEAR</button>
+      </div>
+    </div>
+
+    <!-- Variable Panel -->
+    <div class="var-panel">
+      <div class="var-header">Variable Reference</div>
+      <div class="var-note">NOTE: to design a letter template you need to input the given variable as per the description. Click any variable to insert at cursor.</div>
+      <div id="var-list"></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ══ VIEW TAB ════════════════════════════════════════════════════════════ -->
+<div class="tab-content" id="content-view">
+<div class="form-card" style="padding:14px 16px;">
+  <div class="filter-row">
+    <div>
+      <label style="display:block;font-size:12px;margin-bottom:4px;">Filter by Project:</label>
+      <select id="vl-project-filter" style="padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:200px;">
+        <option value="">All Projects</option>
+      </select>
+    </div>
+    <button onclick="CL.loadLetters()" style="background:#1976D2;color:white;border:none;padding:6px 20px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;">FETCH</button>
+  </div>
+
+  <table class="letters-table">
+    <thead>
+      <tr>
+        <th style="width:45px;">S.No</th>
+        <th>Letter Name</th>
+        <th>Subject</th>
+        <th>Project</th>
+        <th>Letter For</th>
+        <th>Letter Type</th>
+        <th style="width:55px;text-align:center;">Ver.</th>
+        <th style="width:80px;">Created</th>
+        <th style="width:130px;text-align:center;">Action</th>
+      </tr>
+    </thead>
+    <tbody id="letters-tbody">
+      <tr><td colspan="9" style="text-align:center;padding:20px;color:#9e9e9e;">Click FETCH to load letters</td></tr>
+    </tbody>
+  </table>
+</div>
+</div>
+
+<script>
+const API_BASE = '/api';
+function getToken() { return localStorage.getItem('rof-jwt') || localStorage.getItem('token') || ''; }
+function authHdr() { return { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' }; }
+
+const VARIABLES = [
+  { cat: 'First Applicant Details', vars: [
+    ['Consumer Name','consumerName'],['Salutation','salutation'],['First Name','firstName'],
+    ['Last Name','lastName'],['Father Name','fatherName'],['Date of Birth','dob'],
+    ['Gender','gender'],['Marital Status','maritalStatus'],['Nationality','nationality'],
+    ['Mobile','mobile'],['Alt Mobile','altMobile'],['Email','email'],
+    ['Present Address','presentAddress'],['Present City','presentCity'],['Present State','presentState'],
+    ['Present Pin','presentPin'],['Permanent Address','permAddress'],
+    ['PAN No','panNo'],['Registration No','registrationNo'],['Form No','formNo'],
+    ['Nominee Name','nomineeName'],['Nominee Relation','nomineeRelation'],['Income Category','incomeCategory']
+  ]},
+  { cat: 'Company & Project Details', vars: [
+    ['Company Name','companyName'],['Company Address','companyAddress'],['Company Phone','companyPhone'],
+    ['Company GSTIN','companyGstin'],['Company CIN','companyCin'],['Company Email','companyEmail'],
+    ['Company Website','companyWebsite'],['Reg. Office Address','companyRegAddress'],
+    ['Project Name','projectName'],['Project Location','projectLocation'],['RERA No','reraNo'],['TCP Licence','tcpLicence']
+  ]},
+  { cat: 'Unit Details', vars: [
+    ['Unit Number','unitNumber'],['Unit Type','unitType'],['Carpet Area','carpetArea'],
+    ['Balcony Area','balconyArea'],['Floor Number','floorNumber'],['Tower Name','towerName'],['Facing','facing']
+  ]},
+  { cat: 'Installment & Plan Details', vars: [
+    ['Payment Plan','paymentPlanName'],['Rate Per Sqft','ratePerSqft'],['Booking Amount','bookingAmount'],
+    ['Total Paid','totalPaid'],['Booking Date','bookingDate'],['Loan Amount','loanAmount'],['Finance Bank','financeBank']
+  ]},
+  { cat: 'Bank Details', vars: [
+    ['Bank Account No','bankAccountNo'],['Bank IFSC','bankIfsc'],['Bank Name','bankName'],
+    ['Bank Branch','bankBranch'],['Bank Company Name','bankCompanyName']
+  ]},
+  { cat: 'Date Details', vars: [
+    ['Current Date','currentDate'],['Day','day'],['Month','month'],['Year','year']
+  ]}
+];
+
+let ckEditor = null;
+
+const CL = {
+  _state: { header_type:'Own Header', letter_for:'All', letter_type:'Other', is_ref_no:false, is_duplicate:false },
+
+  async init() {
+    try {
+      ckEditor = await ClassicEditor.create(document.getElementById('cl-editor'), {
+        toolbar: ['heading','|','bold','italic','underline','|','bulletedList','numberedList','|',
+                  'alignment','|','link','insertTable','blockQuote','|','undo','redo','|','sourceEditing']
+      });
+    } catch(e) { console.error('CKEditor failed:', e); }
+
+    await this.loadProjects();
+    this.buildVarPanel();
+  },
+
+  async loadProjects() {
+    try {
+      const r = await fetch(API_BASE + '/projects', { headers: authHdr() });
+      const j = await r.json();
+      const projects = j.data || j || [];
+      ['cl-project','vl-project-filter'].forEach(selId => {
+        const sel = document.getElementById(selId);
+        if (!sel) return;
+        projects.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id; opt.textContent = p.name;
+          sel.appendChild(opt);
+        });
+      });
+    } catch(e) { console.error('Projects failed:', e); }
+  },
+
+  buildVarPanel() {
+    const list = document.getElementById('var-list');
+    if (!list) return;
+    VARIABLES.forEach(({ cat, vars }) => {
+      const catDiv = document.createElement('div');
+      catDiv.className = 'var-cat-row';
+      catDiv.innerHTML = '<span class="cat-icon">+</span> ' + cat;
+      catDiv.onclick = function() {
+        const icon = this.querySelector('.cat-icon');
+        const rows = this.nextElementSibling;
+        if (rows.style.display === 'block') { rows.style.display = 'none'; icon.textContent = '+'; }
+        else { rows.style.display = 'block'; icon.textContent = '−'; }
+      };
+      list.appendChild(catDiv);
+
+      const rowsDiv = document.createElement('div');
+      rowsDiv.className = 'var-rows';
+      vars.forEach(([label, key]) => {
+        const item = document.createElement('div');
+        item.className = 'var-item';
+        item.innerHTML = `<span style="color:#333;">${label}</span><button class="var-code" onclick="CL.insertVar('${key}')">{{${key}}}</button>`;
+        rowsDiv.appendChild(item);
+      });
+      list.appendChild(rowsDiv);
+    });
+  },
+
+  insertVar(key) {
+    if (!ckEditor) return;
+    const viewFrag = ckEditor.data.processor.toView('{{' + key + '}}');
+    const modelFrag = ckEditor.data.toModel(viewFrag);
+    ckEditor.model.insertContent(modelFrag);
+    ckEditor.editing.view.focus();
+  },
+
+  toggle(field, value, btnIds) {
+    this._state[field] = value;
+    const hiddenMap = { header_type:'cl-header-type', letter_for:'cl-letter-for', letter_type:'cl-letter-type', is_ref_no:'cl-is-ref-no', is_duplicate:'cl-is-duplicate' };
+    const hid = document.getElementById(hiddenMap[field]);
+    if (hid) hid.value = String(value);
+    btnIds.forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const txt = btn.textContent.trim().toLowerCase();
+      const v = String(value).toLowerCase();
+      const match = txt === v || (value === true && txt === 'yes') || (value === false && txt === 'no');
+      btn.classList.toggle('active', match);
+    });
+  },
+
+  async save() {
+    const editingId = document.getElementById('cl-editing-id')?.value || '';
+    const project_id = document.getElementById('cl-project')?.value || '';
+    const name    = (document.getElementById('cl-name')?.value || '').trim();
+    const subject = (document.getElementById('cl-subject')?.value || '').trim();
+    const body_html = ckEditor ? ckEditor.getData() : '';
+    const header_width = document.getElementById('cl-hdr-width')?.value || '70';
+    const prefix_ref   = (document.getElementById('cl-prefix')?.value || '').trim();
+
+    if (!project_id) { this.flash('error','Please select a Project'); return; }
+    if (!name)       { this.flash('error','Letter Name is required'); return; }
+    if (!subject)    { this.flash('error','Subject is required'); return; }
+    if (!body_html || body_html === '<p>&nbsp;</p>') { this.flash('error','Letter Template cannot be empty'); return; }
+
+    try {
+      const method = editingId ? 'PUT' : 'POST';
+      const url = API_BASE + '/custom-letters' + (editingId ? '/' + editingId : '');
+      const r = await fetch(url, {
+        method, headers: authHdr(),
+        body: JSON.stringify({
+          project_id, name, subject, body_html, header_width, prefix_ref,
+          header_type:  document.getElementById('cl-header-type')?.value,
+          letter_for:   document.getElementById('cl-letter-for')?.value,
+          letter_type:  document.getElementById('cl-letter-type')?.value,
+          is_ref_no:    document.getElementById('cl-is-ref-no')?.value === 'true',
+          is_duplicate: document.getElementById('cl-is-duplicate')?.value === 'true',
+        })
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) { this.flash('error', j.error || 'Save failed'); return; }
+      this.flash('success', editingId ? 'Letter updated successfully!' : 'Letter created successfully!');
+      this.clearForm();
+    } catch { this.flash('error','Network error'); }
+  },
+
+  async loadLetters() {
+    const projectId = document.getElementById('vl-project-filter')?.value || '';
+    const tbody = document.getElementById('letters-tbody');
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#9e9e9e;">Loading…</td></tr>';
+    try {
+      const url = API_BASE + '/custom-letters' + (projectId ? '?project_id=' + projectId : '');
+      const r = await fetch(url, { headers: authHdr() });
+      const j = await r.json();
+      const letters = j.data || [];
+      if (!letters.length) { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#9e9e9e;">No letters found</td></tr>'; return; }
+      tbody.innerHTML = letters.map((l, i) => {
+        const meta = (typeof l.letter_meta === 'string') ? JSON.parse(l.letter_meta || '{}') : (l.letter_meta || {});
+        return '<tr>' +
+          '<td>' + (i+1) + '</td>' +
+          '<td style="font-weight:500;">' + l.name + '</td>' +
+          '<td style="font-size:11px;">' + (meta.subject||'—') + '</td>' +
+          '<td style="font-size:11px;">' + (l.project_name||'—') + '</td>' +
+          '<td>' + (meta.letter_for||'—') + '</td>' +
+          '<td>' + (meta.letter_type||'—') + '</td>' +
+          '<td style="text-align:center;">v' + (l.version_number||1) + '</td>' +
+          '<td style="font-size:11px;">' + new Date(l.created_at).toLocaleDateString('en-IN') + '</td>' +
+          '<td style="text-align:center;">' +
+            '<button onclick="CL.editLetter(\'' + l.id + '\')" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px;margin-right:4px;">Edit</button>' +
+            '<button onclick="CL.deleteLetter(\'' + l.id + '\',\'' + l.name.replace(/'/g,"\\'") + '\')" style="background:#c62828;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px;">Delete</button>' +
+          '</td>' +
+          '</tr>';
+      }).join('');
+    } catch { tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#c62828;">Failed to load</td></tr>'; }
+  },
+
+  async editLetter(id) {
+    try {
+      const r = await fetch(API_BASE + '/custom-letters/' + id, { headers: authHdr() });
+      const j = await r.json();
+      const l = j.data;
+      if (!l) return;
+      const meta = (typeof l.letter_meta === 'string') ? JSON.parse(l.letter_meta || '{}') : (l.letter_meta || {});
+
+      this.switchTab('create');
+      const s = (fid, val) => { const el = document.getElementById(fid); if (el) el.value = val || ''; };
+      s('cl-editing-id', l.id);
+      s('cl-project', l.project_id);
+      s('cl-name', l.name);
+      s('cl-subject', meta.subject);
+      s('cl-hdr-width', meta.header_width || '70');
+      s('cl-prefix', meta.prefix_ref);
+
+      if (ckEditor) ckEditor.setData(l.body_html || '');
+
+      this.toggle('header_type', meta.header_type || 'Own Header', ['cl-hdr-comp','cl-hdr-own']);
+      this.toggle('letter_for', meta.letter_for || 'All', ['cl-for-all','cl-for-loan','cl-for-self']);
+      this.toggle('letter_type', meta.letter_type || 'Other', ['cl-type-other','cl-type-ptm','cl-type-tpa']);
+      this.toggle('is_ref_no', meta.is_ref_no || false, ['cl-ref-no','cl-ref-yes']);
+      this.toggle('is_duplicate', meta.is_duplicate || false, ['cl-dup-no','cl-dup-yes']);
+      window.scrollTo({ top:0, behavior:'smooth' });
+    } catch { alert('Failed to load letter'); }
+  },
+
+  async deleteLetter(id, name) {
+    if (!confirm('Delete "' + name + '"?\nThis cannot be undone.')) return;
+    try {
+      const r = await fetch(API_BASE + '/custom-letters/' + id, { method:'DELETE', headers: authHdr() });
+      const j = await r.json();
+      if (j.success) { this.loadLetters(); this.flash('success','Letter deleted'); }
+      else this.flash('error', j.error || 'Delete failed');
+    } catch { this.flash('error','Network error'); }
+  },
+
+  clearForm() {
+    ['cl-editing-id','cl-project','cl-name','cl-subject','cl-prefix'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    document.getElementById('cl-hdr-width').value = '70';
+    if (ckEditor) ckEditor.setData('');
+    this.toggle('header_type','Own Header',['cl-hdr-comp','cl-hdr-own']);
+    this.toggle('letter_for','All',['cl-for-all','cl-for-loan','cl-for-self']);
+    this.toggle('letter_type','Other',['cl-type-other','cl-type-ptm','cl-type-tpa']);
+    this.toggle('is_ref_no',false,['cl-ref-no','cl-ref-yes']);
+    this.toggle('is_duplicate',false,['cl-dup-no','cl-dup-yes']);
+  },
+
+  switchTab(tab) {
+    ['create','view'].forEach(t => {
+      document.getElementById('tab-'+t)?.classList.remove('active');
+      document.getElementById('content-'+t)?.classList.remove('active');
+    });
+    document.getElementById('tab-'+tab)?.classList.add('active');
+    document.getElementById('content-'+tab)?.classList.add('active');
+    if (tab === 'view') this.loadLetters();
+  },
+
+  flash(type, msg) {
+    const el = document.getElementById('cl-' + type);
+    el.textContent = msg; el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+};
+
+// Letter generation helper (used by applicant file)
+function generateCustomLetter(templateId, consumerId) {
+  fetch(API_BASE + '/custom-letters/' + templateId + '/generate', {
+    method: 'POST', headers: authHdr(),
+    body: JSON.stringify({ consumer_id: consumerId })
+  })
+  .then(r => r.json())
+  .then(j => {
+    if (!j.success) { alert(j.error || 'Generation failed'); return; }
+    const win = window.open('', '_blank');
+    win.document.write('<!DOCTYPE html><html><head><title>' + j.data.template_name + ' — ' + j.data.consumer_name + '</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;}@media print{.no-print{display:none;}}</style></head><body>' +
+      '<div class="no-print" style="margin-bottom:20px;"><button onclick="window.print()" style="background:#1a237e;color:white;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;margin-right:8px;">🖨️ Print</button>' +
+      '<button onclick="window.close()" style="background:#6b7280;color:white;border:none;padding:8px 20px;border-radius:4px;cursor:pointer;">Close</button></div>' +
+      j.data.html + '</body></html>');
+    win.document.close();
+  })
+  .catch(() => alert('Network error'));
+}
+
+document.addEventListener('DOMContentLoaded', () => CL.init());
+</script>
+</body>
+</html>

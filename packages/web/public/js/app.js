@@ -95,6 +95,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/instagram-inbox',   (p) => Pages.instagramInbox(p));
   Router.register('/reports',           (p) => Pages.reports(p));
   Router.register('/reports/edits',     (p) => Pages.documentEdits(p));
+  Router.register('/search-customer',   (p) => Pages.searchCustomer(p));
+  Router.register('/demand-status',     (p) => Pages.demandStatus(p));
   Router.register('/analytics',         (p) => Pages.analytics(p));
   Router.register('/leads',             (p) => Pages.leads(p));
   Router.register('/set-master',        (p) => Pages.setMaster(p));
@@ -254,8 +256,13 @@ function initNavDropdowns() {
     link.addEventListener('click', closeAllNavDropdowns);
   });
 
-  // Escape key closes everything
+  // Escape key closes everything; Alt+C opens Search Customer
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeAllNavDropdowns();
+    if (e.altKey && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      closeAllNavDropdowns();
+      Router.navigate('/search-customer');
+    }
   });
 }

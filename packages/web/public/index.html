@@ -49,6 +49,7 @@
           <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'nationality'})">Nationality</a>
           <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'bank'})">Bank Master</a>
           <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'source'})">Source Of Enquiry</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'company'})">Company Master</a>
         </div>
       </div>
 
@@ -75,6 +76,12 @@
         <div class="sub-dd">
           <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'doctype'})">Document Type Creation</a>
           <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'dispatch'})">Document Dispatch Master</a>
+        </div>
+      </div>
+
+      <div class="dd-link has-sub">Customized Letters <span class="arr">▶</span>
+        <div class="sub-dd">
+          <a class="dd-link" onclick="window.location.href='/pages/custom-letters.html'">Create Letter</a>
         </div>
       </div>
 
@@ -221,8 +228,6 @@
           <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'customer'})">Customer Wise</a>
           <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'installment'})">Installment Wise</a>
           <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'unitstage'})">Unit / Stage Wise</a>
-          <div style="border-top:1px solid rgba(255,255,255,0.15);margin:4px 0"></div>
-          <a class="dd-link" onclick="Router.navigate('/demands',{tab:'status'})">Demand Status</a>
           <a class="dd-link" onclick="Router.navigate('/demand-raise',{view:'unraise'})">Demand Unraise</a>
         </div>
       </div>
@@ -231,6 +236,7 @@
         <div class="sub-dd" style="min-width:220px">
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'print-welcome'})">Print Welcome</a>
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'demand-printing'})">Demand Printing</a>
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/demand-status')">Demand Status</a>
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'ats'})">Agreement To Sale (ATS)</a>
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'tpa'})">TPA</a>
           <a class="dd-link" onclick="Router.navigate('/documents',{tab:'applicant-ledger'})">Applicant Ledger</a>
@@ -308,6 +314,7 @@
 
       <div class="dd-link has-sub">Applicant Detail <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:240px">
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/search-customer')">Search Customer</a>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'customer-wise'})">Customer Wise Report</a>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'payment-file'})">Applicant Payment File</a>
           <a class="dd-link" onclick="Router.navigate('/reports',{tab:'opening-details'})">Opening Details</a>
@@ -435,6 +442,7 @@
 <script src="/js/pages/receipts.js"></script>
 <script src="/js/pages/demands.js"></script>
 <script src="/js/pages/demand-raise.js"></script>
+<script src="/js/pages/demand-status.js"></script>
 <script src="/js/pages/documents.js"></script>
 <script src="/js/pages/customer-folders.js"></script>
 <script src="/js/pages/unit-documents.js"></script>
@@ -445,6 +453,7 @@
 <script src="/js/pages/facebook-inbox.js"></script>
 <script src="/js/pages/instagram-inbox.js"></script>
 <script src="/js/pages/reports.js"></script>
+<script src="/js/pages/search-customer.js"></script>
 <script src="/js/pages/analytics.js"></script>
 <script src="/js/pages/leads.js"></script>
 <script src="/js/pages/set-master.js"></script>

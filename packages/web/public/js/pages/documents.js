@@ -10,7 +10,7 @@ Pages.documents = async function(params = {}) {
     <div class="tabs-line" style="flex-wrap:wrap;gap:2px">
       <button class="tab-line active" data-group="docs" data-tab="generate" onclick="switchTab('docs','generate')">Generate</button>
       <button class="tab-line" data-group="docs" data-tab="print-welcome" onclick="switchTab('docs','print-welcome')">Print Welcome</button>
-      <button class="tab-line" data-group="docs" data-tab="demand-printing" onclick="switchTab('docs','demand-printing')">Demand Printing</button>
+      <button class="tab-line" data-group="docs" data-tab="demand-printing" onclick="switchTab('docs','demand-printing');DocsPage.initDemandPrinting()">Demand Printing</button>
       <button class="tab-line" data-group="docs" data-tab="ats" onclick="switchTab('docs','ats')">ATS</button>
       <button class="tab-line" data-group="docs" data-tab="tpa" onclick="switchTab('docs','tpa')">TPA</button>
       <button class="tab-line" data-group="docs" data-tab="applicant-ledger" onclick="switchTab('docs','applicant-ledger')">Applicant Ledger</button>
@@ -46,25 +46,9 @@ Pages.documents = async function(params = {}) {
       ${DocsPage._printPanel({ title: 'Print Welcome Letter', docType: 'welcome_letter', prefix: 'wel', showBulk: true })}
     </div>
 
-    <!-- DEMAND PRINTING -->
+    <!-- DEMAND PRINTING — Full Demand Status screen inline -->
     <div data-panel-group="docs" data-panel="demand-printing" style="display:none">
-      ${DocsPage._printPanel({
-        title: 'Demand Printing',
-        docType: 'demand_letter',
-        prefix: 'dpr',
-        showBulk: true,
-        extraFilters: `
-          <div class="fg"><label class="fl">Demand Type</label>
-            <select class="fc" id="dpr-demand-type">
-              <option value="">— All Types —</option>
-              <option value="main">Main Demand</option>
-              <option value="reminder_1">Reminder 1</option>
-              <option value="reminder_2">Reminder 2</option>
-              <option value="termination">Termination</option>
-            </select>
-          </div>
-        `,
-      })}
+      ${DocsPage._demandPrintingPanel()}
     </div>
 
     <!-- AGREEMENT TO SALE (ATS) -->
@@ -646,6 +630,56 @@ const DocsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  async generateAndOpen(linkEl) {
+    const consumerId = linkEl.dataset.consumerId;
+    const docType = linkEl.dataset.docType;
+    const originalText = linkEl.textContent;
+
+    try {
+      linkEl.textContent = 'Generating...';
+      linkEl.style.pointerEvents = 'none';
+      linkEl.style.opacity = '0.6';
+
+      const token = Auth?.getToken() || localStorage.getItem('rof-jwt') || '';
+      const response = await fetch('/api/documents/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          consumerId,
+          documentType: docType
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Generation failed');
+      }
+
+      const data = await response.json();
+      const docId = data.data?.documentId || data.documentId;
+
+      if (docId) {
+        window.open(`/api/documents/${docId}/html?token=${token}`, '_blank');
+      } else {
+        throw new Error('No document ID returned');
+      }
+
+      linkEl.textContent = originalText;
+      linkEl.style.pointerEvents = '';
+      linkEl.style.opacity = '';
+
+    } catch (err) {
+      console.error('Document generation failed:', err);
+      Utils.error(`Failed: ${err.message}`);
+      linkEl.textContent = originalText;
+      linkEl.style.pointerEvents = '';
+      linkEl.style.opacity = '';
+    }
+  },
+
   printLabels() {
     const scope      = document.getElementById('lbl-scope')?.value;
     const consumerId = document.getElementById('lbl-consumer')?.value;
@@ -811,11 +845,8 @@ const DocsPage = {
                 <th>BASIC PRICE</th>
                 <th>NET BASIC PRICE</th>
                 <th>TOTAL UNIT COST</th>
-                <th>AGREEMENT DATE</th>
-                <th>RERA AGREEMENT</th>
-                <th>INTIMATION LETTER</th>
-                <th>CONVEYANCE DEED LETTER</th>
-                <th>BOUNDARIES OF PROPERTY INFO.</th>
+                <th>AGREEMENT LETTER</th>
+                <th>CONVEYANCE DEED</th>
               </tr>
             </thead>
             <tbody>
@@ -837,11 +868,8 @@ const DocsPage = {
                   <td>${Utils.currency(basicPrice).replace('₹','')}</td>
                   <td>${Utils.currency(basicPrice).replace('₹','')}</td>
                   <td>${Utils.currency(totalCost).replace('₹','')}</td>
-                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','agreement_date')" class="legacy-link">Agreement Date</a></td>
-                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','buyer_builder_agreement')" class="legacy-link">Agreement Letter</a></td>
-                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','intimation_letter')" class="legacy-link">Intimation Letter</a></td>
-                  <td><a href="javascript:void(0)" onclick="DocsPage.generateDoc('${c.id}','conveyance_deed')" class="legacy-link">Conveyance Deed</a></td>
-                  <td><a href="javascript:void(0)" onclick="Utils.info('Property Boundaries: North-Road, South-Open, East-Unit 705, West-Unit 707')" class="legacy-link">New</a></td>
+                  <td><a href="javascript:void(0)" class="doc-action-link" data-consumer-id="${c.id}" data-doc-type="buyer_builder_agreement" onclick="DocsPage.generateAndOpen(this)">Agreement Letter</a></td>
+                  <td><a href="javascript:void(0)" class="doc-action-link" data-consumer-id="${c.id}" data-doc-type="conveyance_deed" onclick="DocsPage.generateAndOpen(this)">Conveyance Deed</a></td>
                 </tr>`;
               }).join('')}
             </tbody>
@@ -918,5 +946,219 @@ const DocsPage = {
         </div>`;
     } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
   },
+
+  // ── DEMAND PRINTING — Full Demand Status inline ──────────────────────────────
+
+  _demandPrintingPanel() {
+    const tb = (id, label, active) =>
+      `<button class="dpr-type-btn" data-type="${id}" onclick="DocsPage.setDprType(this,'${id}')"
+        style="padding:4px 10px;border:1px solid #0d9488;border-radius:3px;cursor:pointer;font-size:11px;
+               background:${active?'#0d9488':'white'};color:${active?'white':'#0d9488'};font-weight:${active?'bold':'normal'}">${label}</button>`;
+    return `
+    <div style="font-family:Arial,sans-serif;font-size:13px;">
+      <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;">
+        <div style="background:#0d9488;border-left:4px solid #065f46;border-bottom:2px solid #0d9488;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px;">DEMAND STATUS</span>
+          <div style="display:flex;gap:3px;">${tb('all','All',true)}${tb('demanded','Demand',false)}${tb('pending','Reminder',false)}${tb('paid','Cancellation Letter',false)}${tb('final','Final Opportunity Letter',false)}</div>
+        </div>
+        <div style="padding:12px 14px;">
+          <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <div style="display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;height:28px;">
+              <button id="dpr-all-btn" onclick="DocsPage.setDprScope('all')" style="padding:4px 12px;border:none;background:#0d9488;color:white;font-size:12px;cursor:pointer;font-weight:bold;">All</button>
+              <button id="dpr-allotted-btn" onclick="DocsPage.setDprScope('allotted')" style="padding:4px 12px;border:none;background:white;color:#0d9488;font-size:12px;cursor:pointer;">Allotted</button>
+            </div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;color:#333;">*Project:</label>
+              <select id="dpr-project" onchange="DocsPage.loadDprTowers()" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:160px;"><option value="">&lt;--Select--&gt;</option></select></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Tower:</label>
+              <select id="dpr-tower" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:110px;"><option value="">&lt;--All--&gt;</option></select></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Floor:</label>
+              <input type="text" id="dpr-floor" placeholder="--All--" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:72px;"></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Registration No.:</label>
+              <input type="text" id="dpr-reg-no" placeholder="Reg No" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:130px;"></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">First Name:</label>
+              <input type="text" id="dpr-name" placeholder="First Name" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:110px;"></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">City:</label>
+              <input type="text" id="dpr-city" placeholder="City" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:90px;"></div>
+          </div>
+          <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Send/Unsend Status:</label>
+              <div style="display:flex;gap:4px;">
+                <select id="dpr-send-status1" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:85px;"><option value="">&lt;--All--&gt;</option><option value="sent">Sent</option><option value="unsent">Unsent</option></select>
+                <select id="dpr-send-status2" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:85px;"><option value="">&lt;--All--&gt;</option><option value="pending">Pending</option><option value="queued">Queued</option><option value="paid">Delivered</option></select>
+              </div></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Due Date:</label>
+              <input type="date" id="dpr-due-date" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;"></div>
+            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Print Date:</label>
+              <input type="date" id="dpr-print-date" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;"></div>
+            <div style="align-self:flex-end;display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;height:28px;">
+              <button id="dpr-gst-btn" onclick="DocsPage.setDprGst('gst')" style="padding:4px 12px;border:none;background:#0d9488;color:white;font-size:12px;cursor:pointer;font-weight:bold;">GST</button>
+              <button id="dpr-pregst-btn" onclick="DocsPage.setDprGst('before')" style="padding:4px 12px;border:none;background:white;color:#0d9488;font-size:12px;cursor:pointer;">Before GST</button>
+            </div>
+          </div>
+          <div style="border-top:1px solid #e0e0e0;padding-top:10px;display:flex;align-items:center;gap:10px;">
+            <button onclick="DocsPage.fetchDpr()" style="background:#1976D2;color:white;border:none;padding:6px 20px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:0.5px;">FETCH</button>
+            <button onclick="DocsPage.clearDpr()" style="background:#6b7280;color:white;border:none;padding:6px 14px;border-radius:2px;cursor:pointer;font-size:12px;">Clear</button>
+            <span id="dpr-count" style="font-size:12px;color:#555;"></span>
+          </div>
+        </div>
+      </div>
+      <div id="dpr-results" style="display:none;margin-top:0;">
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:8px 4px;font-size:11px;">
+          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#e0e0e0;border:1px solid #999;"></span>Sent</span>
+          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:white;border:1px solid #999;"></span>Demand</span>
+          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#FFF59D;border:1px solid #F9A825;"></span>Reminder</span>
+          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#A5D6A7;border:1px solid #388E3C;"></span>Cancellation Letter</span>
+          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#EF9A9A;border:1px solid #C62828;"></span>Final Opportunity Letter</span>
+          <button onclick="window.print()" style="background:none;border:none;cursor:pointer;font-size:16px;">🖨️</button>
+          <button onclick="DocsPage.dprExport()" style="background:none;border:none;cursor:pointer;font-size:16px;">⬇️</button>
+        </div>
+        <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;overflow:hidden;">
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="background:#1a237e;color:white;">
+                <th style="padding:8px 6px;text-align:center;width:36px;"><input type="checkbox" id="dpr-select-all" onchange="DocsPage.dprSelectAll(this)"></th>
+                <th style="padding:8px 6px;text-align:center;width:46px;">S. NO.</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">REGISTRATION NO.</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">BOOKING DATE</th>
+                <th style="padding:8px 6px;text-align:left;">NAME</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">BROKER NAME</th>
+                <th style="padding:8px 6px;text-align:left;">TYPE</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">UNIT ADDRESS</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">TOWER NAME</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">FLOOR NAME</th>
+                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">MOBILE NO.</th>
+                <th style="padding:8px 6px;text-align:center;width:40px;">D</th>
+              </tr></thead>
+              <tbody id="dpr-tbody"></tbody>
+            </table>
+          </div>
+          <div id="dpr-pagination" style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e0e0e0;font-size:12px;"></div>
+        </div>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="DocsPage.dprPrintSelected('demand')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT DEMAND</button>
+          <button onclick="DocsPage.dprPrintSelected('reminder')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT REMINDER</button>
+          <button onclick="DocsPage.dprPrintSelected('cancellation')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT CANCELLATION LETTER</button>
+          <button onclick="DocsPage.dprPrintSelected('final')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT FINAL OPPORTUNITY LETTER</button>
+        </div>
+      </div>
+    </div>`;
+  },
+
+  _dprType:'all', _dprScope:'all', _dprGst:'gst', _dprPage:1, _dprLimit:50, _dprSelected:new Set(),
+
+  setDprType(btn,type) {
+    document.querySelectorAll('.dpr-type-btn').forEach(b=>{b.style.background='white';b.style.color='#0d9488';b.style.fontWeight='normal';});
+    btn.style.background='#0d9488'; btn.style.color='white'; btn.style.fontWeight='bold'; this._dprType=type;
+  },
+  setDprScope(scope) {
+    this._dprScope=scope;
+    const a=document.getElementById('dpr-all-btn'),al=document.getElementById('dpr-allotted-btn');
+    if(!a||!al)return;
+    if(scope==='all'){a.style.background='#0d9488';a.style.color='white';al.style.background='white';al.style.color='#0d9488';}
+    else{al.style.background='#0d9488';al.style.color='white';a.style.background='white';a.style.color='#0d9488';}
+  },
+  setDprGst(type) {
+    this._dprGst=type;
+    const g=document.getElementById('dpr-gst-btn'),b=document.getElementById('dpr-pregst-btn');
+    if(!g||!b)return;
+    g.style.background=type==='gst'?'#0d9488':'white'; g.style.color=type==='gst'?'white':'#0d9488';
+    b.style.background=type==='before'?'#0d9488':'white'; b.style.color=type==='before'?'white':'#0d9488';
+  },
+  async initDemandPrinting() {
+    const today=new Date().toISOString().split('T')[0];
+    const dd=document.getElementById('dpr-due-date'); if(dd)dd.value=today;
+    const pd=document.getElementById('dpr-print-date'); if(pd)pd.value=today;
+    const sel=document.getElementById('dpr-project');
+    if(!sel||sel.options.length>1)return;
+    try {
+      const projects=this._projects.length?this._projects:((await Api.get('/projects')).data||[]);
+      projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;sel.appendChild(o);});
+    } catch {}
+  },
+  async loadDprTowers() {
+    const pid=document.getElementById('dpr-project')?.value;
+    const sel=document.getElementById('dpr-tower');
+    if(!sel)return; sel.innerHTML='<option value="">&lt;--All--&gt;</option>';
+    if(!pid)return;
+    try {
+      const res=await Api.get('/units',{params:{projectId:pid,pageSize:500}});
+      [...new Set((res.data||[]).map(u=>u.tower_name).filter(Boolean))].forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
+    } catch {}
+  },
+  fetchDpr() { this._dprPage=1; this._dprSelected.clear(); this._loadDprData(); },
+  clearDpr() {
+    ['dpr-project','dpr-tower','dpr-floor','dpr-reg-no','dpr-name','dpr-city','dpr-send-status1','dpr-send-status2','dpr-due-date','dpr-print-date'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+    const r=document.getElementById('dpr-results');if(r)r.style.display='none';
+    const c=document.getElementById('dpr-count');if(c)c.textContent='';
+  },
+  async _loadDprData() {
+    const g=id=>(document.getElementById(id)?.value||'').trim();
+    const params=new URLSearchParams({page:String(this._dprPage),limit:String(this._dprLimit)});
+    const map={'dpr-project':'project_id','dpr-tower':'tower','dpr-floor':'floor','dpr-reg-no':'reg_no','dpr-name':'name','dpr-city':'city','dpr-send-status2':'delivery_status','dpr-due-date':'due_date_to'};
+    Object.entries(map).forEach(([id,key])=>{const v=g(id);if(v)params.set(key,v);});
+    if(this._dprType!=='all')params.set('demand_status',this._dprType);
+    const tbody=document.getElementById('dpr-tbody');
+    if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:20px;color:#999;">Loading…</td></tr>';
+    try {
+      const token=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';
+      const res=await fetch(`/api/payments/demand-status?${params}`,{headers:{Authorization:`Bearer ${token}`}});
+      const json=await res.json(); const rows=json.data||[],total=json.total||0;
+      const cnt=document.getElementById('dpr-count');if(cnt)cnt.textContent=`${total} record(s) found`;
+      const results=document.getElementById('dpr-results');if(results)results.style.display='block';
+      if(!rows.length){if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:20px;color:#999;">No records found</td></tr>';return;}
+      if(tbody)tbody.innerHTML=rows.map((r,i)=>{
+        const bg=r.delivery_status==='paid'?'#f0f0f0':r.active_demands>0?'white':'#FFFDE7';
+        return `<tr style="background:${bg};border-bottom:1px solid #e8e8e8;">
+          <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="dpr-row-cb" value="${r.consumer_id}" onchange="DocsPage.dprToggleSelect('${r.consumer_id}',this.checked)"></td>
+          <td style="padding:7px 6px;text-align:center;">${(this._dprPage-1)*this._dprLimit+i+1}</td>
+          <td style="padding:7px 6px;color:#1a237e;font-weight:500;cursor:pointer;" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
+          <td style="padding:7px 6px;font-size:11px;">${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
+          <td style="padding:7px 6px;color:#1976D2;cursor:pointer;" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.name||'—'}</td>
+          <td style="padding:7px 6px;">Direct</td>
+          <td style="padding:7px 6px;">${r.bhk_type||'—'}</td>
+          <td style="padding:7px 6px;font-weight:500;">${r.unit_number||'—'}</td>
+          <td style="padding:7px 6px;">${r.tower_name||'—'}</td>
+          <td style="padding:7px 6px;">${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
+          <td style="padding:7px 6px;">${r.mobile||'—'}</td>
+          <td style="padding:7px 6px;text-align:center;"><button onclick="DocsPage.dprGenerateLetter('${r.consumer_id}')" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">D</button></td>
+        </tr>`;
+      }).join('');
+      const totalPages=Math.ceil(total/this._dprLimit);
+      const pag=document.getElementById('dpr-pagination');
+      if(pag)pag.innerHTML=`<span>Records Per Page: <select onchange="DocsPage.setDprLimit(+this.value)" style="padding:2px;font-size:12px;"><option value="50" ${this._dprLimit===50?'selected':''}>50</option><option value="100" ${this._dprLimit===100?'selected':''}>100</option></select></span>
+        <span style="font-weight:bold;">Page No: ${this._dprPage} of ${totalPages||1}</span>
+        <span>Records ${(this._dprPage-1)*this._dprLimit+1}–${Math.min(this._dprPage*this._dprLimit,total)} of ${total}
+          <button onclick="DocsPage.dprGoPage(1)" style="padding:2px 5px;cursor:pointer;">&#8676;</button>
+          <button onclick="DocsPage.dprGoPage(${this._dprPage-1})" style="padding:2px 5px;cursor:pointer;">&#8249;</button>
+          <button onclick="DocsPage.dprGoPage(${this._dprPage+1})" style="padding:2px 5px;cursor:pointer;">&#8250;</button>
+          <button onclick="DocsPage.dprGoPage(${totalPages})" style="padding:2px 5px;cursor:pointer;">&#8677;</button></span>`;
+    } catch(err){if(tbody)tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:20px;color:#c62828;">Failed: ${err.message}</td></tr>`;}
+  },
+  dprGoPage(p){if(p>=1){this._dprPage=p;this._loadDprData();}},
+  setDprLimit(l){this._dprLimit=l;this._dprPage=1;this._loadDprData();},
+  dprSelectAll(cb){document.querySelectorAll('.dpr-row-cb').forEach(c=>{c.checked=cb.checked;this.dprToggleSelect(c.value,cb.checked);});},
+  dprToggleSelect(id,checked){checked?this._dprSelected.add(id):this._dprSelected.delete(id);},
+  openConsumer(id){if(typeof Router!=='undefined')Router.navigate('/consumer',{id});},
+  async dprGenerateLetter(consumerId) {
+    const win=window.open('','_blank');
+    win.document.write('<p style="font-family:Arial;padding:20px;">Generating demand letter…</p>');
+    try {
+      const token=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';
+      const res=await fetch('/api/documents/generate',{
+        method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
+        body:JSON.stringify({documentType:'demand_letter',consumerId,includeAllDemands:true,dueDate:new Date().toISOString().split('T')[0]}),
+      });
+      const json=await res.json();
+      const docId=json.data?.documentId||json.documentId;
+      if(docId){win.location.href=`/api/documents/${docId}/html?token=${token}`;return;}
+      throw new Error(json.error||'No document returned');
+    } catch(err){win.document.body.innerHTML=`<p style="color:red;font-family:Arial;padding:20px;">Error: ${err.message}</p>`;}
+  },
+  async dprPrintSelected(type){
+    if(!this._dprSelected.size){Utils.warn('Select at least one consumer using the checkboxes');return;}
+    for(const id of this._dprSelected)await this.dprGenerateLetter(id);
+  },
+  dprExport(){Utils.info('Excel export coming soon');},
+  _authHeader(){const t=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';return{'Authorization':`Bearer ${t}`,'Content-Type':'application/json'};},
 
 };

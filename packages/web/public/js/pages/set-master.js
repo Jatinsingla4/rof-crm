@@ -20,6 +20,7 @@ Pages.setMaster = async function(params = {}) {
       <button class="tab-line${tab==='source'   ?' active':''}" data-group="sm" data-tab="source"    onclick="switchTab('sm','source');   SMPage.load('source')">Source of Enquiry</button>
       <button class="tab-line${tab==='doctype'  ?' active':''}" data-group="sm" data-tab="doctype"   onclick="switchTab('sm','doctype');  SMPage.load('doctype')">Document Type</button>
       <button class="tab-line${tab==='dispatch' ?' active':''}" data-group="sm" data-tab="dispatch"  onclick="switchTab('sm','dispatch'); SMPage.load('dispatch')">Doc Dispatch</button>
+      <button class="tab-line${tab==='company'  ?' active':''}" data-group="sm" data-tab="company"   onclick="switchTab('sm','company');  SMPage.loadCompanyMaster()">Company Master</button>
     </div>
 
     <!-- COUNTRY -->
@@ -94,18 +95,24 @@ Pages.setMaster = async function(params = {}) {
 
     <!-- DOCUMENT TYPE -->
     <div data-panel-group="sm" data-panel="doctype" ${tab!=='doctype'?'style="display:none"':''}>
-      ${SMPage._doctypePanel()}
+      <div id="sm-doctype-container">${SMPage._doctypePanel()}</div>
     </div>
 
     <!-- DOCUMENT DISPATCH -->
     <div data-panel-group="sm" data-panel="dispatch" ${tab!=='dispatch'?'style="display:none"':''}>
       ${SMPage._dispatchPanel()}
     </div>
+
+    <!-- COMPANY MASTER -->
+    <div data-panel-group="sm" data-panel="company" ${tab!=='company'?'style="display:none"':''}>
+      <div id="sm-company-body"><div class="page-loading"><div class="spinner"></div> Loading…</div></div>
+    </div>
   `;
 
   // Load country dropdowns for filters
   await SMPage._loadCountryDropdowns();
-  await SMPage.load(tab);
+  if (tab === 'company') await SMPage.loadCompanyMaster();
+  else await SMPage.load(tab);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -234,43 +241,83 @@ SMPage._sourcePanel = () => `
 `;
 
 SMPage._doctypePanel = () => `
-  <div class="g2" style="gap:16px;align-items:start">
-    <div class="sp" style="max-width:360px">
-      <div class="sp-hdr"><div class="sp-title">Add Document Type</div></div>
-      <div class="sp-body">
-        <form id="sm-doctype-form" onsubmit="SMPage.submitDoctype(event)">
-          <div class="form-group">
-            <label class="form-label">Document Name <span style="color:var(--red)">*</span></label>
-            <input class="form-control" type="text" name="name" placeholder="e.g. Allotment Letter" required>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Category</label>
-            <select class="form-control" name="category">
-              <option value="">Select category</option>
-              <option>KYC</option>
-              <option>Financial</option>
-              <option>Legal</option>
-              <option>Operational</option>
-              <option>Communication</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Description</label>
-            <textarea class="form-control" name="description" rows="2" placeholder="Optional"></textarea>
-          </div>
-          <button type="submit" class="btn btn-teal" style="margin-top:8px">Add Type</button>
-        </form>
-      </div>
+  <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;font-family:Arial,sans-serif;font-size:13px;">
+
+    <!-- Title bar -->
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#0d9488;border-left:4px solid #065f46;border-bottom:1px solid #ddd;">
+      <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px;">DOCUMENT MASTER</span>
+      <span style="color:#ffe0e0;font-size:12px;">*Denotes mandatory fields</span>
     </div>
-    <div style="flex:1">
-      <div class="tbl-hdr mb8">
-        <div class="tbl-title">Document Types</div>
-        <div class="tbl-actions">
-          <input class="form-control form-control-sm" placeholder="Search..." oninput="SMPage.filterTable('sm-doctype-tbl',this.value)" style="width:160px">
+
+    <div style="padding:0 20px;">
+
+      <!-- Project -->
+      <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;">* Project:</label>
+        <select id="dm-project" style="min-width:300px;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;">
+          <option value="">&lt;--Select--&gt;</option>
+        </select>
+      </div>
+
+      <!-- Document Name -->
+      <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;">* Document:</label>
+        <input type="text" id="dm-name" placeholder="Document" style="min-width:300px;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;">
+      </div>
+
+      <!-- Document From -->
+      <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;">* Document From:</label>
+        <div style="display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;">
+          <button id="dm-from-ind" onclick="SMPage.setDocFrom('Individual')" style="padding:6px 20px;background:#0d9488;color:white;border:none;cursor:pointer;font-size:12px;font-weight:bold;">Individual</button>
+          <button id="dm-from-firm" onclick="SMPage.setDocFrom('Firm or Company')" style="padding:6px 20px;background:white;color:#0d9488;border:none;border-left:1px solid #0d9488;cursor:pointer;font-size:12px;">Firm or Company</button>
         </div>
+        <input type="hidden" id="dm-from-val" value="Individual">
       </div>
-      <div id="sm-doctype-list"><div class="page-loading"><div class="spinner"></div></div></div>
+
+      <!-- Mandatory -->
+      <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;">* Mandatory:</label>
+        <div style="display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;">
+          <button id="dm-mand-yes" onclick="SMPage.setMandatory(true)" style="padding:6px 20px;background:white;color:#0d9488;border:none;cursor:pointer;font-size:12px;">yes</button>
+          <button id="dm-mand-no" onclick="SMPage.setMandatory(false)" style="padding:6px 20px;background:#0d9488;color:white;border:none;border-left:1px solid #0d9488;cursor:pointer;font-size:12px;font-weight:bold;">No</button>
+        </div>
+        <input type="hidden" id="dm-mand-val" value="false">
+      </div>
+
+      <!-- Document Type (required_at) -->
+      <div style="display:flex;align-items:center;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;">* Document Type</label>
+        <select id="dm-required-at" style="min-width:300px;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;">
+          <option value="">&lt;--Select--&gt;</option>
+          <option value="On Booking">On Booking</option>
+          <option value="On Allotment">On Allotment</option>
+          <option value="On Agreement">On Agreement</option>
+          <option value="On Possession">On Possession</option>
+          <option value="On Demand">On Demand</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+
+      <!-- Description -->
+      <div style="display:flex;align-items:flex-start;padding:12px 0;border-bottom:1px solid #f0f0f0;">
+        <label style="min-width:200px;font-size:13px;color:#333;padding-top:4px;">Description(150 Ch.)</label>
+        <textarea id="dm-description" placeholder="Description" maxlength="150" rows="3"
+          style="min-width:300px;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;resize:vertical;box-sizing:border-box;"></textarea>
+      </div>
+
     </div>
+
+    <input type="hidden" id="dm-editing-id" value="">
+    <div id="dm-error" style="color:red;font-size:12px;margin:4px 20px;display:none;"></div>
+
+    <!-- SAVE + VIEW -->
+    <div style="background:#f5f5f5;padding:12px 20px;display:flex;justify-content:center;gap:8px;border-top:1px solid #e0e0e0;">
+      <button onclick="SMPage.saveDocumentMaster()" style="background:#1976D2;color:white;border:none;padding:6px 24px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;min-width:80px;">SAVE</button>
+      <button onclick="SMPage.viewDocumentMaster()" style="background:#1976D2;color:white;border:none;padding:6px 24px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;min-width:80px;">VIEW</button>
+    </div>
+
+    <div id="dm-view-section" style="display:none;"></div>
   </div>
 `;
 
@@ -338,7 +385,7 @@ SMPage.load = async function(tab) {
     nationality: () => SMPage._loadSimple('nationality','/master/nationalities',      ['name'],                              ['Nationality']),
     bank:        () => SMPage._loadSimple('bank',       '/master/banks',              ['name','ifsc_prefix','branch'],       ['Bank Name','IFSC Prefix','Branch']),
     source:      () => SMPage._loadSimple('source',     '/master/sources-of-enquiry', ['name','description'],                ['Source','Description']),
-    doctype:     () => SMPage._loadSimple('doctype',    '/master/document-types',     ['name','category','description'],     ['Document Type','Category','Description']),
+    doctype:     () => SMPage.initDoctypeTab(),
     dispatch:    () => SMPage._loadDispatch(),
   };
   if (handlers[tab]) await handlers[tab]();
@@ -541,17 +588,177 @@ SMPage.submitSource = async function(e) {
   } catch (err) { Utils.error(err.message); }
 };
 
-SMPage.submitDoctype = async function(e) {
-  e.preventDefault();
-  const form = e.target;
-  const fd = new FormData(form);
-  const body = Object.fromEntries(fd.entries());
+// ── DOCUMENT MASTER ──────────────────────────────────────────────────────────
+
+SMPage.initDoctypeTab = async function() {
+  // Panel already rendered by _doctypePanel() in the page HTML.
+  // Just populate project dropdown.
+  const sel = document.getElementById('dm-project');
+  if (!sel || sel.options.length > 1) return;
   try {
-    await Api.post('/master/document-types', body);
-    Utils.success('Document type added');
-    form.reset();
-    await SMPage.load('doctype');
-  } catch (err) { Utils.error(err.message); }
+    const res = await Api.get('/projects');
+    const projects = res.data || res || [];
+    projects.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      sel.appendChild(opt);
+    });
+  } catch (e) { console.error('Failed to load projects:', e); }
+};
+
+SMPage.setDocFrom = function(val) {
+  document.getElementById('dm-from-val').value = val;
+  const ind  = document.getElementById('dm-from-ind');
+  const firm = document.getElementById('dm-from-firm');
+  if (!ind || !firm) return;
+  if (val === 'Individual') {
+    ind.style.background  = '#0d9488'; ind.style.color  = 'white'; ind.style.fontWeight  = 'bold';
+    firm.style.background = 'white';   firm.style.color = '#0d9488'; firm.style.fontWeight = 'normal';
+  } else {
+    firm.style.background = '#0d9488'; firm.style.color  = 'white'; firm.style.fontWeight  = 'bold';
+    ind.style.background  = 'white';   ind.style.color  = '#0d9488'; ind.style.fontWeight  = 'normal';
+  }
+};
+
+SMPage.setMandatory = function(val) {
+  document.getElementById('dm-mand-val').value = String(val);
+  const yes = document.getElementById('dm-mand-yes');
+  const no  = document.getElementById('dm-mand-no');
+  if (!yes || !no) return;
+  if (val) {
+    yes.style.background = '#0d9488'; yes.style.color = 'white'; yes.style.fontWeight = 'bold';
+    no.style.background  = 'white';   no.style.color  = '#0d9488'; no.style.fontWeight  = 'normal';
+  } else {
+    no.style.background  = '#0d9488'; no.style.color  = 'white'; no.style.fontWeight  = 'bold';
+    yes.style.background = 'white';   yes.style.color = '#0d9488'; yes.style.fontWeight = 'normal';
+  }
+};
+
+SMPage.saveDocumentMaster = async function() {
+  const editingId   = document.getElementById('dm-editing-id')?.value || '';
+  const project_id  = document.getElementById('dm-project')?.value || '';
+  const name        = (document.getElementById('dm-name')?.value || '').trim();
+  const document_from = document.getElementById('dm-from-val')?.value || 'Individual';
+  const is_mandatory  = document.getElementById('dm-mand-val')?.value === 'true';
+  const required_at   = document.getElementById('dm-required-at')?.value || '';
+  const description   = (document.getElementById('dm-description')?.value || '').trim();
+  const errEl = document.getElementById('dm-error');
+
+  if (!name)        { errEl.textContent = 'Document name is required';  errEl.style.display = 'block'; return; }
+  if (!required_at) { errEl.textContent = 'Document Type is required';  errEl.style.display = 'block'; return; }
+  errEl.style.display = 'none';
+
+  try {
+    const token = Auth.getToken();
+    const method = editingId ? 'PUT' : 'POST';
+    const url = `${ROF.API_BASE}/master/document-types${editingId ? '/' + editingId : ''}`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name, project_id: project_id || null, document_from, is_mandatory, required_at, description: description || null }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) { errEl.textContent = json.error || 'Save failed'; errEl.style.display = 'block'; return; }
+
+    this.resetDocumentMasterForm();
+    Utils.success(editingId ? 'Document updated!' : 'Document saved!');
+    const vs = document.getElementById('dm-view-section');
+    if (vs && vs.style.display !== 'none') this.viewDocumentMaster();
+  } catch { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
+};
+
+SMPage.viewDocumentMaster = async function() {
+  const section = document.getElementById('dm-view-section');
+  if (!section) return;
+  section.style.display = 'block';
+  section.innerHTML = '<div style="padding:10px 20px;color:#666;font-size:13px;">Loading...</div>';
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/master/document-types`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    const docs = json.data || [];
+
+    if (!docs.length) { section.innerHTML = '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No documents found.</div>'; return; }
+
+    // Group by project
+    const groups = {};
+    docs.forEach(d => {
+      const key = d.project_name || 'Global (All Projects)';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(d);
+    });
+
+    section.innerHTML = Object.entries(groups).map(([pName, rows]) => `
+      <div style="margin-top:14px;border:1px solid #e0e0e0;border-radius:4px;overflow:hidden;">
+        <div style="background:#e8f5e9;padding:8px 14px;border-bottom:1px solid #c8e6c9;">
+          <span style="font-weight:bold;color:#1a237e;font-size:13px;letter-spacing:0.5px;">PROJECT : ${pName.toUpperCase()}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="background:#1a237e;color:white;">
+            <th style="padding:7px 10px;text-align:center;width:55px;">S. NO.</th>
+            <th style="padding:7px 10px;text-align:left;">NAME</th>
+            <th style="padding:7px 10px;text-align:left;width:140px;">DESCRIPTION</th>
+            <th style="padding:7px 10px;text-align:left;width:115px;">DOCUMENT TYPE</th>
+            <th style="padding:7px 10px;text-align:left;width:115px;">DOCUMENT FROM</th>
+            <th style="padding:7px 10px;text-align:center;width:85px;">MANDATORY</th>
+            <th style="padding:7px 10px;text-align:center;width:55px;">EDIT</th>
+            <th style="padding:7px 10px;text-align:center;width:65px;">DELETE</th>
+          </tr></thead>
+          <tbody>
+            ${rows.map((d, i) => `<tr style="background:${i%2===0?'white':'#f9f9f9'};border-bottom:1px solid #e8e8e8;">
+              <td style="padding:7px 10px;text-align:center;">${i+1}</td>
+              <td style="padding:7px 10px;font-weight:500;">${d.name}</td>
+              <td style="padding:7px 10px;color:#666;font-size:11px;">${d.description||''}</td>
+              <td style="padding:7px 10px;">${d.required_at||'—'}</td>
+              <td style="padding:7px 10px;">${d.document_from||'—'}</td>
+              <td style="padding:7px 10px;text-align:center;">${d.is_mandatory?'Yes':'No'}</td>
+              <td style="padding:7px 10px;text-align:center;"><span onclick="SMPage.editDocumentType('${d.id}')" style="color:#1976D2;cursor:pointer;font-weight:bold;">Edit</span></td>
+              <td style="padding:7px 10px;text-align:center;"><span onclick="SMPage.deleteDocumentType('${d.id}','${d.name.replace(/'/g,"\\'")}') " style="color:#c62828;cursor:pointer;font-weight:bold;">Delete</span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`).join('');
+  } catch { section.innerHTML = '<div style="padding:20px;color:red;font-size:13px;">Failed to load documents</div>'; }
+};
+
+SMPage.editDocumentType = async function(id) {
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/master/document-types`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    const d = (json.data || []).find(x => x.id === id);
+    if (!d) return;
+
+    const s = (fid, val) => { const el = document.getElementById(fid); if (el) el.value = val || ''; };
+    s('dm-editing-id', d.id);
+    s('dm-project',    d.project_id);
+    s('dm-name',       d.name);
+    s('dm-required-at', d.required_at);
+    s('dm-description', d.description);
+    this.setDocFrom(d.document_from || 'Individual');
+    this.setMandatory(d.is_mandatory || false);
+    document.getElementById('dm-project')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch { Utils.error('Failed to load document data'); }
+};
+
+SMPage.deleteDocumentType = async function(id, name) {
+  if (!confirm(`Delete "${name}"?\nThis cannot be undone.`)) return;
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/master/document-types/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    if (json.success) this.viewDocumentMaster();
+    else Utils.error(json.error || 'Delete failed');
+  } catch { Utils.error('Network error'); }
+};
+
+SMPage.resetDocumentMasterForm = function() {
+  ['dm-editing-id','dm-project','dm-name','dm-required-at','dm-description'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  this.setDocFrom('Individual');
+  this.setMandatory(false);
 };
 
 SMPage.submitDispatch = async function(e) {
@@ -623,5 +830,303 @@ SMPage.selectConsumer = function(id, name) {
   document.getElementById('dispatch-consumer-search').value = name;
   document.getElementById('dispatch-consumer-id').value = id;
   document.getElementById('dispatch-consumer-suggestions').innerHTML = '';
+};
+
+// ── COMPANY MASTER ────────────────────────────────────────────────────────────
+
+SMPage.loadCompanyMaster = async function() {
+  const el = document.getElementById('sm-company-body');
+  if (!el) return;
+
+  const inp = (id, ph) => `<input type="text" id="${id}" placeholder="${ph}" style="width:100%;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;box-sizing:border-box">`;
+  const lbl = (text) => `<label style="display:block;margin-bottom:3px;font-size:12px">${text}</label>`;
+  const fld = (id, label, ph) => `<div>${lbl(label)}${inp(id, ph)}</div>`;
+
+  el.innerHTML = `
+    <div style="background:white;border:1px solid #e0e0e0;border-radius:3px;font-size:13px">
+
+      <!-- Title bar -->
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#0d9488;border-bottom:2px solid #0d9488;border-left:4px solid #0d9488">
+        <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px">COMPANY MASTER</span>
+        <span style="color:#ffe0e0;font-size:12px">*Denotes mandatory field</span>
+      </div>
+
+      <div style="padding:16px">
+
+        <!-- ROW 1: Code | Group | Name -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:14px;margin-bottom:12px">
+          ${fld('cm-code','*Code:','Code')}
+          ${fld('cm-group','Group:','Company Group')}
+          <div>${lbl('*Company Name (200 Ch.):')}
+            <input type="text" id="cm-name" placeholder="Company Name" maxlength="200" style="width:100%;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;box-sizing:border-box">
+          </div>
+        </div>
+
+        <!-- ROW 2: Address1 | Address2 | Address3 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:12px">
+          <div>${lbl('*Company Address1:(200 Ch.)')}
+            <textarea id="cm-addr1" placeholder="Company Address1" maxlength="200" rows="4" style="width:100%;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+          </div>
+          <div>${lbl('Company Address2:(200 Ch.)')}
+            <textarea id="cm-addr2" placeholder="Company Address2" maxlength="200" rows="4" style="width:100%;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+          </div>
+          <div>${lbl('Company Address3:(200 Ch.)')}
+            <textarea id="cm-addr3" placeholder="Company Address3" maxlength="200" rows="4" style="width:100%;padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;box-sizing:border-box;resize:vertical"></textarea>
+          </div>
+        </div>
+
+        <!-- ROW 3: City | State | Country | Pin | Phone | Fax -->
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px">
+          ${fld('cm-city','City:','City')}
+          ${fld('cm-state','State:','State')}
+          ${fld('cm-country','Country:','Country')}
+          ${fld('cm-pin','Pin Code:','Pin Code')}
+          ${fld('cm-phone','Phone No.:','Phone No.')}
+          ${fld('cm-fax','Fax No.:','Fax No.')}
+        </div>
+
+        <!-- ROW 4: Email | Website | CIN | ServiceTax | PAN | VAT -->
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px">
+          ${fld('cm-email','E-Mail:','Email Id')}
+          ${fld('cm-website','Website:','www.rof.co.in')}
+          ${fld('cm-cin','C.I.No.:','C.I.No.')}
+          ${fld('cm-svc','Service Tax No.:','Service Tax No.')}
+          ${fld('cm-pan','PAN No.:','Pan No.')}
+          ${fld('cm-vat','VAT No.:','Vat No.')}
+        </div>
+
+        <!-- ROW 5: GSTIN | Registered Address -->
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px;margin-bottom:12px">
+          ${fld('cm-gstin','GSTIN:','GSTIN')}
+          ${fld('cm-regaddr','Registered Office Address:','Registered Office Address')}
+        </div>
+
+        <!-- BANK DETAILS -->
+        <div style="margin-bottom:12px">
+          <div style="font-size:12px;font-weight:bold;color:#333;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid #ddd">Bank Details:</div>
+          <div style="display:grid;grid-template-columns:2fr 2fr 1fr 1fr 1fr;gap:10px">
+            ${fld('cm-bank-name','Account Name:','Account Name')}
+            ${fld('cm-bank-acc','Account No.:','Account No.')}
+            ${fld('cm-bank-ifsc','IFSC Code:','IFSC Code')}
+            ${fld('cm-bank-bank','Bank Name:','Bank Name')}
+            ${fld('cm-bank-branch','Branch:','Branch')}
+          </div>
+        </div>
+
+        <!-- ROW 6: Place of Supply | Payable At | Logo -->
+        <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap">
+          <div style="min-width:175px">
+            ${lbl('State:')}
+            <select id="cm-pos" style="padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:160px">
+              <option value="">&lt;-Select-&gt;</option>
+              <option value="Haryana">Haryana</option>
+              <option value="Delhi">Delhi</option>
+              <option value="Maharashtra">Maharashtra</option>
+              <option value="Karnataka">Karnataka</option>
+              <option value="Uttar Pradesh">Uttar Pradesh</option>
+              <option value="Rajasthan">Rajasthan</option>
+              <option value="Punjab">Punjab</option>
+            </select>
+          </div>
+          <div style="min-width:175px">
+            ${lbl('Payable At:')}
+            <input type="text" id="cm-payable" placeholder="Payable At" style="padding:5px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:160px">
+          </div>
+          <div>
+            ${lbl('Company Logo:(width=145px and height=72px)')}
+            <div style="display:flex;align-items:center;gap:8px">
+              <input type="file" id="cm-logo" accept="image/*" style="font-size:12px">
+              <button id="cm-attach-btn" onclick="SMPage.attachLogo()" style="background:#2196F3;color:white;border:none;padding:5px 14px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold">ATTACH</button>
+            </div>
+            <div id="cm-logo-preview" style="margin-top:5px"></div>
+          </div>
+        </div>
+
+        <!-- Hidden editing ID -->
+        <input type="hidden" id="cm-editing-id" value="">
+
+        <!-- Error -->
+        <div id="cm-error" style="color:red;font-size:12px;margin-bottom:8px;display:none"></div>
+
+        <!-- SAVE | VIEW -->
+        <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid #e0e0e0">
+          <button onclick="SMPage.saveCompanyInline()" style="background:#4CAF50;color:white;border:none;padding:6px 20px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;min-width:70px">SAVE</button>
+          <button onclick="SMPage.viewCompanies()" style="background:#2196F3;color:white;border:none;padding:6px 20px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;min-width:70px">VIEW</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- VIEW section -->
+    <div id="cm-view-section" style="margin-top:18px;display:none"></div>
+  `;
+};
+
+SMPage.saveCompanyInline = async function() {
+  const g = id => (document.getElementById(id)?.value || '').trim() || null;
+  const name = g('cm-name');
+  const errEl = document.getElementById('cm-error');
+  if (!name) { errEl.textContent = 'Company Name is required'; errEl.style.display = 'block'; return; }
+
+  const editingId = g('cm-editing-id');
+  const body = {
+    name, code: g('cm-code'), group_name: g('cm-group'),
+    address1: g('cm-addr1'), address2: g('cm-addr2'), address3: g('cm-addr3'),
+    city: g('cm-city'), state: g('cm-state'), country: g('cm-country'),
+    pin_code: g('cm-pin'), phone: g('cm-phone'), fax: g('cm-fax'),
+    email: g('cm-email'), website: g('cm-website'), cin: g('cm-cin'),
+    service_tax_no: g('cm-svc'), pan_no: g('cm-pan'), vat_no: g('cm-vat'),
+    gstin: g('cm-gstin'), reg_address: g('cm-regaddr'),
+    bank_company_name: g('cm-bank-name'), bank_account_no: g('cm-bank-acc'),
+    bank_ifsc: g('cm-bank-ifsc'), bank_name: g('cm-bank-bank'), bank_branch: g('cm-bank-branch'),
+    place_of_supply: g('cm-pos'), payable_at: g('cm-payable'),
+  };
+
+  try {
+    const token = Auth.getToken();
+    const method = editingId ? 'PUT' : 'POST';
+    const url = `${ROF.API_BASE}/companies${editingId ? '/' + editingId : ''}`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) { errEl.textContent = json.error || 'Save failed'; errEl.style.display = 'block'; return; }
+
+    // Clear form
+    ['cm-code','cm-group','cm-name','cm-addr1','cm-addr2','cm-addr3',
+     'cm-city','cm-state','cm-country','cm-pin','cm-phone','cm-fax',
+     'cm-email','cm-website','cm-cin','cm-svc','cm-pan','cm-vat',
+     'cm-gstin','cm-regaddr','cm-bank-name','cm-bank-acc','cm-bank-ifsc',
+     'cm-bank-bank','cm-bank-branch','cm-payable','cm-editing-id'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const pos = document.getElementById('cm-pos'); if (pos) pos.value = '';
+    errEl.style.display = 'none';
+    document.getElementById('cm-logo-preview').innerHTML = '';
+    window._cmEditingId = null;
+
+    Utils.success(editingId ? 'Company updated successfully!' : 'Company saved successfully!');
+    const vs = document.getElementById('cm-view-section');
+    if (vs && vs.style.display !== 'none') SMPage.viewCompanies();
+  } catch (err) { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
+};
+
+SMPage.viewCompanies = async function() {
+  const section = document.getElementById('cm-view-section');
+  if (!section) return;
+  section.style.display = 'block';
+  section.innerHTML = '<div style="color:#666;font-size:13px;padding:10px">Loading...</div>';
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    const companies = json.data || [];
+    section.innerHTML = `
+      <div style="background:white;border:1px solid #e0e0e0;border-radius:3px;overflow:hidden">
+        <div style="background:#1a237e;color:white;padding:8px 14px;font-size:13px;font-weight:bold">Company List</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="background:#e8eaf6">
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e">S.No</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e">Code</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e">Company Name</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e">GSTIN</th>
+            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e">Phone</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #1a237e">Projects</th>
+            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #1a237e">Action</th>
+          </tr></thead>
+          <tbody>
+            ${companies.map((c, i) => `<tr style="background:${i%2===0?'white':'#f5f5f5'};border-bottom:1px solid #e0e0e0">
+              <td style="padding:7px 10px">${i+1}</td>
+              <td style="padding:7px 10px">${c.code||'—'}</td>
+              <td style="padding:7px 10px;font-weight:500">${c.name}</td>
+              <td style="padding:7px 10px;font-size:11px;color:#555">${c.gstin||'—'}</td>
+              <td style="padding:7px 10px">${c.phone||'—'}</td>
+              <td style="padding:7px 10px;text-align:center">${c.project_count||0}</td>
+              <td style="padding:7px 10px;text-align:center">
+                <button onclick="SMPage.editCompanyInline('${c.id}')" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px;margin-right:4px">Edit</button>
+                <button onclick="SMPage.setActiveCompany('${c.id}','${c.name.replace(/'/g,"\\'")}') " style="background:#388E3C;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px">Set Active</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch (err) { section.innerHTML = '<p style="color:red;padding:10px">Failed to load companies</p>'; }
+};
+
+SMPage.editCompanyInline = async function(id) {
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    const c = json.data || {};
+    const s = (fId, val) => { const el = document.getElementById(fId); if (el) el.value = val || ''; };
+
+    s('cm-editing-id', c.id);  s('cm-code', c.code);        s('cm-group', c.group_name);
+    s('cm-name', c.name);      s('cm-addr1', c.address1);   s('cm-addr2', c.address2);
+    s('cm-addr3', c.address3); s('cm-city', c.city);         s('cm-state', c.state);
+    s('cm-country', c.country);s('cm-pin', c.pin_code);      s('cm-phone', c.phone);
+    s('cm-fax', c.fax);        s('cm-email', c.email);       s('cm-website', c.website);
+    s('cm-cin', c.cin);        s('cm-svc', c.service_tax_no);s('cm-pan', c.pan_no);
+    s('cm-vat', c.vat_no);     s('cm-gstin', c.gstin);       s('cm-regaddr', c.reg_address);
+    s('cm-bank-name', c.bank_company_name); s('cm-bank-acc', c.bank_account_no);
+    s('cm-bank-ifsc', c.bank_ifsc);         s('cm-bank-bank', c.bank_name);
+    s('cm-bank-branch', c.bank_branch);     s('cm-pos', c.place_of_supply);
+    s('cm-payable', c.payable_at);
+    window._cmEditingId = c.id;
+
+    if (c.logo_url) {
+      const prev = document.getElementById('cm-logo-preview');
+      if (prev) prev.innerHTML = `<img src="${c.logo_url}" style="height:36px;object-fit:contain;border:1px solid #ddd;padding:3px;border-radius:2px">`;
+    }
+    document.getElementById('sm-company-body').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch { Utils.error('Failed to load company data'); }
+};
+
+SMPage.setActiveCompany = async function(id, name) {
+  if (!confirm(`Set "${name}" as the active company for all documents?\nThis updates demand letters, receipts, and allotment letters.`)) return;
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ write_to_global_settings: true }),
+    });
+    const json = await res.json();
+    if (json.success) Utils.success(`"${name}" is now the active company for all documents`);
+    else throw new Error(json.error || 'Failed');
+  } catch (err) { Utils.error(err.message); }
+};
+
+SMPage.attachLogo = async function() {
+  const editingId = (document.getElementById('cm-editing-id')?.value || '').trim() || window._cmEditingId;
+  if (!editingId) { Utils.warn('Save the company first before uploading a logo'); return; }
+  const fileInput = document.getElementById('cm-logo');
+  if (!fileInput?.files[0]) { Utils.warn('Please choose a file first'); return; }
+  if (fileInput.files[0].size > 500 * 1024) { Utils.warn('File too large. Max 500KB'); return; }
+
+  const formData = new FormData();
+  formData.append('logo', fileInput.files[0]);
+  const btn = document.getElementById('cm-attach-btn');
+  if (btn) { btn.textContent = 'Uploading...'; btn.disabled = true; }
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies/${editingId}/logo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const json = await res.json();
+    if (btn) { btn.textContent = 'ATTACH'; btn.disabled = false; }
+    if (json.success) {
+      const prev = document.getElementById('cm-logo-preview');
+      if (prev) prev.innerHTML = `<img src="${json.logo_url}" style="height:36px;object-fit:contain;border:1px solid #ddd;padding:3px;border-radius:2px;margin-top:4px"> <span style="font-size:11px;color:green;margin-left:6px">✓ Logo attached</span>`;
+      Utils.success('Logo uploaded successfully!');
+    } else throw new Error(json.error || 'Upload failed');
+  } catch (err) {
+    if (btn) { btn.textContent = 'ATTACH'; btn.disabled = false; }
+    Utils.error(err.message);
+  }
 };
 

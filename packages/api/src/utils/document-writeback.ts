@@ -543,6 +543,291 @@ const WRITEBACK_MAP: Record<string, WritebackFn> = {
   },
 
   address: async (v, ctx, c) => WRITEBACK_MAP.consumerAddress(v, ctx, c),
+
+  // ─── Phase 4c — ATS/Conveyance Deed fields ─────────────────────────────────
+
+  // Allottee fields (Agreement for Sale buyer)
+  allottee_name: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const parts = v.trim().split(/\s+/);
+    const firstName = parts[0] || '';
+    const lastName = parts.length > 1 ? parts.slice(1).join(' ') : '';
+    await client.query(
+      `UPDATE consumers SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3`,
+      [firstName, lastName, ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'first_name+last_name' };
+  },
+
+  allottee_address: async (v, ctx, c) => WRITEBACK_MAP.consumerAddress(v, ctx, c),
+  allottee_aadhaar: async (v, ctx, c) => WRITEBACK_MAP.aadhaarNo(v, ctx, c),
+  allottee_pan: async (v, ctx, c) => WRITEBACK_MAP.panNo(v, ctx, c),
+
+  allottee_age: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const num = parseInt(v.trim(), 10);
+    if (isNaN(num) || num < 0 || num > 150)
+      return { written: false, error: `invalid age: ${v}` };
+    await client.query(
+      `UPDATE consumers SET age = $1, updated_at = NOW() WHERE id = $2`,
+      [num, ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'age' };
+  },
+
+  allottee_relative_name: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    await client.query(
+      `UPDATE consumers SET father_name = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'father_name' };
+  },
+
+  allottee_relation: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    await client.query(
+      `UPDATE consumers SET son_daughter_wife_of = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'son_daughter_wife_of' };
+  },
+
+  // Vendee fields (Conveyance Deed buyer/receiver)
+  vendee_name: async (v, ctx, c) => WRITEBACK_MAP.allottee_name(v, ctx, c),
+  vendee_address: async (v, ctx, c) => WRITEBACK_MAP.consumerAddress(v, ctx, c),
+  vendee_aadhaar: async (v, ctx, c) => WRITEBACK_MAP.aadhaarNo(v, ctx, c),
+  vendee_pan: async (v, ctx, c) => WRITEBACK_MAP.panNo(v, ctx, c),
+
+  vendee_relative_name: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    await client.query(
+      `UPDATE consumers SET father_name = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'father_name' };
+  },
+
+  vendee_relation: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    await client.query(
+      `UPDATE consumers SET son_daughter_wife_of = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), ctx.consumerId]
+    );
+    return { written: true, table: 'consumers', column: 'son_daughter_wife_of' };
+  },
+
+  // Unit/Property fields
+  flat_no: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const unitId = await getUnitId(ctx.consumerId, client);
+    if (!unitId) return { written: false, error: 'no unit found for consumer' };
+    await client.query(
+      `UPDATE units SET unit_number = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), unitId]
+    );
+    return { written: true, table: 'units', column: 'unit_number' };
+  },
+
+  property_no: async (v, ctx, c) => WRITEBACK_MAP.flat_no(v, ctx, c),
+
+  carpet_area: async (v, ctx, c) => WRITEBACK_MAP.carpetArea(v, ctx, c),
+  balcony_area: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    let unitId: string | null = null;
+
+    if (ctx.allocationId) {
+      const r = await client.query(
+        `SELECT unit_id FROM allocations WHERE id = $1 AND unit_id IS NOT NULL`,
+        [ctx.allocationId]
+      );
+      unitId = r.rows[0]?.unit_id ?? null;
+    }
+
+    if (!unitId && ctx.consumerId) {
+      unitId = await getUnitId(ctx.consumerId, client);
+    }
+
+    if (!unitId) return { written: false, error: 'unit not found' };
+
+    const area = parseAmount(v);
+    if (area === null) return { written: false, error: `invalid area: ${v}` };
+
+    await client.query(
+      `UPDATE units SET balcony_area_sqft = $1, updated_at = NOW() WHERE id = $2`,
+      [area, unitId]
+    );
+    return { written: true, table: 'units', column: 'balcony_area_sqft' };
+  },
+
+  parking_no: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const unitId = await getUnitId(ctx.consumerId, client);
+    if (!unitId) return { written: false, error: 'no unit found for consumer' };
+    await client.query(
+      `UPDATE units SET parking_number = $1, updated_at = NOW() WHERE id = $2`,
+      [v.trim(), unitId]
+    );
+    return { written: true, table: 'units', column: 'parking_number' };
+  },
+
+  // Agreement date fields
+  agreement_date: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const iso = parseToISODate(v);
+    if (!iso) return { written: false, error: `invalid date: ${v}` };
+    const r = await client.query(
+      `SELECT id FROM allocations WHERE consumer_id = $1 LIMIT 1`,
+      [ctx.consumerId]
+    );
+    if (!r.rows[0]) return { written: false, error: 'no allocation found' };
+    await client.query(
+      `UPDATE allocations SET agreement_date = $1, updated_at = NOW() WHERE id = $2`,
+      [iso, r.rows[0].id]
+    );
+    return { written: true, table: 'allocations', column: 'agreement_date' };
+  },
+
+  agreement_day: async (v, ctx, c) => WRITEBACK_MAP.agreement_date(v, ctx, c),
+  agreement_month: async (v, ctx, c) => WRITEBACK_MAP.agreement_date(v, ctx, c),
+  agreement_year: async (v, ctx, c) => WRITEBACK_MAP.agreement_date(v, ctx, c),
+
+  // Conveyance deed date
+  conveyance_deed_date: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const iso = parseToISODate(v);
+    if (!iso) return { written: false, error: `invalid date: ${v}` };
+    const r = await client.query(
+      `SELECT id FROM allocations WHERE consumer_id = $1 LIMIT 1`,
+      [ctx.consumerId]
+    );
+    if (!r.rows[0]) return { written: false, error: 'no allocation found' };
+    await client.query(
+      `UPDATE allocations SET conveyance_deed_date = $1, updated_at = NOW() WHERE id = $2`,
+      [iso, r.rows[0].id]
+    );
+    return { written: true, table: 'allocations', column: 'conveyance_deed_date' };
+  },
+
+  deed_day: async (v, ctx, c) => WRITEBACK_MAP.conveyance_deed_date(v, ctx, c),
+  deed_month: async (v, ctx, c) => WRITEBACK_MAP.conveyance_deed_date(v, ctx, c),
+  deed_year: async (v, ctx, c) => WRITEBACK_MAP.conveyance_deed_date(v, ctx, c),
+
+  // Consideration/Price fields
+  total_price: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const price = parseAmount(v);
+    if (price === null) return { written: false, error: `invalid price: ${v}` };
+    const r = await client.query(
+      `SELECT id FROM booking_records WHERE consumer_id = $1 LIMIT 1`,
+      [ctx.consumerId]
+    );
+    if (!r.rows[0]) return { written: false, error: 'no booking record found' };
+    await client.query(
+      `UPDATE booking_records SET total_price_inr = $1, updated_at = NOW() WHERE id = $2`,
+      [price, r.rows[0].id]
+    );
+    return { written: true, table: 'booking_records', column: 'total_price_inr' };
+  },
+
+  booking_amount: async (v, ctx, client) => {
+    if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    const amount = parseAmount(v);
+    if (amount === null) return { written: false, error: `invalid amount: ${v}` };
+    const r = await client.query(
+      `SELECT id FROM booking_records WHERE consumer_id = $1 LIMIT 1`,
+      [ctx.consumerId]
+    );
+    if (!r.rows[0]) return { written: false, error: 'no booking record found' };
+    await client.query(
+      `UPDATE booking_records SET booking_amount = $1, updated_at = NOW() WHERE id = $2`,
+      [amount, r.rows[0].id]
+    );
+    return { written: true, table: 'booking_records', column: 'booking_amount' };
+  },
+
+  consideration: async (v, ctx, c) => WRITEBACK_MAP.total_price(v, ctx, c),
+
+  // Project fields (RERA, License, etc.)
+  harera_reg_no: async (v, ctx, c) => WRITEBACK_MAP.reraNo(v, ctx, c),
+  license_no: async (v, ctx, c) => WRITEBACK_MAP.licenseNo(v, ctx, c),
+
+  // Computed/read-only fields
+  tower_name: async () => ({
+    written: false,
+    error: 'tower_name is display-only from units table; edits not propagated. Override saved for display only.',
+  }),
+
+  floor_no: async () => ({
+    written: false,
+    error: 'floor_no is display-only; computed from unit details. Override saved for display only.',
+  }),
+
+  unit_type: async () => ({
+    written: false,
+    error: 'unit_type is computed from units table; not independently updatable. Override saved for display only.',
+  }),
+
+  project_name: async () => ({
+    written: false,
+    error: 'project_name is from projects table and should not be edited in document. Override saved for display only.',
+  }),
+
+  promoter_name: async () => ({
+    written: false,
+    error: 'promoter_name is from projects table and should not be edited in document. Override saved for display only.',
+  }),
+
+  promoter_cin: async () => ({
+    written: false,
+    error: 'promoter_cin is from projects table and should not be edited in document. Override saved for display only.',
+  }),
+
+  promoter_pan: async () => ({
+    written: false,
+    error: 'promoter_pan is from projects table and should not be edited in document. Override saved for display only.',
+  }),
+
+  promoter_address: async () => ({
+    written: false,
+    error: 'promoter_address is from projects table and should not be edited in document. Override saved for display only.',
+  }),
+
+  village_name: async () => ({
+    written: false,
+    error: 'village_name is from projects table; edit via project settings. Override saved for display only.',
+  }),
+
+  sector_name: async () => ({
+    written: false,
+    error: 'sector_name is from projects table; edit via project settings. Override saved for display only.',
+  }),
+
+  land_owner_name: async () => ({
+    written: false,
+    error: 'land_owner_name is from projects table; edit via project settings. Override saved for display only.',
+  }),
+
+  land_owner_llpin: async () => ({
+    written: false,
+    error: 'land_owner_llpin is from projects table; edit via project settings. Override saved for display only.',
+  }),
+
+  land_owner_pan: async () => ({
+    written: false,
+    error: 'land_owner_pan is from projects table; edit via project settings. Override saved for display only.',
+  }),
+
+  payment_plan_rows: async () => ({
+    written: false,
+    error: 'payment_plan_rows is computed from demands table. Edit individual demand rows instead.',
+  }),
+
+  // Display-only aliases
+  allottee_aadhaar_display: async () => ({ written: false }),
+  vendee_aadhaar_display: async () => ({ written: false }),
+  allottee_pan_display: async () => ({ written: false }),
+  vendee_pan_display: async () => ({ written: false }),
 };
 
 // ─── Receipt charge-type → DB column map (amountNet write-back) ──────────────

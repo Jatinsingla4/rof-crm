@@ -323,7 +323,7 @@ router.post('/employee-login', async (req: AuthRequest, res: Response, next: Nex
     const {
       employeeId, role, username, email, password, confirmPassword,
       authorizedPrint, authorizedDownload, unitStatusAccess,
-      homePageWidgets, processPermissions, companyIds,
+      homePageWidgets, processPermissions, companyIds, assignedProjectIds,
     } = req.body;
 
     if (!username || !email || !password || !role) {
@@ -348,12 +348,14 @@ router.post('/employee-login', async (req: AuthRequest, res: Response, next: Nex
       await client.query('BEGIN');
       const userRes = await client.query(`
         INSERT INTO users (email, name, username, employee_id, role, password_hash,
-          authorized_print, authorized_download, unit_status_access, home_page_widgets, is_active, created_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,NOW())
+          authorized_print, authorized_download, unit_status_access, home_page_widgets,
+          assigned_project_ids, is_active, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,NOW())
         RETURNING id
       `, [email, userName, username, employeeId || null, role, hash,
           authorizedPrint || false, authorizedDownload || false,
-          unitStatusAccess || 'all', JSON.stringify(homePageWidgets || [])]);
+          unitStatusAccess || 'all', JSON.stringify(homePageWidgets || []),
+          JSON.stringify(assignedProjectIds || [])]);
 
       const userId = userRes.rows[0].id;
 
@@ -395,11 +397,27 @@ router.post('/employee-login', async (req: AuthRequest, res: Response, next: Nex
 // GET /api/users/employee-login
 router.get('/employee-login', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const { username, role, status } = req.query;
+    const params: any[] = [];
+    let where = 'WHERE 1=1';
+
+    if (username) {
+      params.push(`%${username}%`);
+      where += ` AND (u.username ILIKE $${params.length} OR u.name ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
+    }
+    if (role) {
+      params.push(role);
+      where += ` AND u.role = $${params.length}`;
+    }
+    if (status === 'active') where += ` AND u.is_active = true`;
+    else if (status === 'inactive') where += ` AND u.is_active = false`;
+
     const result = await db.query(`
       SELECT
         u.id, u.name, u.username, u.email, u.role,
         u.unit_status_access, u.authorized_print, u.authorized_download,
         u.home_page_widgets, u.is_active, u.created_at,
+        u.assigned_project_ids, u.ip_security_enabled,
         eu.name as employee_name, ep.designation,
         COALESCE(
           json_agg(DISTINCT jsonb_build_object(
@@ -413,16 +431,27 @@ router.get('/employee-login', async (req: AuthRequest, res: Response, next: Next
         COALESCE(
           array_agg(DISTINCT c.name) FILTER (WHERE c.id IS NOT NULL),
           '{}'
-        ) as company_names
+        ) as company_names,
+        COALESCE(
+          (SELECT string_agg(p.name, ', ' ORDER BY p.name)
+           FROM projects p
+           WHERE p.id::text = ANY(
+             ARRAY(SELECT jsonb_array_elements_text(COALESCE(u.assigned_project_ids, '[]'::jsonb)))
+           )),
+          ''
+        ) AS project_names,
+        (SELECT COUNT(*)::int FROM user_ip_restrictions uir
+         WHERE uir.user_id = u.id AND uir.is_active = true) AS ip_count
       FROM users u
       LEFT JOIN employee_profiles ep ON ep.id = u.employee_id
       LEFT JOIN users eu ON eu.id = ep.user_id
       LEFT JOIN user_process_permissions upp ON upp.user_id = u.id
       LEFT JOIN user_company_access uca ON uca.user_id = u.id
       LEFT JOIN companies c ON c.id = uca.company_id
+      ${where}
       GROUP BY u.id, eu.name, ep.designation
       ORDER BY u.created_at DESC
-    `);
+    `, params);
     return res.json({ success: true, data: result.rows });
   } catch (error) {
     next(error);
@@ -436,6 +465,7 @@ router.patch('/employee-login/:id', async (req: AuthRequest, res: Response, next
     const {
       role, authorizedPrint, authorizedDownload, unitStatusAccess,
       homePageWidgets, processPermissions, companyIds, isActive, password,
+      assignedProjectIds, ipSecurityEnabled,
     } = req.body;
 
     const updates: string[] = [];
@@ -447,7 +477,9 @@ router.patch('/employee-login/:id', async (req: AuthRequest, res: Response, next
     if (authorizedDownload !== undefined) { updates.push(`authorized_download = $${idx++}`); values.push(authorizedDownload); }
     if (unitStatusAccess !== undefined)   { updates.push(`unit_status_access = $${idx++}`);  values.push(unitStatusAccess); }
     if (homePageWidgets !== undefined)    { updates.push(`home_page_widgets = $${idx++}`);   values.push(JSON.stringify(homePageWidgets)); }
-    if (isActive !== undefined)           { updates.push(`is_active = $${idx++}`);           values.push(isActive); }
+    if (isActive !== undefined)           { updates.push(`is_active = $${idx++}`);                values.push(isActive); }
+    if (assignedProjectIds !== undefined) { updates.push(`assigned_project_ids = $${idx++}`);    values.push(JSON.stringify(assignedProjectIds)); }
+    if (ipSecurityEnabled !== undefined)  { updates.push(`ip_security_enabled = $${idx++}`);     values.push(ipSecurityEnabled); }
     if (password) {
       const hash = await bcrypt.hash(password, 12);
       updates.push(`password_hash = $${idx++}`);
@@ -489,6 +521,48 @@ router.patch('/employee-login/:id', async (req: AuthRequest, res: Response, next
   } catch (error) {
     next(error);
   }
+});
+
+// GET /api/users/employee-login/:id/ips
+router.get('/employee-login/:id/ips', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await db.query(
+      `SELECT id, ip_address, description, is_active, created_at
+       FROM user_ip_restrictions WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// POST /api/users/employee-login/:id/ips
+router.post('/employee-login/:id/ips', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { ip_address, description } = req.body;
+    if (!ip_address) return res.status(400).json({ error: 'ip_address required' });
+    const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$|^[\da-fA-F:]+$/;
+    if (!ipRegex.test(ip_address.trim())) return res.status(400).json({ error: 'Invalid IP address format' });
+
+    const result = await db.query(
+      `INSERT INTO user_ip_restrictions (user_id, ip_address, description)
+       VALUES ($1,$2,$3)
+       ON CONFLICT (user_id, ip_address) DO UPDATE SET is_active = true, description = $3
+       RETURNING *`,
+      [req.params.id, ip_address.trim(), description || null]
+    );
+    res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// DELETE /api/users/employee-login/:id/ips/:ipId
+router.delete('/employee-login/:id/ips/:ipId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await db.query(
+      `DELETE FROM user_ip_restrictions WHERE id = $1 AND user_id = $2`,
+      [req.params.ipId, req.params.id]
+    );
+    res.json({ success: true });
+  } catch (error) { next(error); }
 });
 
 // ============================================================

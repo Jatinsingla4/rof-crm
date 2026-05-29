@@ -334,6 +334,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     city,
     state,
     email,
+    firstName,
+    middleName,
+    lastName,
     secondApplicant,
     secondApplicantPan,
     page = 1,
@@ -392,9 +395,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (dob) {
-      // dob column might not exist in consumers table, but in applicant_details in migration 018
-      // For this 1:1, assume dob is added or use dummy filter
-      query += ` AND c.created_at::date = $${params.length + 1}`; // Placeholder for dob
+      query += ` AND c.dob::date = $${params.length + 1}`;
       params.push(dob);
     }
 
@@ -404,13 +405,48 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     }
 
     if (city) {
-      query += ` AND c.email ILIKE $${params.length + 1}`; // Placeholder for city
+      query += ` AND c.present_city ILIKE $${params.length + 1}`;
       params.push(`%${city}%`);
+    }
+
+    if (address) {
+      query += ` AND c.present_address ILIKE $${params.length + 1}`;
+      params.push(`%${address}%`);
+    }
+
+    if (state) {
+      query += ` AND c.present_state ILIKE $${params.length + 1}`;
+      params.push(`%${state}%`);
+    }
+
+    if (email) {
+      query += ` AND c.email ILIKE $${params.length + 1}`;
+      params.push(`%${email}%`);
+    }
+
+    if (firstName) {
+      query += ` AND c.first_name ILIKE $${params.length + 1}`;
+      params.push(`%${firstName}%`);
+    }
+
+    if (middleName) {
+      query += ` AND c.middle_name ILIKE $${params.length + 1}`;
+      params.push(`%${middleName}%`);
+    }
+
+    if (lastName) {
+      query += ` AND c.last_name ILIKE $${params.length + 1}`;
+      params.push(`%${lastName}%`);
     }
 
     if (secondApplicant) {
       query += ` AND co.name ILIKE $${params.length + 1}`;
       params.push(`%${secondApplicant}%`);
+    }
+
+    if (secondApplicantPan) {
+      query += ` AND EXISTS (SELECT 1 FROM co_applicants ca WHERE ca.consumer_id = c.id AND ca.pan_no ILIKE $${params.length + 1})`;
+      params.push(`%${secondApplicantPan}%`);
     }
 
     if (search) {
@@ -1157,7 +1193,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     const projectId      = row.project_id     || null;
     const selectedPlan   = row.selected_plan_name || null;
 
-    const [templatesRes, allocationRes, dispatchRes, receiptsRes] = await Promise.all([
+    const [templatesRes, allocationRes, dispatchRes, receiptsRes, demandsRes] = await Promise.all([
       projectId && selectedPlan
         ? db.query(
             `SELECT * FROM plan_schedule_templates
@@ -1186,6 +1222,10 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
          ORDER BY r.received_date ASC, r.created_at ASC`,
+        [consumerId],
+      ),
+      db.query(
+        `SELECT installment_index, due_date, status, amount_due_inr, cgst_amount, sgst_amount FROM demands WHERE consumer_id = $1 ORDER BY installment_index ASC`,
         [consumerId],
       ),
     ]);
@@ -1219,6 +1259,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       templatesRes.rows,
       dispatchRes.rows,
       receiptsRes.rows,
+      demandsRes.rows,
     );
 
     // Persist to documents table on first view so it can be edited later

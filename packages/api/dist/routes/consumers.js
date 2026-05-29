@@ -278,7 +278,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
 });
 // GET /api/consumers - List all consumers (with search & filter)
 router.get('/', async (req, res, next) => {
-    const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, secondApplicant, secondApplicantPan, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
+    const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, firstName, middleName, lastName, secondApplicant, secondApplicantPan, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
     try {
         let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
@@ -322,9 +322,7 @@ router.get('/', async (req, res, next) => {
             params.push(`%${regNo}%`);
         }
         if (dob) {
-            // dob column might not exist in consumers table, but in applicant_details in migration 018
-            // For this 1:1, assume dob is added or use dummy filter
-            query += ` AND c.created_at::date = $${params.length + 1}`; // Placeholder for dob
+            query += ` AND c.dob::date = $${params.length + 1}`;
             params.push(dob);
         }
         if (pan) {
@@ -332,12 +330,40 @@ router.get('/', async (req, res, next) => {
             params.push(`%${pan}%`);
         }
         if (city) {
-            query += ` AND c.email ILIKE $${params.length + 1}`; // Placeholder for city
+            query += ` AND c.present_city ILIKE $${params.length + 1}`;
             params.push(`%${city}%`);
+        }
+        if (address) {
+            query += ` AND c.present_address ILIKE $${params.length + 1}`;
+            params.push(`%${address}%`);
+        }
+        if (state) {
+            query += ` AND c.present_state ILIKE $${params.length + 1}`;
+            params.push(`%${state}%`);
+        }
+        if (email) {
+            query += ` AND c.email ILIKE $${params.length + 1}`;
+            params.push(`%${email}%`);
+        }
+        if (firstName) {
+            query += ` AND c.first_name ILIKE $${params.length + 1}`;
+            params.push(`%${firstName}%`);
+        }
+        if (middleName) {
+            query += ` AND c.middle_name ILIKE $${params.length + 1}`;
+            params.push(`%${middleName}%`);
+        }
+        if (lastName) {
+            query += ` AND c.last_name ILIKE $${params.length + 1}`;
+            params.push(`%${lastName}%`);
         }
         if (secondApplicant) {
             query += ` AND co.name ILIKE $${params.length + 1}`;
             params.push(`%${secondApplicant}%`);
+        }
+        if (secondApplicantPan) {
+            query += ` AND EXISTS (SELECT 1 FROM co_applicants ca WHERE ca.consumer_id = c.id AND ca.pan_no ILIKE $${params.length + 1})`;
+            params.push(`%${secondApplicantPan}%`);
         }
         if (search) {
             query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_number ILIKE $${params.length + 4})`;
@@ -975,7 +1001,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         // ── sequential queries needing project_id ─
         const projectId = row.project_id || null;
         const selectedPlan = row.selected_plan_name || null;
-        const [templatesRes, allocationRes, dispatchRes, receiptsRes] = await Promise.all([
+        const [templatesRes, allocationRes, dispatchRes, receiptsRes, demandsRes] = await Promise.all([
             projectId && selectedPlan
                 ? index_js_1.db.query(`SELECT * FROM plan_schedule_templates
              WHERE project_id = $1 AND plan_name = $2
@@ -994,6 +1020,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
          ORDER BY r.received_date ASC, r.created_at ASC`, [consumerId]),
+            index_js_1.db.query(`SELECT installment_index, due_date, status, amount_due_inr, cgst_amount, sgst_amount FROM demands WHERE consumer_id = $1 ORDER BY installment_index ASC`, [consumerId]),
         ]);
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
@@ -1007,7 +1034,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             installment_index: w.installment_index,
             total_paid: w.paid,
         }));
-        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows);
+        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {

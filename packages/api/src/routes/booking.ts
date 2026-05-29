@@ -1310,6 +1310,7 @@ function buildApplicantPage2(
   scheduleTemplates: any[],
   settings: Record<string, string>,
   receiptRows: any[] = [],
+  demands: any[] = [],
 ): string {
 
   // ── derived values ──────────────────────
@@ -1344,7 +1345,35 @@ function buildApplicantPage2(
   const tdBR     = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:right;font-weight:700;"`;
   const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
 
-  // ── date helper: offset from booking_date ──
+  // ── demand due date map: installment_index → due_date ──
+  const demandDueDateMap: Record<number, string> = {};
+  demands.forEach((d: any) => {
+    if (d.due_date != null && d.installment_index != null) {
+      demandDueDateMap[Number(d.installment_index)] = d.due_date;
+    }
+  });
+
+  // ── demand amount map: installment_index → DB-stored amounts ──
+  // Use these instead of recalculating from percentages to avoid JS float rounding gaps
+  const demandAmountMap: Record<number, { amt: number; cgst: number; sgst: number }> = {};
+  demands.forEach((d: any) => {
+    if (d.installment_index != null) {
+      demandAmountMap[Number(d.installment_index)] = {
+        amt:  Number(d.amount_due_inr || 0),
+        cgst: Number(d.cgst_amount   || 0),
+        sgst: Number(d.sgst_amount   || 0),
+      };
+    }
+  });
+
+  function fmtDDMMYYYY(dateVal: any): string {
+    if (!dateVal) return '—';
+    const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  }
+
+  // ── date helper: offset from booking_date (fallback only) ──
   function dueDateStr(offsetDays: any): string {
     if (offsetDays == null || !bookingDate) return '—';
     const d = new Date(bookingDate);
@@ -1381,11 +1410,15 @@ function buildApplicantPage2(
       const pct        = parseFloat(t.percentage || 0);
       const netBsp     = basePrice * pct / 100;
       const otherInst  = (plcAmount + otherCharge) * pct / 100;
-      const instAmt    = netBsp + otherInst;
-      const instCgst   = instAmt * cgstPct / 100;
-      const instSgst   = instAmt * sgstPct / 100;
+      const dbAmt      = demandAmountMap[t.installment_index];
+      // Use DB-stored amounts when available — avoids JS float rounding gap (e.g. 626.45 vs 626.00)
+      const instAmt    = dbAmt ? dbAmt.amt  : Math.round(netBsp + otherInst);
+      const instCgst   = dbAmt ? dbAmt.cgst : Math.round((netBsp + otherInst) * cgstPct) / 100;
+      const instSgst   = dbAmt ? dbAmt.sgst : Math.round((netBsp + otherInst) * sgstPct) / 100;
       const netDue     = instAmt + instCgst + instSgst;
-      const dueDate    = dueDateStr(t.due_date_offset_days);
+      const dueDate    = demandDueDateMap[t.installment_index] != null
+        ? fmtDDMMYYYY(demandDueDateMap[t.installment_index])
+        : '—';
 
       const paidForRow    = paidMap[t.installment_index] || 0;
       const balanceForRow = Math.max(0, netDue - paidForRow);
@@ -1455,14 +1488,19 @@ function buildApplicantPage2(
   let addonRows = '';
   let addonRowNum = 0;
   let addonNetTotal = 0, addonCgstTotal = 0, addonSgstTotal = 0, addonGrandTotal = 0;
+  let addonReceivedTotal = 0;
+
+  // Calculate proportional received amount based on installment payment progress
+  const proportionPaid = totNetDue > 0 ? totPaid / totNetDue : 0;
 
   if (b.has_plc && plcAmount > 0) {
     addonRowNum++;
     const plcCgst  = plcAmount * cgstPct / 100;
     const plcSgst  = plcAmount * sgstPct / 100;
-    const plcTotal = plcAmount + plcCgst + plcSgst;
+    const plcReceived = plcAmount * proportionPaid;
     addonNetTotal    += plcAmount; addonCgstTotal += plcCgst;
-    addonSgstTotal   += plcSgst;  addonGrandTotal += plcTotal;
+    addonSgstTotal   += plcSgst;  addonGrandTotal += plcAmount + plcCgst + plcSgst;
+    addonReceivedTotal += plcReceived;
     addonRows += `<tr>
       <td ${tdC}>${addonRowNum}</td>
       <td ${tdL}>Balcony Charge</td>
@@ -1470,9 +1508,9 @@ function buildApplicantPage2(
       <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
       <td ${tdR}>${fmtIndianNumber(plcCgst)}</td>
       <td ${tdR}>${fmtIndianNumber(plcSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcTotal)}</td>
-      <td ${tdR}>0.00</td>
-      <td ${tdR}>${fmtIndianNumber(plcTotal)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcReceived)}</td>
+      <td ${tdR}>${fmtIndianNumber(plcAmount - plcReceived)}</td>
       <td ${tdC}>—</td>
     </tr>`;
   }
@@ -1481,9 +1519,10 @@ function buildApplicantPage2(
     addonRowNum++;
     const ocCgst  = otherCharge * cgstPct / 100;
     const ocSgst  = otherCharge * sgstPct / 100;
-    const ocTotal = otherCharge + ocCgst + ocSgst;
+    const ocReceived = otherCharge * proportionPaid;
     addonNetTotal    += otherCharge; addonCgstTotal += ocCgst;
-    addonSgstTotal   += ocSgst;     addonGrandTotal += ocTotal;
+    addonSgstTotal   += ocSgst;     addonGrandTotal += otherCharge + ocCgst + ocSgst;
+    addonReceivedTotal += ocReceived;
     addonRows += `<tr>
       <td ${tdC}>${addonRowNum}</td>
       <td ${tdL}>${esc(b.other_charge_desc || 'Other Charge')}</td>
@@ -1491,9 +1530,9 @@ function buildApplicantPage2(
       <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
       <td ${tdR}>${fmtIndianNumber(ocCgst)}</td>
       <td ${tdR}>${fmtIndianNumber(ocSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(ocTotal)}</td>
-      <td ${tdR}>0.00</td>
-      <td ${tdR}>${fmtIndianNumber(ocTotal)}</td>
+      <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
+      <td ${tdR}>${fmtIndianNumber(ocReceived)}</td>
+      <td ${tdR}>${fmtIndianNumber(otherCharge - ocReceived)}</td>
       <td ${tdC}>—</td>
     </tr>`;
   }
@@ -1527,9 +1566,9 @@ function buildApplicantPage2(
         <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
         <td ${tdBR}>${fmtIndianNumber(addonCgstTotal)}</td>
         <td ${tdBR}>${fmtIndianNumber(addonSgstTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
-        <td ${tdBR}>0.00</td>
-        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonReceivedTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonNetTotal - addonReceivedTotal)}</td>
         <td ${tdBR}></td>
       </tr></tfoot>
     </table>`;
@@ -1670,7 +1709,9 @@ function buildApplicantPage2(
       const netBsp  = basePrice * pct / 100;
       const otherI  = (plcAmount + otherCharge) * pct / 100;
       const dueAmt  = netBsp + otherI;
-      const dueDate = dueDateStr(t.due_date_offset_days);
+      const dueDate = demandDueDateMap[t.installment_index] != null
+        ? fmtDDMMYYYY(demandDueDateMap[t.installment_index])
+        : '—';
       interestRows += `<tr>
         <td ${tdC}>${idx + 1}</td>
         <td ${tdL}>${esc(t.installment_name)}</td>
@@ -1940,9 +1981,10 @@ export function buildApplicantFileHtml(
   scheduleTemplates: any[],
   documentDispatches: any[],
   receiptRows: any[] = [],
+  demands: any[] = [],
 ): string {
   const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots);
-  const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows);
+  const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands);
   const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
 
   const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

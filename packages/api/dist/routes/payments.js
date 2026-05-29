@@ -275,9 +275,11 @@ router.post('/demands/generate', async (req, res, next) => {
         let planQuery = `
       SELECT pp.id as payment_plan_id, pp.consumer_id, pp.unit_id, pp.project_id,
              pp.total_amount_inr, c.name as consumer_name,
-             COALESCE(c.nationality, 'indian') as nationality
+             COALESCE(c.nationality, 'indian') as nationality,
+             br.booking_date
       FROM payment_plans pp
       JOIN consumers c ON c.id = pp.consumer_id
+      LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id IS NOT NULL
       WHERE 1=1
     `;
         const planParams = [];
@@ -315,7 +317,7 @@ router.post('/demands/generate', async (req, res, next) => {
             if (!resolvedPlanName)
                 continue;
             // Get installment templates for this plan
-            const templates = await index_js_1.db.query(`SELECT installment_index, installment_name, percentage, installment_type
+            const templates = await index_js_1.db.query(`SELECT installment_index, installment_name, percentage, installment_type, COALESCE(due_date_offset_days, 30) as due_date_offset_days
          FROM plan_schedule_templates
          WHERE project_id = $1 AND plan_name = $2
          ORDER BY installment_index`, [plan.project_id, resolvedPlanName]);
@@ -332,11 +334,17 @@ router.post('/demands/generate', async (req, res, next) => {
                 const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
                 const cgstAmount = isNri ? 0 : Math.round(amountDue * basicCgstPct);
                 const sgstAmount = isNri ? 0 : Math.round(amountDue * basicSgstPct);
+                const bookingDate = plan.booking_date || new Date().toISOString().split('T')[0];
+                const offsetDays = tmpl.due_date_offset_days || 0;
+                const dueDate = offsetDays > 0
+                    ? new Date(new Date(bookingDate).getTime() + offsetDays * 24 * 60 * 60 * 1000)
+                        .toISOString().split('T')[0]
+                    : null;
                 const ins = await index_js_1.db.query(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, due_date, amount_due_inr,
                                 cgst_amount, sgst_amount,
                                 status, demand_type, delivery_status, generated_at)
-           VALUES ($1, $2, $3, CURRENT_DATE + INTERVAL '30 days', $4, $5, $6, 'pending', $7, 'pending', NOW())
-           RETURNING id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status`, [plan.payment_plan_id, tmpl.installment_index, plan.consumer_id, amountDue,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, 'pending', NOW())
+           RETURNING id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status`, [plan.payment_plan_id, tmpl.installment_index, plan.consumer_id, dueDate, amountDue,
                     cgstAmount, sgstAmount, tmpl.installment_type || tmpl.installment_name]);
                 created.push({ ...ins.rows[0], consumer_name: plan.consumer_name });
                 totalCreated++;
@@ -2789,6 +2797,117 @@ router.get('/receipt-detail/:consumerId', async (req, res, next) => {
         const html = buildReceiptDetailHtml(result.rows);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// ─── DEMAND STATUS PAGE ───────────────────────────────────────────────────────
+// GET /api/payments/demand-status
+router.get('/demand-status', async (req, res, next) => {
+    try {
+        const { project_id, tower, floor, reg_no, name, city, due_date_from, due_date_to, delivery_status, demand_status, page = 1, limit = 50, } = req.query;
+        const params = [];
+        let where = 'WHERE 1=1';
+        if (project_id) {
+            params.push(project_id);
+            where += ` AND p.id = $${params.length}`;
+        }
+        if (tower) {
+            params.push(`%${tower}%`);
+            where += ` AND t.tower_name ILIKE $${params.length}`;
+        }
+        if (floor) {
+            params.push(floor);
+            where += ` AND u.floor = $${params.length}`;
+        }
+        if (reg_no) {
+            params.push(`%${reg_no}%`);
+            where += ` AND c.registration_no ILIKE $${params.length}`;
+        }
+        if (name) {
+            params.push(`%${name}%`);
+            where += ` AND (c.name ILIKE $${params.length} OR c.first_name ILIKE $${params.length} OR c.last_name ILIKE $${params.length})`;
+        }
+        if (city) {
+            params.push(`%${city}%`);
+            where += ` AND c.present_city ILIKE $${params.length}`;
+        }
+        // due_date filters apply to MAX(d.due_date) range — use HAVING to avoid excluding consumers
+        // whose SOME demands fall outside range. We filter consumers who HAVE at least one demand in range.
+        if (due_date_from) {
+            params.push(due_date_from);
+            where += ` AND EXISTS (SELECT 1 FROM demands dd WHERE dd.consumer_id = c.id AND dd.due_date >= $${params.length}::date)`;
+        }
+        if (due_date_to) {
+            params.push(due_date_to);
+            where += ` AND EXISTS (SELECT 1 FROM demands dd WHERE dd.consumer_id = c.id AND dd.due_date <= $${params.length}::date)`;
+        }
+        if (delivery_status) {
+            params.push(delivery_status);
+            where += ` AND d.delivery_status = $${params.length}`;
+        }
+        if (demand_status && demand_status !== 'all') {
+            params.push(demand_status);
+            where += ` AND d.status = $${params.length}`;
+        }
+        const offset = (Number(page) - 1) * Number(limit);
+        const dataResult = await index_js_1.db.query(`
+      SELECT
+        c.id AS consumer_id,
+        c.registration_no,
+        c.name,
+        c.mobile,
+        c.present_city,
+        br.booking_date,
+        br.booking_amount,
+        u.unit_number,
+        t.tower_name,
+        u.floor AS floor_number,
+        u.bhk_type,
+        p.name AS project_name,
+        COUNT(d.id)::int AS total_demands,
+        COUNT(CASE WHEN d.status = 'paid' THEN 1 END)::int AS paid_demands,
+        COUNT(CASE WHEN d.status = 'demanded' THEN 1 END)::int AS active_demands,
+        COUNT(CASE WHEN d.status = 'pending' THEN 1 END)::int AS pending_demands,
+        COALESCE(SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)), 0)::bigint AS total_due,
+        COALESCE(SUM(CASE WHEN d.status = 'paid'
+          THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)
+          ELSE 0 END), 0)::bigint AS total_paid,
+        COALESCE(SUM(CASE WHEN d.status != 'paid'
+          THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)
+          ELSE 0 END), 0)::bigint AS outstanding,
+        MAX(d.delivery_status) AS delivery_status
+      FROM consumers c
+      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN demands d ON d.consumer_id = c.id
+      ${where}
+      GROUP BY c.id, c.registration_no, c.name, c.mobile, c.present_city,
+               br.booking_date, br.booking_amount, u.unit_number, t.tower_name,
+               u.floor, u.bhk_type, p.name
+      ORDER BY c.name ASC
+      LIMIT ${Number(limit)} OFFSET ${offset}
+    `, params);
+        const countResult = await index_js_1.db.query(`
+      SELECT COUNT(DISTINCT c.id) AS total
+      FROM consumers c
+      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN demands d ON d.consumer_id = c.id
+      ${where}
+    `, params);
+        res.json({
+            success: true,
+            data: dataResult.rows,
+            total: parseInt(countResult.rows[0]?.total || '0'),
+            page: Number(page),
+            limit: Number(limit),
+        });
     }
     catch (err) {
         next(err);
