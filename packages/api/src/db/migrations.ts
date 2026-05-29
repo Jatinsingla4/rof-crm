@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { pool } from './pool';
+import { db } from './pool';
 
 async function runMigrations() {
   const migrationsDir = path.join(__dirname, 'migrations');
@@ -22,7 +22,7 @@ async function runMigrations() {
 
       try {
         const sql = fs.readFileSync(filePath, 'utf-8');
-        await pool.query(sql);
+        await db.query(sql);
         console.log(`[MIGRATIONS] ✅ ${migrationName} completed`);
       } catch (error) {
         console.error(`[MIGRATIONS] ❌ ${migrationName} FAILED:`, (error as Error).message);

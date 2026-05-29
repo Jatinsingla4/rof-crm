@@ -194,9 +194,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const { id } = req.params;
 
     const result = await db.query(
-      `SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location,
-              p.land_area_sqft, p.total_units, p.group_name, p.possession_date, p.created_at
-       FROM projects p WHERE p.id = $1`,
+      `SELECT * FROM projects WHERE id = $1`,
       [id]
     );
 
@@ -219,17 +217,101 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { name, location, totalUnits } = req.body;
+    const {
+      name,
+      location,
+      totalUnits,
+      licenseDate,
+      envClearanceNo,
+      envClearanceDate,
+      buildingPlanMemoNo,
+      buildingPlanDate,
+      collaborationAgreementDate,
+      landOwnerName,
+      landOwnerLlpin,
+      landOwnerPan,
+      landOwnerAddress,
+      landOwnerGpaVasikaNo,
+      landOwnerGpaDate,
+      saleDeedNo,
+      saleDeedDate,
+      occupationCertMemoNo,
+      occupationCertDate,
+      deedOfDeclarationVasikaNo,
+      deedOfDeclarationDate,
+      khasraDetails,
+      villageName,
+      sectorName,
+      subRegistrarOffice,
+      authorisedSignatoryName,
+      authorisedSignatoryAadhaar,
+      boardResolutionDate,
+    } = req.body;
 
     const result = await db.query(
       `UPDATE projects SET
          name = COALESCE($1, name),
          location = COALESCE($2, location),
          total_units = COALESCE($3, total_units),
+         license_date = COALESCE($4::date, license_date),
+         env_clearance_no = COALESCE($5, env_clearance_no),
+         env_clearance_date = COALESCE($6::date, env_clearance_date),
+         building_plan_memo_no = COALESCE($7, building_plan_memo_no),
+         building_plan_date = COALESCE($8::date, building_plan_date),
+         collaboration_agreement_date = COALESCE($9::date, collaboration_agreement_date),
+         land_owner_name = COALESCE($10, land_owner_name),
+         land_owner_llpin = COALESCE($11, land_owner_llpin),
+         land_owner_pan = COALESCE($12, land_owner_pan),
+         land_owner_address = COALESCE($13, land_owner_address),
+         land_owner_gpa_vasika_no = COALESCE($14, land_owner_gpa_vasika_no),
+         land_owner_gpa_date = COALESCE($15::date, land_owner_gpa_date),
+         sale_deed_no = COALESCE($16, sale_deed_no),
+         sale_deed_date = COALESCE($17::date, sale_deed_date),
+         occupation_cert_memo_no = COALESCE($18, occupation_cert_memo_no),
+         occupation_cert_date = COALESCE($19::date, occupation_cert_date),
+         deed_of_declaration_vasika_no = COALESCE($20, deed_of_declaration_vasika_no),
+         deed_of_declaration_date = COALESCE($21::date, deed_of_declaration_date),
+         khasra_details = COALESCE($22, khasra_details),
+         village_name = COALESCE($23, village_name),
+         sector_name = COALESCE($24, sector_name),
+         sub_registrar_office = COALESCE($25, sub_registrar_office),
+         authorised_signatory_name = COALESCE($26, authorised_signatory_name),
+         authorised_signatory_aadhaar = COALESCE($27, authorised_signatory_aadhaar),
+         board_resolution_date = COALESCE($28::date, board_resolution_date),
          updated_at = NOW()
-       WHERE id = $4
-       RETURNING id, name, location, total_units, updated_at`,
-      [name || null, location || null, totalUnits || null, id]
+       WHERE id = $29
+       RETURNING *`,
+      [
+        name || null,
+        location || null,
+        totalUnits ? parseInt(totalUnits) : null,
+        licenseDate || null,
+        envClearanceNo || null,
+        envClearanceDate || null,
+        buildingPlanMemoNo || null,
+        buildingPlanDate || null,
+        collaborationAgreementDate || null,
+        landOwnerName || null,
+        landOwnerLlpin || null,
+        landOwnerPan || null,
+        landOwnerAddress || null,
+        landOwnerGpaVasikaNo || null,
+        landOwnerGpaDate || null,
+        saleDeedNo || null,
+        saleDeedDate || null,
+        occupationCertMemoNo || null,
+        occupationCertDate || null,
+        deedOfDeclarationVasikaNo || null,
+        deedOfDeclarationDate || null,
+        khasraDetails || null,
+        villageName || null,
+        sectorName || null,
+        subRegistrarOffice || null,
+        authorisedSignatoryName || null,
+        authorisedSignatoryAadhaar || null,
+        boardResolutionDate || null,
+        id
+      ]
     );
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Project not found' });

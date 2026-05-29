@@ -100,6 +100,65 @@ Pages.setProjects = async function(params = {}) {
                 <div class="fg"><label class="fl">Location</label><input class="fc" id="spj-edit-proj-location"></div>
                 <div class="fg"><label class="fl">Total Units</label><input type="number" class="fc" id="spj-edit-proj-units"></div>
               </div>
+
+              <!-- LEGAL DETAILS SECTION -->
+              <div style="margin-top:20px">
+                <div style="font-weight:bold;font-size:13px;color:#1a3c5e;padding:8px 0;border-bottom:2px solid #17a2b8;margin-bottom:15px;text-transform:uppercase;letter-spacing:0.5px">
+                  📋 Legal &amp; Registration Details
+                  <span style="font-size:11px;color:#666;font-weight:normal;text-transform:none;margin-left:8px">(Used in ATS and Conveyance Deed documents)</span>
+                </div>
+
+                <!-- GROUP 1: Basic Legal -->
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-weight:600">Project Approvals</div>
+                <div class="sp-grid" style="margin-bottom:16px">
+                  <div class="fg"><label class="fl">Village Name</label><input class="fc" id="spj-edit-village-name" placeholder="e.g. Village Dharampur"></div>
+                  <div class="fg"><label class="fl">Sector Name</label><input class="fc" id="spj-edit-sector-name" placeholder="e.g. Sector-108"></div>
+                  <div class="fg"><label class="fl">License Date</label><input type="date" class="fc" id="spj-edit-license-date"></div>
+                  <div class="fg"><label class="fl">Env. Clearance No.</label><input class="fc" id="spj-edit-env-clearance-no" placeholder="e.g. SEIAA/HR/2020/72"></div>
+                  <div class="fg"><label class="fl">Env. Clearance Date</label><input type="date" class="fc" id="spj-edit-env-clearance-date"></div>
+                  <div class="fg"><label class="fl">Building Plan Memo No.</label><input class="fc" id="spj-edit-building-plan-memo" placeholder="e.g. ZP1348/AD(RA)/2019/28186"></div>
+                  <div class="fg"><label class="fl">Building Plan Date</label><input type="date" class="fc" id="spj-edit-building-plan-date"></div>
+                  <div class="fg"><label class="fl">Khasra Details</label><textarea class="fc" id="spj-edit-khasra-details" rows="3" placeholder="e.g. Rect. No. 1 Killa No. 16/1..."></textarea></div>
+                </div>
+
+                <!-- GROUP 2: Land Owner -->
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-weight:600">Land Owner Details</div>
+                <div class="sp-grid" style="margin-bottom:16px">
+                  <div class="fg"><label class="fl">Land Owner Name</label><input class="fc" id="spj-edit-land-owner-name" placeholder="e.g. M/s MRA Infrastructure..."></div>
+                  <div class="fg"><label class="fl">Land Owner LLPIN</label><input class="fc" id="spj-edit-land-owner-llpin" placeholder="e.g. AAO-7853"></div>
+                  <div class="fg"><label class="fl">Land Owner PAN</label><input class="fc" id="spj-edit-land-owner-pan" placeholder="e.g. ABLFM2142D"></div>
+                  <div class="fg"><label class="fl">Land Owner Address</label><input class="fc" id="spj-edit-land-owner-address" placeholder="e.g. M-18, Greater Kailash-II..."></div>
+                  <div class="fg"><label class="fl">GPA/Vasika No.</label><input class="fc" id="spj-edit-gpa-vasika-no" placeholder="e.g. 29"></div>
+                  <div class="fg"><label class="fl">GPA Date</label><input type="date" class="fc" id="spj-edit-gpa-date"></div>
+                  <div class="fg"><label class="fl">Collab. Agreement Date</label><input type="date" class="fc" id="spj-edit-collab-date"></div>
+                </div>
+
+                <!-- GROUP 3: Sale Deed -->
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-weight:600">Sale Deed &amp; Registration</div>
+                <div class="sp-grid" style="margin-bottom:16px">
+                  <div class="fg"><label class="fl">Sale Deed No.</label><input class="fc" id="spj-edit-sale-deed-no" placeholder="e.g. 4969"></div>
+                  <div class="fg"><label class="fl">Sale Deed Date</label><input type="date" class="fc" id="spj-edit-sale-deed-date"></div>
+                  <div class="fg"><label class="fl">Sub-Registrar Office</label><input class="fc" id="spj-edit-sub-registrar" placeholder="e.g. Sub-Registrar, Kadipur"></div>
+                </div>
+
+                <!-- GROUP 4: OC Details -->
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-weight:600">Occupation Certificate Details <span style="font-size:10px;color:#999;font-weight:normal">(Fill after OC received)</span></div>
+                <div class="sp-grid" style="margin-bottom:16px">
+                  <div class="fg"><label class="fl">OC Memo No.</label><input class="fc" id="spj-edit-oc-memo-no" placeholder="e.g. ZP-1348/JD(RD)/2024/29912"></div>
+                  <div class="fg"><label class="fl">OC Date</label><input type="date" class="fc" id="spj-edit-oc-date"></div>
+                  <div class="fg"><label class="fl">Deed of Declaration Vasika No.</label><input class="fc" id="spj-edit-dod-vasika-no" placeholder="e.g. 9045"></div>
+                  <div class="fg"><label class="fl">Deed of Declaration Date</label><input type="date" class="fc" id="spj-edit-dod-date"></div>
+                </div>
+
+                <!-- GROUP 5: Authorised Signatory -->
+                <div style="font-size:12px;color:#666;margin-bottom:8px;font-weight:600">Authorised Signatory</div>
+                <div class="sp-grid" style="margin-bottom:16px">
+                  <div class="fg"><label class="fl">Authorised Signatory Name</label><input class="fc" id="spj-edit-auth-signatory-name" placeholder="e.g. Mr. John Smith"></div>
+                  <div class="fg"><label class="fl">Authorised Signatory Aadhaar</label><input class="fc" id="spj-edit-auth-signatory-aadhaar" placeholder="e.g. 1234 5678 9012"></div>
+                  <div class="fg"><label class="fl">Board Resolution Date</label><input type="date" class="fc" id="spj-edit-board-resolution-date"></div>
+                </div>
+              </div>
+
               <div style="margin-top:12px;display:flex;gap:8px">
                 <button type="submit" class="btn btn-teal">Update Project</button>
               </div>
@@ -578,26 +637,80 @@ Object.assign(SPJPage, {
               <td class="txt-right">${p.unit_count||0}</td>
               <td class="txt-right" style="color:var(--green)">${p.available_units||0}</td>
               <td class="txt-right" style="color:var(--blue)">${p.allotted_units||0}</td>
-              <td><button class="btn btn-ghost btn-sm" onclick="SPJPage.selectProjectForEdit('${p.id}','${p.name}','${p.location||''}',${p.total_units||0})">Edit</button></td>
+              <td><button class="btn btn-ghost btn-sm" onclick="SPJPage.prepareEditProject('${p.id}')">Edit</button></td>
             </tr>`).join('')}
           </tbody>
         </table>`;
   },
 
-  selectProjectForEdit(id, name, location, totalUnits) {
+  async prepareEditProject(id) {
+    try {
+      const res = await Api.get(`/projects/${id}`);
+      if (res && res.data) {
+        this.selectProjectForEdit(id, res.data);
+        document.getElementById('spj-edit-project-sel').value = id;
+      }
+    } catch (err) {
+      Utils.error('Failed to load project: ' + err.message);
+    }
+  },
+
+  selectProjectForEdit(id, projectData) {
+    const p = projectData;
     document.getElementById('spj-edit-project-sel').value = id;
     document.getElementById('spj-edit-proj-id').value = id;
-    document.getElementById('spj-edit-proj-name').value = name;
-    document.getElementById('spj-edit-proj-location').value = location;
-    document.getElementById('spj-edit-proj-units').value = totalUnits;
-    document.getElementById('spj-edit-project-title').textContent = `Edit: ${name}`;
+    document.getElementById('spj-edit-proj-name').value = p.name || '';
+    document.getElementById('spj-edit-proj-location').value = p.location || '';
+    document.getElementById('spj-edit-proj-units').value = p.total_units || 0;
+
+    // Helper to format dates
+    const fmtDate = (d) => {
+      if (!d) return '';
+      return new Date(d).toISOString().slice(0,10);
+    };
+
+    // Load legal fields
+    document.getElementById('spj-edit-village-name').value = p.village_name || '';
+    document.getElementById('spj-edit-sector-name').value = p.sector_name || '';
+    document.getElementById('spj-edit-license-date').value = fmtDate(p.license_date);
+    document.getElementById('spj-edit-env-clearance-no').value = p.env_clearance_no || '';
+    document.getElementById('spj-edit-env-clearance-date').value = fmtDate(p.env_clearance_date);
+    document.getElementById('spj-edit-building-plan-memo').value = p.building_plan_memo_no || '';
+    document.getElementById('spj-edit-building-plan-date').value = fmtDate(p.building_plan_date);
+    document.getElementById('spj-edit-khasra-details').value = p.khasra_details || '';
+    document.getElementById('spj-edit-land-owner-name').value = p.land_owner_name || '';
+    document.getElementById('spj-edit-land-owner-llpin').value = p.land_owner_llpin || '';
+    document.getElementById('spj-edit-land-owner-pan').value = p.land_owner_pan || '';
+    document.getElementById('spj-edit-land-owner-address').value = p.land_owner_address || '';
+    document.getElementById('spj-edit-gpa-vasika-no').value = p.land_owner_gpa_vasika_no || '';
+    document.getElementById('spj-edit-gpa-date').value = fmtDate(p.land_owner_gpa_date);
+    document.getElementById('spj-edit-collab-date').value = fmtDate(p.collaboration_agreement_date);
+    document.getElementById('spj-edit-sale-deed-no').value = p.sale_deed_no || '';
+    document.getElementById('spj-edit-sale-deed-date').value = fmtDate(p.sale_deed_date);
+    document.getElementById('spj-edit-sub-registrar').value = p.sub_registrar_office || '';
+    document.getElementById('spj-edit-oc-memo-no').value = p.occupation_cert_memo_no || '';
+    document.getElementById('spj-edit-oc-date').value = fmtDate(p.occupation_cert_date);
+    document.getElementById('spj-edit-dod-vasika-no').value = p.deed_of_declaration_vasika_no || '';
+    document.getElementById('spj-edit-dod-date').value = fmtDate(p.deed_of_declaration_date);
+    document.getElementById('spj-edit-auth-signatory-name').value = p.authorised_signatory_name || '';
+    document.getElementById('spj-edit-auth-signatory-aadhaar').value = p.authorised_signatory_aadhaar || '';
+    document.getElementById('spj-edit-board-resolution-date').value = fmtDate(p.board_resolution_date);
+
+    document.getElementById('spj-edit-project-title').textContent = `Edit: ${p.name}`;
     document.getElementById('spj-edit-project-form-wrap').style.display = '';
   },
 
-  loadEditProject() {
+  async loadEditProject() {
     const id = document.getElementById('spj-edit-project-sel')?.value;
-    const proj = this._projects.find(p => p.id === id);
-    if (proj) this.selectProjectForEdit(proj.id, proj.name, proj.location||'', proj.total_units||0);
+    if (!id) return;
+    try {
+      const res = await Api.get(`/projects/${id}`);
+      if (res && res.data) {
+        this.selectProjectForEdit(id, res.data);
+      }
+    } catch (err) {
+      Utils.error('Failed to load project: ' + err.message);
+    }
   },
 
   async updateProject(e) {
@@ -606,8 +719,64 @@ Object.assign(SPJPage, {
     const name = document.getElementById('spj-edit-proj-name').value.trim();
     const loc  = document.getElementById('spj-edit-proj-location').value.trim();
     const units = document.getElementById('spj-edit-proj-units').value;
+
+    const villageName = document.getElementById('spj-edit-village-name').value.trim();
+    const sectorName = document.getElementById('spj-edit-sector-name').value.trim();
+    const licenseDate = document.getElementById('spj-edit-license-date').value || null;
+    const envClearanceNo = document.getElementById('spj-edit-env-clearance-no').value.trim();
+    const envClearanceDate = document.getElementById('spj-edit-env-clearance-date').value || null;
+    const buildingPlanMemoNo = document.getElementById('spj-edit-building-plan-memo').value.trim();
+    const buildingPlanDate = document.getElementById('spj-edit-building-plan-date').value || null;
+    const khasraDetails = document.getElementById('spj-edit-khasra-details').value.trim();
+    const landOwnerName = document.getElementById('spj-edit-land-owner-name').value.trim();
+    const landOwnerLlpin = document.getElementById('spj-edit-land-owner-llpin').value.trim();
+    const landOwnerPan = document.getElementById('spj-edit-land-owner-pan').value.trim();
+    const landOwnerAddress = document.getElementById('spj-edit-land-owner-address').value.trim();
+    const landOwnerGpaVasikaNo = document.getElementById('spj-edit-gpa-vasika-no').value.trim();
+    const landOwnerGpaDate = document.getElementById('spj-edit-gpa-date').value || null;
+    const collaborationAgreementDate = document.getElementById('spj-edit-collab-date').value || null;
+    const saleDeedNo = document.getElementById('spj-edit-sale-deed-no').value.trim();
+    const saleDeedDate = document.getElementById('spj-edit-sale-deed-date').value || null;
+    const subRegistrarOffice = document.getElementById('spj-edit-sub-registrar').value.trim();
+    const occupationCertMemoNo = document.getElementById('spj-edit-oc-memo-no').value.trim();
+    const occupationCertDate = document.getElementById('spj-edit-oc-date').value || null;
+    const deedOfDeclarationVasikaNo = document.getElementById('spj-edit-dod-vasika-no').value.trim();
+    const deedOfDeclarationDate = document.getElementById('spj-edit-dod-date').value || null;
+    const authorisedSignatoryName = document.getElementById('spj-edit-auth-signatory-name').value.trim();
+    const authorisedSignatoryAadhaar = document.getElementById('spj-edit-auth-signatory-aadhaar').value.trim();
+    const boardResolutionDate = document.getElementById('spj-edit-board-resolution-date').value || null;
+
     try {
-      await Api.patch(`/projects/${id}`, { name, location: loc, totalUnits: parseInt(units)||null });
+      await Api.patch(`/projects/${id}`, {
+        name,
+        location: loc,
+        totalUnits: parseInt(units)||null,
+        licenseDate,
+        envClearanceNo,
+        envClearanceDate,
+        buildingPlanMemoNo,
+        buildingPlanDate,
+        collaborationAgreementDate,
+        landOwnerName,
+        landOwnerLlpin,
+        landOwnerPan,
+        landOwnerAddress,
+        landOwnerGpaVasikaNo,
+        landOwnerGpaDate,
+        saleDeedNo,
+        saleDeedDate,
+        subRegistrarOffice,
+        occupationCertMemoNo,
+        occupationCertDate,
+        deedOfDeclarationVasikaNo,
+        deedOfDeclarationDate,
+        khasraDetails,
+        villageName,
+        sectorName,
+        authorisedSignatoryName,
+        authorisedSignatoryAadhaar,
+        boardResolutionDate,
+      });
       Utils.success('Project updated');
       await this.initProjectDropdowns(true);
       await this.loadProjectsList();
