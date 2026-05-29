@@ -60,12 +60,19 @@ function loadLegalTemplate(filename) {
         // From project root for absolute safety
         path.join(process.cwd(), 'packages/api/src/templates/legal', filename),
     ];
+    console.log(`[TEMPLATES] Loading ${filename}`);
+    console.log(`[TEMPLATES] __dirname: ${__dirname}`);
+    console.log(`[TEMPLATES] process.cwd(): ${process.cwd()}`);
     for (const p of possiblePaths) {
+        console.log(`[TEMPLATES] Checking: ${p} ... ${fs.existsSync(p) ? 'EXISTS' : 'not found'}`);
         if (fs.existsSync(p)) {
+            console.log(`[TEMPLATES] ✓ Found at: ${p}`);
             return fs.readFileSync(p, 'utf-8');
         }
     }
-    throw new Error(`Legal template not found: ${filename}. Searched paths: ${possiblePaths.join('; ')}`);
+    const errorMsg = `Legal template not found: ${filename}. Searched paths: ${possiblePaths.join('; ')}`;
+    console.error(`[TEMPLATES] ❌ ${errorMsg}`);
+    throw new Error(errorMsg);
 }
 // AES-256 Encryption Configuration
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
@@ -249,10 +256,12 @@ router.post('/generate', async (req, res, next) => {
             return res.status(400).json({ error: 'consumerId or allocationId is required' });
         }
         // 1. Resolve Template
+        console.log(`[GENERATE] Resolving template: documentType=${documentType}, templateId=${templateId}, consumerId=${consumerId}`);
         let template;
         if (templateId) {
             const tRes = await index_js_1.db.query(`SELECT * FROM document_templates WHERE id = $1`, [templateId]);
             template = tRes.rows[0];
+            console.log(`[GENERATE] Template by ID: ${template ? 'found' : 'not found'}`);
         }
         else if (documentType) {
             // For buyer_builder_agreement and conveyance_deed, try project-specific first, then fall back to global
@@ -265,6 +274,7 @@ router.post('/generate', async (req, res, next) => {
              WHERE a.consumer_id = $1
              ORDER BY a.created_at DESC LIMIT 1`, [consumerId]);
                     projectId = projRes.rows[0]?.id || null;
+                    console.log(`[GENERATE] Consumer projectId: ${projectId || 'null (fallback to global)'}`);
                 }
                 // Try project-specific template first, then fall back to global (project_id IS NULL)
                 const tRes = await index_js_1.db.query(`SELECT * FROM document_templates
@@ -278,15 +288,19 @@ router.post('/generate', async (req, res, next) => {
              created_at DESC
            LIMIT 1`, [documentType, projectId]);
                 template = tRes.rows[0];
+                console.log(`[GENERATE] Template found: ${template ? `id=${template.id}, projectId=${template.project_id}` : 'not found'}`);
             }
             else {
                 const tRes = await index_js_1.db.query(`SELECT * FROM document_templates WHERE document_type = $1 ORDER BY created_at DESC LIMIT 1`, [documentType]);
                 template = tRes.rows[0];
+                console.log(`[GENERATE] Generic template found: ${template ? 'yes' : 'no'}`);
             }
         }
         if (!template) {
+            console.error(`[GENERATE] ❌ Template not found for documentType=${documentType}`);
             return res.status(404).json({ error: 'Document template not found' });
         }
+        console.log(`[GENERATE] ✓ Template resolved successfully`);
         // 2. Load template from file if FILE: reference, otherwise use body_html
         let htmlContent = '';
         if (template.body_html && template.body_html.startsWith('FILE:')) {
