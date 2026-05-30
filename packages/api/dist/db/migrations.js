@@ -17,9 +17,33 @@ async function runMigrations() {
         console.error(msg);
         logs.push(`ERROR: ${msg}`);
     };
-    const migrationsDir = path_1.default.join(__dirname, 'migrations');
+    let migrationsDir = path_1.default.join(__dirname, 'migrations');
     log(`[MIGRATIONS] Starting migration runner`);
     log(`[MIGRATIONS] Running from: ${migrationsDir}`);
+    // Fallback to src if dist doesn't have SQL migrations (e.g., if copy-files.js fails)
+    let usesFallback = false;
+    if (fs_1.default.existsSync(migrationsDir)) {
+        const distFiles = fs_1.default.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
+        if (distFiles.length === 0) {
+            const srcMigrationsDir = path_1.default.join(__dirname, '../src/db/migrations');
+            if (fs_1.default.existsSync(srcMigrationsDir)) {
+                const srcFiles = fs_1.default.readdirSync(srcMigrationsDir).filter(f => f.endsWith('.sql'));
+                if (srcFiles.length > distFiles.length) {
+                    log(`[MIGRATIONS] ⚠️ dist/migrations is empty (${distFiles.length} files), falling back to src/db/migrations (${srcFiles.length} files)`);
+                    migrationsDir = srcMigrationsDir;
+                    usesFallback = true;
+                }
+            }
+        }
+    }
+    else if (!fs_1.default.existsSync(migrationsDir)) {
+        const srcMigrationsDir = path_1.default.join(__dirname, '../src/db/migrations');
+        if (fs_1.default.existsSync(srcMigrationsDir)) {
+            log(`[MIGRATIONS] ⚠️ dist/migrations directory not found, falling back to src/db/migrations`);
+            migrationsDir = srcMigrationsDir;
+            usesFallback = true;
+        }
+    }
     log(`[MIGRATIONS] Environment: ${process.env.NODE_ENV}`);
     log(`[MIGRATIONS] Database URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
     try {
@@ -64,6 +88,97 @@ async function runMigrations() {
                     else {
                         throw error;
                     }
+                }
+            }
+        }
+        // Inline migrations for critical schema that must always exist
+        const INLINE_MIGRATIONS = [
+            {
+                name: '057_document_versions',
+                sql: `
+          CREATE TABLE IF NOT EXISTS document_versions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            version_number INTEGER NOT NULL DEFAULT 1,
+            html_content TEXT,
+            fields_changed JSONB DEFAULT '[]'::jsonb,
+            edit_reason TEXT,
+            edited_by_user_id UUID,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            is_original BOOLEAN DEFAULT false
+          );
+          CREATE INDEX IF NOT EXISTS idx_doc_versions_doc_id ON document_versions(document_id);
+          CREATE INDEX IF NOT EXISTS idx_doc_versions_created ON document_versions(document_id, created_at DESC);
+        `
+            },
+            {
+                name: '058_user_permissions',
+                sql: `
+          CREATE TABLE IF NOT EXISTS user_process_permissions (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            process_name VARCHAR(100) NOT NULL,
+            is_maker BOOLEAN DEFAULT false,
+            is_checker BOOLEAN DEFAULT false,
+            is_approver BOOLEAN DEFAULT false,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            created_by_user_id UUID,
+            UNIQUE(user_id, process_name)
+          );
+          CREATE INDEX IF NOT EXISTS idx_user_process_permissions_user ON user_process_permissions(user_id);
+          CREATE INDEX IF NOT EXISTS idx_user_process_permissions_process ON user_process_permissions(process_name);
+
+          CREATE TABLE IF NOT EXISTS user_company_access (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            company_id UUID NOT NULL,
+            access_level VARCHAR(50) DEFAULT 'viewer',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            created_by_user_id UUID,
+            UNIQUE(user_id, company_id)
+          );
+          CREATE INDEX IF NOT EXISTS idx_user_company_access_user ON user_company_access(user_id);
+          CREATE INDEX IF NOT EXISTS idx_user_company_access_company ON user_company_access(company_id);
+        `
+            },
+            {
+                name: '059_seed_testuser',
+                sql: `
+          INSERT INTO users (
+            id, name, email, mobile, role, password_hash,
+            assigned_project_ids, is_active, created_at, created_by_user_id
+          ) VALUES (
+            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            'Test User',
+            'testuser@rof.com',
+            '9999999999',
+            'super_admin',
+            '$2a$10$knaIyawSbnFwKeRBDw4ha.YRE.ahsETMjRZyR2ZtrqlGQGQ9UoRKO',
+            '[]'::jsonb,
+            true,
+            NOW(),
+            'ffffffff-ffff-ffff-ffff-ffffffffffff'
+          )
+          ON CONFLICT (email) DO NOTHING;
+        `
+            }
+        ];
+        // Run inline migrations
+        log('[MIGRATIONS] Running inline migrations...');
+        for (const migration of INLINE_MIGRATIONS) {
+            try {
+                log(`[MIGRATIONS] Running inline: ${migration.name}...`);
+                await pool_1.db.query(migration.sql);
+                log(`[MIGRATIONS] ✅ ${migration.name} completed`);
+            }
+            catch (error) {
+                const errorMsg = error.message;
+                // IF NOT EXISTS handles duplicates, so errors are real problems
+                if (errorMsg.includes('already exists') || errorMsg.includes('duplicate')) {
+                    log(`[MIGRATIONS] → ${migration.name} already applied`);
+                }
+                else {
+                    logErr(`[MIGRATIONS] ⚠️ ${migration.name}: ${errorMsg}`);
                 }
             }
         }
