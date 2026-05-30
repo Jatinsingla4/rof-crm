@@ -30,7 +30,4 @@ VALUES (
   NOW(),
   'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
 )
-ON CONFLICT (email) DO UPDATE SET
-  password_hash = '$2a$10$Bet58gUnnnWSZaMsrWKxOuyYVbfvpgk61XWgtyLGxO.tBPhvEDHAO',
-  is_active = true,
-  role = 'super_admin';
+ON CONFLICT (email) DO NOTHING;
