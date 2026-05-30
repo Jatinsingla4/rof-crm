@@ -1096,7 +1096,10 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             return res.status(400).json({ error: 'No allocation found for this consumer' });
           }
 
+          console.log('[ATS DEBUG] Resolved allocation ID:', resolvedAllocId3);
+
           // Main data fetch
+          console.log('[ATS DEBUG] Starting ATS data fetch for allocation:', resolvedAllocId3);
           const atsRes = await db.query(`
             SELECT
               c.first_name, c.last_name, c.father_name, c.age, c.pan_no, c.aadhaar_number,
@@ -1124,6 +1127,10 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           `, [resolvedAllocId3]);
 
           const ats = atsRes.rows[0];
+          console.log('[ATS DEBUG] ATS data fetched:', ats ? 'YES' : 'NULL');
+          if (ats) {
+            console.log('[ATS DEBUG] Consumer:', ats.first_name, ats.last_name, 'Unit:', ats.unit_number, 'Project:', ats.project_name);
+          }
           if (!ats) return res.status(404).json({ error: 'Allocation data not found' });
 
           const projectId3 = ats.project_id;
@@ -1434,6 +1441,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     ]);
     if (mergeData) {
       const NO_WRAP_FIELDS = ['payment_plan_rows'];
+      console.log('[ATS DEBUG] Starting merge: html length =', htmlContent.length, ', mergeData keys =', Object.keys(mergeData).length);
       for (const [key, value] of Object.entries(mergeData)) {
         const strVal = String(value ?? '');
         if (NO_WRAP_FIELDS.includes(key)) {
@@ -1446,6 +1454,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           htmlContent = htmlContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => wrapped);
         }
       }
+      console.log('[ATS DEBUG] Merge complete: final html length =', htmlContent.length);
     }
 
     // 3b. Post-process demand letters: inject dual-table (without / with interest)
@@ -1560,6 +1569,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     }
 
     // 4. Save and return (insert WITHOUT toolbar first)
+    console.log('[ATS DEBUG] Starting INSERT with html length:', htmlContent.length);
     const result = await db.query(
       `INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
@@ -1567,6 +1577,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
       [consumerId, allocationId || null, template.id, template.document_type, htmlContent, deliveryMethod || 'none', req.userId]
     );
     const newDocId = result.rows[0].id;
+    console.log('[ATS DEBUG] INSERT complete, docId:', newDocId);
 
     // 4.5 Build and inject edit toolbar WITH actual docId (for ATS and Conveyance Deed only)
     console.log(`[TOOLBAR DEBUG] template.document_type = "${template.document_type}"`);
