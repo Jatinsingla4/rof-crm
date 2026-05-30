@@ -21,15 +21,16 @@ VALUES (
   'testuser@rof.com',
   '9999999999',
   'super_admin',
-  -- bcrypt hash for "password123" with cost factor 12
-  -- Generated via: bcryptjs.hash('password123', 12)
-  '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJqq',
+  -- bcrypt hash for "password123" with cost factor 10
+  -- Generated via: bcryptjs.hash('password123', 10)
+  -- Verified with bcrypt.compare() returning true
+  '$2a$10$Bet58gUnnnWSZaMsrWKxOuyYVbfvpgk61XWgtyLGxO.tBPhvEDHAO',
   '[]'::jsonb,
   true,
   NOW(),
   'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
 )
 ON CONFLICT (email) DO UPDATE SET
-  password_hash = '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJqq',
+  password_hash = '$2a$10$Bet58gUnnnWSZaMsrWKxOuyYVbfvpgk61XWgtyLGxO.tBPhvEDHAO',
   is_active = true,
   role = 'super_admin';
