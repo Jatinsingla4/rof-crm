@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -165,11 +198,20 @@ async function runMigrations() {
             role = EXCLUDED.role,
             name = EXCLUDED.name;
         `
+            },
+            {
+                name: '060_store_ats_html_in_db',
+                sql: '' // Handled by special case in runMigrations
             }
         ];
         // Run inline migrations
         log('[MIGRATIONS] Running inline migrations...');
         for (const migration of INLINE_MIGRATIONS) {
+            // Special migrations that need file I/O
+            if (migration.name === '060_store_ats_html_in_db') {
+                await runTemplateStorageMigration(pool_1.db, log, logErr);
+                continue;
+            }
             try {
                 log(`[MIGRATIONS] Running inline: ${migration.name}...`);
                 await pool_1.db.query(migration.sql);
@@ -194,6 +236,67 @@ async function runMigrations() {
         throw error;
     }
     return logs;
+}
+async function runTemplateStorageMigration(db, log, logErr) {
+    try {
+        const fsM = await Promise.resolve().then(() => __importStar(require('fs')));
+        const pathM = await Promise.resolve().then(() => __importStar(require('path')));
+        log('[060] Reading HTML template files...');
+        const paths = [
+            path_1.default.join(__dirname, '../templates/legal'),
+            path_1.default.join(process.cwd(), 'src/templates/legal'),
+            path_1.default.join(process.cwd(), 'packages/api/src/templates/legal'),
+            '/app/packages/api/src/templates/legal', // Render Alpine path
+        ];
+        let atsHtml = '';
+        let convHtml = '';
+        for (const dir of paths) {
+            const atsFile = path_1.default.join(dir, 'ats_rof_alante.html');
+            const convFile = path_1.default.join(dir, 'conveyance_rof_alante.html');
+            if (fsM.existsSync(atsFile) && fsM.existsSync(convFile)) {
+                atsHtml = fsM.readFileSync(atsFile, 'utf-8');
+                convHtml = fsM.readFileSync(convFile, 'utf-8');
+                log(`[060] Found templates at: ${dir}`);
+                break;
+            }
+        }
+        if (!atsHtml || !convHtml) {
+            log('[060] Template files not found. Templates likely already have full HTML.');
+            return;
+        }
+        if (atsHtml.length < 10000 || convHtml.length < 10000) {
+            logErr('[060] WARNING: Template files too small');
+            return;
+        }
+        // Check if templates still have FILE: references
+        const checkRes = await db.query(`
+      SELECT COUNT(*) as file_refs
+      FROM document_templates
+      WHERE document_type IN ('buyer_builder_agreement', 'conveyance_deed')
+      AND body_html LIKE 'FILE:%'
+    `);
+        const fileRefCount = parseInt(checkRes.rows[0]?.file_refs || 0);
+        if (fileRefCount === 0) {
+            log('[060] Templates already have full HTML. Skipping.');
+            return;
+        }
+        log(`[060] Found ${fileRefCount} templates with FILE: references`);
+        log(`[060] Storing ATS HTML (${atsHtml.length} chars)...`);
+        await db.query(`UPDATE document_templates
+       SET body_html = $1, updated_at = NOW()
+       WHERE document_type = 'buyer_builder_agreement'
+       AND body_html LIKE 'FILE:%'`, [atsHtml]);
+        log(`[060] Storing Conveyance HTML (${convHtml.length} chars)...`);
+        await db.query(`UPDATE document_templates
+       SET body_html = $1, updated_at = NOW()
+       WHERE document_type = 'conveyance_deed'
+       AND body_html LIKE 'FILE:%'`, [convHtml]);
+        log('[060] ✅ Templates stored successfully!');
+    }
+    catch (err) {
+        log(`[060] Warning: ${err.message}`);
+        // Don't throw — allow other migrations to continue
+    }
 }
 // When run as CLI, run migrations and exit
 if (require.main === module) {

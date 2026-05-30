@@ -169,12 +169,22 @@ export async function runMigrations(): Promise<string[]> {
             role = EXCLUDED.role,
             name = EXCLUDED.name;
         `
+      },
+      {
+        name: '060_store_ats_html_in_db',
+        sql: '' // Handled by special case in runMigrations
       }
     ];
 
     // Run inline migrations
     log('[MIGRATIONS] Running inline migrations...');
     for (const migration of INLINE_MIGRATIONS) {
+      // Special migrations that need file I/O
+      if (migration.name === '060_store_ats_html_in_db') {
+        await runTemplateStorageMigration(db, log, logErr);
+        continue;
+      }
+
       try {
         log(`[MIGRATIONS] Running inline: ${migration.name}...`);
         await db.query(migration.sql);
@@ -198,6 +208,92 @@ export async function runMigrations(): Promise<string[]> {
   }
 
   return logs;
+}
+
+async function runTemplateStorageMigration(
+  db: any,
+  log: (msg: string) => void,
+  logErr: (msg: string) => void
+): Promise<void> {
+  try {
+    const fsM = await import('fs');
+    const pathM = await import('path');
+
+    log('[060] Reading HTML template files...');
+
+    const paths = [
+      path.join(__dirname, '../templates/legal'),
+      path.join(process.cwd(), 'src/templates/legal'),
+      path.join(process.cwd(), 'packages/api/src/templates/legal'),
+      '/app/packages/api/src/templates/legal', // Render Alpine path
+    ];
+
+    let atsHtml = '';
+    let convHtml = '';
+
+    for (const dir of paths) {
+      const atsFile = path.join(dir, 'ats_rof_alante.html');
+      const convFile = path.join(dir, 'conveyance_rof_alante.html');
+
+      if (fsM.existsSync(atsFile) && fsM.existsSync(convFile)) {
+        atsHtml = fsM.readFileSync(atsFile, 'utf-8');
+        convHtml = fsM.readFileSync(convFile, 'utf-8');
+        log(`[060] Found templates at: ${dir}`);
+        break;
+      }
+    }
+
+    if (!atsHtml || !convHtml) {
+      log('[060] Template files not found. Templates likely already have full HTML.');
+      return;
+    }
+
+    if (atsHtml.length < 10000 || convHtml.length < 10000) {
+      logErr('[060] WARNING: Template files too small');
+      return;
+    }
+
+    // Check if templates still have FILE: references
+    const checkRes = await db.query(`
+      SELECT COUNT(*) as file_refs
+      FROM document_templates
+      WHERE document_type IN ('buyer_builder_agreement', 'conveyance_deed')
+      AND body_html LIKE 'FILE:%'
+    `);
+
+    const fileRefCount = parseInt(checkRes.rows[0]?.file_refs || 0);
+
+    if (fileRefCount === 0) {
+      log('[060] Templates already have full HTML. Skipping.');
+      return;
+    }
+
+    log(`[060] Found ${fileRefCount} templates with FILE: references`);
+    log(`[060] Storing ATS HTML (${atsHtml.length} chars)...`);
+
+    await db.query(
+      `UPDATE document_templates
+       SET body_html = $1, updated_at = NOW()
+       WHERE document_type = 'buyer_builder_agreement'
+       AND body_html LIKE 'FILE:%'`,
+      [atsHtml]
+    );
+
+    log(`[060] Storing Conveyance HTML (${convHtml.length} chars)...`);
+
+    await db.query(
+      `UPDATE document_templates
+       SET body_html = $1, updated_at = NOW()
+       WHERE document_type = 'conveyance_deed'
+       AND body_html LIKE 'FILE:%'`,
+      [convHtml]
+    );
+
+    log('[060] ✅ Templates stored successfully!');
+  } catch (err: any) {
+    log(`[060] Warning: ${err.message}`);
+    // Don't throw — allow other migrations to continue
+  }
 }
 
 // When run as CLI, run migrations and exit
