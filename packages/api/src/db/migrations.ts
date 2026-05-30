@@ -13,9 +13,19 @@ export async function runMigrations(): Promise<string[]> {
     logs.push(`ERROR: ${msg}`);
   };
 
-  const migrationsDir = path.join(__dirname, 'migrations');
+  let migrationsDir = path.join(__dirname, 'migrations');
   log(`[MIGRATIONS] Starting migration runner`);
   log(`[MIGRATIONS] Running from: ${migrationsDir}`);
+
+  // Fallback to src if dist doesn't have migrations (e.g., if copy-files.js fails)
+  if (!fs.existsSync(migrationsDir)) {
+    const srcMigrationsDir = path.join(__dirname, '../src/db/migrations');
+    if (fs.existsSync(srcMigrationsDir)) {
+      log(`[MIGRATIONS] ⚠️ dist/migrations not found, falling back to src/db/migrations`);
+      migrationsDir = srcMigrationsDir;
+    }
+  }
+
   log(`[MIGRATIONS] Environment: ${process.env.NODE_ENV}`);
   log(`[MIGRATIONS] Database URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
 
