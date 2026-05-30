@@ -5,8 +5,6 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { applyRecalc, extractFieldValue, buildEditScript } from '../utils/document-recalc.js';
@@ -14,35 +12,6 @@ import { writebackField, WritebackContext } from '../utils/document-writeback.js
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
 
 const router = Router();
-
-// Helper function to load legal templates from filesystem
-function loadLegalTemplate(filename: string): string {
-  // Try multiple possible paths (handles both src and dist)
-  const possiblePaths = [
-    // When running from dist/ after TypeScript compilation
-    path.join(__dirname, '../templates/legal', filename),
-    // When running directly from src/ in development
-    path.join(process.cwd(), 'src/templates/legal', filename),
-    // From project root for absolute safety
-    path.join(process.cwd(), 'packages/api/src/templates/legal', filename),
-  ];
-
-  console.log(`[TEMPLATES] Loading ${filename}`);
-  console.log(`[TEMPLATES] __dirname: ${__dirname}`);
-  console.log(`[TEMPLATES] process.cwd(): ${process.cwd()}`);
-
-  for (const p of possiblePaths) {
-    console.log(`[TEMPLATES] Checking: ${p} ... ${fs.existsSync(p) ? 'EXISTS' : 'not found'}`);
-    if (fs.existsSync(p)) {
-      console.log(`[TEMPLATES] ✓ Found at: ${p}`);
-      return fs.readFileSync(p, 'utf-8');
-    }
-  }
-
-  const errorMsg = `Legal template not found: ${filename}. Searched paths: ${possiblePaths.join('; ')}`;
-  console.error(`[TEMPLATES] ❌ ${errorMsg}`);
-  throw new Error(errorMsg);
-}
 
 // AES-256 Encryption Configuration
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
@@ -302,17 +271,28 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     }
     console.log(`[GENERATE] ✓ Template resolved successfully`);
 
-    // 2. Load template from file if FILE: reference, otherwise use body_html
-    let htmlContent = '';
-    if (template.body_html && template.body_html.startsWith('FILE:')) {
-      const filename = template.body_html.substring(5); // Remove 'FILE:' prefix
-      try {
-        htmlContent = loadLegalTemplate(filename);
-      } catch (fileError) {
-        return res.status(500).json({ error: `Failed to load template file: ${(fileError as Error).message}` });
-      }
-    } else {
-      htmlContent = template.body_html || '';
+    // 2. Read template HTML directly from database
+    let htmlContent = template.body_html || '';
+
+    if (!htmlContent || htmlContent.length < 100) {
+      console.error(
+        `[TEMPLATE] Empty or invalid template. DocumentType: ${documentType}, ` +
+        `TemplateId: ${templateId}, Length: ${htmlContent?.length}`
+      );
+      return res.status(500).json({
+        error: 'Document template is empty or corrupted. Please contact administrator.'
+      });
+    }
+
+    // Verify template no longer uses old FILE: references
+    if (htmlContent.startsWith('FILE:')) {
+      console.error(
+        `[TEMPLATE] Template still uses deprecated FILE: reference. ` +
+        `DocumentType: ${documentType}, Reference: ${htmlContent}`
+      );
+      return res.status(500).json({
+        error: 'Document template not properly configured. FILE: references are no longer supported.'
+      });
     }
 
     // 3. Auto-Merge Logic (if mergeData missing)
@@ -1782,6 +1762,8 @@ async function saveEdits(){
 
     res.status(201).json({ success: true, data: { documentId: newDocId } });
   } catch (error) {
+    const err = error as any;
+    console.error('[DOCUMENT GENERATION ERROR]', err?.message || 'Unknown error');
     next(error);
   }
 });

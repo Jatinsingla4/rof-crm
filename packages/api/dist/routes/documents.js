@@ -42,38 +42,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
-const fs = __importStar(require("fs"));
-const path = __importStar(require("path"));
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const document_writeback_js_1 = require("../utils/document-writeback.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const router = (0, express_1.Router)();
-// Helper function to load legal templates from filesystem
-function loadLegalTemplate(filename) {
-    // Try multiple possible paths (handles both src and dist)
-    const possiblePaths = [
-        // When running from dist/ after TypeScript compilation
-        path.join(__dirname, '../templates/legal', filename),
-        // When running directly from src/ in development
-        path.join(process.cwd(), 'src/templates/legal', filename),
-        // From project root for absolute safety
-        path.join(process.cwd(), 'packages/api/src/templates/legal', filename),
-    ];
-    console.log(`[TEMPLATES] Loading ${filename}`);
-    console.log(`[TEMPLATES] __dirname: ${__dirname}`);
-    console.log(`[TEMPLATES] process.cwd(): ${process.cwd()}`);
-    for (const p of possiblePaths) {
-        console.log(`[TEMPLATES] Checking: ${p} ... ${fs.existsSync(p) ? 'EXISTS' : 'not found'}`);
-        if (fs.existsSync(p)) {
-            console.log(`[TEMPLATES] ✓ Found at: ${p}`);
-            return fs.readFileSync(p, 'utf-8');
-        }
-    }
-    const errorMsg = `Legal template not found: ${filename}. Searched paths: ${possiblePaths.join('; ')}`;
-    console.error(`[TEMPLATES] ❌ ${errorMsg}`);
-    throw new Error(errorMsg);
-}
 // AES-256 Encryption Configuration
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '12345678901234567890123456789012'; // Must be 32 bytes
 const IV_LENGTH = 16;
@@ -301,19 +274,22 @@ router.post('/generate', async (req, res, next) => {
             return res.status(404).json({ error: 'Document template not found' });
         }
         console.log(`[GENERATE] ✓ Template resolved successfully`);
-        // 2. Load template from file if FILE: reference, otherwise use body_html
-        let htmlContent = '';
-        if (template.body_html && template.body_html.startsWith('FILE:')) {
-            const filename = template.body_html.substring(5); // Remove 'FILE:' prefix
-            try {
-                htmlContent = loadLegalTemplate(filename);
-            }
-            catch (fileError) {
-                return res.status(500).json({ error: `Failed to load template file: ${fileError.message}` });
-            }
+        // 2. Read template HTML directly from database
+        let htmlContent = template.body_html || '';
+        if (!htmlContent || htmlContent.length < 100) {
+            console.error(`[TEMPLATE] Empty or invalid template. DocumentType: ${documentType}, ` +
+                `TemplateId: ${templateId}, Length: ${htmlContent?.length}`);
+            return res.status(500).json({
+                error: 'Document template is empty or corrupted. Please contact administrator.'
+            });
         }
-        else {
-            htmlContent = template.body_html || '';
+        // Verify template no longer uses old FILE: references
+        if (htmlContent.startsWith('FILE:')) {
+            console.error(`[TEMPLATE] Template still uses deprecated FILE: reference. ` +
+                `DocumentType: ${documentType}, Reference: ${htmlContent}`);
+            return res.status(500).json({
+                error: 'Document template not properly configured. FILE: references are no longer supported.'
+            });
         }
         // 3. Auto-Merge Logic (if mergeData missing)
         if (!mergeData) {
@@ -1692,6 +1668,8 @@ async function saveEdits(){
         res.status(201).json({ success: true, data: { documentId: newDocId } });
     }
     catch (error) {
+        const err = error;
+        console.error('[DOCUMENT GENERATION ERROR]', err?.message || 'Unknown error');
         next(error);
     }
 });
