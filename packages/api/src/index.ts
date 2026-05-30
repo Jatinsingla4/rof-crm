@@ -59,6 +59,7 @@ const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
 
 import { db } from './db/pool';
+import { runMigrations } from './db/migrations';
 export { db } from './db/pool';
 
 // ============================================
@@ -460,9 +461,20 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // SERVER STARTUP
 // ============================================
 
-app.listen(Number(PORT), '0.0.0.0', () => {
-  console.log(`ROF CRM API running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+(async () => {
+  try {
+    console.log('[STARTUP] Running migrations...');
+    await runMigrations();
+    console.log('[STARTUP] ✅ Migrations completed successfully');
+  } catch (error) {
+    console.error('[STARTUP] ⚠️ Migration error:', (error as Error).message);
+    console.error('[STARTUP] Continuing with app startup (migrations may not be critical)');
+  }
+
+  app.listen(Number(PORT), '0.0.0.0', () => {
+    console.log(`ROF CRM API running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  });
+})();
 
 export default app;

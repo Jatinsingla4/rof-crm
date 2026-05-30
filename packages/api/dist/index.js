@@ -60,6 +60,7 @@ const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
 const pool_1 = require("./db/pool");
+const migrations_1 = require("./db/migrations");
 var pool_2 = require("./db/pool");
 Object.defineProperty(exports, "db", { enumerable: true, get: function () { return pool_2.db; } });
 // ============================================
@@ -364,9 +365,20 @@ app.use((err, req, res, next) => {
 // ============================================
 // SERVER STARTUP
 // ============================================
-app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`ROF CRM API running on port ${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+(async () => {
+    try {
+        console.log('[STARTUP] Running migrations...');
+        await (0, migrations_1.runMigrations)();
+        console.log('[STARTUP] ✅ Migrations completed successfully');
+    }
+    catch (error) {
+        console.error('[STARTUP] ⚠️ Migration error:', error.message);
+        console.error('[STARTUP] Continuing with app startup (migrations may not be critical)');
+    }
+    app.listen(Number(PORT), '0.0.0.0', () => {
+        console.log(`ROF CRM API running on port ${PORT}`);
+        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+})();
 exports.default = app;
 //# sourceMappingURL=index.js.map

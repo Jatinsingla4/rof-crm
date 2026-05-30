@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.runMigrations = runMigrations;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const pool_1 = require("./pool");
@@ -24,6 +25,7 @@ async function runMigrations() {
         console.log(`[MIGRATIONS] Found ${files.length} migration files`);
         if (files.length === 0) {
             console.warn('[MIGRATIONS] ⚠️  WARNING: No SQL migration files found!');
+            return;
         }
         for (const file of files) {
             const filePath = path_1.default.join(migrationsDir, file);
@@ -57,13 +59,23 @@ async function runMigrations() {
             }
         }
         console.log('[MIGRATIONS] ✅ All migrations completed!');
-        process.exit(0);
     }
     catch (error) {
         console.error('[MIGRATIONS] ❌ FATAL ERROR:', error.message);
         console.error('[MIGRATIONS] Stack:', error.stack);
-        process.exit(1);
+        throw error;
     }
 }
-runMigrations();
+// When run as CLI, run migrations and exit
+if (require.main === module) {
+    runMigrations()
+        .then(() => {
+        console.log('[MIGRATIONS] ✅ CLI migration run completed');
+        process.exit(0);
+    })
+        .catch((error) => {
+        console.error('[MIGRATIONS] ❌ CLI migration run failed:', error);
+        process.exit(1);
+    });
+}
 //# sourceMappingURL=migrations.js.map

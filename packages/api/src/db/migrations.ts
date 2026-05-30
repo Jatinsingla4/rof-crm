@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from './pool';
 
-async function runMigrations() {
+export async function runMigrations(): Promise<void> {
   const migrationsDir = path.join(__dirname, 'migrations');
   console.log(`[MIGRATIONS] Starting migration runner`);
   console.log(`[MIGRATIONS] Running from: ${migrationsDir}`);
@@ -24,6 +24,7 @@ async function runMigrations() {
 
     if (files.length === 0) {
       console.warn('[MIGRATIONS] ⚠️  WARNING: No SQL migration files found!');
+      return;
     }
 
     for (const file of files) {
@@ -60,12 +61,22 @@ async function runMigrations() {
     }
 
     console.log('[MIGRATIONS] ✅ All migrations completed!');
-    process.exit(0);
   } catch (error) {
     console.error('[MIGRATIONS] ❌ FATAL ERROR:', (error as Error).message);
     console.error('[MIGRATIONS] Stack:', (error as Error).stack);
-    process.exit(1);
+    throw error;
   }
 }
 
-runMigrations();
+// When run as CLI, run migrations and exit
+if (require.main === module) {
+  runMigrations()
+    .then(() => {
+      console.log('[MIGRATIONS] ✅ CLI migration run completed');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('[MIGRATIONS] ❌ CLI migration run failed:', error);
+      process.exit(1);
+    });
+}
