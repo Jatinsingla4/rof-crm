@@ -337,6 +337,63 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
 });
 
 // ============================================
+// PUBLIC HEALTH / DIAGNOSTIC ENDPOINTS (before auth)
+// ============================================
+
+app.get('/api/health/templates', async (req: AuthRequest, res: Response) => {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    console.log('[HEALTH] Templates diagnostic endpoint called');
+
+    // Check if template files exist
+    const templateFiles = [
+      { name: 'ats_rof_alante.html', path: path.join(__dirname, 'templates/legal/ats_rof_alante.html') },
+      { name: 'conveyance_rof_alante.html', path: path.join(__dirname, 'templates/legal/conveyance_rof_alante.html') },
+    ];
+
+    const filesStatus: Record<string, boolean> = {};
+    for (const file of templateFiles) {
+      filesStatus[file.name] = fs.existsSync(file.path);
+      console.log(`[HEALTH] File ${file.name}: ${filesStatus[file.name] ? 'EXISTS' : 'MISSING'} at ${file.path}`);
+    }
+
+    // Check database templates
+    const dbRes = await db.query(`
+      SELECT
+        document_type,
+        project_id,
+        name,
+        body_html,
+        COUNT(*) as count
+      FROM document_templates
+      WHERE document_type IN ('buyer_builder_agreement', 'conveyance_deed')
+      GROUP BY document_type, project_id, name, body_html
+      ORDER BY document_type, project_id NULLS FIRST
+    `);
+
+    const dbTemplates = dbRes.rows;
+    console.log(`[HEALTH] Found ${dbTemplates.length} template variants in database`);
+
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      environment: {
+        nodeEnv: process.env.NODE_ENV,
+      },
+      files: filesStatus,
+      database_templates: dbTemplates,
+    });
+  } catch (error) {
+    console.error('[HEALTH] Diagnostic failed:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+    });
+  }
+});
+
+// ============================================
 // API ROUTES (with auth + RBAC + auto-audit + response formatter)
 // ============================================
 
