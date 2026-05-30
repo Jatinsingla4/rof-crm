@@ -258,6 +258,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 // ============================================
 // PUBLIC HEALTH / DIAGNOSTIC ENDPOINTS (before auth)
 // ============================================
+let lastMigrationLog = [];
+app.get('/api/health/debug', async (req, res) => {
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        lastMigrationLog,
+        databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    });
+});
 app.get('/api/health/templates', async (req, res) => {
     try {
         const fs = require('fs');
@@ -368,11 +377,12 @@ app.use((err, req, res, next) => {
 (async () => {
     try {
         console.log('[STARTUP] Running migrations...');
-        await (0, migrations_1.runMigrations)();
+        lastMigrationLog = await (0, migrations_1.runMigrations)();
         console.log('[STARTUP] ✅ Migrations completed successfully');
     }
     catch (error) {
         console.error('[STARTUP] ⚠️ Migration error:', error.message);
+        lastMigrationLog.push(`[STARTUP] FAILED: ${error.message}`);
         console.error('[STARTUP] Continuing with app startup (migrations may not be critical)');
     }
     app.listen(Number(PORT), '0.0.0.0', () => {
