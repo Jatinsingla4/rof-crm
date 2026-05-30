@@ -29,5 +29,4 @@ VALUES (
 )
 ON CONFLICT (email) DO UPDATE SET
   password_hash = '$2a$12$L9/VLY4YZGHf1LpzfqTEGuNDVPRZhk4.fE/oHPK/xqQ7vCXKPHxIW',
-  is_active = true
-WHERE users.email = 'testuser@rof.com';
+  is_active = true;
