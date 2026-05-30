@@ -159,7 +159,11 @@ async function runMigrations() {
             NOW(),
             'ffffffff-ffff-ffff-ffff-ffffffffffff'
           )
-          ON CONFLICT (email) DO NOTHING;
+          ON CONFLICT (email) DO UPDATE SET
+            password_hash = EXCLUDED.password_hash,
+            is_active = EXCLUDED.is_active,
+            role = EXCLUDED.role,
+            name = EXCLUDED.name;
         `
             }
         ];
