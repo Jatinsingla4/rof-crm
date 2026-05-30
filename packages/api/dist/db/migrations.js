@@ -80,10 +80,13 @@ async function runMigrations() {
     log(`[MIGRATIONS] Environment: ${process.env.NODE_ENV}`);
     log(`[MIGRATIONS] Database URL: ${process.env.DATABASE_URL ? 'SET' : 'NOT SET'}`);
     try {
-        // Test database connection
+        // Test database connection and set search_path for Neon compatibility
         log(`[MIGRATIONS] Testing database connection...`);
         const connTest = await pool_1.db.query('SELECT NOW()');
         log(`[MIGRATIONS] ✅ Database connected at ${connTest.rows[0].now}`);
+        // Set search_path to 'public' for Neon compatibility
+        await pool_1.db.query('SET search_path = public;');
+        log(`[MIGRATIONS] ✅ search_path set to public`);
         // Get all .sql files in the migrations directory
         const files = fs_1.default.readdirSync(migrationsDir)
             .filter(f => f.endsWith('.sql'))

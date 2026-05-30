@@ -57,9 +57,12 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
             innerParams.push(status);
             innerWhere += ` AND u.status::text = $${innerParams.length}`;
         }
-        if (bhkType) {
-            innerParams.push(bhkType);
-            innerWhere += ` AND u.bhk_type = $${innerParams.length}`;
+        if (bhkType && bhkType !== 'any') {
+            // Pattern matching: frontend sends "3BHK", database has "Type-A (3 BHK)"
+            const bhkStr = String(bhkType);
+            innerParams.push(bhkStr);
+            innerParams.push(`%${bhkStr.replace(/(\d)(BHK)/i, '$1 $2')}%`);
+            innerWhere += ` AND (u.bhk_type = $${innerParams.length - 1} OR u.bhk_type ILIKE $${innerParams.length})`;
         }
         if (consumerName) {
             innerParams.push(`%${consumerName}%`);
