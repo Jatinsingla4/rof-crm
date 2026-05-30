@@ -1,8 +1,8 @@
 -- Migration: Seed test user for development and testing
 -- Purpose: Create a test user account for login testing during development
+-- Password: password123
+-- NOTE: This uses a static bcrypt hash. For production, use properly hashed credentials.
 
--- Hash of "password123" using bcrypt (generated with bcryptjs at cost 12)
--- This is: $2a$12$L9/VLY4YZGHf1LpzfqTEGuNDVPRZhk4.fE/oHPK/xqQ7vCXKPHxIW
 INSERT INTO users (
   id,
   name,
@@ -21,12 +21,15 @@ VALUES (
   'testuser@rof.com',
   '9999999999',
   'super_admin',
-  '$2a$12$L9/VLY4YZGHf1LpzfqTEGuNDVPRZhk4.fE/oHPK/xqQ7vCXKPHxIW',
+  -- bcrypt hash for "password123" with cost factor 12
+  -- Generated via: bcryptjs.hash('password123', 12)
+  '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJqq',
   '[]'::jsonb,
   true,
   NOW(),
   'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid
 )
 ON CONFLICT (email) DO UPDATE SET
-  password_hash = '$2a$12$L9/VLY4YZGHf1LpzfqTEGuNDVPRZhk4.fE/oHPK/xqQ7vCXKPHxIW',
-  is_active = true;
+  password_hash = '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5YmMxSUmGEJqq',
+  is_active = true,
+  role = 'super_admin';
