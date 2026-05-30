@@ -1764,11 +1764,12 @@ async function saveEdits(){
         [finalHtml, newDocId]
       );
 
-      // Also update the version snapshot with toolbar (appended before </body>)
+      // Save original version snapshot with toolbar (appended before </body>)
       const versionHtml = htmlContent.replace('</body>', editToolbar + '\n</body>');
       await db.query(
-        `UPDATE document_versions SET html_content = $1 WHERE document_id = $2 AND is_original = TRUE`,
-        [versionHtml, newDocId]
+        `INSERT INTO document_versions (document_id, version_number, html_content, created_by_user_id, edit_reason, fields_changed, is_original)
+         VALUES ($1, 1, $2, $3, 'Original generation', '[]'::jsonb, TRUE)`,
+        [newDocId, versionHtml, req.userId]
       );
     } else {
       // Save original version snapshot for non-edit-toolbar documents
