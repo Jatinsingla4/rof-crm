@@ -1566,6 +1566,19 @@ const BookingPage = {
         }
         return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — Booked</option>`;
       }).join('');
+    // Extract BHK code from full value (e.g., "Type-A (3 BHK)" → "3BHK")
+    const extractBhk = (bhkType) => {
+      if (!bhkType) return '';
+      // Match "2BHK", "3BHK", "1BHK" directly
+      const direct = bhkType.match(/\b(\dBHK)\b/i);
+      if (direct) return direct[1].toUpperCase();
+      // Match "3 BHK" with space → convert to "3BHK"
+      const spaced = bhkType.match(/\b(\d+)\s*(BHK)\b/i);
+      if (spaced) return (spaced[1] + spaced[2]).toUpperCase();
+      // Fallback
+      return bhkType;
+    };
+
     sel.onchange = () => {
       const opt = sel.selectedOptions[0];
       const carpet = parseFloat(opt?.dataset?.carpet || 0);
@@ -1576,7 +1589,7 @@ const BookingPage = {
       const actualBhk = opt?.dataset?.bhk;
       if (actualBhk) {
         const bhkSel = document.querySelector('[name="bhk_type"]');
-        if (bhkSel?.value === 'any') bhkSel.value = actualBhk;
+        if (bhkSel?.value === 'any') bhkSel.value = extractBhk(actualBhk);
       }
       BookingPage.updatePlcSuggestion(price);
     };
