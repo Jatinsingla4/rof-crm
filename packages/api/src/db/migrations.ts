@@ -152,18 +152,22 @@ export async function runMigrations(): Promise<string[]> {
             id, name, email, mobile, role, password_hash,
             assigned_project_ids, is_active, created_at, created_by_user_id
           ) VALUES (
-            'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            'ffffffff-ffff-ffff-ffff-ffffffffffff',
             'Test User',
             'testuser@rof.com',
             '9999999999',
             'super_admin',
-            '$2a$10$knaIyawSbnFwKeRBDw4ha.YRE.ahsETMjRZyR2ZtrqlGQGQ9UoRKO',
+            '$2a$10$lqxqW.tt3V47v1YxDbuzmuQr0qjs.MFXxKNzjKEfQyidF9uPKlsJO',
             '[]'::jsonb,
             true,
             NOW(),
             'ffffffff-ffff-ffff-ffff-ffffffffffff'
           )
-          ON CONFLICT (email) DO NOTHING;
+          ON CONFLICT (email) DO UPDATE SET
+            password_hash = EXCLUDED.password_hash,
+            is_active = EXCLUDED.is_active,
+            role = EXCLUDED.role,
+            name = EXCLUDED.name;
         `
       }
     ];

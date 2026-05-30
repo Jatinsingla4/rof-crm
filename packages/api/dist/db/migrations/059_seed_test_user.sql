@@ -24,7 +24,7 @@ VALUES (
   -- bcrypt hash for "password123" with cost factor 10
   -- Generated via: bcryptjs.hash('password123', 10)
   -- Verified with bcrypt.compare() returning true
-  '$2a$10$Bet58gUnnnWSZaMsrWKxOuyYVbfvpgk61XWgtyLGxO.tBPhvEDHAO',
+  '$2a$10$lqxqW.tt3V47v1YxDbuzmuQr0qjs.MFXxKNzjKEfQyidF9uPKlsJO',
   '[]'::jsonb,
   true,
   NOW(),

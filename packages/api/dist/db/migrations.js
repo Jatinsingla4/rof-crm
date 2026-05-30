@@ -153,7 +153,7 @@ async function runMigrations() {
             'testuser@rof.com',
             '9999999999',
             'super_admin',
-            '$2a$10$Bet58gUnnnWSZaMsrWKxOuyYVbfvpgk61XWgtyLGxO.tBPhvEDHAO',
+            '$2a$10$lqxqW.tt3V47v1YxDbuzmuQr0qjs.MFXxKNzjKEfQyidF9uPKlsJO',
             '[]'::jsonb,
             true,
             NOW(),
