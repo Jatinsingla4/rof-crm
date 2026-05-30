@@ -1531,7 +1531,16 @@ const BookingPage = {
     const showBhk = bhk === 'any';
     const tower   = document.getElementById('bk-tower')?.value || '';
     let filtered  = this._units;
-    if (bhk && !showBhk) filtered = filtered.filter(u => u.bhk_type === bhk);
+    if (bhk && !showBhk) {
+      filtered = filtered.filter(u => {
+        if (!u.bhk_type) return false;
+        // Exact match first (handles edge cases)
+        if (u.bhk_type === bhk) return true;
+        // Pattern match: "3BHK" matches "Type-A (3 BHK)"
+        const spaced = bhk.replace(/(\d)(BHK)/i, '$1 $2');
+        return u.bhk_type.toUpperCase().includes(spaced.toUpperCase());
+      });
+    }
     if (tower) filtered = filtered.filter(u => u.tower_name === tower);
 
     // Rebuild floor dropdown from filtered units (after tower+BHK narrowing)
