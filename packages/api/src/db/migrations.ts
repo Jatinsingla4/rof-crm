@@ -17,12 +17,27 @@ export async function runMigrations(): Promise<string[]> {
   log(`[MIGRATIONS] Starting migration runner`);
   log(`[MIGRATIONS] Running from: ${migrationsDir}`);
 
-  // Fallback to src if dist doesn't have migrations (e.g., if copy-files.js fails)
-  if (!fs.existsSync(migrationsDir)) {
+  // Fallback to src if dist doesn't have SQL migrations (e.g., if copy-files.js fails)
+  let usesFallback = false;
+  if (fs.existsSync(migrationsDir)) {
+    const distFiles = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'));
+    if (distFiles.length === 0) {
+      const srcMigrationsDir = path.join(__dirname, '../src/db/migrations');
+      if (fs.existsSync(srcMigrationsDir)) {
+        const srcFiles = fs.readdirSync(srcMigrationsDir).filter(f => f.endsWith('.sql'));
+        if (srcFiles.length > distFiles.length) {
+          log(`[MIGRATIONS] ⚠️ dist/migrations is empty (${distFiles.length} files), falling back to src/db/migrations (${srcFiles.length} files)`);
+          migrationsDir = srcMigrationsDir;
+          usesFallback = true;
+        }
+      }
+    }
+  } else if (!fs.existsSync(migrationsDir)) {
     const srcMigrationsDir = path.join(__dirname, '../src/db/migrations');
     if (fs.existsSync(srcMigrationsDir)) {
-      log(`[MIGRATIONS] ⚠️ dist/migrations not found, falling back to src/db/migrations`);
+      log(`[MIGRATIONS] ⚠️ dist/migrations directory not found, falling back to src/db/migrations`);
       migrationsDir = srcMigrationsDir;
+      usesFallback = true;
     }
   }
 
