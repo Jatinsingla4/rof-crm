@@ -1,3 +1,8 @@
+-- DEV_ONLY: This migration is for development/testing only.
+-- It TRUNCATES operational data and reseeds test data.
+-- It is automatically skipped in production (NODE_ENV=production).
+-- DO NOT remove this comment.
+--
 -- Migration 040: Master Test Data Import (Source of Truth)
 -- Clears all existing operational data and imports the specific 5 consumers and 2 projects.
 

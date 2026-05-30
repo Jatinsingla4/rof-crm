@@ -87,6 +87,10 @@ async function runMigrations() {
         // Set search_path to 'public' for Neon compatibility
         await pool_1.db.query('SET search_path = public;');
         log(`[MIGRATIONS] ✅ search_path set to public`);
+        // Migrations that should only run in development
+        const SKIP_IN_PRODUCTION = [
+            '040_import_test_documents_data.sql'
+        ];
         // Get all .sql files in the migrations directory
         const files = fs_1.default.readdirSync(migrationsDir)
             .filter(f => f.endsWith('.sql'))
@@ -99,6 +103,11 @@ async function runMigrations() {
         for (const file of files) {
             const filePath = path_1.default.join(migrationsDir, file);
             const migrationName = file.replace('.sql', '');
+            // Skip dev-only migrations in production
+            if (process.env.NODE_ENV === 'production' && SKIP_IN_PRODUCTION.includes(file)) {
+                log(`[MIGRATIONS] ⏭️  Skipping ${migrationName} (dev-only migration in production)`);
+                continue;
+            }
             log(`[MIGRATIONS] Running ${migrationName}...`);
             try {
                 const sql = fs_1.default.readFileSync(filePath, 'utf-8');

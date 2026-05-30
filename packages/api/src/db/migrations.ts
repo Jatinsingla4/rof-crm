@@ -54,6 +54,11 @@ export async function runMigrations(): Promise<string[]> {
     await db.query('SET search_path = public;');
     log(`[MIGRATIONS] ✅ search_path set to public`);
 
+    // Migrations that should only run in development
+    const SKIP_IN_PRODUCTION = [
+      '040_import_test_documents_data.sql'
+    ];
+
     // Get all .sql files in the migrations directory
     const files = fs.readdirSync(migrationsDir)
       .filter(f => f.endsWith('.sql'))
@@ -69,6 +74,12 @@ export async function runMigrations(): Promise<string[]> {
     for (const file of files) {
       const filePath = path.join(migrationsDir, file);
       const migrationName = file.replace('.sql', '');
+
+      // Skip dev-only migrations in production
+      if (process.env.NODE_ENV === 'production' && SKIP_IN_PRODUCTION.includes(file)) {
+        log(`[MIGRATIONS] ⏭️  Skipping ${migrationName} (dev-only migration in production)`);
+        continue;
+      }
 
       log(`[MIGRATIONS] Running ${migrationName}...`);
 
