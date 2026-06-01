@@ -255,6 +255,39 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
         );
         template = tRes.rows[0];
         console.log(`[GENERATE] Template found: ${template ? `id=${template.id}, projectId=${template.project_id}` : 'not found'}`);
+      } else if (['demand_letter', 'allotment_letter', 'payment_receipt'].includes(documentType)) {
+        // For demand_letter, allotment_letter, and payment_receipt, try project-specific first, then fall back to global
+        let projectId = null;
+
+        // Try to get project_id from consumer's allocation/unit
+        if (consumerId) {
+          const projRes = await db.query(
+            `SELECT p.id FROM projects p
+             JOIN allocations a ON p.id = a.project_id
+             WHERE a.consumer_id = $1
+             ORDER BY a.created_at DESC LIMIT 1`,
+            [consumerId]
+          );
+          projectId = projRes.rows[0]?.id || null;
+          console.log(`[GENERATE] Consumer projectId: ${projectId || 'null (fallback to global)'}`);
+        }
+
+        // Try project-specific template first, then fall back to global (project_id IS NULL)
+        const tRes = await db.query(
+          `SELECT * FROM document_templates
+           WHERE document_type = $1
+           AND (
+             project_id = $2
+             OR project_id IS NULL
+           )
+           ORDER BY
+             CASE WHEN project_id = $2 THEN 0 ELSE 1 END,
+             created_at DESC
+           LIMIT 1`,
+          [documentType, projectId]
+        );
+        template = tRes.rows[0];
+        console.log(`[GENERATE] Template found: ${template ? `id=${template.id}, projectId=${template.project_id}` : 'not found'}`);
       } else {
         const tRes = await db.query(
           `SELECT * FROM document_templates WHERE document_type = $1 ORDER BY created_at DESC LIMIT 1`,
