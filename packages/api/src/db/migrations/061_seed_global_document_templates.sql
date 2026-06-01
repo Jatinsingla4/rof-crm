@@ -2,7 +2,7 @@
 -- These are minimal templates that work with auto-merge logic
 
 INSERT INTO document_templates (
-  id, document_type, project_id, template_name, body_html, created_at, updated_at
+  id, document_type, project_id, name, body_html, created_at, updated_at
 ) VALUES
   (
     gen_random_uuid(),
