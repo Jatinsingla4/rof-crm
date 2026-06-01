@@ -82,6 +82,191 @@ function fmtIndianNumber(n: number): string {
   return Math.round(n).toLocaleString('en-IN');
 }
 
+// Get the professional demand letter HTML shell (bypasses template DB lookup)
+function getDemandLetterShell(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demand Letter</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #000; background: #fff; }
+  .page { max-width: 820px; margin: 0 auto; padding: 20px 28px; }
+  .print-bar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 14px; }
+  @media print { .print-bar { display: none; } }
+  .btn-print { background: #333; color: #fff; border: none; padding: 7px 18px; border-radius: 3px; cursor: pointer; font-size: 10pt; }
+  .btn-close  { background: #ddd; color: #333; border: none; padding: 7px 14px; border-radius: 3px; cursor: pointer; font-size: 10pt; }
+  .co-header { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 8px; }
+  .co-name { font-size: 14pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; }
+  .co-cin  { font-size: 8.5pt; text-align: center; color: #333; margin-top: 1px; }
+  .co-addr { font-size: 8.5pt; text-align: center; color: #333; margin-top: 3px; line-height: 1.5; }
+  .co-ref-row { display: flex; justify-content: space-between; margin-top: 6px; font-size: 8.5pt; }
+  .doc-title { text-align: center; border: 2px solid #000; font-size: 12pt; font-weight: 700; letter-spacing: 3px; padding: 5px 0; margin: 8px 0; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; margin-bottom: 8px; }
+  .info-col { padding: 7px 10px; }
+  .info-col:first-child { border-right: 1px solid #000; }
+  .col-title { font-weight: 700; font-size: 9.5pt; border-bottom: 1px solid #000; margin-bottom: 5px; padding-bottom: 3px; }
+  .info-row { display: flex; margin-bottom: 2px; font-size: 9pt; }
+  .info-lbl { color: #444; width: 115px; flex-shrink: 0; }
+  .info-val { font-weight: 600; }
+  .subject { font-weight: 700; font-size: 10pt; margin: 6px 0; }
+  .subject u { text-decoration: underline; }
+  .body-para { font-size: 10pt; line-height: 1.6; margin: 5px 0; text-align: justify; }
+  .demand-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 8.5pt; }
+  .demand-table th { background: #000; color: #fff; padding: 5px 3px; border: 1px solid #555; text-align: center; font-size: 8pt; font-weight: 700; }
+  .demand-table td { border: 1px solid #999; padding: 4px 3px; }
+  .demand-table tbody tr:nth-child(4n+3) td, .demand-table tbody tr:nth-child(4n+4) td { background: #f5f5f5; }
+  .demand-table tfoot td { font-weight: 700; background: #e8e8e8; border: 1px solid #666; }
+  .tc { text-align: center; }
+  .tr { text-align: right; }
+  .bold { font-weight: 700; }
+  .amt-words { border: 1px solid #999; padding: 7px 12px; margin: 6px 0; font-size: 10pt; }
+  .pay-para { font-size: 10pt; line-height: 1.6; margin: 6px 0; text-align: justify; }
+  .sign-off { margin: 14px 0 6px; }
+  .sign-off p { font-size: 10pt; line-height: 1.8; }
+  .sign-space { height: 38px; }
+  .sign-name { font-weight: 700; font-size: 10pt; }
+  .sign-title { font-size: 9pt; color: #333; }
+  .rtgs-box { border: 1px solid #000; padding: 8px 12px; margin: 8px 0; }
+  .rtgs-title { font-weight: 700; font-size: 10pt; margin-bottom: 5px; text-decoration: underline; }
+  .rtgs-grid { display: grid; grid-template-columns: 150px 1fr; gap: 2px 6px; font-size: 9pt; }
+  .rtgs-lbl { color: #444; }
+  .rtgs-val { font-weight: 600; }
+  .notes-section { margin: 8px 0; }
+  .notes-title { font-weight: 700; font-size: 10pt; margin-bottom: 3px; }
+  .notes-section ol { padding-left: 16px; }
+  .notes-section ol li { font-size: 9pt; line-height: 1.6; margin-bottom: 2px; }
+  .doc-footer { border-top: 1px solid #999; margin-top: 10px; padding-top: 5px; text-align: center; font-size: 8pt; color: #666; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="print-bar">
+    <button class="btn-close" onclick="window.close()">Close</button>
+    <button class="btn-print" onclick="window.print()">&#128438; Print / Save PDF</button>
+  </div>
+  <div class="co-header">
+    <div class="co-name">{{companyName}}</div>
+    <div class="co-cin">CIN: {{companyCin}}</div>
+    <div class="co-addr">
+      Corporate Office: {{companyAddress}}<br/>
+      Registered Office: {{companyRegAddr}}<br/>
+      T: {{companyPhone}} &nbsp;|&nbsp; W: {{companyWebsite}} &nbsp;|&nbsp; E: {{companyEmail}}
+    </div>
+    <div class="co-ref-row">
+      <div>GSTIN: {{companyGstin}} &nbsp;|&nbsp; Place of Supply: {{placeOfSupply}}</div>
+      <div>Customer ID: {{customerId}} &nbsp;|&nbsp; Invoice Date: {{invoiceDate}}</div>
+    </div>
+  </div>
+  <div class="doc-title">DEMAND LETTER</div>
+  <div class="info-grid">
+    <div class="info-col">
+      <div class="col-title">Allottee Details</div>
+      <div class="info-row"><span class="info-lbl">Name</span><span class="info-val">{{consumerName}}</span></div>
+      <div class="info-row"><span class="info-lbl">S/o, D/o, W/o</span><span class="info-val">{{fatherName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Co-Applicant(s)</span><span class="info-val">{{coApplicants}}</span></div>
+      <div class="info-row"><span class="info-lbl">Mobile</span><span class="info-val">{{mobile}}</span></div>
+      <div class="info-row"><span class="info-lbl">Address</span><span class="info-val">{{address}}</span></div>
+      <div class="info-row"><span class="info-lbl">Allotment Date</span><span class="info-val">{{allotmentDate}}</span></div>
+      <div class="info-row"><span class="info-lbl">Booking Date</span><span class="info-val">{{bookingDate}}</span></div>
+      <div class="info-row"><span class="info-lbl">Income Category</span><span class="info-val">{{incomeCategory}}</span></div>
+      <div class="info-row"><span class="info-lbl">RERA Regd. No.</span><span class="info-val">{{reraNo}}</span></div>
+    </div>
+    <div class="info-col">
+      <div class="col-title">Unit Details</div>
+      <div class="info-row"><span class="info-lbl">Project</span><span class="info-val">{{projectName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Location</span><span class="info-val">{{projectLocation}}</span></div>
+      <div class="info-row"><span class="info-lbl">Tower</span><span class="info-val">{{towerName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Floor</span><span class="info-val">{{floorNo}}</span></div>
+      <div class="info-row"><span class="info-lbl">Unit No.</span><span class="info-val">{{unitNumber}}</span></div>
+      <div class="info-row"><span class="info-lbl">Carpet Area (sq.ft.)</span><span class="info-val">{{carpetArea}}</span></div>
+      <div class="info-row"><span class="info-lbl">Balcony Area (sq.ft.)</span><span class="info-val">{{balconyArea}}</span></div>
+      <div class="info-row"><span class="info-lbl">Type</span><span class="info-val">{{unitCategory}}</span></div>
+      <div class="info-row"><span class="info-lbl">Payment Plan</span><span class="info-val">{{planName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Total Agreement Value</span><span class="info-val">&#8377;{{totalAmount}}</span></div>
+    </div>
+  </div>
+  <div class="subject">
+    Subject: <u>Demand Notice for Payment of Installment(s) — {{projectName}}, Unit No. {{unitNumber}}</u>
+  </div>
+  <p class="body-para">
+    Dear <strong>{{consumerName}}</strong>,<br/>
+    With reference to the allotment of Unit No. <strong>{{unitNumber}}</strong> admeasuring Carpet Area <strong>{{carpetArea}} Sq. Ft.</strong> and Balcony Area <strong>{{balconyArea}} Sq. Ft.</strong> in <strong>{{projectName}}</strong>, and as per the payment schedule agreed at the time of allotment, we wish to bring to your kind attention that the following installment(s) are due / overdue for payment. You are requested to make the payment on or before <strong>{{dueDate}}</strong> to avoid penal interest under HRERA Rule 15 @ <strong>{{penalRate}}%</strong> per annum on the outstanding amount.
+  </p>
+  <table class="demand-table">
+    <thead>
+      <tr>
+        <th style="width:28px">S.No.</th>
+        <th>Installment Description</th>
+        <th style="width:68px">Due Date</th>
+        <th style="width:72px">Basic Amt (&#8377;)</th>
+        <th style="width:42px">CGST %</th>
+        <th style="width:62px">CGST (&#8377;)</th>
+        <th style="width:42px">SGST %</th>
+        <th style="width:62px">SGST (&#8377;)</th>
+        <th style="width:72px">Total Due (&#8377;)</th>
+        <th style="width:68px">Paid (&#8377;)</th>
+        <th style="width:72px">Payable (&#8377;)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{demandRows}}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3" class="tr bold">TOTAL</td>
+        <td class="tr bold">—</td>
+        <td class="tc bold">—</td>
+        <td class="tr bold">{{totalCgst}}</td>
+        <td class="tc bold">—</td>
+        <td class="tr bold">{{totalSgst}}</td>
+        <td class="tr bold">{{totalDue}}</td>
+        <td class="tr bold">{{totalPaid}}</td>
+        <td class="tr bold">{{totalPayable}}</td>
+      </tr>
+    </tfoot>
+  </table>
+  <div class="amt-words">
+    <strong>Amount Payable in Words:</strong> {{amountInWords}}
+  </div>
+  <p class="pay-para">
+    Kindly ensure payment is made via NEFT / RTGS / Cheque / Demand Draft in favour of the details given below. Please note that cheque is subject to realisation. In case of delayed payment, penal interest @ <strong>{{penalRate}}%</strong> per annum will be charged as per HRERA Rule 15. Failure to pay within the stipulated time may result in cancellation of allotment and forfeiture of deposited amount as per the Buyer-Builder Agreement.
+  </p>
+  <div class="sign-off">
+    <p>Yours faithfully,<br/>For <strong>{{companyName}}</strong></p>
+    <div class="sign-space"></div>
+    <div class="sign-name">Authorised Signatory</div>
+    <div class="sign-title">Accounts &amp; Finance Department</div>
+  </div>
+  <div class="rtgs-box">
+    <div class="rtgs-title">Payment / RTGS Details</div>
+    <div class="rtgs-grid">
+      <span class="rtgs-lbl">Account Name</span><span class="rtgs-val">{{bankCompanyName}}</span>
+      <span class="rtgs-lbl">Account Number</span><span class="rtgs-val">{{bankAccountNo}}</span>
+      <span class="rtgs-lbl">IFSC Code</span><span class="rtgs-val">{{bankIfsc}}</span>
+      <span class="rtgs-lbl">Bank Name</span><span class="rtgs-val">{{bankName}}</span>
+      <span class="rtgs-lbl">Branch</span><span class="rtgs-val">{{bankBranch}}</span>
+    </div>
+  </div>
+  <div class="notes-section">
+    <div class="notes-title">Important Notes:</div>
+    <ol>
+      <li>{{demandNote1}}</li>
+      <li>{{demandNote2}}</li>
+      <li>{{demandNote3}}</li>
+      <li>{{demandNote4}}</li>
+    </ol>
+  </div>
+  <div class="doc-footer">
+    This is a computer-generated document. No signature required. Generated on {{currentDate}}. | {{companyName}}
+  </div>
+</div>
+</body>
+</html>`;
+}
+
 
 // POST /api/documents/templates - Create document template
 router.post('/templates', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -255,8 +440,19 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
         );
         template = tRes.rows[0];
         console.log(`[GENERATE] Template found: ${template ? `id=${template.id}, projectId=${template.project_id}` : 'not found'}`);
-      } else if (['demand_letter', 'allotment_letter', 'payment_receipt'].includes(documentType)) {
-        // For demand_letter, allotment_letter, and payment_receipt, try project-specific first, then fall back to global
+      } else if (documentType === 'demand_letter') {
+        // demand_letter is built entirely dynamically — no template DB lookup needed
+        // Use the professional HTML shell with all required markers for injection
+        console.log(`[GENERATE] demand_letter uses inline shell (no DB lookup)`);
+        template = {
+          id: null,
+          document_type: 'demand_letter',
+          body_html: getDemandLetterShell(),
+          project_id: null,
+          name: 'Demand Letter (Dynamic)'
+        };
+      } else if (['allotment_letter', 'payment_receipt'].includes(documentType)) {
+        // For allotment_letter and payment_receipt, try project-specific first, then fall back to global
         let projectId = null;
 
         // Try to get project_id from consumer's allocation/unit
@@ -1129,10 +1325,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             return res.status(400).json({ error: 'No allocation found for this consumer' });
           }
 
-          console.log('[ATS DEBUG] Resolved allocation ID:', resolvedAllocId3);
 
           // Main data fetch
-          console.log('[ATS DEBUG] Starting ATS data fetch for allocation:', resolvedAllocId3);
           const atsRes = await db.query(`
             SELECT
               c.first_name, c.last_name, c.father_name, c.age, c.pan_no, c.aadhaar_number,
@@ -1160,10 +1354,6 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           `, [resolvedAllocId3]);
 
           const ats = atsRes.rows[0];
-          console.log('[ATS DEBUG] ATS data fetched:', ats ? 'YES' : 'NULL');
-          if (ats) {
-            console.log('[ATS DEBUG] Consumer:', ats.first_name, ats.last_name, 'Unit:', ats.unit_number, 'Project:', ats.project_name);
-          }
           if (!ats) return res.status(404).json({ error: 'Allocation data not found' });
 
           const projectId3 = ats.project_id;
@@ -1474,7 +1664,6 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     ]);
     if (mergeData) {
       const NO_WRAP_FIELDS = ['payment_plan_rows'];
-      console.log('[ATS DEBUG] Starting merge: html length =', htmlContent.length, ', mergeData keys =', Object.keys(mergeData).length);
       for (const [key, value] of Object.entries(mergeData)) {
         const strVal = String(value ?? '');
         if (NO_WRAP_FIELDS.includes(key)) {
@@ -1487,7 +1676,6 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           htmlContent = htmlContent.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), () => wrapped);
         }
       }
-      console.log('[ATS DEBUG] Merge complete: final html length =', htmlContent.length);
     }
 
     // 3b. Post-process demand letters: inject dual-table (without / with interest)
@@ -1581,6 +1769,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           receivedSectionHtml + '\n' +
           `<div id="table-no-interest">${originalTable}</div>\n\n${withInterestTableHtml}` +
           htmlContent.substring(tableEnd);
+      } else {
       }
 
       // Wrap amt-words in dual divs for no-interest / with-interest amounts in words
@@ -1596,13 +1785,13 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           `<div id="para-no-interest">${originalAmtWords}</div>\n  ` +
           `<div id="para-with-interest" style="display:none">${withInterestAmtWords}</div>` +
           htmlContent.substring(amtWordsEnd);
+      } else {
       }
 
       // Advance Payment Adjustment injection removed
     }
 
     // 4. Save and return (insert WITHOUT toolbar first)
-    console.log('[ATS DEBUG] Starting INSERT with html length:', htmlContent.length);
     const result = await db.query(
       `INSERT INTO documents (consumer_id, allocation_id, template_id, document_type, html_content, delivery_method, delivery_status, created_by_user_id)
        VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
@@ -1610,7 +1799,6 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
       [consumerId, allocationId || null, template.id, template.document_type, htmlContent, deliveryMethod || 'none', req.userId]
     );
     const newDocId = result.rows[0].id;
-    console.log('[ATS DEBUG] INSERT complete, docId:', newDocId);
 
     // 4.5 Build and inject edit toolbar WITH actual docId (for ATS and Conveyance Deed only)
     console.log(`[TOOLBAR DEBUG] template.document_type = "${template.document_type}"`);
