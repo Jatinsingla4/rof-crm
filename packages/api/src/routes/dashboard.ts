@@ -15,6 +15,7 @@ router.get('/pending-cheques', async (req: AuthRequest, res: Response, next: Nex
   try {
     const result = await db.query(`
       SELECT
+        p.id as project_id,
         p.name as project,
         COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
         COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
@@ -224,7 +225,7 @@ router.get('/summary', async (req: AuthRequest, res: Response, next: NextFunctio
   try {
     const [cheques, demandStatus, pendingApproval, forthcomingDue] = await Promise.all([
       db.query(`
-        SELECT p.name as project,
+        SELECT p.id as project_id, p.name as project,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque') as total,

@@ -1575,8 +1575,8 @@ const BookingPage = {
       // Match "3 BHK" with space → convert to "3BHK"
       const spaced = bhkType.match(/\b(\d+)\s*(BHK)\b/i);
       if (spaced) return (spaced[1] + spaced[2]).toUpperCase();
-      // Fallback
-      return bhkType;
+      // Fallback — non-BHK unit (e.g. Shop); don't force-set the dropdown
+      return '';
     };
 
     sel.onchange = () => {
@@ -1585,11 +1585,12 @@ const BookingPage = {
       const price  = parseFloat(opt?.dataset?.price  || 0);
       if (carpet) document.querySelector('[name="carpet_area_sqft"]').value = parseFloat(carpet).toFixed(3);
       if (price)  document.querySelector('[name="basic_price"]').value = Math.round(price / (carpet||1));
-      // In "Any" mode, silently promote the BHK dropdown to the unit's actual type
+      // In "Any" mode, promote BHK dropdown only when the unit has a recognisable BHK type
       const actualBhk = opt?.dataset?.bhk;
-      if (actualBhk) {
+      const extracted = actualBhk ? extractBhk(actualBhk) : '';
+      if (extracted) {
         const bhkSel = document.querySelector('[name="bhk_type"]');
-        if (bhkSel?.value === 'any') bhkSel.value = extractBhk(actualBhk);
+        if (bhkSel?.value === 'any') bhkSel.value = extracted;
       }
       BookingPage.updatePlcSuggestion(price);
     };

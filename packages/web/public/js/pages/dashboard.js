@@ -169,7 +169,7 @@ Pages.dashboard = async function() {
           ${chequeRows.map((r, i) => `<tr>
             <td>${i + 1}</td>
             <td class="td-bold">${r.project || '—'}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.pending || 0}</td>
+            <td class="txt-right" style="color:var(--warn)"><a href="/pending-cheques.html?project_id=${r.project_id}" style="color:#2563eb;font-weight:600;text-decoration:none;">${r.pending || 0}</a></td>
             <td class="txt-right" style="color:var(--teal)">${r.deposite || 0}</td>
             <td class="txt-right">${r.total || 0}</td>
             <td class="txt-right" style="color:var(--blue)">${r.pdc || 0}</td>

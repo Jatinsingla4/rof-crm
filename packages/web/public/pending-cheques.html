@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify Pending Cheque Status — ROF CRM</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; background: #f0f2f5; font-size: 13px; }
+
+/* ── Top navbar ── */
+.navbar {
+  background: #1e3a5f;
+  color: #fff;
+  padding: 7px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.navbar .brand { font-size: 15px; font-weight: bold; color: #f97316; }
+.nav-back-btn {
+  background: #253f6b; color: #fff; border: none;
+  padding: 4px 12px; cursor: pointer; font-size: 12px; border-radius: 2px;
+}
+.nav-back-btn:hover { background: #f97316; }
+
+/* ── Page wrapper ── */
+.page { padding: 10px 14px 20px; }
+
+/* ── Filter section ── */
+.filter-box {
+  background: #fff;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+.filter-title {
+  background: #1e3a5f;
+  color: #fff;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  border-radius: 4px 4px 0 0;
+}
+.filter-body { padding: 10px 12px 12px; }
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+.fld { display: flex; flex-direction: column; }
+.fld label { font-size: 12px; color: #333; margin-bottom: 3px; font-weight: normal; }
+.fld input[type="text"],
+.fld input[type="date"],
+.fld select {
+  padding: 4px 6px;
+  border: 1px solid #b0b7be;
+  border-radius: 2px;
+  font-size: 12px;
+  background: #fff;
+  color: #333;
+}
+.fld input[type="text"]  { width: 150px; }
+.fld input[type="date"]  { width: 130px; }
+.fld select              { width: 160px; }
+.fld .date-sep { display: flex; align-items: center; gap: 4px; }
+.fld .date-sep span { font-size: 13px; color: #555; padding-bottom: 1px; }
+.btn-fetch {
+  background: #2563eb; color: #fff; border: none;
+  padding: 5px 18px; border-radius: 2px; cursor: pointer;
+  font-size: 12px; font-weight: bold; letter-spacing: 0.3px;
+  align-self: flex-end;
+}
+.btn-fetch:hover { background: #1d4ed8; }
+
+/* ── Results section ── */
+.results-box { background: #fff; border: 1px solid #d0d7de; border-radius: 4px; }
+.results-title-bar {
+  background: #fff;
+  border-bottom: 1px solid #d0d7de;
+  padding: 6px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-radius: 4px 4px 0 0;
+}
+.results-title {
+  font-size: 13px; font-weight: bold; color: #1e3a5f; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.results-tools { display: flex; gap: 6px; align-items: center; }
+.results-tools button {
+  background: none; border: 1px solid #b0b7be; color: #555;
+  padding: 3px 8px; cursor: pointer; font-size: 12px; border-radius: 2px;
+}
+.results-tools button:hover { background: #f0f2f5; }
+#count-bar { font-size: 12px; color: #555; margin-left: 6px; }
+
+/* ── Table ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+
+thead tr { background: #1e3a5f; }
+thead th {
+  padding: 7px 6px;
+  text-align: left;
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+  border-right: 1px solid rgba(255,255,255,0.12);
+}
+thead th:first-child { text-align: center; width: 36px; }
+
+tbody tr { background: #fff; }
+tbody tr:nth-child(even) { background: #fafafa; }
+tbody tr:hover { background: #fffde7 !important; }
+tbody tr.selected { background: #fff9c4 !important; }
+
+tbody td {
+  padding: 6px 6px;
+  border-bottom: 1px solid #dee2e6;
+  border-right: 1px solid #f0f0f0;
+  vertical-align: middle;
+  color: #333;
+}
+tbody td:first-child { text-align: center; }
+
+/* Inline form controls in table */
+tbody td input[type="date"] {
+  padding: 3px 4px; border: 1px solid #b0b7be;
+  border-radius: 2px; font-size: 11px; width: 112px; background: #fff;
+}
+tbody td select {
+  padding: 3px 4px; border: 1px solid #b0b7be;
+  border-radius: 2px; font-size: 11px; max-width: 150px; background: #fff;
+}
+
+/* Total row */
+tfoot tr { background: #f5f5f5; }
+tfoot td {
+  padding: 6px 6px; border-top: 2px solid #dee2e6;
+  font-weight: bold; font-size: 12px; color: #333;
+}
+
+/* ── Status badges ── */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.badge-pending   { background: #fff3cd; color: #856404; }
+.badge-deposited { background: #cfe2ff; color: #0a58ca; }
+.badge-cleared   { background: #d1e7dd; color: #0f5132; }
+.badge-bounced   { background: #f8d7da; color: #842029; }
+.badge-on_hold   { background: #e2e3e5; color: #383d41; }
+
+/* ── Action bar ── */
+.action-bar { padding: 10px 12px 12px; display: flex; gap: 6px; align-items: center; border-top: 1px solid #dee2e6; }
+.btn-clear {
+  background: #2563eb; color: #fff; border: none;
+  padding: 5px 14px; border-radius: 2px; cursor: pointer;
+  font-size: 12px; font-weight: bold; letter-spacing: 0.3px;
+}
+.btn-clear:hover { background: #1d4ed8; }
+.btn-bounce {
+  background: #dc3545; color: #fff; border: none;
+  padding: 5px 14px; border-radius: 2px; cursor: pointer;
+  font-size: 12px; font-weight: bold; letter-spacing: 0.3px;
+}
+.btn-bounce:hover { background: #b02a37; }
+
+/* Hold link in cell */
+.btn-hold-link {
+  background: none; border: none;
+  color: #2563eb; cursor: pointer;
+  font-size: 12px; text-decoration: none; padding: 0;
+  font-weight: normal;
+}
+.btn-hold-link:hover { text-decoration: underline; }
+
+/* ── Hold modal ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45); z-index: 9999;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal-box {
+  background: #fff; border-radius: 4px;
+  width: 430px; max-width: 96vw;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+}
+.modal-head {
+  background: #1e3a5f; color: #fff; padding: 9px 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-radius: 4px 4px 0 0;
+}
+.modal-head .modal-title { font-weight: bold; font-size: 13px; letter-spacing: 0.5px; }
+.modal-close { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; padding: 0; line-height: 1; }
+.modal-close:hover { color: #f97316; }
+.modal-body { padding: 14px; }
+.modal-body label { display: block; font-size: 12px; font-weight: bold; margin-bottom: 5px; color: #333; }
+.modal-body textarea {
+  width: 100%; padding: 7px; border: 1px solid #b0b7be;
+  border-radius: 2px; font-size: 12px; resize: vertical;
+  font-family: Arial, sans-serif; color: #333;
+}
+.modal-footer {
+  padding: 9px 14px; border-top: 1px solid #dee2e6;
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+.btn-hold-submit {
+  background: #2563eb; color: #fff; border: none;
+  padding: 6px 20px; border-radius: 2px; cursor: pointer;
+  font-size: 12px; font-weight: bold;
+}
+.btn-hold-submit:hover { background: #1d4ed8; }
+
+/* ── Empty state ── */
+.empty-state { text-align: center; padding: 28px; color: #999; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- Top navbar -->
+<div class="navbar">
+  <span class="brand">ROF</span>
+  <button class="nav-back-btn" onclick="history.back()">&#8592; Back</button>
+  <span style="color:#94a3b8;font-size:12px;margin-left:4px;">Real Estate Manager</span>
+</div>
+
+<div class="page">
+
+  <!-- Filter section -->
+  <div class="filter-box">
+    <div class="filter-title">VERIFY PENDING CHEQUE STATUS</div>
+    <div class="filter-body">
+      <div class="filter-row">
+        <div class="fld">
+          <label>Unit Address:</label>
+          <input type="text" id="pc-unit-address" placeholder="Unit Address">
+        </div>
+        <div class="fld">
+          <label>Tower:</label>
+          <select id="pc-tower">
+            <option value="">&lt;--All--&gt;</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>Date:</label>
+          <div class="date-sep">
+            <input type="date" id="pc-date-from" placeholder="From Date">
+            <span>-</span>
+            <input type="date" id="pc-date-to" placeholder="To Date">
+          </div>
+        </div>
+        <button class="btn-fetch" onclick="PC.fetchCheques()">FETCH</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results section -->
+  <div class="results-box" id="pc-results" style="display:none;">
+    <div class="results-title-bar">
+      <span class="results-title">VERIFY PENDING CHEQUE STATUS</span>
+      <div class="results-tools">
+        <span id="count-bar"></span>
+        <button onclick="window.print()" title="Print">&#128438; Print</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="pc-select-all" onchange="PC.selectAll(this)"></th>
+            <th>S.NO.</th>
+            <th>REGISTRATION NO.</th>
+            <th>NAME</th>
+            <th>UNIT ADDRESS</th>
+            <th>TOWER NAME</th>
+            <th>BANK NAME</th>
+            <th>PAYMENT TYPE</th>
+            <th>CHEQUE NO.</th>
+            <th style="text-align:right;">AMOUNT</th>
+            <th>RECEIPT NO.</th>
+            <th>RECEIPT DATE</th>
+            <th>CHEQUE DATE</th>
+            <th>DEPOSIT DATE</th>
+            <th>CLEARING DATE</th>
+            <th>COMPANY NAME</th>
+            <th>CHEQUE STATUS</th>
+            <th>CLEARING BANK NAME</th>
+            <th>BOUNCE REMARK</th>
+            <th>HOLD REMARKS</th>
+            <th>HOLD</th>
+          </tr>
+        </thead>
+        <tbody id="pc-tbody">
+          <tr><td colspan="21" class="empty-state">Click FETCH to load data</td></tr>
+        </tbody>
+        <tfoot id="pc-tfoot" style="display:none;">
+          <tr>
+            <td colspan="9" style="text-align:right;padding-right:8px;">Total</td>
+            <td id="pc-total-amt" style="text-align:right;"></td>
+            <td colspan="11"></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+    <div class="action-bar">
+      <button class="btn-clear" onclick="PC.handleClear()">CLEAR(ALT+C)</button>
+      <button class="btn-bounce" onclick="PC.handleBounce()">BOUNCE</button>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<!-- Hold Modal -->
+<div class="modal-overlay" id="pc-hold-modal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span class="modal-title">CHANGE CHEQUE STATUS</span>
+      <button class="modal-close" onclick="PC.closeModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label for="pc-hold-remark">Hold Remark: <span style="color:red;">*</span></label>
+      <textarea id="pc-hold-remark" rows="4" placeholder="Enter reason for hold..."></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-hold-submit" onclick="PC.submitHold()">HOLD</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function pcGetToken() { return localStorage.getItem('rof-jwt') || ''; }
+function pcFmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+function pcFmtAmt(v) {
+  if (v == null || v === '') return '—';
+  return parseFloat(v).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+</script>
+<script src="/js/pages/pending-cheques.js"></script>
+</body>
+</html>

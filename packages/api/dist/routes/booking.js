@@ -1387,8 +1387,8 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const rInt = parseFloat(r.interest_amount || 0);
             const rNet = rGross - rCgst - rSgst;
             const instrNo = r.payment_method === 'cheque' ? (r.cheque_no || '—') : (r.transaction_ref || '—');
-            const rStatus = r.status === 'authorized' ? 'Cleared' : 'Pending';
-            const rRowBg = rStatus === 'Pending' ? 'background:#FFFF99' : 'background:#ffffff';
+            const rRowBg = { pending: 'background:#FFFF99', deposited: 'background:#d4edda', bounced: 'background:#ffcccc', on_hold: 'background:#cce5ff', cleared: 'background:#ffffff', cancelled: 'background:#e2e3e5' }[r.status] ?? 'background:#ffffff';
+            const rStatus = { pending: 'Pending', deposited: 'Deposited', cleared: 'Cleared', bounced: 'Bounced', on_hold: 'On Hold', cancelled: 'Cancelled' }[r.status] ?? (r.status || 'Pending');
             return `<tr style="${rRowBg}">
           <td ${rtdC}>${i + 1}</td>
           <td ${rtdL}>${esc(r.receipt_number || '—')}</td>
@@ -1398,6 +1398,8 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
           <td ${rtdC}>${fmtDate(r.cheque_date)}</td>
           <td ${rtdL}>${esc(r.bank_name || '—')}</td>
           <td ${rtdL}>${esc(r.branch || '—')}</td>
+          <td ${rtdC}>${fmtDate(r.deposit_date)}</td>
+          <td ${rtdC}>${fmtDate(r.clearing_date)}</td>
           <td ${rtdC}>—</td>
           <td ${rtdR}>${fmtIndianNumber(rNet)}</td>
           <td ${rtdR}>${fmtIndianNumber(rCgst)}</td>
@@ -1406,18 +1408,20 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
           <td ${rtdR}>0.00</td>
           <td ${rtdR}>${fmtIndianNumber(rGross)}</td>
           <td ${rtdC}>${rStatus}</td>
+          <td ${rtdL}>${esc(r.hold_remark || '—')}</td>
           <td ${rtdL}>N/A</td>
           <td ${rtdL}>${esc(r.on_account_of || 'Booking')}</td>
         </tr>`;
         }).join('')
-        : `<tr><td ${rtdC} colspan="18" style="${rFont}padding:4px;text-align:center;">No receipts recorded.</td></tr>`;
-    const rTotalGross = receiptRows.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
-    const rTotalCgst = receiptRows.reduce((s, r) => s + parseFloat(r.cgst_amount || 0), 0);
-    const rTotalSgst = receiptRows.reduce((s, r) => s + parseFloat(r.sgst_amount || 0), 0);
-    const rTotalInt = receiptRows.reduce((s, r) => s + parseFloat(r.interest_amount || 0), 0);
-    const rTotalNet = rTotalGross - rTotalCgst - rTotalSgst;
-    const rPendingGross = receiptRows.filter((r) => r.status !== 'authorized').reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
-    const rClearedGross = receiptRows.filter((r) => r.status === 'authorized').reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
+        : `<tr><td ${rtdC} colspan="21" style="${rFont}padding:4px;text-align:center;">No receipts recorded.</td></tr>`;
+    const rReceivedRows = receiptRows.filter((r) => ['pending', 'deposited', 'cleared', 'on_hold'].includes(r.status));
+    const rReceivedGross = rReceivedRows.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
+    const rReceivedCgst = rReceivedRows.reduce((s, r) => s + parseFloat(r.cgst_amount || 0), 0);
+    const rReceivedSgst = rReceivedRows.reduce((s, r) => s + parseFloat(r.sgst_amount || 0), 0);
+    const rReceivedInt = rReceivedRows.reduce((s, r) => s + parseFloat(r.interest_amount || 0), 0);
+    const rReceivedNet = rReceivedGross - rReceivedCgst - rReceivedSgst;
+    const rPendingGross = receiptRows.filter((r) => ['pending', 'deposited', 'on_hold'].includes(r.status)).reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
+    const rClearedGross = receiptRows.filter((r) => r.status === 'cleared').reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
     const receiptSection = `
     <div ${sectionHd}>RECEIPT INFORMATION</div>
     <div style="text-align:right;font-size:9px;margin-bottom:4px;font-family:Arial,sans-serif;">
@@ -1429,9 +1433,17 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <span style="display:inline-block;width:12px;height:12px;background:#FFFF99;border:1px solid #999"></span>
         Pending cheque
       </span>
-      <span style="display:inline-flex;align-items:center;gap:3px">
+      <span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px">
         <span style="display:inline-block;width:12px;height:12px;background:#FFD580;border:1px solid #999"></span>
         Loan Receipt
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:3px;margin-right:10px">
+        <span style="display:inline-block;width:12px;height:12px;background:#cce5ff;border:1px solid #999"></span>
+        On Hold
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:3px">
+        <span style="display:inline-block;width:12px;height:12px;background:#d4edda;border:1px solid #999"></span>
+        Deposited
       </span>
     </div>
     <div style="overflow-x:auto;">
@@ -1445,6 +1457,8 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <th ${rthS} style="width:6%">INSTRUMENT DATE</th>
         <th ${rthS} style="width:6%">DRAWN ON</th>
         <th ${rthS} style="width:6%">CLEARING BANK</th>
+        <th ${rthS} style="width:6%">DEPOSIT DATE</th>
+        <th ${rthS} style="width:6%">CLEARING DATE</th>
         <th ${rthS} style="width:6%">BOUNCE DATE</th>
         <th ${rthS} style="width:5%">AMOUNT</th>
         <th ${rthS} style="width:4%">CGST</th>
@@ -1453,36 +1467,37 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <th ${rthS} style="width:4%">EXTRA</th>
         <th ${rthS} style="width:5%">NET AMOUNT</th>
         <th ${rthS} style="width:6%">PAYMENT STATUS</th>
+        <th ${rthS} style="width:6%">HOLD REMARKS</th>
         <th ${rthS} style="width:6%">REMARK</th>
         <th ${rthS} style="width:6%">ON ACCOUNT OF</th>
       </tr></thead>
       <tbody>${receiptTableRows}</tbody>
       <tfoot>
         <tr>
-          <td ${rtdBR} colspan="9">Received Amt.:</td>
-          <td ${rtdBR}>${fmtIndianNumber(rTotalNet)}</td>
-          <td ${rtdBR}>${fmtIndianNumber(rTotalCgst)}</td>
-          <td ${rtdBR}>${fmtIndianNumber(rTotalSgst)}</td>
-          <td ${rtdBR}>${fmtIndianNumber(rTotalInt)}</td>
+          <td ${rtdBR} colspan="11">Received Amt.:</td>
+          <td ${rtdBR}>${fmtIndianNumber(rReceivedNet)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(rReceivedCgst)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(rReceivedSgst)}</td>
+          <td ${rtdBR}>${fmtIndianNumber(rReceivedInt)}</td>
           <td ${rtdBR}>0.00</td>
-          <td ${rtdBR}>${fmtIndianNumber(rTotalGross)}</td>
-          <td ${rtdBR} colspan="3"></td>
+          <td ${rtdBR}>${fmtIndianNumber(rReceivedGross)}</td>
+          <td ${rtdBR} colspan="4"></td>
         </tr>
         <tr style="background:#FFFF99">
-          <td ${rtdBR} colspan="9">Pending Amt.:</td>
+          <td ${rtdBR} colspan="11">Pending Amt.:</td>
           <td ${rtdBR}>${fmtIndianNumber(rPendingGross)}</td>
           <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
           <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
           <td ${rtdBR}>${fmtIndianNumber(rPendingGross)}</td>
-          <td ${rtdBR} colspan="3"></td>
+          <td ${rtdBR} colspan="4"></td>
         </tr>
         <tr>
-          <td ${rtdBR} colspan="9">Cleared Amt.:</td>
+          <td ${rtdBR} colspan="11">Cleared Amt.:</td>
           <td ${rtdBR}>${fmtIndianNumber(rClearedGross)}</td>
           <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
           <td ${rtdBR}>0.00</td><td ${rtdBR}>0.00</td>
           <td ${rtdBR}>${fmtIndianNumber(rClearedGross)}</td>
-          <td ${rtdBR} colspan="3"></td>
+          <td ${rtdBR} colspan="4"></td>
         </tr>
       </tfoot>
     </table>

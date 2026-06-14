@@ -2,6 +2,50 @@
 
 Project-specific rules for Claude Code working on ROF CRM.
 
+---
+
+## RULE 0: WORKING DIRECTORY BOUNDARY — ABSOLUTE RESTRICTION
+
+### The Rule
+
+**ONLY work inside:** `D:\Desktop\Grapes\ROF Project\`
+
+**NEVER touch:**
+- `D:\Desktop\Grapes\Pay10\`
+- `D:\Desktop\Grapes\Pay10 Bahrain\`
+- Any other folder outside `D:\Desktop\Grapes\ROF Project\`
+
+### Context
+
+The parent directory `D:\Desktop\Grapes\` contains 3 sibling projects:
+
+```
+D:\Desktop\Grapes\
+├── Pay10\              ← FORBIDDEN. Never read, write, or reference.
+├── Pay10 Bahrain\      ← FORBIDDEN. Never read, write, or reference.
+└── ROF Project\        ← ONLY allowed working directory.
+```
+
+### What This Means in Practice
+
+- ❌ DO NOT read files from `Pay10\` or `Pay10 Bahrain\`
+- ❌ DO NOT write or edit files from those folders
+- ❌ DO NOT run git commands from those folders
+- ❌ DO NOT reference, copy from, or compare against those folders
+- ❌ DO NOT accidentally glob or grep into those folders
+- ✅ All work stays inside `D:\Desktop\Grapes\ROF Project\`
+
+### Why This Rule Exists
+
+The parent directory is a shared workspace. `Pay10` and `Pay10 Bahrain` are separate, unrelated client projects. Any accidental read or write to those folders could expose confidential data or corrupt a separate project.
+
+### Before Every Tool Call That Touches the Filesystem
+
+Verify the target path starts with `D:\Desktop\Grapes\ROF Project\`.
+If it does not → **STOP. Do not proceed.**
+
+---
+
 ## CRITICAL: Build dist/ Before Every Commit
 
 **MANDATORY RULE:** Before every git commit in this project, ALWAYS rebuild the TypeScript distribution.
@@ -48,11 +92,83 @@ If dist/ wasn't rebuilt before commit, Render runs stale bytecode.
 
 ---
 
-## Other Project Rules
+## RULE 2: SURGICAL CHANGES ONLY
 
-(Add additional project-specific guidance here as needed)
+### The Core Rule
+
+Fix **ONLY** what is explicitly asked. Do **NOT** touch anything else.
+
+### What This Means
+
+- If asked to fix demand letter → fix **ONLY** demand letter
+- If asked to fix a DB column → fix **ONLY** that column
+- If asked to fix a frontend bug → fix **ONLY** that frontend file
+- Do NOT improve nearby code
+- Do NOT refactor related functions
+- Do NOT fix things you notice while working on something else
+- Do NOT add features not asked for
+- Do NOT change other files that might be affected
+
+### Before Making ANY Change, Ask Yourself
+
+1. Was I explicitly asked to change this file? **YES/NO**
+2. Was I explicitly asked to change this function? **YES/NO**
+3. Was I explicitly asked to change this line? **YES/NO**
+
+If the answer is **NO** → **DO NOT TOUCH IT**.
+
+### The Cascade Problem (Real Example)
+
+This project experienced this exact pattern:
+
+1. Asked to fix demand_letter 404
+2. Claude also changed allotment_letter and payment_receipt template lookup
+3. This caused a 500 error
+4. Which caused missing column errors
+5. Which required 4 more fix sessions
+6. All from **ONE unnecessary change**
+
+**One unasked change = hours of debugging.**
+
+### Allowed Exceptions
+
+You **MAY** touch additional files **ONLY IF**:
+
+1. You tell the user **FIRST**:
+   ```
+   "To fix X, I also need to change Y
+    because [specific reason].
+    Shall I proceed?"
+   ```
+2. The user confirms **YES**
+3. Never assume permission
+
+### Required Before Every Task
+
+State out loud at the start:
+
+```
+I will change ONLY:
+- File: [specific file]
+- Function: [specific function]  
+- Reason: [exactly what was asked]
+
+I will NOT touch anything else.
+```
+
+### The Verification Test
+
+After making changes, run:
+
+```bash
+git diff --name-only HEAD
+```
+
+If **more files changed** than explicitly discussed → **STOP and explain why** before committing.
 
 ---
 
-**Last Updated:** 2026-06-01  
-**Added By:** Sync audit following demand letter fix
+**Last Updated:** 2026-06-05  
+**Rule 0 Added:** 2026-06-05 (Working directory boundary — never touch Pay10 or Pay10 Bahrain)  
+**Rule 1 Added:** 2026-06-01 (Build dist/ before every commit)  
+**Rule 2 Added:** 2026-06-02 (Surgical changes only)

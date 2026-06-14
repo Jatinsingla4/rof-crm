@@ -830,6 +830,85 @@ router.get('/receipts', async (req, res, next) => {
         next(error);
     }
 });
+// GET /api/payments/receipts/pending-cheques - List cheques pending action
+router.get('/receipts/pending-cheques', async (req, res, next) => {
+    try {
+        const { project_id, unit_address, tower_id, from_date, to_date, cheque_no, registration_no, first_name } = req.query;
+        const params = [];
+        let whereExtra = '';
+        if (project_id) {
+            params.push(project_id);
+            whereExtra += ` AND p.id = $${params.length}`;
+        }
+        if (unit_address) {
+            params.push(`%${unit_address}%`);
+            whereExtra += ` AND u.unit_number ILIKE $${params.length}`;
+        }
+        if (tower_id) {
+            params.push(tower_id);
+            whereExtra += ` AND t.id = $${params.length}`;
+        }
+        if (from_date) {
+            params.push(from_date);
+            whereExtra += ` AND r.created_at::date >= $${params.length}`;
+        }
+        if (to_date) {
+            params.push(to_date);
+            whereExtra += ` AND r.created_at::date <= $${params.length}`;
+        }
+        if (cheque_no) {
+            params.push(`%${cheque_no}%`);
+            whereExtra += ` AND r.cheque_no ILIKE $${params.length}`;
+        }
+        if (registration_no) {
+            params.push(`%${registration_no}%`);
+            whereExtra += ` AND c.registration_no ILIKE $${params.length}`;
+        }
+        if (first_name) {
+            params.push(`%${first_name}%`);
+            whereExtra += ` AND c.name ILIKE $${params.length}`;
+        }
+        const result = await index_js_1.db.query(`
+      SELECT
+        r.id,
+        r.receipt_number,
+        r.cheque_no,
+        r.amount_received_inr AS amount,
+        r.payment_method,
+        r.status,
+        r.cheque_date,
+        r.deposit_date,
+        r.clearing_date,
+        r.hold_remark,
+        r.clearing_bank_id,
+        r.bank_name,
+        r.branch,
+        r.created_at AS receipt_date,
+        c.name AS consumer_name,
+        c.registration_no AS registration_number,
+        u.unit_number AS unit_address,
+        t.tower_name,
+        ba.bank_name AS clearing_bank_name,
+        comp.name AS company_name
+      FROM receipts r
+      JOIN consumers c ON c.id = r.consumer_id
+      LEFT JOIN allocations al ON al.consumer_id = c.id
+      LEFT JOIN units u ON u.id = al.unit_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN bank_accounts ba ON ba.id = r.clearing_bank_id
+      LEFT JOIN projects p ON p.id = al.project_id
+      LEFT JOIN companies comp ON comp.id = p.company_id
+      WHERE r.payment_method::text = 'cheque'
+        AND r.status IN ('pending', 'deposited', 'on_hold')
+        ${whereExtra}
+      ORDER BY r.created_at DESC
+    `, params);
+        res.json({ success: true, data: result.rows, total: result.rows.length });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 // GET /api/payments/receipts/:id - Fetch single receipt with all fields
 router.get('/receipts/:id', async (req, res, next) => {
     try {
@@ -2911,6 +2990,136 @@ router.get('/demand-status', async (req, res, next) => {
     }
     catch (err) {
         next(err);
+    }
+});
+// ── CHEQUE CLEARING ENDPOINTS ────────────────────────────────────────────────
+// GET /api/payments/clearing-banks/:projectId - List active bank accounts for a project
+router.get('/clearing-banks/:projectId', async (req, res, next) => {
+    try {
+        const { projectId } = req.params;
+        const result = await index_js_1.db.query(`SELECT id, bank_name, account_number, ifsc_code
+       FROM bank_accounts
+       WHERE project_id = $1 AND is_active = true
+       ORDER BY bank_name`, [projectId]);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/payments/receipts/:id/deposit - Mark cheque as deposited
+router.patch('/receipts/:id/deposit', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { deposit_date } = req.body;
+        if (!deposit_date) {
+            return res.status(400).json({ error: 'deposit_date is required' });
+        }
+        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
+        if (receiptRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Receipt not found' });
+        }
+        const receipt = receiptRes.rows[0];
+        if (receipt.payment_method !== 'cheque') {
+            return res.status(400).json({ error: 'Only cheque receipts can be deposited' });
+        }
+        if (receipt.status !== 'pending') {
+            return res.status(400).json({ error: `Cannot deposit: receipt is '${receipt.status}', must be 'pending'` });
+        }
+        const result = await index_js_1.db.query(`UPDATE receipts
+       SET status = 'deposited', deposit_date = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, receipt_number, status, deposit_date, amount_received_inr`, [deposit_date, id]);
+        res.json({ success: true, message: 'Cheque marked as deposited', data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/payments/receipts/:id/clear - Mark cheque as cleared
+router.patch('/receipts/:id/clear', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { clearing_date, clearing_bank_id } = req.body;
+        if (!clearing_date) {
+            return res.status(400).json({ error: 'clearing_date is required' });
+        }
+        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
+        if (receiptRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Receipt not found' });
+        }
+        const receipt = receiptRes.rows[0];
+        if (receipt.payment_method !== 'cheque') {
+            return res.status(400).json({ error: 'Only cheque receipts can be cleared' });
+        }
+        if (!['pending', 'deposited', 'on_hold'].includes(receipt.status)) {
+            return res.status(400).json({ error: `Cannot clear: receipt is '${receipt.status}', must be 'pending', 'deposited', or 'on_hold'` });
+        }
+        const result = await index_js_1.db.query(`UPDATE receipts
+       SET status = 'cleared',
+           clearing_date = $1,
+           clearing_bank_id = $2,
+           updated_at = NOW()
+       WHERE id = $3
+       RETURNING id, receipt_number, status, clearing_date, clearing_bank_id, amount_received_inr`, [clearing_date, clearing_bank_id || null, id]);
+        res.json({ success: true, message: 'Cheque marked as cleared', data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/payments/receipts/:id/release-hold - Release a cheque from hold back to pending
+router.patch('/receipts/:id/release-hold', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
+        if (receiptRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Receipt not found' });
+        }
+        const receipt = receiptRes.rows[0];
+        if (receipt.payment_method !== 'cheque') {
+            return res.status(400).json({ error: 'Only cheque receipts can be released from hold' });
+        }
+        if (receipt.status !== 'on_hold') {
+            return res.status(400).json({ error: 'Cannot release: receipt is not on hold' });
+        }
+        const result = await index_js_1.db.query(`UPDATE receipts
+       SET status = 'pending', hold_remark = NULL, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, receipt_number, status, hold_remark, amount_received_inr`, [id]);
+        res.json({ success: true, message: 'Cheque released from hold', data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/payments/receipts/:id/hold - Put cheque on hold
+router.patch('/receipts/:id/hold', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { hold_remark } = req.body;
+        if (!hold_remark || !hold_remark.trim()) {
+            return res.status(400).json({ error: 'hold_remark is required' });
+        }
+        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
+        if (receiptRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Receipt not found' });
+        }
+        const receipt = receiptRes.rows[0];
+        if (receipt.payment_method !== 'cheque') {
+            return res.status(400).json({ error: 'Only cheque receipts can be put on hold' });
+        }
+        if (['cleared', 'bounced', 'cancelled'].includes(receipt.status)) {
+            return res.status(400).json({ error: `Cannot hold: receipt is '${receipt.status}'` });
+        }
+        const result = await index_js_1.db.query(`UPDATE receipts
+       SET status = 'on_hold', hold_remark = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, receipt_number, status, hold_remark, amount_received_inr`, [hold_remark.trim(), id]);
+        res.json({ success: true, message: 'Cheque put on hold', data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
     }
 });
 exports.default = router;

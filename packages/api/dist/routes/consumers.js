@@ -1012,6 +1012,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             index_js_1.db.query(`SELECT r.receipt_number, r.received_date, r.amount_received_inr,
                 r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
                 r.bank_name, r.branch, r.interest_amount, r.status,
+                r.deposit_date, r.clearing_date, r.hold_remark,
                 COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
                 COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * 0.005)) AS sgst_amount,
                 COALESCE(d.demand_type, 'Booking') AS on_account_of
