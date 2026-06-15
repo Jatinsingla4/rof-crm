@@ -69,16 +69,11 @@ router.post('/fee-master', async (req, res, next) => {
 });
 /**
  * POST /api/transfers - Initiate Ownership Transfer
- * Steps:
- * 1. Validate both consumers and unit.
- * 2. Update unit ownership in consumers table.
- * 3. Update allocation record.
- * 4. Log the transfer.
  */
 router.post('/', async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
-        const { unitId, oldConsumerId, newConsumerId, transferFee, adminCharges, remarks } = req.body;
+        const { unitId, oldConsumerId, newConsumerId, transferFee, adminCharges, remarks, transferNo, applicationDate, transferType, transferAmountInr, staxAmount, cgstAmount, sgstAmount, igstAmount, ugstAmount, basicPrice, gstin, brokerCompany, mainBroker, salesPersonName, transferReceiptNo } = req.body;
         if (!unitId || !oldConsumerId || !newConsumerId) {
             return res.status(400).json({ error: 'unitId, oldConsumerId, and newConsumerId are required' });
         }
@@ -99,8 +94,23 @@ router.post('/', async (req, res, next) => {
         await client.query(`INSERT INTO allocations (consumer_id, unit_id, project_id, status, created_by_user_id)
        SELECT $1, $2, project_id, 'allotted', $3 FROM units WHERE id = $2`, [newConsumerId, unitId, req.userId]);
         // 6. Log the transfer event
-        const transferRes = await client.query(`INSERT INTO ownership_transfers (unit_id, old_consumer_id, new_consumer_id, transfer_fee_inr, admin_charges_inr, transfer_remarks, created_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`, [unitId, oldConsumerId, newConsumerId, transferFee || 0, adminCharges || 0, remarks || null, req.userId]);
+        const transferRes = await client.query(`INSERT INTO ownership_transfers (
+         unit_id, old_consumer_id, new_consumer_id,
+         transfer_fee_inr, admin_charges_inr, transfer_remarks, created_by_user_id,
+         transfer_no, application_date, transfer_type, transfer_amount_inr,
+         stax_amount, cgst_amount, sgst_amount, igst_amount, ugst_amount,
+         basic_price, gstin, broker_company, main_broker, sales_person_name, transfer_receipt_no
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,
+         $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+       ) RETURNING id`, [
+            unitId, oldConsumerId, newConsumerId,
+            transferFee || 0, adminCharges || 0, remarks || null, req.userId,
+            transferNo || null, applicationDate || null, transferType || null, transferAmountInr || 0,
+            staxAmount || 0, cgstAmount || 0, sgstAmount || 0, igstAmount || 0, ugstAmount || 0,
+            basicPrice || 0, gstin || null, brokerCompany || null, mainBroker || null,
+            salesPersonName || null, transferReceiptNo || null
+        ]);
         await client.query('COMMIT');
         res.status(201).json({ success: true, data: transferRes.rows[0] });
     }
@@ -110,6 +120,61 @@ router.post('/', async (req, res, next) => {
     }
     finally {
         client.release();
+    }
+});
+/**
+ * GET /api/transfers/list?projectId=&search=&page=&pageSize=
+ * Paginated transfer list with seller/buyer names, unit, project details.
+ */
+router.get('/list', async (req, res, next) => {
+    try {
+        const { projectId, search, page, pageSize } = req.query;
+        const pg = Math.max(1, parseInt(page || '1', 10));
+        const ps = Math.max(1, Math.min(200, parseInt(pageSize || '20', 10)));
+        const offset = (pg - 1) * ps;
+        const conditions = [];
+        const params = [];
+        let idx = 1;
+        if (projectId) {
+            conditions.push(`u.project_id = $${idx++}`);
+            params.push(projectId);
+        }
+        if (search) {
+            const s = `%${search}%`;
+            conditions.push(`(oc.name ILIKE $${idx} OR nc.name ILIKE $${idx} OR u.unit_number ILIKE $${idx} OR t.transfer_no ILIKE $${idx})`);
+            params.push(s);
+            idx++;
+        }
+        const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+        const countRes = await index_js_1.db.query(`SELECT COUNT(*)::int as total
+       FROM ownership_transfers t
+       JOIN consumers oc ON t.old_consumer_id = oc.id
+       JOIN consumers nc ON t.new_consumer_id = nc.id
+       JOIN units u ON t.unit_id = u.id
+       JOIN projects p ON p.id = u.project_id
+       ${where}`, params);
+        const dataRes = await index_js_1.db.query(`SELECT
+         t.id, t.transfer_no, t.application_date, t.transfer_date,
+         t.transfer_type, t.transfer_amount_inr, t.transfer_fee_inr, t.admin_charges_inr,
+         t.stax_amount, t.cgst_amount, t.sgst_amount, t.igst_amount, t.ugst_amount,
+         t.basic_price, t.gstin, t.broker_company, t.main_broker,
+         t.sales_person_name, t.transfer_receipt_no, t.transfer_remarks,
+         oc.id as seller_id, oc.name as seller_name, oc.registration_no as seller_reg_no,
+         nc.id as buyer_id, nc.name as buyer_name,
+         u.id as unit_id, u.unit_number, u.bhk_type,
+         p.id as project_id, p.name as project_name
+       FROM ownership_transfers t
+       JOIN consumers oc ON t.old_consumer_id = oc.id
+       JOIN consumers nc ON t.new_consumer_id = nc.id
+       JOIN units u ON t.unit_id = u.id
+       JOIN projects p ON p.id = u.project_id
+       ${where}
+       ORDER BY t.transfer_date DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`, [...params, ps, offset]);
+        res.json({ success: true, data: dataRes.rows, total: countRes.rows[0].total });
+    }
+    catch (error) {
+        next(error);
     }
 });
 /**
