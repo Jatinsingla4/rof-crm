@@ -4209,5 +4209,35 @@ router.get('/consumer-waiver-report', async (req: AuthRequest, res: Response, ne
   } catch (error) { next(error); }
 });
 
+// PATCH /api/payments/consumer-grace-period/:consumerId — set grace_period_days
+router.patch('/consumer-grace-period/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { consumerId } = req.params;
+    const { grace_period_days } = req.body;
+
+    if (grace_period_days === undefined || grace_period_days === null) {
+      return res.status(400).json({ error: 'grace_period_days is required' });
+    }
+    const days = parseInt(String(grace_period_days));
+    if (isNaN(days) || days < 0) {
+      return res.status(400).json({ error: 'grace_period_days must be a non-negative integer' });
+    }
+
+    const result = await db.query(
+      `UPDATE consumers SET grace_period_days = $1 WHERE id = $2 RETURNING id, grace_period_days`,
+      [days, consumerId]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Consumer not found' });
+
+    // Clear stale calculated interest so next recalc uses the new grace period
+    await db.query(
+      `DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
+      [consumerId]
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
 export default router;
 
