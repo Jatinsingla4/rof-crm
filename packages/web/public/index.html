@@ -263,6 +263,13 @@
               <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/customer-wise-interest',{tab:'manual-interest'})">Manual Interest</a>
             </div>
           </div>
+          <div class="dd-link has-sub">Interest Waiver <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:220px">
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/interest-waiver',{view:'letter'})">Interest Waive Off Letter</a>
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/interest-waiver',{view:'report'})">Customer Waiver Report</a>
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/interest-waiver',{view:'waive-off'})">Interest Waive Off</a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -500,6 +507,7 @@
 <script src="/js/pages/interest-master.js"></script>
 <script src="/js/pages/installment-interest.js"></script>
 <script src="/js/pages/customer-wise-interest.js"></script>
+<script src="/js/pages/interest-waiver.js"></script>
 
 <!-- App entry point (must be last) -->
 <script src="/js/app.js"></script>

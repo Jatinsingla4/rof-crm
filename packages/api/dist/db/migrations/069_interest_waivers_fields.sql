@@ -1,0 +1,2 @@
+ALTER TABLE interest_waivers ADD COLUMN IF NOT EXISTS document_path TEXT DEFAULT NULL;
+ALTER TABLE interest_waivers ADD COLUMN IF NOT EXISTS authorized_by_name TEXT DEFAULT NULL;

@@ -3931,6 +3931,213 @@ router.delete('/consumer-interest/:consumerId', async (req: AuthRequest, res: Re
   } catch (error) { next(error); }
 });
 
+// GET /api/payments/interest-waiver-list — project-level consumer list for waive-off screen
+router.get('/interest-waiver-list', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id, type, registration_no, first_name, unit_address } = req.query;
+    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+
+    const result = await db.query(
+      `WITH base AS (
+         SELECT DISTINCT ON (c.id)
+           c.id AS consumer_id,
+           c.name,
+           c.registration_no,
+           u.unit_number AS unit_address,
+           CASE
+             WHEN c.loan_amount > 0 AND c.loan_sanction_date IS NOT NULL THEN 'Loan Sanctioned'
+             WHEN c.loan_amount > 0 AND c.loan_sanction_date IS NULL     THEN 'Pending'
+             ELSE 'Self'
+           END AS type,
+           c.loan_amount,
+           c.loan_sanction_date
+         FROM consumers c
+         JOIN allocations a ON a.consumer_id = c.id
+         JOIN units u       ON u.id = a.unit_id
+         JOIN towers t      ON t.id = u.tower_id
+         WHERE t.project_id = $1
+         ORDER BY c.id, a.created_at DESC
+       )
+       SELECT
+         b.*,
+         COALESCE(SUM(pi.amount_inr), 0)            AS total_interest_inr,
+         COALESCE(SUM(pi.interest_waived_inr), 0)   AS total_waived_inr,
+         COALESCE(SUM(pi.amount_inr) - SUM(pi.interest_waived_inr), 0) AS balance_interest_inr,
+         0 AS paid_interest_inr
+       FROM base b
+       LEFT JOIN penal_interests pi ON pi.consumer_id = b.consumer_id
+       WHERE ($2::text IS NULL OR b.type = $2)
+         AND ($3::text IS NULL OR b.registration_no ILIKE '%' || $3 || '%')
+         AND ($4::text IS NULL OR b.name ILIKE '%' || $4 || '%')
+         AND ($5::text IS NULL OR b.unit_address ILIKE '%' || $5 || '%')
+       GROUP BY b.consumer_id, b.name, b.registration_no, b.unit_address, b.type, b.loan_amount, b.loan_sanction_date
+       ORDER BY b.name ASC`,
+      [
+        project_id,
+        type && type !== 'All' ? type : null,
+        registration_no || null,
+        first_name || null,
+        unit_address || null,
+      ]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) { next(error); }
+});
+
+// POST /api/payments/consumer-interest-detail/:consumerId — recalc, persist, return rows
+router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { consumerId } = req.params;
+
+    // Fetch consumer with project context
+    const consumerRes = await client.query(
+      `SELECT c.id, c.interest_start_date, c.grace_period_days,
+              pp.id AS payment_plan_id,
+              t.project_id
+       FROM consumers c
+       LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+       LEFT JOIN allocations a   ON a.consumer_id = c.id
+       LEFT JOIN units u         ON u.id = a.unit_id
+       LEFT JOIN towers t        ON t.id = u.tower_id
+       WHERE c.id = $1
+       ORDER BY pp.created_at DESC
+       LIMIT 1`,
+      [consumerId]
+    );
+    if (!consumerRes.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Consumer not found' });
+    }
+    const consumer = consumerRes.rows[0];
+    const projectId = consumer.project_id;
+
+    // Penal rate
+    const penalRate = await getPenalInterestRate(projectId);
+
+    // Template name/rate map for this project
+    const templatesRes = await client.query(
+      `SELECT installment_index, installment_name, interest_rate_percent
+       FROM plan_schedule_templates
+       WHERE project_id = $1
+       ORDER BY installment_index ASC`,
+      [projectId]
+    );
+    const templateNameMap: Record<number, string> = {};
+    const templateRateMap: Record<number, number | null> = {};
+    templatesRes.rows.forEach((t: any) => {
+      templateNameMap[t.installment_index] = t.installment_name;
+      templateRateMap[t.installment_index] = t.interest_rate_percent != null ? parseFloat(t.interest_rate_percent) : null;
+    });
+
+    // Receipts
+    const receiptsRes = await client.query(
+      `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+       FROM receipts
+       WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
+       ORDER BY received_date ASC, created_at ASC`,
+      [consumerId]
+    );
+
+    // Demands
+    const demandsRaw = await client.query(
+      `SELECT id, installment_index, amount_due_inr, due_date
+       FROM demands
+       WHERE consumer_id = $1
+       ORDER BY installment_index ASC`,
+      [consumerId]
+    );
+    const demands = demandsRaw.rows.map((d: any) => ({
+      ...d,
+      installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+      interest_rate_percent: templateRateMap[d.installment_index] ?? null,
+    }));
+
+    // Calculate
+    const allRows = buildInterestRows(receiptsRes.rows, demands, penalRate, {
+      interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
+      gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
+    });
+    const interestRows = allRows.filter((r: any) => r.interest_amount > 0);
+
+    // Snapshot existing waived amounts before DELETE so they survive the re-insert
+    const existingWaivedRes = await client.query(
+      `SELECT installment_index, COALESCE(interest_waived_inr, 0) AS waived
+       FROM penal_interests
+       WHERE consumer_id = $1 AND status = 'calculated' AND interest_waived_inr > 0`,
+      [consumerId]
+    );
+    const waivedMap: Record<number, number> = {};
+    existingWaivedRes.rows.forEach((r: any) => {
+      waivedMap[r.installment_index] = parseInt(r.waived);
+    });
+
+    // Delete stale calculated rows and re-insert
+    await client.query(
+      `DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
+      [consumerId]
+    );
+
+    const penalIdMap: Record<number, string> = {};
+    for (const row of interestRows) {
+      const ins = await client.query(
+        `INSERT INTO penal_interests
+           (payment_plan_id, installment_index, consumer_id, principal_inr, days_overdue, rate_percent, amount_inr, calculated_at, status)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'calculated')
+         RETURNING id`,
+        [
+          consumer.payment_plan_id || null,
+          row.installment_index,
+          consumerId,
+          Math.round(row.delay_amount),
+          row.delay_days,
+          row.roi,
+          Math.round(row.interest_amount),
+        ]
+      );
+      penalIdMap[row.installment_index] = ins.rows[0].id;
+      // Restore waived amount if it existed before the DELETE
+      if (waivedMap[row.installment_index]) {
+        await client.query(
+          `UPDATE penal_interests SET interest_waived_inr = $1 WHERE id = $2`,
+          [waivedMap[row.installment_index], ins.rows[0].id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // Fetch updated waived totals (after restore, these are correct)
+    const waivedRes = await client.query(
+      `SELECT COALESCE(SUM(interest_waived_inr), 0) AS total_waived_inr
+       FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
+      [consumerId]
+    );
+    const totalInterest = allRows.reduce((s: number, r: any) => s + r.interest_amount, 0);
+    const totalWaived   = parseFloat(waivedRes.rows[0].total_waived_inr);
+
+    res.json({
+      success: true,
+      rows: allRows,
+      penal_interest_ids: penalIdMap,
+      payment_plan_id: consumer.payment_plan_id,
+      summary: {
+        total_interest:   Math.round(totalInterest * 100) / 100,
+        total_waived:     totalWaived,
+        balance_interest: Math.round((totalInterest - totalWaived) * 100) / 100,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    next(error);
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/payments/manual-interest — insert a manual penal_interest record
 router.post('/manual-interest', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -3948,6 +4155,57 @@ router.post('/manual-interest', async (req: AuthRequest, res: Response, next: Ne
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
+// GET /api/payments/consumer-waiver-report — reads from interest_waivers (permanent, never wiped)
+router.get('/consumer-waiver-report', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id } = req.query;
+    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+
+    const result = await db.query(
+      `SELECT
+         c.id AS consumer_id,
+         c.name AS consumer_name,
+         c.registration_no,
+         u.unit_number AS unit_address,
+         t.tower_name,
+         COALESCE(iw_agg.waiver_count, 0)       AS waiver_count,
+         COALESCE(iw_agg.total_waived_inr, 0)   AS total_waived_inr,
+         iw_agg.last_waiver_date,
+         COALESCE(pi_agg.total_interest_inr, 0) AS total_interest_inr,
+         GREATEST(
+           COALESCE(pi_agg.total_interest_inr, 0) - COALESCE(iw_agg.total_waived_inr, 0),
+           0
+         ) AS balance_interest_inr
+       FROM consumers c
+       JOIN allocations a ON a.consumer_id = c.id
+       JOIN units u       ON u.id = a.unit_id
+       JOIN towers t      ON t.id = u.tower_id
+       LEFT JOIN (
+         SELECT consumer_id,
+           COUNT(*)                  AS waiver_count,
+           SUM(waiver_amount_inr)    AS total_waived_inr,
+           MAX(created_at)           AS last_waiver_date
+         FROM interest_waivers
+         WHERE status = 'approved'
+         GROUP BY consumer_id
+       ) iw_agg ON iw_agg.consumer_id = c.id
+       LEFT JOIN (
+         SELECT consumer_id,
+           SUM(amount_inr) AS total_interest_inr
+         FROM penal_interests
+         WHERE status = 'calculated'
+         GROUP BY consumer_id
+       ) pi_agg ON pi_agg.consumer_id = c.id
+       WHERE t.project_id = $1
+         AND COALESCE(iw_agg.total_waived_inr, 0) > 0
+       ORDER BY c.name ASC`,
+      [project_id]
+    );
+
+    res.json({ success: true, data: result.rows });
   } catch (error) { next(error); }
 });
 

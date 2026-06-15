@@ -49,10 +49,65 @@ router.get('/interest-waivers', async (req, res, next) => {
         next(err);
     }
 });
+// POST /api/payments/interest-waivers/direct
+// Direct waive-off: creates approved waiver AND updates penal_interests atomically.
+// No separate checker approval step needed.
+router.post('/interest-waivers/direct', async (req, res, next) => {
+    const client = await index_js_1.db.connect();
+    try {
+        const { consumer_id, payment_plan_id, installment_index, waiver_amount_inr, reason, authorized_by_name, document_path } = req.body;
+        if (!consumer_id)
+            return res.status(400).json({ error: 'consumer_id is required' });
+        const waiverAmt = parseFloat(waiver_amount_inr);
+        if (!waiverAmt || waiverAmt <= 0)
+            return res.status(400).json({ error: 'waiver_amount_inr must be > 0' });
+        await client.query('BEGIN');
+        const waiverRes = await client.query(`INSERT INTO interest_waivers
+         (consumer_id, payment_plan_id, installment_index, waiver_amount_inr, reason,
+          status, requested_by, requested_at, approved_by, approved_at,
+          authorized_by_name, document_path)
+       VALUES ($1,$2,$3,$4,$5,'approved',$6,NOW(),$6,NOW(),$7,$8)
+       RETURNING *`, [consumer_id, payment_plan_id || null, installment_index || null, Math.round(waiverAmt),
+            reason || null, req.userId || null, authorized_by_name || null, document_path || null]);
+        if (installment_index) {
+            await client.query(`UPDATE penal_interests
+         SET interest_waived_inr = LEAST(amount_inr, COALESCE(interest_waived_inr, 0) + $1)
+         WHERE consumer_id = $2 AND installment_index = $3 AND status = 'calculated'`, [Math.round(waiverAmt), consumer_id, installment_index]);
+        }
+        else {
+            const piRes = await client.query(`SELECT id, amount_inr, COALESCE(interest_waived_inr, 0) AS already_waived
+         FROM penal_interests
+         WHERE consumer_id = $1 AND status = 'calculated'
+         ORDER BY installment_index ASC`, [consumer_id]);
+            let remaining = Math.round(waiverAmt);
+            for (const pi of piRes.rows) {
+                if (remaining <= 0)
+                    break;
+                const maxWaiveable = parseInt(pi.amount_inr) - parseInt(pi.already_waived);
+                if (maxWaiveable <= 0)
+                    continue;
+                const apply = Math.min(remaining, maxWaiveable);
+                await client.query(`UPDATE penal_interests SET interest_waived_inr = COALESCE(interest_waived_inr, 0) + $1 WHERE id = $2`, [apply, pi.id]);
+                remaining -= apply;
+            }
+        }
+        await client.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks)
+       VALUES ($1,$2,$3,$4,$5)`, [consumer_id, req.userId, 'interest_waiver_direct', JSON.stringify({ waiver_amount_inr: Math.round(waiverAmt), reason, installment_index }), `Direct waiver of Rs.${Math.round(waiverAmt)} applied`]);
+        await client.query('COMMIT');
+        res.json({ success: true, message: 'Waiver applied successfully', data: waiverRes.rows[0] });
+    }
+    catch (error) {
+        await client.query('ROLLBACK');
+        next(error);
+    }
+    finally {
+        client.release();
+    }
+});
 // POST /api/payments/interest-waivers — MAKER
 router.post('/interest-waivers', (0, processPermission_js_1.requireProcess)('interest_waiver', 'maker'), async (req, res, next) => {
     try {
-        const { consumer_id, penal_interest_id, payment_plan_id, installment_index, waiver_amount_inr, reason } = req.body;
+        const { consumer_id, penal_interest_id, payment_plan_id, installment_index, waiver_amount_inr, reason, document_path, authorized_by_name } = req.body;
         if (!consumer_id || !waiver_amount_inr) {
             return res.status(400).json({ error: 'consumer_id and waiver_amount_inr are required' });
         }
@@ -60,9 +115,9 @@ router.post('/interest-waivers', (0, processPermission_js_1.requireProcess)('int
             return res.status(400).json({ error: 'waiver_amount_inr must be greater than 0' });
         }
         const result = await index_js_1.db.query(`INSERT INTO interest_waivers
-         (consumer_id, penal_interest_id, payment_plan_id, installment_index, waiver_amount_inr, reason, status, requested_by, requested_at)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,NOW())
-       RETURNING *`, [consumer_id, penal_interest_id || null, payment_plan_id || null, installment_index || null, waiver_amount_inr, reason || null, req.userId]);
+         (consumer_id, penal_interest_id, payment_plan_id, installment_index, waiver_amount_inr, reason, status, requested_by, requested_at, document_path, authorized_by_name)
+       VALUES ($1,$2,$3,$4,$5,$6,'pending',$7,NOW(),$8,$9)
+       RETURNING *`, [consumer_id, penal_interest_id || null, payment_plan_id || null, installment_index || null, waiver_amount_inr, reason || null, req.userId, document_path || null, authorized_by_name || null]);
         await index_js_1.db.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks)
        VALUES ($1,$2,$3,$4,$5)`, [consumer_id, req.userId, 'interest_waiver_requested', JSON.stringify({ waiver_amount_inr, reason }), `Interest waiver of Rs.${waiver_amount_inr} requested`]);
         res.status(201).json({ success: true, data: result.rows[0] });

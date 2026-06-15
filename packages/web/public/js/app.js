@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/interest-master',         (p) => Pages.interestMaster(p));
   Router.register('/installment-interest',   (p) => Pages.installmentInterest(p));
   Router.register('/customer-wise-interest', (p) => Pages.customerWiseInterest(p));
+  Router.register('/interest-waiver',        (p) => Pages.interestWaiver(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();
