@@ -3353,5 +3353,115 @@ router.put('/installment-interest/:projectId/:planName', async (req, res, next) 
         next(error);
     }
 });
+// ── Customer Wise Interest endpoints ──────────────────────────────────────────
+// GET /api/payments/customer-wise-consumers — list consumers for a project with interest dates
+router.get('/customer-wise-consumers', async (req, res, next) => {
+    try {
+        const { project_id, tower_id, registration_no, first_name, unit_address } = req.query;
+        if (!project_id)
+            return res.status(400).json({ error: 'project_id is required' });
+        const result = await index_js_1.db.query(`WITH base AS (
+         SELECT DISTINCT ON (c.id)
+           c.id AS consumer_id,
+           c.name,
+           c.registration_no,
+           u.unit_number AS unit_address,
+           t.tower_name,
+           t.project_id,
+           pp.id AS payment_plan_id,
+           COALESCE(
+             (SELECT DISTINCT pst.plan_name
+              FROM plan_schedule_templates pst
+              WHERE pst.project_id = t.project_id
+              LIMIT 1),
+             'Payment Plan'
+           ) AS payment_plan,
+           c.interest_start_date,
+           c.grace_period_days,
+           COALESCE(
+             (SELECT SUM(pi2.amount_inr)
+              FROM penal_interests pi2
+              WHERE pi2.consumer_id = c.id),
+             0
+           ) AS total_penal_interest_inr
+         FROM consumers c
+         JOIN allocations a ON a.consumer_id = c.id
+         JOIN units u ON u.id = a.unit_id
+         JOIN towers t ON t.id = u.tower_id
+         LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+         WHERE t.project_id = $1
+           AND ($2::uuid IS NULL OR t.id = $2::uuid)
+           AND ($3::text IS NULL OR c.registration_no ILIKE '%' || $3 || '%')
+           AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
+           AND ($5::text IS NULL OR u.unit_number ILIKE '%' || $5 || '%')
+         ORDER BY c.id, pp.created_at DESC NULLS LAST
+       )
+       SELECT * FROM base ORDER BY name ASC`, [
+            project_id,
+            tower_id || null,
+            registration_no || null,
+            first_name || null,
+            unit_address || null,
+        ]);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// PATCH /api/payments/consumer-interest-date/:consumerId — set interest_start_date and remove stale penal_interests
+router.patch('/consumer-interest-date/:consumerId', async (req, res, next) => {
+    const client = await index_js_1.db.connect();
+    try {
+        const { consumerId } = req.params;
+        const { interest_start_date } = req.body;
+        if (!interest_start_date)
+            return res.status(400).json({ error: 'interest_start_date is required' });
+        await client.query('BEGIN');
+        const updateRes = await client.query(`UPDATE consumers SET interest_start_date = $1 WHERE id = $2 RETURNING id, interest_start_date`, [interest_start_date, consumerId]);
+        if (updateRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Consumer not found' });
+        }
+        await client.query(`DELETE FROM penal_interests WHERE consumer_id = $1 AND calculated_at::date < $2::date`, [consumerId, interest_start_date]);
+        await client.query('COMMIT');
+        res.json({ success: true, data: updateRes.rows[0] });
+    }
+    catch (error) {
+        await client.query('ROLLBACK');
+        next(error);
+    }
+    finally {
+        client.release();
+    }
+});
+// DELETE /api/payments/consumer-interest/:consumerId — delete ALL penal_interests for a consumer
+router.delete('/consumer-interest/:consumerId', async (req, res, next) => {
+    try {
+        const { consumerId } = req.params;
+        const result = await index_js_1.db.query(`DELETE FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
+        res.json({ success: true, deleted: result.rowCount });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// POST /api/payments/manual-interest — insert a manual penal_interest record
+router.post('/manual-interest', async (req, res, next) => {
+    try {
+        const { consumer_id, payment_plan_id, installment_index, amount_inr } = req.body;
+        if (!consumer_id || amount_inr == null) {
+            return res.status(400).json({ error: 'consumer_id and amount_inr are required' });
+        }
+        const result = await index_js_1.db.query(`INSERT INTO penal_interests
+         (consumer_id, payment_plan_id, installment_index, principal_inr, days_overdue, rate_percent, amount_inr, calculated_at, status)
+       VALUES ($1, $2, $3, 0, 0, 0, $4, NOW(), 'manual')
+       RETURNING *`, [consumer_id, payment_plan_id || null, installment_index ?? null, amount_inr]);
+        res.status(201).json({ success: true, data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=payments.js.map

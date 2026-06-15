@@ -997,6 +997,8 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             registration_no: row.consumer_reg_no,
             income_category: row.income_category,
             lead_stage: row.lead_stage,
+            interest_start_date: row.interest_start_date ?? null,
+            grace_period_days: row.grace_period_days ?? 0,
         };
         // ── sequential queries needing project_id ─
         const projectId = row.project_id || null;
@@ -1057,7 +1059,10 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
             interest_rate_percent: templateRateMap[d.installment_index] ?? null,
         }));
-        const interestCalcRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForInterest, penalRate);
+        const interestCalcRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForInterest, penalRate, {
+            interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
+            gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
+        });
         // ─────────────────────────────────────────
         const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows);
         // Persist to documents table on first view so it can be edited later

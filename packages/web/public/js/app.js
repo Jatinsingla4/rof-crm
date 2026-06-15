@@ -120,8 +120,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/calling',           (p) => Pages.calling(p));
   Router.register('/collection-setup',    (p) => Pages.collectionSetup(p));
   Router.register('/interest-scheduler',    (p) => Pages.interestScheduler(p));
-  Router.register('/interest-master',       (p) => Pages.interestMaster(p));
-  Router.register('/installment-interest',  (p) => Pages.installmentInterest(p));
+  Router.register('/interest-master',         (p) => Pages.interestMaster(p));
+  Router.register('/installment-interest',   (p) => Pages.installmentInterest(p));
+  Router.register('/customer-wise-interest', (p) => Pages.customerWiseInterest(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();

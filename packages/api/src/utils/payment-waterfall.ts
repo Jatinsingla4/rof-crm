@@ -69,8 +69,14 @@ export function buildInterestRows(
     interest_rate_percent?: number | null;
   }>,
   penalRate: number,
+  options?: {
+    interestStartDate?: Date | null;
+    gracePeriodDays?: number;
+  }
 ): InterestRow[] {
   const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
+  const startDate = options?.interestStartDate ?? null;
+  const graceDays = options?.gracePeriodDays ?? 0;
 
   const active = receipts.filter(r => !['cancelled', 'bounced'].includes(r.status));
   const sorted = [...active].sort((a, b) => {
@@ -126,8 +132,9 @@ export function buildInterestRows(
         delayDays  = Math.max(0, diff);
       }
       const delayAmt  = Math.max(0, balanceBeforePayment);
-      const intPeriod = delayDays;
-      const intAmt    = delayAmt > 0 && intPeriod > 0
+      const afterStartDate = startDate ? (rcvdDate != null && rcvdDate >= startDate) : true;
+      const intPeriod = Math.max(0, delayDays - graceDays);
+      const intAmt    = delayAmt > 0 && intPeriod > 0 && afterStartDate
         ? Math.round(delayAmt * effectiveRate / 100 / 365 * intPeriod * 100) / 100
         : 0;
       rows.push({
@@ -139,7 +146,7 @@ export function buildInterestRows(
         date_received:     rcvdDate,
         delay_amount:      delayAmt,
         delay_days:        delayDays,
-        grace_period:      0,
+        grace_period:      graceDays,
         interest_period:   intPeriod,
         roi:               effectiveRate,
         interest_amount:   intAmt,
@@ -174,7 +181,7 @@ export function buildInterestRows(
         date_received:     null,
         delay_amount:      dueAmt,
         delay_days:        0,
-        grace_period:      0,
+        grace_period:      graceDays,
         interest_period:   0,
         roi:               effectiveRate,
         interest_amount:   0,

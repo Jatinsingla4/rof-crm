@@ -12,8 +12,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildInterestRows = buildInterestRows;
 exports.applyWaterfall = applyWaterfall;
-function buildInterestRows(receipts, demands, penalRate) {
+function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
+    const startDate = options?.interestStartDate ?? null;
+    const graceDays = options?.gracePeriodDays ?? 0;
     const active = receipts.filter(r => !['cancelled', 'bounced'].includes(r.status));
     const sorted = [...active].sort((a, b) => {
         const ta = new Date(a.received_date || a.created_at || 0).getTime();
@@ -65,8 +67,9 @@ function buildInterestRows(receipts, demands, penalRate) {
                 delayDays = Math.max(0, diff);
             }
             const delayAmt = Math.max(0, balanceBeforePayment);
-            const intPeriod = delayDays;
-            const intAmt = delayAmt > 0 && intPeriod > 0
+            const afterStartDate = startDate ? (rcvdDate != null && rcvdDate >= startDate) : true;
+            const intPeriod = Math.max(0, delayDays - graceDays);
+            const intAmt = delayAmt > 0 && intPeriod > 0 && afterStartDate
                 ? Math.round(delayAmt * effectiveRate / 100 / 365 * intPeriod * 100) / 100
                 : 0;
             rows.push({
@@ -78,7 +81,7 @@ function buildInterestRows(receipts, demands, penalRate) {
                 date_received: rcvdDate,
                 delay_amount: delayAmt,
                 delay_days: delayDays,
-                grace_period: 0,
+                grace_period: graceDays,
                 interest_period: intPeriod,
                 roi: effectiveRate,
                 interest_amount: intAmt,
@@ -113,7 +116,7 @@ function buildInterestRows(receipts, demands, penalRate) {
                 date_received: null,
                 delay_amount: dueAmt,
                 delay_days: 0,
-                grace_period: 0,
+                grace_period: graceDays,
                 interest_period: 0,
                 roi: effectiveRate,
                 interest_amount: 0,
