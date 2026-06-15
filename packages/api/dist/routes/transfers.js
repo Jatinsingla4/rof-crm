@@ -268,7 +268,8 @@ router.get('/report', async (req, res, next) => {
          COALESCE(
            c.registration_no,
            (SELECT oc.registration_no || 'T' ||
-              (SELECT COUNT(*)::text FROM ownership_transfers ot2
+              (SELECT COUNT(*)::text
+               FROM ownership_transfers ot2
                WHERE ot2.unit_id = u.id
                AND ot2.created_at <= ot_latest.created_at)
             FROM ownership_transfers ot_latest
@@ -288,26 +289,27 @@ router.get('/report', async (req, res, next) => {
          p.name as project_name,
          p.id as project_id,
          br.firm_name as broker_company,
-         pst.plan_name as payment_plan,
-         ot_main.transfer_no as latest_transfer_no,
-         ot_main.transfer_date as latest_transfer_date,
-         COALESCE(
-           (SELECT COUNT(*)::int
-            FROM ownership_transfers ot
-            WHERE ot.unit_id = u.id), 0
+         (SELECT pst2.plan_name
+          FROM plan_schedule_templates pst2
+          WHERE pst2.project_id = p.id
+          ORDER BY pst2.installment_index ASC
+          LIMIT 1) as payment_plan,
+         (SELECT COUNT(*)::int
+          FROM ownership_transfers ot_count
+          WHERE ot_count.unit_id = u.id
          ) as no_of_transfers,
-         COALESCE(
-           (SELECT STRING_AGG(ot2.transfer_no, ',' ORDER BY ot2.created_at)
-            FROM ownership_transfers ot2
-            WHERE ot2.unit_id = u.id
-            AND ot2.transfer_no IS NOT NULL), ''
-         ) as transfer_nos,
          (SELECT MAX(ot3.transfer_date)
           FROM ownership_transfers ot3
-          WHERE ot3.unit_id = u.id) as last_transfer_date
+          WHERE ot3.unit_id = u.id
+         ) as last_transfer_date,
+         (SELECT MAX(ot4.created_at)
+          FROM ownership_transfers ot4
+          WHERE ot4.unit_id = u.id
+         ) as last_transfer_at
        FROM consumers c
-       JOIN allocations a ON a.consumer_id = c.id
-         AND a.status != 'cancelled'
+       JOIN allocations a
+         ON a.consumer_id = c.id
+         AND a.status = 'allotted'
        JOIN units u ON u.id = a.unit_id
        JOIN projects p ON p.id = u.project_id
        LEFT JOIN brokers br ON br.id = (
@@ -315,19 +317,13 @@ router.get('/report', async (req, res, next) => {
          WHERE consumer_id = c.id
          ORDER BY created_at DESC LIMIT 1
        )
-       LEFT JOIN plan_schedule_templates pst
-         ON pst.project_id = p.id
-         AND pst.installment_index = 0
-       LEFT JOIN ownership_transfers ot_main
-         ON ot_main.unit_id = u.id
-         AND ot_main.new_consumer_id = c.id
        WHERE EXISTS (
          SELECT 1 FROM ownership_transfers ot
          WHERE ot.unit_id = u.id
        )
        AND ($1::uuid IS NULL OR p.id = $1::uuid)
        ${extraWhere}
-       ORDER BY last_transfer_date DESC NULLS LAST`, params);
+       ORDER BY last_transfer_at DESC NULLS LAST`, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {

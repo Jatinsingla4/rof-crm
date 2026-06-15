@@ -150,12 +150,14 @@ table.trr-tbl tr:hover td { background: #eef4ff; }
     return dd + '/' + mm + '/' + d.getFullYear();
   }
 
-  function _buildRegNo(row) {
-    const base = row.registration_no || '';
-    const nos = (row.transfer_nos || '').split(',').filter(Boolean);
-    if (!nos.length) return base;
-    const suffix = nos.map((_, i) => 'T' + (i + 1)).join(',');
-    return base + ' [' + suffix + ']';
+  function _buildRegNo(r) {
+    const base = r.registration_no || '';
+    const count = r.no_of_transfers || 0;
+    if (!base) return '';
+    if (count === 0) return base;
+    const suffixes = [];
+    for (let i = 1; i <= count; i++) suffixes.push('T' + i);
+    return base + ' [' + suffixes.join(',') + ']';
   }
 
   function _esc(s) {
