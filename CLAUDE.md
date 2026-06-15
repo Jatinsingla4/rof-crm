@@ -168,7 +168,44 @@ If **more files changed** than explicitly discussed → **STOP and explain why**
 
 ---
 
-**Last Updated:** 2026-06-05  
+**Last Updated:** 2026-06-16  
 **Rule 0 Added:** 2026-06-05 (Working directory boundary — never touch Pay10 or Pay10 Bahrain)  
 **Rule 1 Added:** 2026-06-01 (Build dist/ before every commit)  
 **Rule 2 Added:** 2026-06-02 (Surgical changes only)
+
+---
+
+## WHAT HAS BEEN BUILT
+
+### TRANSFER MODULE (fully live on Render + Neon)
+
+✅ Migration 070 — ownership_transfers extended (28 cols) + transfer_fee_master table  
+✅ Migration 071 — 'transferred' added to lead_stage + allocation_status enums  
+✅ Migration 072 — dropped allocations_unit_id_status_key constraint (allows multiple transfers per unit)  
+✅ Setup → Transfer Fee page (`/transfer-fee-setup`) — per-project fee + tax config, SAVE with upsert  
+✅ Application → Transfer page (`/transfers`) — search allottees, transfer form, buyer form, auto-generates T1/T2 reg no for buyer, creates new consumer + ownership_transfers record  
+✅ Transfer Report page (`/transfer-report`) — shows all transferred units, T1/T2 suffix, no-of-transfers count, payment plan, broker, print + CSV download  
+✅ Transfer Detail page (`/transfer-detail`) — full financial breakdown per transfer, Transfer Letter link per row  
+✅ Transfer Letter (`/api/transfers/:id/letter`) — A4 print-preview HTML document, TRANSFER/SALE ENTRY REGISTER format, transferor/transferee details + dues table, token passed via `?token=` query param  
+✅ Transfer Date Edit page (`/transfer-date-edit`) — inline edit of transfer_date + application_date, grace-period inline save pattern  
+
+**SKIPPED (pending client clarification):**  
+⏳ Setup → Tax Master — client never demonstrated, likely overlaps with Transfer Fee Setup  
+⏳ Transfer After Registry — client confirmed post-registry transfers don't happen  
+⏳ Transfer After Registry Payment — same as above  
+
+**LATEST COMMITS (Transfer Module):**
+
+| Hash | Description |
+|------|-------------|
+| `d35fa8b` | Phase 1 |
+| `0caa8c1` | Phase 2a |
+| `67090ae` | Phase 2b |
+| `e497852` | Phase 3 |
+| `ec57882` | Phase 4 |
+| `e7c1a58` | Phase 5 |
+
+**CURRENT GIT STATE:**  
+Latest commit: `e7c1a58`  
+Working tree: CLEAN  
+Local = GitHub = Render ✅
