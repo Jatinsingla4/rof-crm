@@ -131,6 +131,7 @@ table.trr-tbl tr:hover td { background: #eef4ff; }
               <th>AREA (Sq.Ft)</th>
               <th>RATE (Rs.)</th>
               <th>NO. OF TRANSFER</th>
+              <th>DETAIL</th>
             </tr>
           </thead>
           <tbody id="trr-tbody"></tbody>
@@ -170,7 +171,7 @@ table.trr-tbl tr:hover td { background: #eef4ff; }
     const tbody = document.getElementById('trr-tbody');
     if (!tbody) return;
     if (!_rows.length) {
-      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>';
       return;
     }
     tbody.innerHTML = _rows.map((r, i) => {
@@ -187,6 +188,9 @@ table.trr-tbl tr:hover td { background: #eef4ff; }
         <td>${r.super_area_sqft != null ? r.super_area_sqft : ''}</td>
         <td>${r.base_price_inr != null ? Number(r.base_price_inr).toLocaleString('en-IN') : ''}</td>
         <td style="text-align:center">${r.no_of_transfers}</td>
+        <td><a href="#"
+          onclick="event.preventDefault();closeAllNavDropdowns && closeAllNavDropdowns();Router.navigate('/transfer-detail')"
+          style="color:#1d3a6e;text-decoration:underline;font-size:12px">Detail</a></td>
       </tr>`;
     }).join('');
   }

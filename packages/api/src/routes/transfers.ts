@@ -2,6 +2,20 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 
+function fmtDateIndia(d: any): string {
+  if (!d) return '';
+  const dt = new Date(d);
+  if (isNaN(dt.getTime())) return String(d);
+  const dd = String(dt.getDate()).padStart(2, '0');
+  const mm = String(dt.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${dt.getFullYear()}`;
+}
+
+function fmtIndianNumber(n: number): string {
+  if (!n) return '0';
+  return Math.round(n).toLocaleString('en-IN');
+}
+
 const router = Router();
 
 /**
@@ -402,6 +416,348 @@ router.get('/report', async (req: AuthRequest, res: Response, next: NextFunction
     );
 
     res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const TRANSFER_DETAIL_QUERY = `
+  SELECT
+    ot.id,
+    ot.transfer_no,
+    ot.transfer_date,
+    ot.application_date,
+    ot.transfer_type,
+    ot.transfer_amount_inr,
+    ot.transfer_fee_inr,
+    ot.admin_charges_inr,
+    ot.stax_amount,
+    ot.cgst_amount,
+    ot.sgst_amount,
+    ot.igst_amount,
+    ot.ugst_amount,
+    ot.basic_price,
+    ot.gstin,
+    ot.broker_company,
+    ot.main_broker,
+    ot.sales_person_name,
+    ot.transfer_receipt_no,
+    ot.transfer_remarks,
+    oc.id as seller_id,
+    oc.name as seller_name,
+    oc.registration_no as seller_reg_no,
+    oc.pan_no as seller_pan,
+    oc.present_address as seller_address,
+    oc.present_city as seller_city,
+    oc.present_state as seller_state,
+    oc.present_pin as seller_pin,
+    oc.mobile as seller_mobile,
+    oc.email as seller_email,
+    nc.id as buyer_id,
+    nc.name as buyer_name,
+    nc.registration_no as buyer_reg_no,
+    nc.pan_no as buyer_pan,
+    nc.present_address as buyer_address,
+    nc.present_city as buyer_city,
+    nc.present_state as buyer_state,
+    nc.present_pin as buyer_pin,
+    nc.mobile as buyer_mobile,
+    nc.email as buyer_email,
+    u.id as unit_id,
+    u.unit_number,
+    u.floor,
+    u.bhk_type,
+    u.super_area_sqft,
+    u.base_price_inr,
+    p.id as project_id,
+    p.name as project_name,
+    p.location as project_location,
+    p.rera_number,
+    p.authorised_signatory_name,
+    p.village_name,
+    p.sector_name,
+    comp.name as company_name,
+    comp.address1 as company_address,
+    comp.cin as company_cin,
+    comp.gstin as company_gstin,
+    comp.phone as company_phone,
+    (SELECT pst.plan_name
+     FROM plan_schedule_templates pst
+     WHERE pst.project_id = p.id
+     ORDER BY pst.installment_index ASC
+     LIMIT 1) as payment_plan,
+    COALESCE(
+      (SELECT SUM(r.amount_received_inr)
+       FROM receipts r
+       WHERE r.consumer_id = oc.id), 0
+    ) as seller_total_received,
+    COALESCE(
+      (SELECT SUM(d.amount_due_inr)
+       FROM demands d
+       WHERE d.consumer_id = oc.id), 0
+    ) as seller_total_due,
+    COALESCE(
+      (SELECT COUNT(*)::int
+       FROM ownership_transfers ot2
+       WHERE ot2.unit_id = u.id
+       AND ot2.created_at <= ot.created_at), 0
+    ) as transfer_sequence
+  FROM ownership_transfers ot
+  JOIN consumers oc ON oc.id = ot.old_consumer_id
+  JOIN consumers nc ON nc.id = ot.new_consumer_id
+  JOIN units u ON u.id = ot.unit_id
+  JOIN projects p ON p.id = u.project_id
+  LEFT JOIN companies comp ON comp.id = p.company_id
+  WHERE ot.id = $1`;
+
+/**
+ * GET /api/transfers/:id/letter
+ * Returns a printable HTML transfer letter for one transfer record.
+ * Must be defined before /:id to avoid Express matching "letter" as the id.
+ */
+router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(TRANSFER_DETAIL_QUERY, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transfer not found' });
+    }
+    const t = result.rows[0];
+
+    const staxPct = t.stax_amount && Number(t.transfer_fee_inr) > 0
+      ? ((Number(t.stax_amount) / Number(t.transfer_fee_inr)) * 100).toFixed(2)
+      : '12.36';
+
+    const sellerAddr = [t.seller_address, t.seller_city, t.seller_state, t.seller_pin]
+      .filter(Boolean).join(', ');
+    const buyerAddr = [t.buyer_address, t.buyer_city, t.buyer_state, t.buyer_pin]
+      .filter(Boolean).join(', ');
+
+    const sellerDue      = Number(t.seller_total_due      || 0);
+    const sellerReceived = Number(t.seller_total_received || 0);
+    const sellerBalance  = sellerDue - sellerReceived;
+    const transferFee    = Number(t.transfer_fee_inr || 0);
+    const staxAmt        = Number(t.stax_amount      || 0);
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Transfer/Sale Entry Register</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #e0e0e0;
+    font-family: Arial, sans-serif;
+    font-size: 11pt;
+    color: #000;
+    padding: 30px 20px;
+    min-height: 100vh;
+  }
+  .page {
+    background: #fff;
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 15mm 18mm;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+    position: relative;
+  }
+  h2 {
+    text-align: center;
+    font-size: 15pt;
+    text-decoration: underline;
+    margin-bottom: 18px;
+    letter-spacing: 0.5px;
+  }
+  .info-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  .info-table td { padding: 3px 6px; vertical-align: top; font-size: 10.5pt; }
+  .info-table .lbl { font-weight: bold; white-space: nowrap; width: 130px; color: #222; }
+  .party-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; border: 1px solid #999; }
+  .party-table td { padding: 5px 8px; border: 1px solid #ccc; vertical-align: top; font-size: 10.5pt; }
+  .party-table .lbl { font-weight: bold; width: 170px; background: #f5f5f5; color: #222; }
+  .dues-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  .dues-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; border: 1px solid #1d3a6e; font-size: 10.5pt; }
+  .dues-table td { padding: 5px 8px; border: 1px solid #ccc; font-size: 10.5pt; }
+  .dues-table tr:nth-child(even) td { background: #fafafa; }
+  .footer { display: flex; justify-content: space-between; margin-top: 50px; font-size: 10.5pt; font-weight: bold; }
+  .print-bar { text-align: center; margin-top: 24px; padding-bottom: 10px; }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .page { box-shadow: none; width: 100%; padding: 10mm 12mm; min-height: unset; }
+    .print-bar { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+<h2>TRANSFER/SALE ENTRY REGISTER</h2>
+
+<table class="info-table">
+  <tr>
+    <td class="lbl">Project Name:</td>
+    <td><b>${t.project_name || ''}</b></td>
+    <td class="lbl">Location:</td>
+    <td>${t.project_location || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Unit No.:</td>
+    <td>${t.unit_number || ''}</td>
+    <td class="lbl">Floor:</td>
+    <td>${t.floor || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Tower No.:</td>
+    <td></td>
+    <td class="lbl">Super Area:</td>
+    <td>${t.super_area_sqft ? t.super_area_sqft + ' Sq. Yrd.' : ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Sale Amount:</td>
+    <td>${t.transfer_amount_inr ? fmtIndianNumber(Number(t.transfer_amount_inr)) : ''}</td>
+    <td class="lbl">Rate Per Sq.Ft.:</td>
+    <td>${t.base_price_inr ? fmtIndianNumber(Number(t.base_price_inr)) + '/-' : ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Booking Date:</td>
+    <td>${fmtDateIndia(t.application_date)}</td>
+    <td class="lbl">Payment Plan:</td>
+    <td><b>${t.payment_plan || ''}</b></td>
+  </tr>
+  <tr>
+    <td class="lbl">Date of TRF AG.:</td>
+    <td>${fmtDateIndia(t.transfer_date)}</td>
+    <td colspan="2"><b>First End: ${t.seller_name || ''} To ${t.buyer_name || ''}</b></td>
+  </tr>
+</table>
+
+<table class="party-table">
+  <tr>
+    <td class="lbl">Name of Transferor</td>
+    <td>${t.seller_name || ''}</td>
+    <td class="lbl">PAN:</td>
+    <td>${t.seller_pan || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Address of Transferor</td>
+    <td colspan="3">${sellerAddr}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Contact No.</td>
+    <td></td>
+    <td class="lbl">Mobile</td>
+    <td>${t.seller_mobile || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">E-Mail Id:</td>
+    <td colspan="3">${t.seller_email || ''}</td>
+  </tr>
+</table>
+
+<table class="party-table">
+  <tr>
+    <td class="lbl">Name of Transferee</td>
+    <td>${t.buyer_name || ''}</td>
+    <td class="lbl">PAN:</td>
+    <td>${t.buyer_pan || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Address of Transferee</td>
+    <td colspan="3">${buyerAddr}</td>
+  </tr>
+  <tr>
+    <td class="lbl">Contact No.</td>
+    <td></td>
+    <td class="lbl">Mobile</td>
+    <td>${t.buyer_mobile || ''}</td>
+  </tr>
+  <tr>
+    <td class="lbl">E-Mail Id:</td>
+    <td colspan="3">${t.buyer_email || ''}</td>
+  </tr>
+</table>
+
+<table class="dues-table">
+  <thead>
+    <tr>
+      <th>Name Of Dues (In Rs.)</th>
+      <th>Total Due</th>
+      <th>Received</th>
+      <th>Balance</th>
+      <th>No Dues - CERTIFIED BY (NAME)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Total Amount/Received</td>
+      <td>${fmtIndianNumber(sellerDue)}</td>
+      <td>${fmtIndianNumber(sellerReceived)}</td>
+      <td>${fmtIndianNumber(sellerBalance)}</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Interest to be paid</td>
+      <td>0</td><td>0</td><td>0</td><td></td>
+    </tr>
+    <tr>
+      <td>Transfer Charge</td>
+      <td>${fmtIndianNumber(transferFee)}</td>
+      <td>0</td>
+      <td>${fmtIndianNumber(transferFee)}</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>Service Tax Till Date</td>
+      <td>0</td><td>0</td><td>0</td><td></td>
+    </tr>
+    <tr>
+      <td>Service Tax on Transfer Charge @${staxPct}%</td>
+      <td>${fmtIndianNumber(staxAmt)}</td>
+      <td>0</td>
+      <td>${fmtIndianNumber(staxAmt)}</td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  <div>Prepared by CRM</div>
+  <div>Authorized Signatory</div>
+</div>
+
+</div>
+
+<div class="print-bar">
+  <button onclick="window.print()"
+    style="padding:8px 20px;background:#1d3a6e;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px;margin-right:8px">Print</button>
+  <button onclick="window.close()"
+    style="padding:8px 20px;background:#666;color:#fff;border:none;border-radius:3px;cursor:pointer;font-size:13px">Close</button>
+</div>
+
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/transfers/:id
+ * Returns full detail for one transfer record.
+ */
+router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(TRANSFER_DETAIL_QUERY, [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transfer not found' });
+    }
+    res.json({ success: true, data: result.rows[0] });
   } catch (error) {
     next(error);
   }
