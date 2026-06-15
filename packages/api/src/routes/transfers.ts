@@ -307,4 +307,108 @@ router.get('/unit-owner/:unitId', async (req: AuthRequest, res: Response, next: 
   }
 });
 
+/**
+ * GET /api/transfers/report?projectId=&registrationNo=&firstName=&unitAddress=
+ * Returns all units that have been transferred, showing current owner and transfer details.
+ */
+router.get('/report', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, registrationNo, firstName, unitAddress } = req.query as {
+      projectId?: string; registrationNo?: string; firstName?: string; unitAddress?: string;
+    };
+
+    const params: (string | null)[] = [projectId || null];
+    const conditions: string[] = [];
+    let idx = 2;
+
+    if (registrationNo) {
+      conditions.push(`c.registration_no ILIKE $${idx++}`);
+      params.push(`%${registrationNo}%`);
+    }
+    if (firstName) {
+      conditions.push(`c.name ILIKE $${idx++}`);
+      params.push(`%${firstName}%`);
+    }
+    if (unitAddress) {
+      conditions.push(`u.unit_number ILIKE $${idx++}`);
+      params.push(`%${unitAddress}%`);
+    }
+
+    const extraWhere = conditions.length ? 'AND ' + conditions.join(' AND ') : '';
+
+    const result = await db.query(
+      `SELECT
+         c.id as consumer_id,
+         COALESCE(
+           c.registration_no,
+           (SELECT oc.registration_no || 'T' ||
+              (SELECT COUNT(*)::text FROM ownership_transfers ot2
+               WHERE ot2.unit_id = u.id
+               AND ot2.created_at <= ot_latest.created_at)
+            FROM ownership_transfers ot_latest
+            JOIN consumers oc ON oc.id = ot_latest.old_consumer_id
+            WHERE ot_latest.unit_id = u.id
+            ORDER BY ot_latest.created_at DESC
+            LIMIT 1)
+         ) as registration_no,
+         c.name,
+         c.booking_date,
+         u.unit_number,
+         u.floor,
+         u.bhk_type,
+         u.super_area_sqft,
+         u.base_price_inr,
+         a.allotment_date,
+         p.name as project_name,
+         p.id as project_id,
+         br.firm_name as broker_company,
+         pst.plan_name as payment_plan,
+         ot_main.transfer_no as latest_transfer_no,
+         ot_main.transfer_date as latest_transfer_date,
+         COALESCE(
+           (SELECT COUNT(*)::int
+            FROM ownership_transfers ot
+            WHERE ot.unit_id = u.id), 0
+         ) as no_of_transfers,
+         COALESCE(
+           (SELECT STRING_AGG(ot2.transfer_no, ',' ORDER BY ot2.created_at)
+            FROM ownership_transfers ot2
+            WHERE ot2.unit_id = u.id
+            AND ot2.transfer_no IS NOT NULL), ''
+         ) as transfer_nos,
+         (SELECT MAX(ot3.transfer_date)
+          FROM ownership_transfers ot3
+          WHERE ot3.unit_id = u.id) as last_transfer_date
+       FROM consumers c
+       JOIN allocations a ON a.consumer_id = c.id
+         AND a.status != 'cancelled'
+       JOIN units u ON u.id = a.unit_id
+       JOIN projects p ON p.id = u.project_id
+       LEFT JOIN brokers br ON br.id = (
+         SELECT main_broker_id FROM booking_records
+         WHERE consumer_id = c.id
+         ORDER BY created_at DESC LIMIT 1
+       )
+       LEFT JOIN plan_schedule_templates pst
+         ON pst.project_id = p.id
+         AND pst.installment_index = 0
+       LEFT JOIN ownership_transfers ot_main
+         ON ot_main.unit_id = u.id
+         AND ot_main.new_consumer_id = c.id
+       WHERE EXISTS (
+         SELECT 1 FROM ownership_transfers ot
+         WHERE ot.unit_id = u.id
+       )
+       AND ($1::uuid IS NULL OR p.id = $1::uuid)
+       ${extraWhere}
+       ORDER BY last_transfer_date DESC NULLS LAST`,
+      params
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;

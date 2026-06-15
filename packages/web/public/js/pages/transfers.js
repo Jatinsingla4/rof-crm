@@ -175,7 +175,7 @@
   <td>${_esc(c.registration_no || '')}</td>
   <td>${_esc(c.name || c.first_name || '')}</td>
   <td>${_esc(c.unit_number || c.allocated_unit_number || '')}</td>
-  <td>${_esc(c.broker_company || '')}</td>
+  <td>${_esc(c.broker_name || c.broker_company || '')}</td>
   <td>${_fmt(c.registration_date || c.created_at)}</td>
   <td>${_fmt(c.allotment_date || '')}</td>
   <td><button class="tr-btn-sm" onclick="TransferApp.selectSeller('${c.id}','${c.allocated_unit_id || ''}')">TRANSFER</button></td>
@@ -656,12 +656,16 @@
                           : maritalRaw === 'Unmarried' ? 'unmarried'
                           : 'not_specified';
 
+      const buyerRegNo = (_sellerData?.registration_no || '')
+        + 'T' + ((_sellerData?.transfer_count || 0) + 1);
+
       const consumerBody = {
         salutation:            sal || null,
         first_name:            fname,
         middle_name:           mname || null,
         last_name:             lname,
         name:                  fullName,
+        registration_no:       buyerRegNo,
         father_name:           document.getElementById('tr-b-sof')?.value?.trim() || null,
         dob:                   document.getElementById('tr-b-dob')?.value || null,
         gender:                document.querySelector('input[name="tr-b-gender"]:checked')?.value || 'Male',
