@@ -7,7 +7,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
 
 const router = Router();
@@ -3534,6 +3534,164 @@ router.patch('/receipts/:id/hold', async (req: AuthRequest, res: Response, next:
     );
 
     res.json({ success: true, message: 'Cheque put on hold', data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/payments/interest-scheduler - Batch interest calculation for a project
+router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id, tower_id, persist } = req.body;
+    if (!project_id) {
+      return res.status(400).json({ error: 'project_id is required' });
+    }
+
+    // Step A: penal rate
+    const rateRes = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
+    const penalRate = rateRes.rows.length > 0 ? parseFloat(rateRes.rows[0].value) : 15;
+
+    // Step B: all consumers for project (optionally filtered by tower)
+    const consumersRes = await db.query(
+      `SELECT DISTINCT
+         c.id        AS consumer_id,
+         c.name      AS consumer_name,
+         c.registration_no,
+         pp.id       AS payment_plan_id
+       FROM consumers c
+       JOIN allocations a  ON a.consumer_id = c.id
+       JOIN units u        ON u.id = a.unit_id
+       JOIN towers t       ON t.id = u.tower_id
+       LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+       WHERE t.project_id = $1
+         AND ($2::uuid IS NULL OR t.id = $2)
+         AND c.id IS NOT NULL`,
+      [project_id, tower_id || null]
+    );
+
+    const details: any[] = [];
+    let totalInterest = 0;
+    let consumersWithInterest = 0;
+
+    // Fetch installment name map once for the whole project
+    const templatesRes = await db.query(
+      `SELECT installment_index, installment_name
+       FROM plan_schedule_templates
+       WHERE project_id = $1
+       ORDER BY installment_index ASC`,
+      [project_id]
+    );
+    const templateNameMap: Record<number, string> = {};
+    templatesRes.rows.forEach((t: any) => { templateNameMap[t.installment_index] = t.installment_name; });
+
+    // Step C: per-consumer calculation
+    for (const consumer of consumersRes.rows) {
+      const cid = consumer.consumer_id;
+
+      const receiptsRes = await db.query(
+        `SELECT id, amount_received_inr, demand_id, installment_index,
+                status, received_date, created_at
+         FROM receipts
+         WHERE consumer_id = $1
+           AND status NOT IN ('cancelled','bounced')
+         ORDER BY received_date ASC, created_at ASC`,
+        [cid]
+      );
+
+      const demandsRaw = await db.query(
+        `SELECT id, installment_index, amount_due_inr, due_date
+         FROM demands
+         WHERE consumer_id = $1
+         ORDER BY installment_index ASC`,
+        [cid]
+      );
+      const demandsRes = { rows: demandsRaw.rows.map((d: any) => ({
+        ...d,
+        installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+      })) };
+
+      const allRows = buildInterestRows(receiptsRes.rows, demandsRes.rows, penalRate);
+      const interestRows = allRows.filter(r => r.interest_amount > 0);
+
+      if (interestRows.length > 0) {
+        const consumerTotal = interestRows.reduce((s, r) => s + r.interest_amount, 0);
+        totalInterest += consumerTotal;
+        consumersWithInterest++;
+
+        // Step D: persist if requested
+        if (persist) {
+          await db.query(
+            `DELETE FROM penal_interests WHERE consumer_id = $1`,
+            [cid]
+          );
+          for (const row of interestRows) {
+            await db.query(
+              `INSERT INTO penal_interests
+                 (payment_plan_id, installment_index, consumer_id,
+                  principal_inr, days_overdue, rate_percent,
+                  amount_inr, calculated_at, status)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'calculated')`,
+              [
+                consumer.payment_plan_id || null,
+                row.installment_index,
+                cid,
+                Math.round(row.delay_amount),
+                row.delay_days,
+                row.roi,
+                Math.round(row.interest_amount),
+              ]
+            );
+          }
+        }
+
+        details.push({
+          consumer_id:          cid,
+          consumer_name:        consumer.consumer_name,
+          registration_number:  consumer.registration_no,
+          total_interest:       Math.round(consumerTotal * 100) / 100,
+          rows:                 interestRows,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      summary: {
+        consumers_processed:      consumersRes.rows.length,
+        consumers_with_interest:  consumersWithInterest,
+        total_interest_inr:       Math.round(totalInterest * 100) / 100,
+        persisted:                !!persist,
+      },
+      details,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/payments/interest-scheduler - Remove stored interest for a project
+router.delete('/interest-scheduler', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id, tower_id } = req.body;
+    if (!project_id) {
+      return res.status(400).json({ error: 'project_id is required' });
+    }
+
+    const result = await db.query(
+      `DELETE FROM penal_interests
+       WHERE consumer_id IN (
+         SELECT DISTINCT c.id
+         FROM consumers c
+         JOIN allocations a ON a.consumer_id = c.id
+         JOIN units u       ON u.id = a.unit_id
+         JOIN towers t      ON t.id = u.tower_id
+         WHERE t.project_id = $1
+           AND ($2::uuid IS NULL OR t.id = $2)
+       )`,
+      [project_id, tower_id || null]
+    );
+
+    res.json({ success: true, deleted: result.rowCount });
   } catch (error) {
     next(error);
   }
