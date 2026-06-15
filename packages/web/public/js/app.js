@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/customer-wise-interest', (p) => Pages.customerWiseInterest(p));
   Router.register('/interest-waiver',        (p) => Pages.interestWaiver(p));
   Router.register('/grace-period',           (p) => Pages.gracePeriod(p));
+  Router.register('/transfer-fee-setup',     (p) => Pages.transferFeeSetup(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();

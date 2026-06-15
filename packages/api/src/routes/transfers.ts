@@ -5,6 +5,83 @@ import { AuthRequest } from '../index.js';
 const router = Router();
 
 /**
+ * GET /api/transfers/fee-master?projectId=uuid
+ * Returns transfer fee config for a given project.
+ */
+router.get('/fee-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.query as { projectId?: string };
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+    const result = await db.query(
+      `SELECT * FROM transfer_fee_master WHERE project_id = $1`,
+      [projectId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No fee config for this project' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/transfers/fee-master
+ * Upsert transfer fee config for a project.
+ */
+router.post('/fee-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const {
+      projectId, transferFeeInr, adminChargesInr,
+      cgstPct, sgstPct, igstPct, ugstPct,
+      servicetaxPct, isFoc, effectiveFrom
+    } = req.body;
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const result = await db.query(
+      `INSERT INTO transfer_fee_master
+         (project_id, transfer_fee_inr, admin_charges_inr,
+          cgst_pct, sgst_pct, igst_pct, ugst_pct,
+          service_tax_pct, is_foc, effective_from, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now())
+       ON CONFLICT (project_id) DO UPDATE SET
+         transfer_fee_inr  = EXCLUDED.transfer_fee_inr,
+         admin_charges_inr = EXCLUDED.admin_charges_inr,
+         cgst_pct          = EXCLUDED.cgst_pct,
+         sgst_pct          = EXCLUDED.sgst_pct,
+         igst_pct          = EXCLUDED.igst_pct,
+         ugst_pct          = EXCLUDED.ugst_pct,
+         service_tax_pct   = EXCLUDED.service_tax_pct,
+         is_foc            = EXCLUDED.is_foc,
+         effective_from    = EXCLUDED.effective_from,
+         updated_at        = now()
+       RETURNING *`,
+      [
+        projectId,
+        transferFeeInr   ?? 0,
+        adminChargesInr  ?? 0,
+        cgstPct          ?? 0,
+        sgstPct          ?? 0,
+        igstPct          ?? 0,
+        ugstPct          ?? 0,
+        servicetaxPct    ?? 12.36,
+        isFoc            ?? false,
+        effectiveFrom    || null
+      ]
+    );
+
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
  * POST /api/transfers - Initiate Ownership Transfer
  * Steps:
  * 1. Validate both consumers and unit.
@@ -84,7 +161,7 @@ router.get('/history/:unitId', async (req: AuthRequest, res: Response, next: Nex
   try {
     const { unitId } = req.params;
     const result = await db.query(
-      `SELECT t.*, 
+      `SELECT t.*,
               oc.name as old_consumer_name, nc.name as new_consumer_name,
               u.unit_number
        FROM ownership_transfers t
