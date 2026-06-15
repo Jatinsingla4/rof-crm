@@ -434,6 +434,32 @@ const TRANSFER_DETAIL_QUERY = `
   LEFT JOIN companies comp ON comp.id = p.company_id
   WHERE ot.id = $1`;
 /**
+ * PATCH /api/transfers/:id
+ * Updates transfer_date and/or application_date on one transfer record.
+ * Must be defined before GET /:id/letter and GET /:id.
+ */
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!id) {
+            return res.status(400).json({ error: 'Transfer id is required' });
+        }
+        const { transfer_date, application_date } = req.body;
+        const result = await index_js_1.db.query(`UPDATE ownership_transfers
+       SET transfer_date    = COALESCE($2::date, transfer_date),
+           application_date = $3::date
+       WHERE id = $1
+       RETURNING id, transfer_date, application_date`, [id, transfer_date || null, application_date || null]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Transfer not found' });
+        }
+        res.json({ success: true, data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+/**
  * GET /api/transfers/:id/letter
  * Returns a printable HTML transfer letter for one transfer record.
  * Must be defined before /:id to avoid Express matching "letter" as the id.

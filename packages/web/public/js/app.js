@@ -128,6 +128,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/transfer-fee-setup',     (p) => Pages.transferFeeSetup(p));
   Router.register('/transfer-report',        (p) => Pages.transferReport(p));
   Router.register('/transfer-detail',        (p) => Pages.transferDetail(p));
+  Router.register('/transfer-date-edit',     (p) => Pages.transferDateEdit(p));
 
   // ── 6. START ROUTER ──────────────────────────
   Router.init();
