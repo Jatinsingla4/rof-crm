@@ -13,7 +13,7 @@ import { buildApplicantFileHtml } from './booking.js';
 import { AuthRequest } from '../index.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall } from '../utils/payment-waterfall.js';
+import { applyWaterfall, buildInterestRows } from '../utils/payment-waterfall.js';
 
 
 const photoStorage = multer.diskStorage({
@@ -1235,8 +1235,9 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
       db.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index, status
-         FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+         FROM receipts WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
+         ORDER BY received_date ASC, created_at ASC`,
         [consumerId]
       ),
       db.query(
@@ -1250,6 +1251,17 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       total_paid: w.paid,
     }));
 
+    // ── Interest calculation rows ─────────────
+    const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+    const templateNameMap: Record<number, string> = {};
+    templatesRes.rows.forEach((t: any) => { templateNameMap[t.installment_index] = t.installment_name; });
+    const demandsForInterest = demandsRes.rows.map((d: any) => ({
+      ...d,
+      installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+    }));
+    const interestCalcRows = buildInterestRows(wfRcptsRes.rows, demandsForInterest, penalRate);
+    // ─────────────────────────────────────────
+
     const html = buildApplicantFileHtml(
       row,
       consumer,
@@ -1261,6 +1273,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       dispatchRes.rows,
       receiptsRes.rows,
       demandsRes.rows,
+      interestCalcRows,
     );
 
     // Persist to documents table on first view so it can be edited later

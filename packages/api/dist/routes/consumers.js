@@ -1026,8 +1026,9 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
-         FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`, [consumerId]),
+            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+         FROM receipts WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
+         ORDER BY received_date ASC, created_at ASC`, [consumerId]),
             index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
          FROM demands WHERE consumer_id = $1`, [consumerId]),
         ]);
@@ -1035,7 +1036,17 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             installment_index: w.installment_index,
             total_paid: w.paid,
         }));
-        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows);
+        // ── Interest calculation rows ─────────────
+        const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+        const templateNameMap = {};
+        templatesRes.rows.forEach((t) => { templateNameMap[t.installment_index] = t.installment_name; });
+        const demandsForInterest = demandsRes.rows.map((d) => ({
+            ...d,
+            installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+        }));
+        const interestCalcRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForInterest, penalRate);
+        // ─────────────────────────────────────────
+        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {

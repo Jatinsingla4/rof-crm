@@ -1121,7 +1121,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     </div>`;
 }
 // ── PAGE 2 BUILDER ───────────────────────
-function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows = [], demands = []) {
+function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows = [], demands = [], interestCalcRows = []) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -1507,30 +1507,62 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     if (filteredTemplates.length === 0) {
         interestRows = `<tr><td colspan="12" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
     }
+    else if (interestCalcRows.length === 0) {
+        interestRows = `<tr><td colspan="12" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No installment data available</td></tr>`;
+    }
     else {
-        filteredTemplates.forEach((t, idx) => {
-            const pct = parseFloat(t.percentage || 0);
-            const netBsp = basePrice * pct / 100;
-            const otherI = (plcAmount + otherCharge) * pct / 100;
-            const dueAmt = netBsp + otherI;
-            const dueDate = demandDueDateMap[t.installment_index] != null
-                ? fmtDDMMYYYY(demandDueDateMap[t.installment_index])
-                : '—';
-            interestRows += `<tr>
-        <td ${tdC}>${idx + 1}</td>
-        <td ${tdL}>${esc(t.installment_name)}</td>
-        <td ${tdC}>${dueDate}</td>
-        <td ${tdR}>${fmtIndianNumber(dueAmt)}</td>
-        <td ${tdR}>0.00</td>
-        <td ${tdC}>—</td>
-        <td ${tdR}>0.00</td>
-        <td ${tdC}>0</td>
-        <td ${tdC}>0</td>
-        <td ${tdC}>—</td>
-        <td ${tdC}>—</td>
-        <td ${tdR}>0.00</td>
-      </tr>`;
+        let rowNum = 0;
+        let totalInterest = 0;
+        interestCalcRows.forEach((ir) => {
+            rowNum++;
+            totalInterest += parseFloat(ir.interest_amount || 0);
+            const instDate = fmtDDMMYYYY(ir.installment_date);
+            const rcvdDate = ir.date_received ? fmtDDMMYYYY(ir.date_received) : '—';
+            const amtRecd = ir.amount_received > 0 ? fmtIndianNumber(ir.amount_received) : '—';
+            const delayAmt = ir.delay_amount > 0
+                ? fmtIndianNumber(ir.delay_amount)
+                : ir.delay_amount < 0
+                    ? fmtIndianNumber(Math.abs(ir.delay_amount)) + '(Adv)'
+                    : '0.00';
+            const roiFmt = ir.roi > 0 ? ir.roi.toFixed(2) + '%' : '—';
+            const intPrdFmt = ir.interest_period > 0 ? String(ir.interest_period) : '—';
+            if (ir.is_first_receipt) {
+                interestRows += `<tr>
+          <td ${tdC}>${rowNum}</td>
+          <td ${tdL}>${esc(ir.installment_name)}</td>
+          <td ${tdC}>${instDate}</td>
+          <td ${tdR}>${fmtIndianNumber(ir.due_amount)}</td>
+          <td ${tdR}>${amtRecd}</td>
+          <td ${tdC}>${rcvdDate}</td>
+          <td ${tdR}>${delayAmt}</td>
+          <td ${tdC}>${ir.delay_days > 0 ? ir.delay_days : 0}</td>
+          <td ${tdC}>${ir.grace_period}</td>
+          <td ${tdC}>${intPrdFmt}</td>
+          <td ${tdC}>${roiFmt}</td>
+          <td ${tdR}>${fmtIndianNumber(ir.interest_amount)}</td>
+        </tr>`;
+            }
+            else {
+                interestRows += `<tr>
+          <td ${tdC}>${rowNum}</td>
+          <td ${tdL}>—</td>
+          <td ${tdC}>—</td>
+          <td ${tdR}>—</td>
+          <td ${tdR}>${amtRecd}</td>
+          <td ${tdC}>${rcvdDate}</td>
+          <td ${tdR}>${delayAmt}</td>
+          <td ${tdC}>${ir.delay_days > 0 ? ir.delay_days : 0}</td>
+          <td ${tdC}>${ir.grace_period}</td>
+          <td ${tdC}>${intPrdFmt}</td>
+          <td ${tdC}>${roiFmt}</td>
+          <td ${tdR}>${fmtIndianNumber(ir.interest_amount)}</td>
+        </tr>`;
+            }
         });
+        interestRows += `<tr>
+      <td ${tdC} colspan="11" style="text-align:right;font-weight:bold;${baseFont}">TOTAL INTEREST</td>
+      <td ${tdR} style="font-weight:bold;">${fmtIndianNumber(totalInterest)}</td>
+    </tr>`;
     }
     const interestSection = `
     <div ${sectionHd}>INTEREST</div>
@@ -1745,9 +1777,9 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = []) {
+function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = []) {
     const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots);
-    const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands);
+    const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');
     return `<!DOCTYPE html>

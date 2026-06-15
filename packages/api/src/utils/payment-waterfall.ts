@@ -34,6 +34,153 @@ export interface WaterfallResult {
   fully_covered: boolean; // paid >= totalDue (and totalDue > 0)
 }
 
+export interface InterestRow {
+  installment_name: string;
+  installment_index: number;
+  installment_date: Date | null;
+  due_amount: number;
+  amount_received: number;
+  date_received: Date | null;
+  delay_amount: number;
+  delay_days: number;
+  grace_period: number;
+  interest_period: number;
+  roi: number;
+  interest_amount: number;
+  is_first_receipt: boolean;
+}
+
+export function buildInterestRows(
+  receipts: Array<{
+    id: string;
+    amount_received_inr: string | number;
+    demand_id: string | null;
+    installment_index: number | null;
+    status: string;
+    received_date?: Date | string | null;
+    created_at?: Date | string | null;
+  }>,
+  demands: Array<{
+    id: string;
+    installment_index: number;
+    installment_name: string;
+    due_date: Date | string | null;
+    amount_due_inr: string | number;
+  }>,
+  penalRate: number,
+): InterestRow[] {
+  const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
+
+  const active = receipts.filter(r => !['cancelled', 'bounced'].includes(r.status));
+  const sorted = [...active].sort((a, b) => {
+    const ta = new Date(a.received_date || a.created_at || 0).getTime();
+    const tb = new Date(b.received_date || b.created_at || 0).getTime();
+    return ta - tb;
+  });
+
+  // demand_id → installment_index lookup for linked receipts
+  const demandIdToIdx: Record<string, number> = {};
+  sortedDemands.forEach(d => { demandIdToIdx[d.id] = d.installment_index; });
+
+  // Per-installment pre-allocated credits (linked + index-orphan receipts)
+  const creditsByIdx: Record<number, Array<{ amount: number; received_date: Date | null }>> = {};
+  // Advance pool: receipts with no demand_id AND no installment_index
+  const pool: Array<{ remaining: number; received_date: Date | null }> = [];
+
+  for (const r of sorted) {
+    const amt      = parseFloat(String(r.amount_received_inr));
+    const rcvdDate = r.received_date ? new Date(r.received_date) : null;
+    if (r.demand_id && demandIdToIdx[r.demand_id] !== undefined) {
+      const idx = demandIdToIdx[r.demand_id];
+      if (!creditsByIdx[idx]) creditsByIdx[idx] = [];
+      creditsByIdx[idx].push({ amount: amt, received_date: rcvdDate });
+    } else if (!r.demand_id && r.installment_index !== null) {
+      const idx = Number(r.installment_index);
+      if (!creditsByIdx[idx]) creditsByIdx[idx] = [];
+      creditsByIdx[idx].push({ amount: amt, received_date: rcvdDate });
+    } else {
+      pool.push({ remaining: amt, received_date: rcvdDate });
+    }
+  }
+
+  const rows: InterestRow[] = [];
+
+  for (const demand of sortedDemands) {
+    const dueAmt  = parseFloat(String(demand.amount_due_inr));
+    const dueDate = demand.due_date ? new Date(demand.due_date) : null;
+    let balance   = dueAmt;
+    let isFirst   = true;
+    let anyApplied = false;
+
+    const applyCredit = (applied: number, rcvdDate: Date | null) => {
+      const balanceBeforePayment = balance;
+      balance -= applied;
+      let delayDays = 0;
+      if (dueDate && rcvdDate) {
+        const diff = Math.floor((rcvdDate.getTime() - dueDate.getTime()) / 86400000);
+        delayDays  = Math.max(0, diff);
+      }
+      const delayAmt  = Math.max(0, balanceBeforePayment);
+      const intPeriod = delayDays;
+      const intAmt    = delayAmt > 0 && intPeriod > 0
+        ? Math.round(delayAmt * penalRate / 100 / 365 * intPeriod * 100) / 100
+        : 0;
+      rows.push({
+        installment_name:  demand.installment_name,
+        installment_index: demand.installment_index,
+        installment_date:  dueDate,
+        due_amount:        dueAmt,
+        amount_received:   applied,
+        date_received:     rcvdDate,
+        delay_amount:      delayAmt,
+        delay_days:        delayDays,
+        grace_period:      0,
+        interest_period:   intPeriod,
+        roi:               penalRate,
+        interest_amount:   intAmt,
+        is_first_receipt:  isFirst,
+      });
+      isFirst    = false;
+      anyApplied = true;
+    };
+
+    // Pre-allocated credits first
+    for (const credit of (creditsByIdx[demand.installment_index] || [])) {
+      if (balance <= 0) break;
+      applyCredit(Math.min(credit.amount, balance), credit.received_date);
+    }
+
+    // Then advance pool in waterfall order
+    for (const entry of pool) {
+      if (balance <= 0) break;
+      if (entry.remaining <= 0) continue;
+      const applied = Math.min(entry.remaining, balance);
+      entry.remaining -= applied;
+      applyCredit(applied, entry.received_date);
+    }
+
+    if (!anyApplied) {
+      rows.push({
+        installment_name:  demand.installment_name,
+        installment_index: demand.installment_index,
+        installment_date:  dueDate,
+        due_amount:        dueAmt,
+        amount_received:   0,
+        date_received:     null,
+        delay_amount:      dueAmt,
+        delay_days:        0,
+        grace_period:      0,
+        interest_period:   0,
+        roi:               penalRate,
+        interest_amount:   0,
+        is_first_receipt:  true,
+      });
+    }
+  }
+
+  return rows;
+}
+
 export function applyWaterfall(
   receipts: WaterfallReceipt[],
   demands: WaterfallDemand[],

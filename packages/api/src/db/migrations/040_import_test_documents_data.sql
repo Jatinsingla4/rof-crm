@@ -9,14 +9,36 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 0: CLEAN SLATE
+-- PHASE 0: CLEAN SLATE (idempotency-guarded)
+-- Only truncates on a fresh DB. Skips if seed data already exists
+-- or if real consumer data is present, to protect live bookings.
 -- ═══════════════════════════════════════════════════════════════════
 
-TRUNCATE 
-  projects, towers, units, consumers, co_applicants, 
-  allocations, payment_plans, plan_schedule_templates, 
-  demands, receipts, tasks, call_logs, audit_logs 
-CASCADE;
+DO $$
+BEGIN
+  -- Skip if seed data already present (migration already ran once)
+  IF EXISTS (
+    SELECT 1 FROM consumers
+    WHERE id = 'd0000000-0000-0000-0000-000000000001'
+  ) THEN
+    RAISE NOTICE 'Migration 040: Seed data already present — skipping TRUNCATE';
+    RETURN;
+  END IF;
+  -- Skip if any real (non-seed) consumer exists — preserve real bookings
+  IF EXISTS (
+    SELECT 1 FROM consumers
+    WHERE id::text NOT LIKE 'd0000000%'
+    LIMIT 1
+  ) THEN
+    RAISE NOTICE 'Migration 040: Real consumer data detected — skipping TRUNCATE';
+    RETURN;
+  END IF;
+  TRUNCATE
+    projects, towers, units, consumers, co_applicants,
+    allocations, payment_plans, plan_schedule_templates,
+    demands, receipts, tasks, call_logs, audit_logs
+  CASCADE;
+END $$;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- PHASE 1: PROJECTS (2 records)
