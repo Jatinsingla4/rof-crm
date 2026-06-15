@@ -178,4 +178,49 @@ router.get('/history/:unitId', async (req: AuthRequest, res: Response, next: Nex
   }
 });
 
+/**
+ * GET /api/transfers/unit-owner/:unitId
+ * Returns current active owner of a unit plus unit/project details.
+ */
+router.get('/unit-owner/:unitId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { unitId } = req.params;
+    if (!unitId) {
+      return res.status(400).json({ error: 'unitId is required' });
+    }
+    const result = await db.query(
+      `SELECT
+         c.id, c.name, c.first_name, c.last_name,
+         c.salutation, c.registration_no, c.mobile,
+         c.pan_no, c.aadhaar_no, c.present_address,
+         c.present_city, c.present_state, c.present_pin,
+         c.applicant_type, c.project_id,
+         u.unit_number, u.bhk_type, u.floor,
+         u.super_area_sqft, u.base_price_inr,
+         a.id as allocation_id, a.allotment_date,
+         a.status as allocation_status,
+         p.name as project_name,
+         COALESCE(
+           (SELECT COUNT(*)::int FROM ownership_transfers ot
+            WHERE ot.unit_id = $1), 0
+         ) as transfer_count
+       FROM consumers c
+       JOIN allocations a ON a.consumer_id = c.id
+       JOIN units u ON u.id = a.unit_id
+       JOIN projects p ON p.id = c.project_id
+       WHERE a.unit_id = $1
+         AND a.status != 'transferred'
+       ORDER BY a.created_at DESC
+       LIMIT 1`,
+      [unitId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No active owner for this unit' });
+    }
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
