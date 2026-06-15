@@ -1252,12 +1252,26 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     }));
 
     // ── Interest calculation rows ─────────────
-    const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+    let penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+    if (projectId) {
+      try {
+        const projRateRes = await db.query(
+          `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`,
+          [projectId]
+        );
+        if (projRateRes.rows.length > 0) penalRate = parseFloat(projRateRes.rows[0].rate_percent);
+      } catch { /* fall through to global rate */ }
+    }
     const templateNameMap: Record<number, string> = {};
-    templatesRes.rows.forEach((t: any) => { templateNameMap[t.installment_index] = t.installment_name; });
+    const templateRateMap: Record<number, number | null> = {};
+    templatesRes.rows.forEach((t: any) => {
+      templateNameMap[t.installment_index] = t.installment_name;
+      templateRateMap[t.installment_index] = t.interest_rate_percent != null ? parseFloat(t.interest_rate_percent) : null;
+    });
     const demandsForInterest = demandsRes.rows.map((d: any) => ({
       ...d,
-      installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+      installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+      interest_rate_percent: templateRateMap[d.installment_index] ?? null,
     }));
     const interestCalcRows = buildInterestRows(wfRcptsRes.rows, demandsForInterest, penalRate);
     // ─────────────────────────────────────────

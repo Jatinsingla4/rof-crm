@@ -16,8 +16,15 @@ const router = Router();
  * Calculate Penal Interest (Late Payment Penalty)
  * HRERA Rule 15: 11.10% per annum
  */
-const getPenalInterestRate = async (): Promise<number> => {
+const getPenalInterestRate = async (projectId?: string): Promise<number> => {
   try {
+    if (projectId) {
+      const projRate = await db.query(
+        `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`,
+        [projectId]
+      );
+      if (projRate.rows.length > 0) return parseFloat(projRate.rows[0].rate_percent);
+    }
     const res = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
     return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 11.10;
   } catch {
@@ -3547,9 +3554,8 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       return res.status(400).json({ error: 'project_id is required' });
     }
 
-    // Step A: penal rate
-    const rateRes = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
-    const penalRate = rateRes.rows.length > 0 ? parseFloat(rateRes.rows[0].value) : 15;
+    // Step A: penal rate (project-level override → global fallback)
+    const penalRate = await getPenalInterestRate(project_id);
 
     // Step B: all consumers for project (optionally filtered by tower)
     const consumersRes = await db.query(
@@ -3573,16 +3579,20 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
     let totalInterest = 0;
     let consumersWithInterest = 0;
 
-    // Fetch installment name map once for the whole project
+    // Fetch installment name + rate map once for the whole project
     const templatesRes = await db.query(
-      `SELECT installment_index, installment_name
+      `SELECT installment_index, installment_name, interest_rate_percent
        FROM plan_schedule_templates
        WHERE project_id = $1
        ORDER BY installment_index ASC`,
       [project_id]
     );
     const templateNameMap: Record<number, string> = {};
-    templatesRes.rows.forEach((t: any) => { templateNameMap[t.installment_index] = t.installment_name; });
+    const templateRateMap: Record<number, number | null> = {};
+    templatesRes.rows.forEach((t: any) => {
+      templateNameMap[t.installment_index] = t.installment_name;
+      templateRateMap[t.installment_index] = t.interest_rate_percent != null ? parseFloat(t.interest_rate_percent) : null;
+    });
 
     // Step C: per-consumer calculation
     for (const consumer of consumersRes.rows) {
@@ -3607,7 +3617,8 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       );
       const demandsRes = { rows: demandsRaw.rows.map((d: any) => ({
         ...d,
-        installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+        installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+        interest_rate_percent: templateRateMap[d.installment_index] ?? null,
       })) };
 
       const allRows = buildInterestRows(receiptsRes.rows, demandsRes.rows, penalRate);
@@ -3692,6 +3703,124 @@ router.delete('/interest-scheduler', async (req: AuthRequest, res: Response, nex
     );
 
     res.json({ success: true, deleted: result.rowCount });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Project-wise Interest Master endpoints ─────────────────────────────────
+
+// GET /api/payments/interest-master/:projectId — rate history for a project
+router.get('/interest-master/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.params;
+    const result = await db.query(
+      `SELECT pir.id, pir.rate_percent, pir.effective_from, pir.created_at,
+              u.name AS created_by_name
+       FROM project_interest_rates pir
+       LEFT JOIN users u ON u.id = pir.created_by
+       WHERE pir.project_id = $1
+       ORDER BY pir.effective_from DESC, pir.created_at DESC`,
+      [projectId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/payments/interest-master — create new project interest rate
+router.post('/interest-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { project_id, rate_percent, effective_from } = req.body;
+    if (!project_id || rate_percent == null) {
+      return res.status(400).json({ error: 'project_id and rate_percent are required' });
+    }
+    const userId = (req as any).user?.id || null;
+    const result = await db.query(
+      `INSERT INTO project_interest_rates (project_id, rate_percent, effective_from, created_by)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, rate_percent, effective_from, created_at`,
+      [project_id, rate_percent, effective_from || new Date().toISOString().slice(0, 10), userId]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/payments/interest-master/:id — update an existing rate record
+router.put('/interest-master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { rate_percent, effective_from } = req.body;
+    if (rate_percent == null) {
+      return res.status(400).json({ error: 'rate_percent is required' });
+    }
+    const result = await db.query(
+      `UPDATE project_interest_rates
+       SET rate_percent = $1, effective_from = COALESCE($2, effective_from)
+       WHERE id = $3
+       RETURNING id, rate_percent, effective_from`,
+      [rate_percent, effective_from || null, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Rate record not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ── Installment-wise Interest endpoints ────────────────────────────────────
+
+// GET /api/payments/plan-names/:projectId — distinct plan names for a project
+router.get('/plan-names/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId } = req.params;
+    const result = await db.query(
+      `SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name ASC`,
+      [projectId]
+    );
+    res.json({ success: true, data: result.rows.map((r: any) => r.plan_name) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/payments/installment-interest/:projectId/:planName — installments with current rates
+router.get('/installment-interest/:projectId/:planName', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, planName } = req.params;
+    const result = await db.query(
+      `SELECT installment_index, installment_name, percentage, interest_rate_percent
+       FROM plan_schedule_templates
+       WHERE project_id = $1 AND plan_name = $2
+       ORDER BY installment_index ASC`,
+      [projectId, planName]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/payments/installment-interest/:projectId/:planName — batch update per-installment rates
+router.put('/installment-interest/:projectId/:planName', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, planName } = req.params;
+    const { rates } = req.body; // Array<{ installment_index: number; interest_rate_percent: number | null }>
+    if (!Array.isArray(rates)) {
+      return res.status(400).json({ error: 'rates array is required' });
+    }
+    for (const r of rates) {
+      await db.query(
+        `UPDATE plan_schedule_templates
+         SET interest_rate_percent = $1
+         WHERE project_id = $2 AND plan_name = $3 AND installment_index = $4`,
+        [r.interest_rate_percent ?? null, projectId, planName, r.installment_index]
+      );
+    }
+    res.json({ success: true, updated: rates.length });
   } catch (error) {
     next(error);
   }

@@ -66,6 +66,7 @@ export function buildInterestRows(
     installment_name: string;
     due_date: Date | string | null;
     amount_due_inr: string | number;
+    interest_rate_percent?: number | null;
   }>,
   penalRate: number,
 ): InterestRow[] {
@@ -112,6 +113,10 @@ export function buildInterestRows(
     let isFirst   = true;
     let anyApplied = false;
 
+    const effectiveRate = (demand.interest_rate_percent != null && demand.interest_rate_percent > 0)
+      ? Number(demand.interest_rate_percent)
+      : penalRate;
+
     const applyCredit = (applied: number, rcvdDate: Date | null) => {
       const balanceBeforePayment = balance;
       balance -= applied;
@@ -123,7 +128,7 @@ export function buildInterestRows(
       const delayAmt  = Math.max(0, balanceBeforePayment);
       const intPeriod = delayDays;
       const intAmt    = delayAmt > 0 && intPeriod > 0
-        ? Math.round(delayAmt * penalRate / 100 / 365 * intPeriod * 100) / 100
+        ? Math.round(delayAmt * effectiveRate / 100 / 365 * intPeriod * 100) / 100
         : 0;
       rows.push({
         installment_name:  demand.installment_name,
@@ -136,7 +141,7 @@ export function buildInterestRows(
         delay_days:        delayDays,
         grace_period:      0,
         interest_period:   intPeriod,
-        roi:               penalRate,
+        roi:               effectiveRate,
         interest_amount:   intAmt,
         is_first_receipt:  isFirst,
       });
@@ -171,7 +176,7 @@ export function buildInterestRows(
         delay_days:        0,
         grace_period:      0,
         interest_period:   0,
-        roi:               penalRate,
+        roi:               effectiveRate,
         interest_amount:   0,
         is_first_receipt:  true,
       });

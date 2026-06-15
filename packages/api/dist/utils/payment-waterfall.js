@@ -53,6 +53,9 @@ function buildInterestRows(receipts, demands, penalRate) {
         let balance = dueAmt;
         let isFirst = true;
         let anyApplied = false;
+        const effectiveRate = (demand.interest_rate_percent != null && demand.interest_rate_percent > 0)
+            ? Number(demand.interest_rate_percent)
+            : penalRate;
         const applyCredit = (applied, rcvdDate) => {
             const balanceBeforePayment = balance;
             balance -= applied;
@@ -64,7 +67,7 @@ function buildInterestRows(receipts, demands, penalRate) {
             const delayAmt = Math.max(0, balanceBeforePayment);
             const intPeriod = delayDays;
             const intAmt = delayAmt > 0 && intPeriod > 0
-                ? Math.round(delayAmt * penalRate / 100 / 365 * intPeriod * 100) / 100
+                ? Math.round(delayAmt * effectiveRate / 100 / 365 * intPeriod * 100) / 100
                 : 0;
             rows.push({
                 installment_name: demand.installment_name,
@@ -77,7 +80,7 @@ function buildInterestRows(receipts, demands, penalRate) {
                 delay_days: delayDays,
                 grace_period: 0,
                 interest_period: intPeriod,
-                roi: penalRate,
+                roi: effectiveRate,
                 interest_amount: intAmt,
                 is_first_receipt: isFirst,
             });
@@ -112,7 +115,7 @@ function buildInterestRows(receipts, demands, penalRate) {
                 delay_days: 0,
                 grace_period: 0,
                 interest_period: 0,
-                roi: penalRate,
+                roi: effectiveRate,
                 interest_amount: 0,
                 is_first_receipt: true,
             });

@@ -249,6 +249,12 @@
       <div class="dd-link has-sub">Interest Calculation <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:200px">
           <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/interest-scheduler')">Interest Scheduler</a>
+          <div class="dd-link has-sub">Project Wise <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:200px">
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/interest-master')">Interest Master</a>
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/installment-interest')">Installment Wise Interest</a>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -483,6 +489,8 @@
 <script src="/js/pages/calling.js"></script>
 <script src="/js/pages/collection-setup.js"></script>
 <script src="/js/pages/interest-scheduler.js"></script>
+<script src="/js/pages/interest-master.js"></script>
+<script src="/js/pages/installment-interest.js"></script>
 
 <!-- App entry point (must be last) -->
 <script src="/js/app.js"></script>
