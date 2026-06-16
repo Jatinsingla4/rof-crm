@@ -50,6 +50,7 @@ import testDataImportRoutes from './routes/test-data-import.js';
 import rolesRoutes from './routes/roles.js';
 import companiesRoutes from './routes/companies.js';
 import customLettersRoutes from './routes/custom-letters.js';
+import gstConfigRoutes from './routes/gst-configuration.js';
 import { requirePermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
@@ -440,7 +441,8 @@ app.use('/api/booking',           authenticateToken,                      bookin
 app.use('/api/booking-documents', authenticateToken,                      bookingDocumentsRoutes);
 app.use('/api/employees', authenticateToken, employeesRoutes);
 app.use('/api/operations', authenticateToken, operationsRoutes);
-app.use('/api/addon-charges', authenticateToken, addonChargesRoutes);
+app.use('/api/addon-charges',       authenticateToken, addonChargesRoutes);
+app.use('/api/gst-configuration',   authenticateToken, gstConfigRoutes);
 app.use('/api/surrender', authenticateToken, surrenderRoutes);
 app.use('/api/transfers', authenticateToken, transfersRoutes);
 app.use('/api/registry', authenticateToken, registryRoutes);

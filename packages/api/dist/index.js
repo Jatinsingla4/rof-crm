@@ -54,6 +54,7 @@ const test_data_import_js_1 = __importDefault(require("./routes/test-data-import
 const roles_js_1 = __importDefault(require("./routes/roles.js"));
 const companies_js_1 = __importDefault(require("./routes/companies.js"));
 const custom_letters_js_1 = __importDefault(require("./routes/custom-letters.js"));
+const gst_configuration_js_1 = __importDefault(require("./routes/gst-configuration.js"));
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
@@ -349,6 +350,7 @@ app.use('/api/booking-documents', exports.authenticateToken, booking_documents_j
 app.use('/api/employees', exports.authenticateToken, employees_js_1.default);
 app.use('/api/operations', exports.authenticateToken, operations_js_1.default);
 app.use('/api/addon-charges', exports.authenticateToken, addon_charges_js_1.default);
+app.use('/api/gst-configuration', exports.authenticateToken, gst_configuration_js_1.default);
 app.use('/api/surrender', exports.authenticateToken, surrender_js_1.default);
 app.use('/api/transfers', exports.authenticateToken, transfers_js_1.default);
 app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
