@@ -904,7 +904,7 @@ function amtWords(amount) {
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
 // ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = []) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = []) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -933,7 +933,8 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const interest = parseFloat(b.interest_amount || 0);
     const bookingAmt = parseFloat(b.booking_amount || 0);
     const netBasicPrice = basePrice;
-    const agreementValue = netBasicPrice + plcAmount + otherCharge;
+    const addonTotal = addonCharges.reduce((sum, c) => sum + parseFloat(c.total_amount || 0), 0);
+    const agreementValue = netBasicPrice + plcAmount + otherCharge + addonTotal;
     const totalConsideration = agreementValue;
     const totalTax = cgst + sgst;
     const totalWithTax = totalConsideration + totalTax;
@@ -1153,28 +1154,80 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       </tr></tfoot>
     </table>`;
     // ── SECTION 7 — ADDON CHARGES TABLE ──────
-    // Reserved for future addon_charges table (parking, club membership, etc.)
-    // PLC and other_charge belong exclusively in Section 6 above.
-    const addonRows = [];
-    const addonTotal = addonRows.reduce((s, r) => s + r.amount, 0);
-    const addonBodyRows = addonRows.length > 0
-        ? addonRows.map((r, i) => `<tr>
+    const addonRows = addonCharges.map((c) => ({
+        id: c.id,
+        chargeName: c.charge_name,
+        effectiveDate: c.effective_date,
+        amount: parseFloat(c.amount || 0),
+        increaseAmount: parseFloat(c.increase_amount || 0),
+        amountWithIncrease: parseFloat(c.amount || 0) + parseFloat(c.increase_amount || 0),
+        cgstPct: parseFloat(c.cgst_pct || 0),
+        sgstPct: parseFloat(c.sgst_pct || 0),
+        cgstAmount: parseFloat(c.cgst_amount || 0),
+        sgstAmount: parseFloat(c.sgst_amount || 0),
+        itcCgst: parseFloat(c.itc_cgst || 0),
+        itcSgst: parseFloat(c.itc_sgst || 0),
+        totalAmount: parseFloat(c.total_amount || 0),
+        remark: c.remark || '',
+    }));
+    const addonBodyRows = addonRows.length === 0
+        ? `<tr><td colspan="11" style="${baseFont}border:1px solid #999;padding:4px 8px;text-align:center;color:#666;">No addon charges for this customer.</td></tr>`
+        : addonRows.map((r, i) => `<tr>
         <td ${tdStyle}>${i + 1}</td>
-        <td ${tdL}>${r.desc}</td>
+        <td ${tdL}>${esc(r.chargeName)}</td>
+        <td ${tdStyle}>${r.effectiveDate ? new Date(r.effectiveDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</td>
         <td ${tdR}>${fmtIndianNumber(r.amount)}</td>
-      </tr>`).join('')
-        : `<tr><td colspan="3" style="${baseFont}border:1px solid #999;padding:4px 8px;text-align:center;color:#666;">No addon charges</td></tr>`;
+        <td ${tdR}>${fmtIndianNumber(r.increaseAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.amountWithIncrease)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.cgstAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.sgstAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.itcCgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.itcSgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(r.totalAmount)}</td>
+      </tr>`).join('');
+    const addonTotals = addonRows.reduce((acc, r) => ({
+        amount: acc.amount + r.amount,
+        increaseAmount: acc.increaseAmount + r.increaseAmount,
+        amountWithIncrease: acc.amountWithIncrease + r.amountWithIncrease,
+        cgstAmount: acc.cgstAmount + r.cgstAmount,
+        sgstAmount: acc.sgstAmount + r.sgstAmount,
+        itcCgst: acc.itcCgst + r.itcCgst,
+        itcSgst: acc.itcSgst + r.itcSgst,
+        totalAmount: acc.totalAmount + r.totalAmount,
+    }), { amount: 0, increaseAmount: 0, amountWithIncrease: 0, cgstAmount: 0, sgstAmount: 0, itcCgst: 0, itcSgst: 0, totalAmount: 0 });
+    const addonTotalsRow = addonRows.length > 0
+        ? `<tr style="font-weight:bold">
+        <td colspan="3" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.amount)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.increaseAmount)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.amountWithIncrease)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.cgstAmount)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.sgstAmount)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.itcCgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.itcSgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.totalAmount)}</strong></td>
+      </tr>`
+        : '';
     const addonSection = `
     <div ${sectionHd}>Other/Addon Charges</div>
     <table style="width:100%;border-collapse:collapse;">
       <thead><tr>
-        <th ${thStyle}>S.NO.</th><th ${thStyle}>CHARGE TYPE</th><th ${thStyle}>AMOUNT</th>
+        <th ${thStyle}>S.NO.</th>
+        <th ${thStyle}>CHARGE NAME</th>
+        <th ${thStyle}>EFF. DATE</th>
+        <th ${thStyle}>AMOUNT</th>
+        <th ${thStyle}>INC. AMT</th>
+        <th ${thStyle}>AMT+INC</th>
+        <th ${thStyle}>CGST</th>
+        <th ${thStyle}>SGST</th>
+        <th ${thStyle}>ITC CGST</th>
+        <th ${thStyle}>ITC SGST</th>
+        <th ${thStyle}>TOTAL</th>
       </tr></thead>
-      <tbody>${addonBodyRows}</tbody>
-      <tfoot><tr>
-        <td colspan="2" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotal)}</strong></td>
-      </tr></tfoot>
+      <tbody>
+        ${addonBodyRows}
+        ${addonTotalsRow}
+      </tbody>
     </table>`;
     // ── SECTION 8 — PARKING DETAIL ────────────
     let parkingRows = '';
@@ -1962,8 +2015,8 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = []) {
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots);
+function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = []) {
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

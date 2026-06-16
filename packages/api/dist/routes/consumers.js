@@ -1038,6 +1038,28 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             installment_index: w.installment_index,
             total_paid: w.paid,
         }));
+        // ── Addon charges ─────────────────────────
+        const addonChargesRes = await index_js_1.db.query(`SELECT
+         cac.id,
+         cac.charge_name,
+         cac.effective_date,
+         cac.amount,
+         cac.increase_amount,
+         cac.cgst_pct,
+         cac.sgst_pct,
+         cac.cgst_amount,
+         cac.sgst_amount,
+         cac.itc_cgst,
+         cac.itc_sgst,
+         cac.total_amount,
+         cac.remark,
+         cac.status
+       FROM consumer_addon_charges cac
+       WHERE cac.consumer_id = $1
+       AND cac.status = 'active'
+       ORDER BY cac.effective_date ASC,
+                cac.created_at ASC`, [consumerId]);
+        const addonCharges = addonChargesRes.rows;
         // ── Interest calculation rows ─────────────
         let penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
         if (projectId) {
@@ -1064,7 +1086,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
         });
         // ─────────────────────────────────────────
-        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows);
+        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {
