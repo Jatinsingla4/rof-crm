@@ -136,6 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/cancel-addon-charge',    (p) => Pages.cancelAddonCharge(p));
   Router.register('/waiveoff-addon-charge',  (p) => Pages.waiveoffAddonCharge(p));
   Router.register('/bulk-addon-charge',      (p) => Pages.bulkAddonCharge(p));
+  Router.register('/gst-configuration',     (p) => Pages.gstConfiguration(p));
   Router.register('/edit-booking',           (p) => Pages.editBooking(p));
 
   // ── 6. START ROUTER ──────────────────────────
