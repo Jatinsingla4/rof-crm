@@ -767,10 +767,7 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
         usr.name                                                                AS employee_name,
         COALESCE(c.finance_bank, br.bank_name, '')                             AS bank_name,
         COALESCE(c.loan_amount, 0)                                             AS loan_amount,
-        CASE WHEN u.carpet_area_sqft > 0
-          THEN ROUND(u.base_price_inr::numeric / u.carpet_area_sqft::numeric, 2)
-          ELSE 0
-        END                                                                     AS rate_per_sqft,
+        COALESCE(br.basic_rate_inr_sqft, 0)                                     AS rate_per_sqft,
         COALESCE(br.dealer_adjustment_amount, 0)                               AS dealer_discount,
         COALESCE(br.company_inaugural_disc, 0)                                 AS inaugural_discount,
         COALESCE(br.dealer_adjustment_amount, 0)
