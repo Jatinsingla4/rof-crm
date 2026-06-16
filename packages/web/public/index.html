@@ -5,6 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROF Group — Real Estate Manager</title>
 <link rel="stylesheet" href="/css/rof.css">
+<style>
+/* 4-level nav: sub-sub-dd inside sub-sub-dd */
+.sub-sub-dd .has-sub { position: relative; }
+.sub-sub-dd .has-sub > .sub-sub-dd {
+  display: none;
+  position: absolute;
+  left: calc(100% + 2px);
+  top: -4px;
+  min-width: 240px;
+  background: var(--nav-menu-bg);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+  z-index: 700;
+  padding: 4px;
+}
+.sub-sub-dd .has-sub:hover > .sub-sub-dd {
+  display: block;
+  animation: ddSlideIn .13s ease;
+}
+</style>
 </head>
 <body>
 
@@ -145,6 +166,21 @@
           <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'unit-address'})">Unit Address</a>
           <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'unit-location'})">Unit Location Master</a>
           <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'reminder-master'})">Reminder Master</a>
+          <div class="dd-link has-sub">Charge Master <span class="arr">▶</span>
+            <div class="sub-sub-dd" style="min-width:210px">
+              <a class="dd-link" onclick="closeAllNavDropdowns()">Other Charge</a>
+              <a class="dd-link" onclick="closeAllNavDropdowns()">Preferred Location Charges (PLC)</a>
+              <div class="dd-link has-sub">Addon Charges <span class="arr">▶</span>
+                <div class="sub-sub-dd" style="min-width:240px">
+                  <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/addon-charge-master')">Extra Add On Charge Master</a>
+                  <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/set-addon-charge')">Set Extra Add On Charge</a>
+                  <a class="dd-link" onclick="closeAllNavDropdowns()">Set Extra Add On Charge on Bulk Customer</a>
+                  <a class="dd-link" onclick="closeAllNavDropdowns()">Cancel Extra Add On Charge</a>
+                  <a class="dd-link" onclick="closeAllNavDropdowns()">Waiveoff Add On Charge</a>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -508,6 +544,8 @@
 <script src="/js/pages/surrender.js"></script>
 <script src="/js/pages/transfers.js"></script>
 <script src="/js/pages/edit-booking.js"></script>
+<script src="/js/pages/addon-charge-master.js"></script>
+<script src="/js/pages/set-addon-charge.js"></script>
 <script src="/js/pages/transfer-fee-setup.js"></script>
 <script src="/js/pages/transfer-report.js"></script>
 <script src="/js/pages/transfer-detail.js"></script>
