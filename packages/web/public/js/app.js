@@ -131,6 +131,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/transfer-date-edit',     (p) => Pages.transferDateEdit(p));
   Router.register('/addon-charge-master',    (p) => Pages.addonChargeMaster(p));
   Router.register('/set-addon-charge',       (p) => Pages.setAddonCharge(p));
+  Router.register('/cancel-addon-charge',    (p) => Pages.cancelAddonCharge(p));
+  Router.register('/waiveoff-addon-charge',  (p) => Pages.waiveoffAddonCharge(p));
+  Router.register('/bulk-addon-charge',      (p) => Pages.bulkAddonCharge(p));
   Router.register('/edit-booking',           (p) => Pages.editBooking(p));
 
   // ── 6. START ROUTER ──────────────────────────
