@@ -3,10 +3,16 @@
   // ── STATE ──────────────────────────────────────────────────────────────────
   let _view = 'search';
   let _type = 'surrender';
+  let _tab = 'surrender';
   let _projects = [];
   let _consumers = [];
   let _detail = null;
   let _selectedConsumer = null;
+  let _reportRows = [];
+  let _reportProjects = [];
+  let _restoreRows = [];
+  let _restoreProjects = [];
+  let _restoreType = 'surrender';
 
   // ── STYLES ─────────────────────────────────────────────────────────────────
   const SUR_STYLES = `<style id="sur-styles">
@@ -150,6 +156,14 @@
 .sur-cust-id { font-size: 12px; color: #555; }
 .sur-cust-date { font-size: 12px; color: #555; }
 .sur-topinfo { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #eee; margin-bottom: 8px; }
+.sur-tab-btn {
+  padding: 8px 22px; border: 1px solid #1d3a6e; background: #fff;
+  color: #1d3a6e; font-size: 13px; font-weight: bold; cursor: pointer; transition: all .15s;
+}
+.sur-tab-btn:first-child { border-radius: 3px 0 0 3px; }
+.sur-tab-btn:last-child { border-radius: 0 3px 3px 0; }
+.sur-tab-btn.sur-tab-active { background: #1d3a6e; color: #fff; }
+.sur-tab-btn:hover:not(.sur-tab-active) { background: #eef4ff; }
 </style>`;
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -259,6 +273,43 @@
           </div>
         </div>` : ''}
       </div>`;
+  }
+
+  // ── TAB BAR ───────────────────────────────────────────────────────────────
+  function _renderTabBar() {
+    return `
+      <div style="display:flex;gap:0;margin-bottom:14px">
+        <button class="sur-tab-btn${_tab==='surrender'?' sur-tab-active':''}"
+          onclick="SurrenderApp.switchTab('surrender')">
+          Surrender / Cancellation
+        </button>
+        <button class="sur-tab-btn${_tab==='report'?' sur-tab-active':''}"
+          onclick="SurrenderApp.switchTab('report')">
+          Detailed Report
+        </button>
+        <button class="sur-tab-btn${_tab==='restore'?' sur-tab-active':''}"
+          onclick="SurrenderApp.switchTab('restore')">
+          Cancel Surrender
+        </button>
+      </div>`;
+  }
+
+  function _switchTab(tab) {
+    _tab = tab;
+    _view = 'search';
+    _consumers = [];
+    _detail = null;
+    _selectedConsumer = null;
+    _reportRows = [];
+    _restoreRows = [];
+    const container = document.getElementById('content') || document.body;
+    container.innerHTML = SUR_STYLES + _renderTabBar()
+      + (tab === 'surrender' ? _renderSearch()
+       : tab === 'report'   ? _renderReport()
+       :                      _renderRestore());
+    if (tab === 'surrender') _loadProjects();
+    if (tab === 'report')    _loadReportProjects();
+    if (tab === 'restore')   _loadRestoreProjects();
   }
 
   // ── SEARCH ACTION ──────────────────────────────────────────────────────────
@@ -1024,11 +1075,19 @@
   // ── RENDER ROUTER ──────────────────────────────────────────────────────────
   function _render() {
     const container = document.getElementById('content') || document.body;
+    if (_tab === 'report') {
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderReport();
+      return;
+    }
+    if (_tab === 'restore') {
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderRestore();
+      return;
+    }
     if (_view === 'search') {
-      container.innerHTML = SUR_STYLES + _renderSearch();
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderSearch();
       _loadProjects();
     } else {
-      container.innerHTML = SUR_STYLES + _renderFormShell();
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderFormShell();
     }
   }
 
@@ -1047,16 +1106,337 @@
     } catch(e) {}
   }
 
+  // ── TAB 2: REPORT ─────────────────────────────────────────────────────────
+  function _renderReport() {
+    const projOpts = _reportProjects.map(p =>
+      `<option value="${p.id}">${p.name}</option>`
+    ).join('');
+
+    const rows = _reportRows.map((r, i) => `
+      <tr>
+        <td>${i+1}</td>
+        <td>${r.registration_no || '—'}</td>
+        <td class="sur-left">${r.full_name || r.name || '—'}</td>
+        <td>${r.unit_number || '—'}</td>
+        <td>${r.tower_name || '—'}</td>
+        <td>${_fmtDate(r.surrender_date || r.cancellation_date)}</td>
+        <td>
+          <span style="padding:2px 8px;border-radius:3px;font-size:11px;font-weight:bold;
+            background:${r.type==='cancellation' ? '#fff3cd;color:#856404' : '#d4edda;color:#155724'}">
+            ${r.type === 'cancellation' ? 'Cancellation' : 'Surrender'}
+          </span>
+        </td>
+        <td class="sur-right">${_fmt(r.refund_amount_inr || 0)}</td>
+        <td>
+          <span style="padding:2px 8px;border-radius:3px;font-size:11px;background:
+            ${r.status==='restored' ? '#d4edda;color:#155724'
+              : r.status==='approved' ? '#cce5ff;color:#004085'
+              : '#e2e3e5;color:#383d41'}">
+            ${r.status || 'pending'}
+          </span>
+        </td>
+        <td>${_fmtDate(r.created_at)}</td>
+      </tr>`).join('')
+      || `<tr><td colspan="10" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>`;
+
+    return `
+      <div class="sur-card">
+        <div class="sur-hdr">
+          <span class="sur-hdr-title">SURRENDER / CANCELLATION REPORT</span>
+        </div>
+        <div class="sur-body">
+          <div class="sur-filter-grid">
+            <div class="sur-field">
+              <span class="sur-lbl">Project</span>
+              <select id="rep-project" style="min-width:180px">
+                <option value="">-- All Projects --</option>
+                ${projOpts}
+              </select>
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">Type</span>
+              <select id="rep-type" style="min-width:140px">
+                <option value="">-- All --</option>
+                <option value="surrender">Surrender</option>
+                <option value="cancellation">Cancellation</option>
+              </select>
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">From Date</span>
+              <input type="date" id="rep-from">
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">To Date</span>
+              <input type="date" id="rep-to">
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">&nbsp;</span>
+              <button class="sur-btn-fetch" style="width:auto;padding:6px 20px"
+                onclick="SurrenderApp.fetchReport()">FETCH</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="sur-card">
+        <div class="sur-hdr"><span class="sur-hdr-title">REPORT DETAILS</span></div>
+        <div style="overflow-x:auto">
+          <table class="sur-table">
+            <thead><tr>
+              <th>S.NO</th><th>REGISTRATION NO</th><th>NAME</th>
+              <th>UNIT</th><th>TOWER</th><th>SURRENDER DATE</th>
+              <th>TYPE</th><th>REFUND AMOUNT</th><th>STATUS</th><th>DATE</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  async function _loadReportProjects() {
+    try {
+      const res = await fetch('/api/projects', {
+        headers: { 'Authorization': 'Bearer ' + _tok() }
+      });
+      const data = await res.json();
+      _reportProjects = data.data || data || [];
+      const sel = document.getElementById('rep-project');
+      if (sel) {
+        sel.innerHTML = '<option value="">-- All Projects --</option>'
+          + _reportProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      }
+    } catch(e) {}
+  }
+
+  async function _fetchReport() {
+    const projectId = document.getElementById('rep-project')?.value || '';
+    const type = document.getElementById('rep-type')?.value || '';
+    const fromDate = document.getElementById('rep-from')?.value || '';
+    const toDate = document.getElementById('rep-to')?.value || '';
+
+    const btn = document.querySelector('.sur-btn-fetch');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+
+    try {
+      const params = new URLSearchParams();
+      if (projectId) params.append('projectId', projectId);
+
+      const [sRes, cRes] = await Promise.all([
+        fetch(`/api/surrender/list?${params}&type=surrender`, {
+          headers: { 'Authorization': 'Bearer ' + _tok() }
+        }),
+        fetch(`/api/surrender/list?${params}&type=cancellation`, {
+          headers: { 'Authorization': 'Bearer ' + _tok() }
+        })
+      ]);
+
+      const sData = await sRes.json();
+      const cData = await cRes.json();
+
+      let rows = [
+        ...(sData.data || []).map(r => ({ ...r, type: 'surrender' })),
+        ...(cData.data || []).map(r => ({ ...r, type: 'cancellation' }))
+      ];
+
+      if (type) rows = rows.filter(r => r.type === type);
+
+      if (fromDate) rows = rows.filter(r => {
+        const d = r.surrender_date || r.cancellation_date;
+        return d && d >= fromDate;
+      });
+      if (toDate) rows = rows.filter(r => {
+        const d = r.surrender_date || r.cancellation_date;
+        return d && d <= toDate;
+      });
+
+      rows.sort((a, b) => {
+        const da = a.surrender_date || a.cancellation_date || '';
+        const db = b.surrender_date || b.cancellation_date || '';
+        return db.localeCompare(da);
+      });
+
+      _reportRows = rows;
+      const container = document.getElementById('content') || document.body;
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderReport();
+      _loadReportProjects();
+
+    } catch(e) {
+      alert('Error: ' + e.message);
+    } finally {
+      const b = document.querySelector('.sur-btn-fetch');
+      if (b) { b.disabled = false; b.textContent = 'FETCH'; }
+    }
+  }
+
+  // ── TAB 3: RESTORE ────────────────────────────────────────────────────────
+  function _renderRestore() {
+    const projOpts = _restoreProjects.map(p =>
+      `<option value="${p.id}">${p.name}</option>`
+    ).join('');
+
+    const rows = _restoreRows.map((r, i) => {
+      const canRestore = r.status !== 'restored';
+      return `<tr>
+        <td>${i+1}</td>
+        <td>${r.registration_no || '—'}</td>
+        <td class="sur-left">${r.full_name || r.name || '—'}</td>
+        <td>${r.unit_number || '—'}</td>
+        <td>${r.tower_name || '—'}</td>
+        <td>${_fmtDate(r.surrender_date || r.cancellation_date)}</td>
+        <td>
+          <span style="padding:2px 8px;border-radius:3px;font-size:11px;font-weight:bold;
+            background:${r.status==='restored' ? '#d4edda;color:#155724' : '#f8d7da;color:#721c24'}">
+            ${r.status || 'pending'}
+          </span>
+        </td>
+        <td>
+          ${canRestore
+            ? `<button onclick="SurrenderApp.restore('${r.id}','${_restoreType}','${r.consumer_id}','${r.allocation_id}','${r.unit_id}','${r.booking_record_id||''}')"
+                style="background:#1d3a6e;color:#fff;border:none;padding:4px 14px;border-radius:3px;font-size:12px;cursor:pointer">
+                Restore
+               </button>`
+            : '<span style="color:#888;font-size:12px">Restored</span>'
+          }
+        </td>
+      </tr>`;
+    }).join('')
+    || `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px">No surrendered/cancelled records found.</td></tr>`;
+
+    return `
+      <div class="sur-card">
+        <div class="sur-hdr">
+          <span class="sur-hdr-title">CANCEL SURRENDER / RESTORE</span>
+          <div class="sur-type-toggle">
+            <button class="sur-type-btn${_restoreType==='surrender'?' sur-active':''}"
+              onclick="SurrenderApp.setRestoreType('surrender')">Surrender</button>
+            <button class="sur-type-btn${_restoreType==='cancellation'?' sur-active':''}"
+              onclick="SurrenderApp.setRestoreType('cancellation')">Cancellation</button>
+          </div>
+        </div>
+        <div class="sur-body">
+          <div class="sur-filter-grid">
+            <div class="sur-field">
+              <span class="sur-lbl">Project*</span>
+              <select id="res-project" style="min-width:180px">
+                <option value="">-- Select --</option>
+                ${projOpts}
+              </select>
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">Registration No.</span>
+              <input id="res-regno" type="text" placeholder="Registration No." style="min-width:140px">
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">First Name</span>
+              <input id="res-name" type="text" placeholder="First Name" style="min-width:130px">
+            </div>
+            <div class="sur-field">
+              <span class="sur-lbl">&nbsp;</span>
+              <button class="sur-btn-fetch" style="width:auto;padding:6px 20px"
+                onclick="SurrenderApp.fetchRestore()">FETCH</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="sur-restore-msg"></div>
+      <div class="sur-card">
+        <div class="sur-hdr"><span class="sur-hdr-title">SURRENDERED / CANCELLED APPLICANTS</span></div>
+        <div style="overflow-x:auto">
+          <table class="sur-table">
+            <thead><tr>
+              <th>S.NO</th><th>REGISTRATION NO</th><th>NAME</th>
+              <th>UNIT</th><th>TOWER</th><th>SURRENDER DATE</th>
+              <th>STATUS</th><th>ACTION</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  async function _loadRestoreProjects() {
+    try {
+      const res = await fetch('/api/projects', {
+        headers: { 'Authorization': 'Bearer ' + _tok() }
+      });
+      const data = await res.json();
+      _restoreProjects = data.data || data || [];
+      const sel = document.getElementById('res-project');
+      if (sel) {
+        sel.innerHTML = '<option value="">-- Select --</option>'
+          + _restoreProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      }
+    } catch(e) {}
+  }
+
+  async function _fetchRestore() {
+    const projectId = document.getElementById('res-project')?.value || '';
+    const params = new URLSearchParams({ type: _restoreType });
+    if (projectId) params.append('projectId', projectId);
+
+    const btn = document.querySelector('.sur-btn-fetch');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading...'; }
+
+    try {
+      const res = await fetch(`/api/surrender/list?${params}`, {
+        headers: { 'Authorization': 'Bearer ' + _tok() }
+      });
+      const data = await res.json();
+      _restoreRows = data.data || [];
+      const container = document.getElementById('content') || document.body;
+      container.innerHTML = SUR_STYLES + _renderTabBar() + _renderRestore();
+      _loadRestoreProjects();
+    } catch(e) {
+      alert('Error: ' + e.message);
+    } finally {
+      const b = document.querySelector('.sur-btn-fetch');
+      if (b) { b.disabled = false; b.textContent = 'FETCH'; }
+    }
+  }
+
+  function _setRestoreType(type) {
+    _restoreType = type;
+    _restoreRows = [];
+    const container = document.getElementById('content') || document.body;
+    container.innerHTML = SUR_STYLES + _renderTabBar() + _renderRestore();
+    _loadRestoreProjects();
+  }
+
+  async function _restore(surrenderId, type, consumerId, allocationId, unitId, bookingId) {
+    if (!window.confirm('Restore this applicant? This will reactivate their booking and lock the unit again.')) return;
+
+    const msgEl = document.getElementById('sur-restore-msg');
+
+    try {
+      const res = await fetch('/api/surrender/restore', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + _tok(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ surrenderId, type, consumerId, allocationId, unitId, bookingId })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'Restore failed');
+
+      if (msgEl) msgEl.innerHTML = `<div class="sur-success-msg">Applicant restored successfully.</div>`;
+      await _fetchRestore();
+
+    } catch(e) {
+      if (msgEl) msgEl.innerHTML = `<div class="sur-error-msg">Error: ${e.message}</div>`;
+    }
+  }
+
   function _init() {
     _view = 'search';
+    _tab = 'surrender';
     _consumers = [];
     _detail = null;
     _selectedConsumer = null;
+    _reportRows = [];
+    _restoreRows = [];
+    _restoreType = 'surrender';
     _loadProjects();
   }
 
   function _renderPage() {
-    return SUR_STYLES + _renderSearch();
+    return SUR_STYLES + _renderTabBar() + _renderSearch();
   }
 
   // ── PUBLIC API ─────────────────────────────────────────────────────────────
@@ -1066,6 +1446,11 @@
     back: _back,
     submitSurrender: _submitSurrender,
     toggleType: _toggleType,
+    switchTab: _switchTab,
+    fetchReport: _fetchReport,
+    fetchRestore: _fetchRestore,
+    setRestoreType: _setRestoreType,
+    restore: _restore,
     _tog: _tog,
     _setMode: _setMode,
     _calcTotal: _calcTotal,

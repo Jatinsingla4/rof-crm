@@ -320,7 +320,6 @@
       </div>
 
       <a class="dd-link" onclick="Router.navigate('/loans')">Loan Process</a>
-      <a class="dd-link" onclick="Router.navigate('/surrender')">Surrender / Cancellation</a>
       <div class="dd-link has-sub">Transfer <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:210px">
           <div class="dd-link has-sub">Setup <span class="arr">▶</span>
@@ -358,7 +357,7 @@
       <div class="dd-link has-sub">Surrender / Cancellation <span class="arr">▶</span>
         <div class="sub-dd">
           <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender')">Surrender Applicant</a>
-          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender-report')">Surrender/Cancellation Report</a>
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender');setTimeout(()=>{if(window.SurrenderApp)SurrenderApp.switchTab('report');},100)">Surrender/Cancellation Report</a>
           <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender-restore')">Surrender/Cancellation Restore</a>
         </div>
       </div>
