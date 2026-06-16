@@ -294,12 +294,16 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
         <div class="eb-fg">
           <label class="eb-fl">Basic Price Rs./SqFt</label>
           <input type="number" id="eb-basic-rate" class="eb-fc"
-                 value="${_val(b.basic_rate_inr_sqft)}" min="0" step="0.01">
+                 value="${_val(b.basic_rate_inr_sqft)}" min="0" step="0.01"
+                 readonly style="background:#f5f5f5;color:#666;">
+          <small style="color:#888;font-size:10px">Locked after booking. Contact admin for revision.</small>
         </div>
         <div class="eb-fg">
           <label class="eb-fl">Carpet Area (SqFt)</label>
           <input type="number" id="eb-carpet-area" class="eb-fc"
-                 value="${_val(b.carpet_area_sqft)}" min="0" step="0.01">
+                 value="${_val(b.carpet_area_sqft)}" min="0" step="0.01"
+                 readonly style="background:#f5f5f5;color:#666;">
+          <small style="color:#888;font-size:10px">Locked after booking. Contact admin for revision.</small>
         </div>
         <div class="eb-fg">
           <label class="eb-fl">Form No</label>
@@ -774,8 +778,6 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
     var body = {
       // booking_records fields
       booking_date:           _gv('eb-booking-date')      || null,
-      basic_rate_inr_sqft:    _gv('eb-basic-rate')        ? parseFloat(_gv('eb-basic-rate'))         : null,
-      carpet_area_sqft:       _gv('eb-carpet-area')       ? parseFloat(_gv('eb-carpet-area'))        : null,
       form_no:                _gv('eb-form-no')            || null,
       broker_id:              _gv('eb-broker-id')          || null,
       main_broker_id:         _gv('eb-main-broker-id')     || null,
