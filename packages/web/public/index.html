@@ -357,9 +357,9 @@
 
       <div class="dd-link has-sub">Surrender / Cancellation <span class="arr">▶</span>
         <div class="sub-dd">
-          <a class="dd-link" onclick="Router.navigate('/surrender')">Surrender Applicant</a>
-          <a class="dd-link" onclick="Router.navigate('/surrender',{tab:'report'})">Surrender Report</a>
-          <a class="dd-link" onclick="Router.navigate('/consumers')">Customer Register</a>
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender')">Surrender Applicant</a>
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender-report')">Surrender/Cancellation Report</a>
+          <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/surrender-restore')">Surrender/Cancellation Restore</a>
         </div>
       </div>
 
@@ -542,6 +542,8 @@
 <script src="/js/pages/help.js"></script>
 <script src="/js/pages/gst-invoicing.js"></script>
 <script src="/js/pages/surrender.js"></script>
+<script src="/js/pages/surrender-report.js"></script>
+<script src="/js/pages/surrender-restore.js"></script>
 <script src="/js/pages/transfers.js"></script>
 <script src="/js/pages/edit-booking.js"></script>
 <script src="/js/pages/addon-charge-master.js"></script>
