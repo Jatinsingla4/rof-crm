@@ -297,6 +297,191 @@ router.get('/', async (req, res, next) => {
         next(err);
     }
 });
+// PATCH /api/booking/:id/edit  — General-purpose edit: updates booking fields + consumer personal details.
+// Distinct from PATCH /:id which handles Step 2 payment confirmation only.
+// Must be registered BEFORE PATCH /:id to ensure Express resolves /edit as a static suffix.
+router.patch('/:id/edit', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { 
+        // booking_records fields (locked fields excluded: unit_id, project_id, selected_plan_name, payment_plan_id, booking_amount, status)
+        booking_date, basic_rate_inr_sqft, carpet_area_sqft, form_no, broker_id, main_broker_id, broker_commission, broker_commission_type, company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct, broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct, sales_employee_id, remarks, booking_type, 
+        // consumers fields
+        salutation, first_name, middle_name, last_name, mobile, email, dob, gender, nationality, marital_status, pan_no, aadhaar_no, father_name, present_address_line1, present_city, present_state, present_pin, present_country, office_address_line1, office_city, office_state, office_pin, perm_address_line1, perm_city, perm_state, perm_pin, applicant_type, income_category, profession, designation, company, email_2, passport_no, annual_income, present_phone_no, office_country, perm_country, comm_address_line1, comm_city, comm_state, comm_pin, comm_country, } = req.body;
+        // Fetch booking to get consumer_id
+        const lookup = await index_js_1.db.query(`SELECT id, consumer_id FROM booking_records WHERE id = $1`, [id]);
+        if (!lookup.rows[0]) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+        const consumerId = lookup.rows[0].consumer_id;
+        const client = await index_js_1.db.connect();
+        try {
+            await client.query('BEGIN');
+            // Update booking_records
+            const brResult = await client.query(`UPDATE booking_records SET
+           booking_date           = COALESCE($2::date,  booking_date),
+           basic_rate_inr_sqft    = COALESCE($3,        basic_rate_inr_sqft),
+           carpet_area_sqft       = COALESCE($4,        carpet_area_sqft),
+           form_no                = COALESCE($5,        form_no),
+           broker_id              = COALESCE($6,        broker_id),
+           main_broker_id         = COALESCE($7,        main_broker_id),
+           broker_commission      = COALESCE($8,        broker_commission),
+           broker_commission_type = COALESCE($9,        broker_commission_type),
+           company_inaugural_disc = COALESCE($10,       company_inaugural_disc),
+           company_rebate_rs      = COALESCE($11,       company_rebate_rs),
+           company_rebate_sqft    = COALESCE($12,       company_rebate_sqft),
+           company_rebate_pct     = COALESCE($13,       company_rebate_pct),
+           broker_rebate_rs       = COALESCE($14,       broker_rebate_rs),
+           broker_rebate_sqft     = COALESCE($15,       broker_rebate_sqft),
+           broker_rebate_pct      = COALESCE($16,       broker_rebate_pct),
+           sales_employee_id      = COALESCE($17,       sales_employee_id),
+           remarks                = COALESCE($18,       remarks),
+           booking_type           = COALESCE($19,       booking_type)
+         WHERE id = $1
+         RETURNING *`, [
+                id,
+                booking_date || null,
+                basic_rate_inr_sqft != null ? parseFloat(basic_rate_inr_sqft) : null,
+                carpet_area_sqft != null ? parseFloat(carpet_area_sqft) : null,
+                form_no || null,
+                broker_id || null,
+                main_broker_id || null,
+                broker_commission != null ? parseFloat(broker_commission) : null,
+                broker_commission_type || null,
+                company_inaugural_disc != null ? parseFloat(company_inaugural_disc) : null,
+                company_rebate_rs != null ? parseFloat(company_rebate_rs) : null,
+                company_rebate_sqft != null ? parseFloat(company_rebate_sqft) : null,
+                company_rebate_pct != null ? parseFloat(company_rebate_pct) : null,
+                broker_rebate_rs != null ? parseFloat(broker_rebate_rs) : null,
+                broker_rebate_sqft != null ? parseFloat(broker_rebate_sqft) : null,
+                broker_rebate_pct != null ? parseFloat(broker_rebate_pct) : null,
+                sales_employee_id || null,
+                remarks || null,
+                booking_type || null,
+            ]);
+            // Update consumers
+            const cResult = await client.query(`UPDATE consumers SET
+           salutation              = COALESCE($2,  salutation),
+           first_name              = COALESCE($3,  first_name),
+           middle_name             = COALESCE($4,  middle_name),
+           last_name               = COALESCE($5,  last_name),
+           name                    = REGEXP_REPLACE(TRIM(INITCAP(COALESCE($3, first_name)) || ' ' || INITCAP(COALESCE($5, last_name))), '\\s+', ' ', 'g'),
+           mobile                  = COALESCE($6,  mobile),
+           email                   = COALESCE($7,  email),
+           dob                     = COALESCE($8,  dob),
+           gender                  = COALESCE($9,  gender),
+           nationality             = COALESCE($10, nationality),
+           marital_status          = COALESCE($11, marital_status),
+           pan_no                  = COALESCE($12, pan_no),
+           aadhaar_no              = COALESCE($13, aadhaar_no),
+           father_name             = COALESCE($14, father_name),
+           present_address         = COALESCE($15, present_address),
+           present_city            = COALESCE($16, present_city),
+           present_state           = COALESCE($17, present_state),
+           present_pin             = COALESCE($18, present_pin),
+           present_country         = COALESCE($19, present_country),
+           office_address          = COALESCE($20, office_address),
+           office_city             = COALESCE($21, office_city),
+           office_state            = COALESCE($22, office_state),
+           office_pin              = COALESCE($23, office_pin),
+           perm_address            = COALESCE($24, perm_address),
+           perm_city               = COALESCE($25, perm_city),
+           perm_state              = COALESCE($26, perm_state),
+           perm_pin                = COALESCE($27, perm_pin),
+           applicant_type          = COALESCE($28, applicant_type),
+           income_category         = COALESCE($29::income_category, income_category),
+           form_no                 = COALESCE($30, form_no),
+           profession              = COALESCE($31, profession),
+           designation             = COALESCE($32, designation),
+           company                 = COALESCE($33, company),
+           email_2                 = COALESCE($34, email_2),
+           passport_no             = COALESCE($35, passport_no),
+           annual_income           = COALESCE($36, annual_income),
+           present_phone_no        = COALESCE($37, present_phone_no),
+           office_country          = COALESCE($38, office_country),
+           perm_country            = COALESCE($39, perm_country),
+           comm_address_line1      = COALESCE($40, comm_address_line1),
+           comm_city               = COALESCE($41, comm_city),
+           comm_state              = COALESCE($42, comm_state),
+           comm_pin                = COALESCE($43, comm_pin),
+           comm_country            = COALESCE($44, comm_country),
+           updated_at              = NOW()
+         WHERE id = $1
+         RETURNING id, name, first_name, last_name, salutation, mobile, email,
+                   dob, gender, nationality, marital_status, pan_no, aadhaar_no,
+                   father_name, present_address, present_city, present_state,
+                   present_pin, present_country, office_address, office_city,
+                   office_state, office_pin, perm_address, perm_city, perm_state,
+                   perm_pin, applicant_type, income_category, registration_no,
+                   form_no, email_2, passport_no, profession, designation, company,
+                   present_phone_no, office_country, perm_country,
+                   comm_address_line1, comm_city, comm_state, comm_pin, comm_country`, [
+                consumerId,
+                salutation || null,
+                first_name || null,
+                middle_name || null,
+                last_name || null,
+                mobile || null,
+                email || null,
+                dob || null,
+                gender || null,
+                nationality || null,
+                marital_status || null,
+                pan_no || null,
+                aadhaar_no || null,
+                father_name || null,
+                present_address_line1 || null,
+                present_city || null,
+                present_state || null,
+                present_pin || null,
+                present_country || null,
+                office_address_line1 || null,
+                office_city || null,
+                office_state || null,
+                office_pin || null,
+                perm_address_line1 || null,
+                perm_city || null,
+                perm_state || null,
+                perm_pin || null,
+                applicant_type || null,
+                income_category || null,
+                form_no || null,
+                profession || null,
+                designation || null,
+                company || null,
+                email_2 || null,
+                passport_no || null,
+                annual_income != null ? parseFloat(annual_income) : null,
+                present_phone_no || null,
+                office_country || null,
+                perm_country || null,
+                comm_address_line1 || null,
+                comm_city || null,
+                comm_state || null,
+                comm_pin || null,
+                comm_country || null,
+            ]);
+            await client.query('COMMIT');
+            res.json({
+                success: true,
+                data: {
+                    booking: brResult.rows[0],
+                    consumer: cResult.rows[0],
+                }
+            });
+        }
+        catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        }
+        finally {
+            client.release();
+        }
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // PATCH /api/booking/:id  — Step 2: save payment details for a pending_payment booking
 router.patch('/:id', async (req, res, next) => {
     try {
