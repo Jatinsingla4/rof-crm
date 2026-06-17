@@ -1601,43 +1601,6 @@ router.post('/generate', async (req, res, next) => {
         // 3b. Post-process demand letters: inject dual-table (without / with interest)
         if (template.document_type === 'demand_letter' && mergeData) {
             const md = mergeData;
-            // Build "AMOUNT RECEIVED TO DATE" summary table
-            const bookingAmtNum = parseFloat(md.bookingAmountRaw || '0');
-            const totalReceivedNum = parseFloat(md.totalReceivedRaw || '0');
-            const receivedSectionHtml = `
-<table style="width:100%;border-collapse:collapse;margin-bottom:15px;font-size:12px;">
-  <thead>
-    <tr style="background:#1a3c5e;color:white;">
-      <th colspan="4" style="padding:8px 12px;text-align:left;font-size:13px;font-family:Arial,sans-serif;">AMOUNT RECEIVED TO DATE</th>
-    </tr>
-    <tr style="background:#2d5282;color:white;font-size:11px;font-family:Arial,sans-serif;">
-      <th style="padding:6px 10px;text-align:left;font-weight:600;">Description</th>
-      <th style="padding:6px 10px;text-align:center;font-weight:600;">Mode</th>
-      <th style="padding:6px 10px;text-align:center;font-weight:600;">Reference</th>
-      <th style="padding:6px 10px;text-align:right;font-weight:600;">Amount (&#8377;)</th>
-    </tr>
-  </thead>
-  <tbody>
-    ${bookingAmtNum > 0 ? `
-    <tr style="background:#f8f9fa;">
-      <td style="padding:6px 10px;font-family:Arial,sans-serif;"><span data-field-key="bookingAmount" data-field-label="Booking Amount" data-value-type="currency" data-section="payment_received">Booking Amount (Dt. ${md.bookingChequeDate || '&#8212;'})</span></td>
-      <td style="padding:6px 10px;text-align:center;font-family:Arial,sans-serif;"><span data-field-key="bookingPaymentMode" data-field-label="Booking Payment Mode" data-value-type="text" data-section="payment_received">${md.bookingPaymentMode || '&#8212;'}</span></td>
-      <td style="padding:6px 10px;text-align:center;font-family:Arial,sans-serif;"><span data-field-key="bookingPaymentRef" data-field-label="Booking Reference" data-value-type="text" data-section="payment_received">${md.bookingPaymentRef || '&#8212;'}</span></td>
-      <td style="padding:6px 10px;text-align:right;font-weight:600;font-family:Arial,sans-serif;"><span data-field-key="bookingAmountValue" data-field-label="Booking Amount Value" data-value-type="currency" data-section="payment_received">${fmtIndianNumber(bookingAmtNum)}</span></td>
-    </tr>` : ''}
-    ${totalReceivedNum > 0 ? `
-    <tr style="background:#ffffff;">
-      <td style="padding:6px 10px;font-family:Arial,sans-serif;">Total Receipts Received (All Installments)</td>
-      <td style="padding:6px 10px;text-align:center;font-family:Arial,sans-serif;">&#8212;</td>
-      <td style="padding:6px 10px;text-align:center;font-family:Arial,sans-serif;">&#8212;</td>
-      <td style="padding:6px 10px;text-align:right;font-weight:600;color:#28a745;font-family:Arial,sans-serif;"><span data-field-key="totalReceived" data-field-label="Total Received" data-value-type="currency" data-section="payment_received">${fmtIndianNumber(totalReceivedNum)}</span></td>
-    </tr>` : ''}
-    ${bookingAmtNum === 0 && totalReceivedNum === 0 ? `
-    <tr>
-      <td colspan="4" style="padding:8px 10px;text-align:center;color:#888;font-style:italic;font-family:Arial,sans-serif;">No payments recorded yet.</td>
-    </tr>` : ''}
-  </tbody>
-</table>`;
             // Build the complete 12-column with-interest table
             const withInterestTableHtml = `<div id="table-with-interest" style="display:none">
   <table class="demand-table">
@@ -1683,7 +1646,6 @@ router.post('/generate', async (req, res, next) => {
                 const originalTable = htmlContent.substring(tableStart, tableEnd);
                 htmlContent =
                     htmlContent.substring(0, tableStart) +
-                        receivedSectionHtml + '\n' +
                         `<div id="table-no-interest">${originalTable}</div>\n\n${withInterestTableHtml}` +
                         htmlContent.substring(tableEnd);
             }
