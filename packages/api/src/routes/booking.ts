@@ -84,6 +84,7 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
         `SELECT id, registration_no, booking_date, payment_mode
          FROM booking_records
          WHERE payment_ref = $1
+           AND status != 'cancelled'
            AND ($2::uuid IS NULL OR id != $2::uuid)
          LIMIT 1`,
         [ref, excludeId]
@@ -92,6 +93,7 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
         `SELECT id, receipt_number, received_date, payment_method
          FROM receipts
          WHERE transaction_ref = $1
+           AND status NOT IN ('bounced', 'cancelled')
          LIMIT 1`,
         [ref]
       ),
@@ -126,6 +128,37 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
     }
 
     return res.json({ exists: false, found_in: null, detail: null });
+  } catch (err) { next(err); }
+});
+
+// GET /api/booking/check-form-no?formNo=XXXX[&excludeId=UUID]
+// Returns whether a form number is available (not used by any active booking).
+router.get('/check-form-no', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { formNo, excludeId } = req.query as Record<string, string>;
+
+    if (!formNo || !formNo.trim()) {
+      return res.json({ available: true });
+    }
+
+    const result = await db.query(
+      `SELECT id
+       FROM booking_records
+       WHERE form_no = $1
+         AND status != 'cancelled'
+         AND ($2::uuid IS NULL OR id != $2::uuid)
+       LIMIT 1`,
+      [formNo.trim(), excludeId || null]
+    );
+
+    if (result.rows.length > 0) {
+      return res.json({
+        available: false,
+        message: `Form No. "${formNo.trim()}" is already in use.`,
+      });
+    }
+
+    return res.json({ available: true });
   } catch (err) { next(err); }
 });
 

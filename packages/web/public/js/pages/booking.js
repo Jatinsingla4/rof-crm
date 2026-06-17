@@ -100,7 +100,9 @@ Pages.booking = async function(params = {}) {
           </div>
           <div class="fg">
             <label class="fl">Form No.</label>
-            <input class="fc" name="form_no" id="bk-form-no" placeholder="e.g. F-2026-001" maxlength="100">
+            <input class="fc" name="form_no" id="bk-form-no" placeholder="e.g. F-2026-001" maxlength="100"
+              onblur="BookingPage._checkFormNo()">
+            <span id="bk-form-no-err" style="color:#dc3545;font-size:11px;display:none"></span>
           </div>
           <div class="fg">
             <label class="fl"><span class="r">*</span>Payment Plan</label>
@@ -2200,6 +2202,12 @@ const BookingPage = {
   async preview(e) {
     if (e) e.preventDefault();
 
+    const _formNoErr = document.getElementById('bk-form-no-err');
+    if (_formNoErr && _formNoErr.style.display !== 'none' && _formNoErr.textContent.trim()) {
+      document.getElementById('bk-form-no')?.focus();
+      return;
+    }
+
     const { missing, firstEl } = this._collectMissing();
     if (missing.length > 0) {
       this._showValidationPopup(missing, firstEl);
@@ -2382,6 +2390,30 @@ const BookingPage = {
       document.getElementById('bk-preview-overlay')?.remove();
       await this.saveAndProceed();
     });
+  },
+
+  async _checkFormNo() {
+    const input = document.getElementById('bk-form-no');
+    const errEl = document.getElementById('bk-form-no-err');
+    if (!input || !errEl) return;
+    const val = input.value.trim();
+    // Clear previous state
+    errEl.textContent = '';
+    errEl.style.display = 'none';
+    input.style.borderColor = '';
+    if (!val) return;
+    const excludeId = this._editingBookingId || null;
+    try {
+      const params = [`formNo=${encodeURIComponent(val)}`];
+      if (excludeId) params.push(`excludeId=${encodeURIComponent(excludeId)}`);
+      const res = await Api.get(`/booking/check-form-no?${params.join('&')}`);
+      const data = res.data ?? res;
+      if (!data.available) {
+        errEl.textContent = data.message || `Form No. "${val}" is already in use.`;
+        errEl.style.display = 'block';
+        input.style.borderColor = '#dc3545';
+      }
+    } catch { /* network error — allow submission; backend enforces uniqueness */ }
   },
 
   // Returns true if ref is clear, false if duplicate was found (and modal shown)
@@ -2786,6 +2818,12 @@ const BookingPage = {
   async confirmSubmit() {
     document.getElementById('bk-preview-overlay')?.remove();
     const body = this._bookingData;
+
+    const formNoErr = document.getElementById('bk-form-no-err');
+    if (formNoErr && formNoErr.style.display !== 'none' && formNoErr.textContent.trim()) {
+      document.getElementById('bk-form-no')?.focus();
+      return;
+    }
 
     // Validate cheque/reference uniqueness before submitting
     const refOk = await this.validateChequeRef();

@@ -209,6 +209,24 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     const chequeNoVal  = req.body.chequeNo   || req.body.cheque_no   || null;
     const chequeDateVal = req.body.chequeDate || req.body.cheque_date || null;
 
+    // Cheque duplicate check — only for cheque payments
+    if (chequeNoVal && chequeNoVal.trim()) {
+      const dupCheck = await db.query(
+        `SELECT id, cheque_no, status
+         FROM receipts
+         WHERE cheque_no = $1
+           AND status NOT IN ('bounced', 'cancelled')
+         LIMIT 1`,
+        [chequeNoVal.trim()]
+      );
+      if (dupCheck.rows.length > 0) {
+        return res.status(409).json({
+          success: false,
+          error: `Cheque No. "${chequeNoVal.trim()}" is already in use (status: ${dupCheck.rows[0].status}). Only bounced or cancelled cheques can be reused.`,
+        });
+      }
+    }
+
     const result = await db.query(
       `INSERT INTO receipts
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,

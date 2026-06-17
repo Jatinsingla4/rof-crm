@@ -205,8 +205,9 @@ Pages.bookingPayment = async function(params = {}) {
             <div class="sp-grid">
               <div class="fg"><label class="fl">Cheque No.</label>
                 <input class="fc" id="bkp-ref-cheque" placeholder="Cheque number"
-                  oninput="BkPayPage._chequeWarningAcknowledged=false"
-                  onblur="BkPayPage.validateChequeRef()"></div>
+                  oninput="BkPayPage._clearRefErr('bkp-ref-cheque-err')"
+                  onblur="BkPayPage.validateChequeRef()">
+                <span id="bkp-ref-cheque-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Cheque Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-cheque"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -237,8 +238,9 @@ Pages.bookingPayment = async function(params = {}) {
             <div class="sp-grid">
               <div class="fg"><label class="fl">Draft No.</label>
                 <input class="fc" id="bkp-ref-draft" placeholder="Draft number"
-                  oninput="BkPayPage._syncAmount_noop();BkPayPage._chequeWarningAcknowledged=false"
-                  onblur="BkPayPage.validateChequeRef()"></div>
+                  oninput="BkPayPage._syncAmount_noop();BkPayPage._clearRefErr('bkp-ref-draft-err')"
+                  onblur="BkPayPage.validateChequeRef()">
+                <span id="bkp-ref-draft-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Draft Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-draft"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -263,8 +265,9 @@ Pages.bookingPayment = async function(params = {}) {
             <div class="sp-grid">
               <div class="fg"><label class="fl">Transaction Ref</label>
                 <input class="fc" id="bkp-ref-online" placeholder="UTR / Ref No."
-                  oninput="BkPayPage._chequeWarningAcknowledged=false"
-                  onblur="BkPayPage.validateChequeRef()"></div>
+                  oninput="BkPayPage._clearRefErr('bkp-ref-online-err')"
+                  onblur="BkPayPage.validateChequeRef()">
+                <span id="bkp-ref-online-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Transaction Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-online"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -331,8 +334,9 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-amt-card" placeholder="0" oninput="BkPayPage._syncAmountFromCard(this.value);BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">Card / Auth No.</label>
                 <input class="fc" id="bkp-ref-card" placeholder="Auth / Approval No."
-                  oninput="BkPayPage._chequeWarningAcknowledged=false"
-                  onblur="BkPayPage.validateChequeRef()"></div>
+                  oninput="BkPayPage._clearRefErr('bkp-ref-card-err')"
+                  onblur="BkPayPage.validateChequeRef()">
+                <span id="bkp-ref-card-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Transaction Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-card"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -355,7 +359,7 @@ Pages.bookingPayment = async function(params = {}) {
   BkPayPage._bookingId = bookingId;
   BkPayPage._regNo = regNo;
   BkPayPage._booking = booking;
-  BkPayPage._chequeWarningAcknowledged = false;
+  BkPayPage._chequeWarningAcknowledged = false; // unused — kept for safety
   BkPayPage._taxSlabs = taxSlabs;
 
   // Seed tax slabs
@@ -485,14 +489,28 @@ const BkPayPage = {
     if (g('bkp-lbl-sgst'))    g('bkp-lbl-sgst').textContent    = `SGST(${fmt('bkp-sgst-pct', 0.5)}%)`;
   },
 
+  _clearRefErr(errId) {
+    const el = document.getElementById(errId);
+    if (el) { el.textContent = ''; el.style.display = 'none'; }
+    // Also clear border on sibling input
+    const input = el?.previousElementSibling;
+    if (input && input.tagName === 'INPUT') input.style.borderColor = '';
+  },
+
   async validateChequeRef() {
     const mode = document.getElementById('bkp-payment-mode')?.value || 'cheque';
     if (['cash', 'adjust', 'dealer_adjustment'].includes(mode)) return true;
     const refIdMap = { cheque: 'bkp-ref-cheque', draft: 'bkp-ref-draft', online: 'bkp-ref-online', card: 'bkp-ref-card', tds_challan: 'bkp-tds-challan-no' };
+    const errIdMap = { cheque: 'bkp-ref-cheque-err', draft: 'bkp-ref-draft-err', online: 'bkp-ref-online-err', card: 'bkp-ref-card-err' };
     const refId = refIdMap[mode];
+    const errId = errIdMap[mode];
     const refEl = refId ? document.getElementById(refId) : null;
+    const errEl = errId ? document.getElementById(errId) : null;
     const refVal = (refEl?.value || '').trim();
-    if (!refVal || this._chequeWarningAcknowledged) return true;
+    if (!refVal) return true;
+    // Clear previous error
+    if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+    if (refEl) refEl.style.borderColor = '';
     let data;
     try {
       const res = await Api.get(`/booking/check-cheque?ref=${encodeURIComponent(refVal)}&exclude_id=${encodeURIComponent(this._bookingId)}`);
@@ -501,40 +519,10 @@ const BkPayPage = {
     if (!data.exists) return true;
     const dateStr = data.detail?.date ? new Date(data.detail.date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
     const foundIn = data.found_in === 'booking' ? 'booking record' : 'payment receipt';
-    return new Promise(resolve => {
-      const overlay = document.createElement('div');
-      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center';
-      overlay.innerHTML = `
-        <div style="background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:28px 28px 22px;max-width:440px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.25)">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-            <span style="font-size:22px">⚠️</span>
-            <h3 style="font-size:15px;font-weight:700;color:var(--text);margin:0">Duplicate Reference Number</h3>
-          </div>
-          <p style="font-size:13px;color:var(--text2);line-height:1.6;margin-bottom:20px">
-            Reference <strong>"${refVal}"</strong> already used in a <strong>${foundIn}</strong>
-            (Reference: <strong>${data.detail?.reference||'—'}</strong>, Date: ${dateStr}).<br><br>Do you still want to proceed?
-          </p>
-          <div style="display:flex;gap:10px;justify-content:flex-end">
-            <button id="bkp-chq-change" class="btn btn-teal" style="font-size:13px">Change Number</button>
-            <button id="bkp-chq-proceed" class="btn btn-ghost" style="font-size:13px;border:1px solid var(--border2)">Proceed Anyway</button>
-          </div>
-        </div>`;
-      const close = () => document.body.removeChild(overlay);
-      overlay.querySelector('#bkp-chq-change').onclick = () => {
-        close(); if (refEl) { refEl.value = ''; refEl.focus(); }
-        this._chequeWarningAcknowledged = false; resolve(false);
-      };
-      overlay.querySelector('#bkp-chq-proceed').onclick = () => {
-        close(); this._chequeWarningAcknowledged = true; resolve(true);
-      };
-      overlay.addEventListener('click', e => {
-        if (e.target === overlay) { close(); if (refEl) refEl.focus(); this._chequeWarningAcknowledged = false; resolve(false); }
-      });
-      document.addEventListener('keydown', function esc(e) {
-        if (e.key === 'Escape') { close(); BkPayPage._chequeWarningAcknowledged = false; document.removeEventListener('keydown', esc); resolve(false); }
-      }, { once: true });
-      document.body.appendChild(overlay);
-    });
+    const msg = `"${refVal}" already used in a ${foundIn} (Ref: ${data.detail?.reference || '—'}, Date: ${dateStr}).`;
+    if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    if (refEl) { refEl.style.borderColor = '#dc3545'; refEl.focus(); }
+    return false;
   },
 
   _getPaymentValue() {
