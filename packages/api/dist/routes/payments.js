@@ -3013,14 +3013,28 @@ router.get('/demand-status', async (req, res, next) => {
 });
 // ── CHEQUE CLEARING ENDPOINTS ────────────────────────────────────────────────
 // GET /api/payments/clearing-banks/:projectId - List active bank accounts for a project
+// Fetches from company_bank_accounts via project → company linkage.
+// Falls back to project-level bank_accounts if no company linked.
 router.get('/clearing-banks/:projectId', async (req, res, next) => {
     try {
         const { projectId } = req.params;
-        const result = await index_js_1.db.query(`SELECT id, bank_name, account_number, ifsc_code
+        // Primary: company bank accounts linked via project.company_id
+        const companyResult = await index_js_1.db.query(`SELECT cba.id, cba.bank_name, cba.account_number, cba.ifsc_code,
+              cba.branch, cba.is_primary, cba.account_name
+       FROM company_bank_accounts cba
+       JOIN companies comp ON comp.id = cba.company_id
+       JOIN projects p ON p.company_id = comp.id
+       WHERE p.id = $1 AND cba.is_active = true
+       ORDER BY cba.is_primary DESC, cba.bank_name ASC`, [projectId]);
+        if (companyResult.rows.length > 0) {
+            return res.json({ success: true, data: companyResult.rows });
+        }
+        // Fallback: project-level bank_accounts (legacy)
+        const fallbackResult = await index_js_1.db.query(`SELECT id, bank_name, account_number, ifsc_code
        FROM bank_accounts
        WHERE project_id = $1 AND is_active = true
        ORDER BY bank_name`, [projectId]);
-        res.json({ success: true, data: result.rows });
+        res.json({ success: true, data: fallbackResult.rows });
     }
     catch (error) {
         next(error);

@@ -204,6 +204,100 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   } catch (err) { next(err); }
 });
 
+// GET /api/companies/:id/bank-accounts
+router.get('/:id/bank-accounts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await db.query(`
+      SELECT id, company_id, account_name, bank_name, account_number,
+             ifsc_code, branch, payable_at, account_type, is_active,
+             is_primary, created_at
+      FROM company_bank_accounts
+      WHERE company_id = $1 AND is_active = true
+      ORDER BY is_primary DESC, created_at ASC
+    `, [id]);
+    return res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+// POST /api/companies/:id/bank-accounts
+router.post('/:id/bank-accounts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const {
+      accountName, bankName, accountNumber, ifscCode,
+      branch, payableAt, accountType = 'current', isPrimary = false,
+    } = req.body;
+
+    if (!bankName || !accountNumber) {
+      return res.status(400).json({ success: false, error: 'Bank name and account number are required.' });
+    }
+
+    if (isPrimary) {
+      await db.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1`, [id]);
+    }
+
+    const result = await db.query(`
+      INSERT INTO company_bank_accounts (
+        company_id, account_name, bank_name, account_number,
+        ifsc_code, branch, payable_at, account_type, is_primary
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [id, accountName || null, bankName, accountNumber, ifscCode || null, branch || null, payableAt || null, accountType, isPrimary]);
+
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/companies/:companyId/bank-accounts/:bankId
+router.patch('/:companyId/bank-accounts/:bankId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, bankId } = req.params;
+    const {
+      accountName, bankName, accountNumber, ifscCode,
+      branch, payableAt, accountType, isPrimary,
+    } = req.body;
+
+    if (isPrimary) {
+      await db.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1`, [companyId]);
+    }
+
+    const result = await db.query(`
+      UPDATE company_bank_accounts SET
+        account_name   = COALESCE($3, account_name),
+        bank_name      = COALESCE($4, bank_name),
+        account_number = COALESCE($5, account_number),
+        ifsc_code      = COALESCE($6, ifsc_code),
+        branch         = COALESCE($7, branch),
+        payable_at     = COALESCE($8, payable_at),
+        account_type   = COALESCE($9, account_type),
+        is_primary     = COALESCE($10, is_primary),
+        updated_at     = now()
+      WHERE id = $1 AND company_id = $2
+      RETURNING *
+    `, [bankId, companyId, accountName || null, bankName || null, accountNumber || null,
+        ifscCode || null, branch || null, payableAt || null, accountType || null, isPrimary ?? null]);
+
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Bank account not found.' });
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/companies/:companyId/bank-accounts/:bankId (soft delete)
+router.delete('/:companyId/bank-accounts/:bankId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, bankId } = req.params;
+    const result = await db.query(`
+      UPDATE company_bank_accounts SET is_active = false, updated_at = now()
+      WHERE id = $1 AND company_id = $2
+      RETURNING id
+    `, [bankId, companyId]);
+
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Bank account not found.' });
+    return res.json({ success: true, data: { id: bankId } });
+  } catch (err) { next(err); }
+});
+
 // POST /api/companies/:id/logo
 router.post('/:id/logo', uploadLogo.single('logo'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can upload logos' });
