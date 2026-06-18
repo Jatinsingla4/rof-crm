@@ -901,15 +901,35 @@ SMPage.loadCompanyMaster = async function() {
           ${fld('cm-regaddr','Registered Office Address:','Registered Office Address')}
         </div>
 
-        <!-- BANK DETAILS -->
+        <!-- BANK ACCOUNTS -->
         <div style="margin-bottom:12px">
-          <div style="font-size:12px;font-weight:bold;color:#333;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid #ddd">Bank Details:</div>
-          <div style="display:grid;grid-template-columns:2fr 2fr 1fr 1fr 1fr;gap:10px">
-            ${fld('cm-bank-name','Account Name:','Account Name')}
-            ${fld('cm-bank-acc','Account No.:','Account No.')}
-            ${fld('cm-bank-ifsc','IFSC Code:','IFSC Code')}
-            ${fld('cm-bank-bank','Bank Name:','Bank Name')}
-            ${fld('cm-bank-branch','Branch:','Branch')}
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;padding-bottom:4px;border-bottom:1px solid #ddd">
+            <div style="font-size:12px;font-weight:bold;color:#333">Bank Accounts:</div>
+            <button type="button" onclick="SMPage.showAddBankForm()" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px">+ Add Bank</button>
+          </div>
+          <div id="cm-bank-list"><div style="font-size:12px;color:#999;padding:6px 0">Save company first to add bank accounts.</div></div>
+          <input type="hidden" id="cm-bank-edit-id">
+          <div id="cm-bank-form" style="display:none;background:#f8f9fa;border:1px solid #ddd;border-radius:3px;padding:10px;margin-top:8px">
+            <div style="font-size:12px;font-weight:bold;color:#333;margin-bottom:8px" id="cm-bank-form-title">Add Bank Account</div>
+            <div style="display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:8px;margin-bottom:8px">
+              ${fld('cm-bf-bank','Bank Name:','e.g. HDFC Bank')}
+              ${fld('cm-bf-acc','Account No.:','Account Number')}
+              ${fld('cm-bf-ifsc','IFSC Code:','e.g. HDFC0001234')}
+              ${fld('cm-bf-branch','Branch:','Branch Name')}
+            </div>
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:8px">
+              ${fld('cm-bf-acname','Account Name:','Account Holder Name')}
+              ${fld('cm-bf-payable','Payable At:','City')}
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+              <label style="font-size:12px;color:#333;display:flex;align-items:center;gap:4px;cursor:pointer">
+                <input type="checkbox" id="cm-bf-primary"> Primary account
+              </label>
+            </div>
+            <div style="display:flex;gap:6px">
+              <button type="button" onclick="SMPage.saveBankAccount()" style="background:#4CAF50;color:white;border:none;padding:4px 14px;border-radius:2px;cursor:pointer;font-size:12px">Save</button>
+              <button type="button" onclick="SMPage.cancelBankForm()" style="background:#9E9E9E;color:white;border:none;padding:4px 14px;border-radius:2px;cursor:pointer;font-size:12px">Cancel</button>
+            </div>
           </div>
         </div>
 
@@ -977,8 +997,6 @@ SMPage.saveCompanyInline = async function() {
     email: g('cm-email'), website: g('cm-website'), cin: g('cm-cin'),
     service_tax_no: g('cm-svc'), pan_no: g('cm-pan'), vat_no: g('cm-vat'),
     gstin: g('cm-gstin'), reg_address: g('cm-regaddr'),
-    bank_company_name: g('cm-bank-name'), bank_account_no: g('cm-bank-acc'),
-    bank_ifsc: g('cm-bank-ifsc'), bank_name: g('cm-bank-bank'), bank_branch: g('cm-bank-branch'),
     place_of_supply: g('cm-pos'), payable_at: g('cm-payable'),
   };
 
@@ -998,19 +1016,142 @@ SMPage.saveCompanyInline = async function() {
     ['cm-code','cm-group','cm-name','cm-addr1','cm-addr2','cm-addr3',
      'cm-city','cm-state','cm-country','cm-pin','cm-phone','cm-fax',
      'cm-email','cm-website','cm-cin','cm-svc','cm-pan','cm-vat',
-     'cm-gstin','cm-regaddr','cm-bank-name','cm-bank-acc','cm-bank-ifsc',
-     'cm-bank-bank','cm-bank-branch','cm-payable','cm-editing-id'].forEach(id => {
+     'cm-gstin','cm-regaddr','cm-payable','cm-editing-id'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = '';
     });
     const pos = document.getElementById('cm-pos'); if (pos) pos.value = '';
     errEl.style.display = 'none';
     document.getElementById('cm-logo-preview').innerHTML = '';
     window._cmEditingId = null;
+    window._cmBankCompanyId = json.data.id;
+    SMPage._loadCompanyBanks(json.data.id);
 
     Utils.success(editingId ? 'Company updated successfully!' : 'Company saved successfully!');
     const vs = document.getElementById('cm-view-section');
     if (vs && vs.style.display !== 'none') SMPage.viewCompanies();
   } catch (err) { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
+};
+
+SMPage._loadCompanyBanks = async function(companyId) {
+  window._cmBankCompanyId = companyId;
+  const list = document.getElementById('cm-bank-list');
+  if (!list) return;
+  list.innerHTML = '<div style="font-size:12px;color:#666">Loading...</div>';
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies/${companyId}/bank-accounts`, { headers: { Authorization: `Bearer ${token}` } });
+    const json = await res.json();
+    SMPage._renderBankList(json.data || []);
+  } catch { list.innerHTML = '<div style="font-size:12px;color:red">Failed to load bank accounts</div>'; }
+};
+
+SMPage._renderBankList = function(banks) {
+  const list = document.getElementById('cm-bank-list');
+  if (!list) return;
+  if (!banks.length) {
+    list.innerHTML = '<div style="font-size:12px;color:#999;padding:6px 0">No bank accounts. Click "+ Add Bank" to add one.</div>';
+    return;
+  }
+  const esc = v => (v||'').replace(/'/g, "\\'");
+  list.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead><tr style="background:#e8eaf6">
+      <th style="padding:5px 8px;text-align:left">Bank</th>
+      <th style="padding:5px 8px;text-align:left">Account No.</th>
+      <th style="padding:5px 8px;text-align:left">IFSC</th>
+      <th style="padding:5px 8px;text-align:left">Branch</th>
+      <th style="padding:5px 8px;text-align:center">Primary</th>
+      <th style="padding:5px 8px;text-align:center">Action</th>
+    </tr></thead>
+    <tbody>${banks.map(b => `<tr style="border-bottom:1px solid #e0e0e0">
+      <td style="padding:5px 8px">${b.bank_name}</td>
+      <td style="padding:5px 8px;font-family:monospace">${b.account_number}</td>
+      <td style="padding:5px 8px">${b.ifsc_code||'—'}</td>
+      <td style="padding:5px 8px">${b.branch||'—'}</td>
+      <td style="padding:5px 8px;text-align:center">${b.is_primary?'★':''}</td>
+      <td style="padding:5px 8px;text-align:center">
+        <button onclick="SMPage.editBank('${b.id}','${esc(b.bank_name)}','${esc(b.account_number)}','${esc(b.ifsc_code||'')}','${esc(b.branch||'')}','${esc(b.account_name||'')}','${esc(b.payable_at||'')}',${b.is_primary})" style="background:#1976D2;color:white;border:none;padding:2px 8px;border-radius:2px;cursor:pointer;font-size:11px;margin-right:3px">Edit</button>
+        <button onclick="SMPage.deleteBank('${b.id}')" style="background:#e53935;color:white;border:none;padding:2px 8px;border-radius:2px;cursor:pointer;font-size:11px">Del</button>
+      </td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+};
+
+SMPage.showAddBankForm = function() {
+  const companyId = window._cmBankCompanyId || (document.getElementById('cm-editing-id')?.value||'').trim();
+  if (!companyId) { Utils.warn('Save the company first before adding bank accounts'); return; }
+  ['cm-bank-edit-id','cm-bf-bank','cm-bf-acc','cm-bf-ifsc','cm-bf-branch','cm-bf-acname','cm-bf-payable'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  const chk = document.getElementById('cm-bf-primary'); if (chk) chk.checked = false;
+  document.getElementById('cm-bank-form-title').textContent = 'Add Bank Account';
+  document.getElementById('cm-bank-form').style.display = 'block';
+};
+
+SMPage.cancelBankForm = function() {
+  document.getElementById('cm-bank-form').style.display = 'none';
+};
+
+SMPage.editBank = function(id, bankName, accNo, ifsc, branch, acName, payable, isPrimary) {
+  document.getElementById('cm-bank-edit-id').value = id;
+  document.getElementById('cm-bf-bank').value = bankName;
+  document.getElementById('cm-bf-acc').value = accNo;
+  document.getElementById('cm-bf-ifsc').value = ifsc;
+  document.getElementById('cm-bf-branch').value = branch;
+  document.getElementById('cm-bf-acname').value = acName;
+  document.getElementById('cm-bf-payable').value = payable;
+  const chk = document.getElementById('cm-bf-primary'); if (chk) chk.checked = isPrimary;
+  document.getElementById('cm-bank-form-title').textContent = 'Edit Bank Account';
+  document.getElementById('cm-bank-form').style.display = 'block';
+};
+
+SMPage.saveBankAccount = async function() {
+  const companyId = window._cmBankCompanyId || (document.getElementById('cm-editing-id')?.value||'').trim();
+  if (!companyId) { Utils.warn('No company selected'); return; }
+  const editId = (document.getElementById('cm-bank-edit-id')?.value||'').trim();
+  const body = {
+    bankName: (document.getElementById('cm-bf-bank')?.value||'').trim(),
+    accountNumber: (document.getElementById('cm-bf-acc')?.value||'').trim(),
+    ifscCode: (document.getElementById('cm-bf-ifsc')?.value||'').trim() || null,
+    branch: (document.getElementById('cm-bf-branch')?.value||'').trim() || null,
+    accountName: (document.getElementById('cm-bf-acname')?.value||'').trim() || null,
+    payableAt: (document.getElementById('cm-bf-payable')?.value||'').trim() || null,
+    isPrimary: document.getElementById('cm-bf-primary')?.checked || false,
+  };
+  if (!body.bankName || !body.accountNumber) { Utils.warn('Bank name and account number are required'); return; }
+  try {
+    const token = Auth.getToken();
+    const method = editId ? 'PATCH' : 'POST';
+    const url = editId
+      ? `${ROF.API_BASE}/companies/${companyId}/bank-accounts/${editId}`
+      : `${ROF.API_BASE}/companies/${companyId}/bank-accounts`;
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) { Utils.error(json.error || 'Save failed'); return; }
+    SMPage.cancelBankForm();
+    await SMPage._loadCompanyBanks(companyId);
+    Utils.success('Bank account saved');
+  } catch (err) { Utils.error(err.message); }
+};
+
+SMPage.deleteBank = async function(bankId) {
+  if (!confirm('Delete this bank account?')) return;
+  const companyId = window._cmBankCompanyId || (document.getElementById('cm-editing-id')?.value||'').trim();
+  if (!companyId) return;
+  try {
+    const token = Auth.getToken();
+    const res = await fetch(`${ROF.API_BASE}/companies/${companyId}/bank-accounts/${bankId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) { Utils.error(json.error || 'Delete failed'); return; }
+    await SMPage._loadCompanyBanks(companyId);
+    Utils.success('Bank account removed');
+  } catch (err) { Utils.error(err.message); }
 };
 
 SMPage.viewCompanies = async function() {
@@ -1070,11 +1211,10 @@ SMPage.editCompanyInline = async function(id) {
     s('cm-fax', c.fax);        s('cm-email', c.email);       s('cm-website', c.website);
     s('cm-cin', c.cin);        s('cm-svc', c.service_tax_no);s('cm-pan', c.pan_no);
     s('cm-vat', c.vat_no);     s('cm-gstin', c.gstin);       s('cm-regaddr', c.reg_address);
-    s('cm-bank-name', c.bank_company_name); s('cm-bank-acc', c.bank_account_no);
-    s('cm-bank-ifsc', c.bank_ifsc);         s('cm-bank-bank', c.bank_name);
-    s('cm-bank-branch', c.bank_branch);     s('cm-pos', c.place_of_supply);
+    s('cm-pos', c.place_of_supply);
     s('cm-payable', c.payable_at);
     window._cmEditingId = c.id;
+    await SMPage._loadCompanyBanks(c.id);
 
     if (c.logo_url) {
       const prev = document.getElementById('cm-logo-preview');

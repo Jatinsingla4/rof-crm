@@ -99,6 +99,7 @@ Pages.setProjects = async function(params = {}) {
                 <div class="fg"><label class="fl">Project Name</label><input class="fc" id="spj-edit-proj-name"></div>
                 <div class="fg"><label class="fl">Location</label><input class="fc" id="spj-edit-proj-location"></div>
                 <div class="fg"><label class="fl">Total Units</label><input type="number" class="fc" id="spj-edit-proj-units"></div>
+                <div class="fg"><label class="fl">Company</label><select class="fc" id="spj-edit-proj-company"><option value="">— Select Company —</option></select></div>
               </div>
 
               <!-- LEGAL DETAILS SECTION -->
@@ -567,14 +568,27 @@ Pages.setProjects = async function(params = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 Object.assign(SPJPage, {
   _projects: [],
+  _companies: [],
 
   async initProjectDropdowns(force = false) {
     try {
       this._projects = await window.ProjectCache.load(force);
       this.populateAllDropdowns();
+      const cRes = await Api.get('/companies');
+      this._companies = (cRes && cRes.data) ? cRes.data : [];
+      this._populateCompanyDropdown();
     } catch (err) {
       console.error('[SPJ] initProjectDropdowns failed:', err);
     }
+  },
+
+  _populateCompanyDropdown() {
+    const el = document.getElementById('spj-edit-proj-company');
+    if (!el) return;
+    const current = el.value;
+    el.innerHTML = `<option value="">— Select Company —</option>` +
+      this._companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    if (current) el.value = current;
   },
 
   populateAllDropdowns() {
@@ -628,12 +642,13 @@ Object.assign(SPJPage, {
     el.innerHTML = this._projects.length === 0
       ? `<div class="empty-state"><div class="empty-icon">🏗</div><div>No projects found</div></div>`
       : `<table class="dash-tbl">
-          <thead><tr><th>Project</th><th>RERA No.</th><th>Location</th><th class="txt-right">Units</th><th class="txt-right">Available</th><th class="txt-right">Allotted</th><th>Action</th></tr></thead>
+          <thead><tr><th>Project</th><th>RERA No.</th><th>Location</th><th>Company</th><th class="txt-right">Units</th><th class="txt-right">Available</th><th class="txt-right">Allotted</th><th>Action</th></tr></thead>
           <tbody>
             ${this._projects.map(p => `<tr>
               <td class="td-bold">${p.name}</td>
               <td class="td-mono">${p.rera_number||'—'}</td>
               <td>${p.location||'—'}</td>
+              <td>${p.company_name||'—'}</td>
               <td class="txt-right">${p.unit_count||0}</td>
               <td class="txt-right" style="color:var(--green)">${p.available_units||0}</td>
               <td class="txt-right" style="color:var(--blue)">${p.allotted_units||0}</td>
@@ -695,6 +710,8 @@ Object.assign(SPJPage, {
     document.getElementById('spj-edit-auth-signatory-name').value = p.authorised_signatory_name || '';
     document.getElementById('spj-edit-auth-signatory-aadhaar').value = p.authorised_signatory_aadhaar || '';
     document.getElementById('spj-edit-board-resolution-date').value = fmtDate(p.board_resolution_date);
+    this._populateCompanyDropdown();
+    document.getElementById('spj-edit-proj-company').value = p.company_id || '';
 
     document.getElementById('spj-edit-project-title').textContent = `Edit: ${p.name}`;
     document.getElementById('spj-edit-project-form-wrap').style.display = '';
@@ -745,6 +762,7 @@ Object.assign(SPJPage, {
     const authorisedSignatoryName = document.getElementById('spj-edit-auth-signatory-name').value.trim();
     const authorisedSignatoryAadhaar = document.getElementById('spj-edit-auth-signatory-aadhaar').value.trim();
     const boardResolutionDate = document.getElementById('spj-edit-board-resolution-date').value || null;
+    const companyId = document.getElementById('spj-edit-proj-company').value || null;
 
     try {
       await Api.patch(`/projects/${id}`, {
@@ -776,6 +794,7 @@ Object.assign(SPJPage, {
         authorisedSignatoryName,
         authorisedSignatoryAadhaar,
         boardResolutionDate,
+        companyId,
       });
       Utils.success('Project updated');
       await this.initProjectDropdowns(true);

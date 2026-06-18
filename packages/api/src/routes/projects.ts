@@ -15,14 +15,16 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const result = await db.query(
       `SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location,
               p.land_area_sqft, p.total_units, p.group_name, p.possession_date, p.created_at,
+              p.company_id, comp.name AS company_name,
               COUNT(DISTINCT t.id) as tower_count,
               COUNT(DISTINCT u.id) as unit_count,
               COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'available') as available_units,
               COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'allotted') as allotted_units
        FROM projects p
+       LEFT JOIN companies comp ON comp.id = p.company_id
        LEFT JOIN towers t ON p.id = t.project_id
        LEFT JOIN units u ON p.id = u.project_id
-       GROUP BY p.id
+       GROUP BY p.id, comp.name
        ORDER BY p.created_at DESC`
     );
     res.json({ success: true, data: result.rows });
@@ -246,6 +248,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       authorisedSignatoryName,
       authorisedSignatoryAadhaar,
       boardResolutionDate,
+      companyId,
     } = req.body;
 
     const result = await db.query(
@@ -278,8 +281,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
          authorised_signatory_name = COALESCE($26, authorised_signatory_name),
          authorised_signatory_aadhaar = COALESCE($27, authorised_signatory_aadhaar),
          board_resolution_date = COALESCE($28::date, board_resolution_date),
+         company_id = COALESCE($29::uuid, company_id),
          updated_at = NOW()
-       WHERE id = $29
+       WHERE id = $30
        RETURNING *`,
       [
         name || null,
@@ -310,6 +314,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
         authorisedSignatoryName || null,
         authorisedSignatoryAadhaar || null,
         boardResolutionDate || null,
+        companyId || null,
         id
       ]
     );
