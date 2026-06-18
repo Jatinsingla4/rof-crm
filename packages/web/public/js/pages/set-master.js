@@ -907,7 +907,7 @@ SMPage.loadCompanyMaster = async function() {
             <div style="font-size:12px;font-weight:bold;color:#333">Bank Accounts:</div>
             <button type="button" onclick="SMPage.showAddBankForm()" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px">+ Add Bank</button>
           </div>
-          <div id="cm-bank-list"><div style="font-size:12px;color:#999;padding:6px 0">Save company first to add bank accounts.</div></div>
+          <div id="cm-bank-list"><div style="font-size:12px;color:#999;padding:6px 0">No bank accounts added yet.</div></div>
           <input type="hidden" id="cm-bank-edit-id">
           <div id="cm-bank-form" style="display:none;background:#f8f9fa;border:1px solid #ddd;border-radius:3px;padding:10px;margin-top:8px">
             <div style="font-size:12px;font-weight:bold;color:#333;margin-bottom:8px" id="cm-bank-form-title">Add Bank Account</div>
