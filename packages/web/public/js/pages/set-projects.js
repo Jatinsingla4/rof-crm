@@ -68,6 +68,12 @@ Pages.setProjects = async function(params = {}) {
                   <option>EWS</option><option>LIG</option><option>MIG</option>
                 </select>
               </div>
+              <div class="fg" style="grid-column:1/-1">
+                <label class="fl"><span class="r">*</span>Company</label>
+                <select class="fc" id="spj-new-proj-company" name="companyId" required style="width:100%">
+                  <option value="">— Select Company —</option>
+                </select>
+              </div>
             </div>
             <div style="margin-top:14px;display:flex;gap:8px">
               <button type="submit" class="btn btn-teal">Save Project</button>
@@ -583,12 +589,14 @@ Object.assign(SPJPage, {
   },
 
   _populateCompanyDropdown() {
-    const el = document.getElementById('spj-edit-proj-company');
-    if (!el) return;
-    const current = el.value;
-    el.innerHTML = `<option value="">— Select Company —</option>` +
-      this._companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    if (current) el.value = current;
+    ['spj-edit-proj-company', 'spj-new-proj-company'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const current = el.value;
+      el.innerHTML = `<option value="">— Select Company —</option>` +
+        this._companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      if (current) el.value = current;
+    });
   },
 
   populateAllDropdowns() {

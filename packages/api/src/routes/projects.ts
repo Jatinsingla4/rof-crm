@@ -37,7 +37,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { name, reraNumber, tcpLicence, location, landAreaSqft, totalUnits,
-            possessionDate, incomeCategory } = req.body;
+            possessionDate, incomeCategory, companyId } = req.body;
 
     if (!name || !reraNumber || !tcpLicence) {
       return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
@@ -45,11 +45,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
     const result = await db.query(
       `INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units,
-                             group_name, possession_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                             group_name, possession_date, company_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id, name, rera_number, tcp_licence, location, group_name, possession_date, created_at`,
       [name, reraNumber, tcpLicence, location || null, landAreaSqft || null, totalUnits || null,
-       incomeCategory || 'Affordable', possessionDate || null]
+       incomeCategory || 'Affordable', possessionDate || null, companyId || null]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });

@@ -1024,13 +1024,28 @@ SMPage.saveCompanyInline = async function() {
     document.getElementById('cm-logo-preview').innerHTML = '';
     window._cmEditingId = null;
     window._cmBankCompanyId = json.data.id;
-    SMPage._loadCompanyBanks(json.data.id);
+    if (window._pendingBanks && window._pendingBanks.length) {
+      const tok = Auth.getToken();
+      for (const bank of window._pendingBanks) {
+        try {
+          await fetch(`${ROF.API_BASE}/companies/${json.data.id}/bank-accounts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+            body: JSON.stringify(bank),
+          });
+        } catch(e) { console.error('Failed to save pending bank:', e); }
+      }
+      window._pendingBanks = [];
+    }
+    await SMPage._loadCompanyBanks(json.data.id);
 
     Utils.success(editingId ? 'Company updated successfully!' : 'Company saved successfully!');
     const vs = document.getElementById('cm-view-section');
     if (vs && vs.style.display !== 'none') SMPage.viewCompanies();
   } catch (err) { errEl.textContent = 'Network error'; errEl.style.display = 'block'; }
 };
+
+window._pendingBanks = [];
 
 SMPage._loadCompanyBanks = async function(companyId) {
   window._cmBankCompanyId = companyId;
@@ -1076,9 +1091,22 @@ SMPage._renderBankList = function(banks) {
   </table>`;
 };
 
+SMPage._renderPendingBankList = function() {
+  const list = document.getElementById('cm-bank-list');
+  if (!list) return;
+  const banks = window._pendingBanks || [];
+  if (!banks.length) {
+    list.innerHTML = '<div style="font-size:12px;color:#999;padding:6px 0">No bank accounts added yet.</div>';
+    return;
+  }
+  list.innerHTML = '<div style="font-size:11px;color:#e65100;margin-bottom:4px;font-style:italic">⚠ Pending — will save when company is saved</div>' +
+    banks.map((b, i) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;border:1px solid #ffe0b2;border-radius:3px;margin-bottom:4px;background:#fff8f0">
+      <span style="font-size:12px"><strong>${b.bankName}</strong> — ${b.accountNumber}${b.isPrimary ? ' ★ Primary' : ''}</span>
+      <button type="button" onclick="window._pendingBanks.splice(${i},1);SMPage._renderPendingBankList()" style="background:#e53935;color:#fff;border:none;padding:2px 8px;border-radius:2px;font-size:11px;cursor:pointer">Remove</button>
+    </div>`).join('');
+};
+
 SMPage.showAddBankForm = function() {
-  const companyId = window._cmBankCompanyId || (document.getElementById('cm-editing-id')?.value||'').trim();
-  if (!companyId) { Utils.warn('Save the company first before adding bank accounts'); return; }
   ['cm-bank-edit-id','cm-bf-bank','cm-bf-acc','cm-bf-ifsc','cm-bf-branch','cm-bf-acname','cm-bf-payable'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
@@ -1106,7 +1134,6 @@ SMPage.editBank = function(id, bankName, accNo, ifsc, branch, acName, payable, i
 
 SMPage.saveBankAccount = async function() {
   const companyId = window._cmBankCompanyId || (document.getElementById('cm-editing-id')?.value||'').trim();
-  if (!companyId) { Utils.warn('No company selected'); return; }
   const editId = (document.getElementById('cm-bank-edit-id')?.value||'').trim();
   const body = {
     bankName: (document.getElementById('cm-bf-bank')?.value||'').trim(),
@@ -1116,8 +1143,18 @@ SMPage.saveBankAccount = async function() {
     accountName: (document.getElementById('cm-bf-acname')?.value||'').trim() || null,
     payableAt: (document.getElementById('cm-bf-payable')?.value||'').trim() || null,
     isPrimary: document.getElementById('cm-bf-primary')?.checked || false,
+    _editId: editId || null,
   };
   if (!body.bankName || !body.accountNumber) { Utils.warn('Bank name and account number are required'); return; }
+
+  if (!companyId) {
+    window._pendingBanks.push(body);
+    SMPage.cancelBankForm();
+    SMPage._renderPendingBankList();
+    Utils.success('Bank account queued — will save with company');
+    return;
+  }
+
   try {
     const token = Auth.getToken();
     const method = editId ? 'PATCH' : 'POST';
@@ -1214,6 +1251,7 @@ SMPage.editCompanyInline = async function(id) {
     s('cm-pos', c.place_of_supply);
     s('cm-payable', c.payable_at);
     window._cmEditingId = c.id;
+    window._pendingBanks = [];
     await SMPage._loadCompanyBanks(c.id);
 
     if (c.logo_url) {
