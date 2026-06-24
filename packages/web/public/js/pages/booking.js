@@ -1564,7 +1564,7 @@ const BookingPage = {
         const label = [u.unit_number, u.tower_name&&`Tower ${u.tower_name}`, u.floor&&`Floor ${u.floor}`, showBhk&&u.bhk_type, u.carpet_area_sqft&&`${u.carpet_area_sqft} sqft`].filter(Boolean).join(' | ');
         const isAvailable = !u.status || u.status === 'available';
         if (isAvailable) {
-          return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-price="${u.base_price_inr||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;
+          return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-super="${u.super_area_sqft||0}" data-price="${u.base_price_inr||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;
         }
         return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — Booked</option>`;
       }).join('');
@@ -1583,9 +1583,11 @@ const BookingPage = {
 
     sel.onchange = () => {
       const opt = sel.selectedOptions[0];
-      const carpet = parseFloat(opt?.dataset?.carpet || 0);
-      const price  = parseFloat(opt?.dataset?.price  || 0);
-      if (carpet) document.querySelector('[name="carpet_area_sqft"]').value = parseFloat(carpet).toFixed(3);
+      const carpet    = parseFloat(opt?.dataset?.carpet || 0);
+      const superArea = parseFloat(opt?.dataset?.super  || 0);
+      const price     = parseFloat(opt?.dataset?.price  || 0);
+      const displayArea = superArea > 0 ? superArea : carpet;
+      document.querySelector('[name="carpet_area_sqft"]').value = displayArea ? displayArea.toFixed(3) : '';
       if (price)  document.querySelector('[name="basic_price"]').value = Math.round(price / (carpet||1));
       // In "Any" mode, promote BHK dropdown only when the unit has a recognisable BHK type
       const actualBhk = opt?.dataset?.bhk;
@@ -2266,7 +2268,12 @@ const BookingPage = {
 
     // ── Costs ────────────────────────────────────────────────────
     const basicPrice  = parseFloat(qval('[name="basic_price"]') || '0') || 0;
-    const basicCost   = basicPrice * carpetAreaNum;
+    const selectedUnitId     = document.querySelector('[name="unit_id"]')?.value;
+    const selectedUnit       = this._units?.find(u => u.id === selectedUnitId);
+    const balconyAreaSqft    = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
+    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || '0') || 0;
+    const balconyCapInr      = parseFloat(selectedUnit?.balcony_rate_cap_inr || '0') || 0;
+    const basicCost          = basicPrice * carpetAreaNum;
 
     const hasPLC  = gchk('bk-has-plc-chk');
     const plcAmt  = hasPLC ? parseFloat(gval('bk-plc-amount') || '0') || 0 : 0;
@@ -2275,11 +2282,6 @@ const BookingPage = {
     const otherAmt  = hasOther ? parseFloat(gval('bk-other-charge-amount') || '0') || 0 : 0;
     const otherDesc = hasOther ? (gval('bk-other-charge-desc') || 'Other Charges') : '';
 
-    const selectedUnitId     = document.querySelector('[name="unit_id"]')?.value;
-    const selectedUnit       = this._units?.find(u => u.id === selectedUnitId);
-    const balconyAreaSqft    = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
-    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || '0') || 0;
-    const balconyCapInr      = parseFloat(selectedUnit?.balcony_rate_cap_inr || '0') || 0;
     let   balconyAmt         = balconyAreaSqft * balconyRateInrSqft;
     if (balconyCapInr > 0 && balconyAmt > balconyCapInr) balconyAmt = balconyCapInr;
 

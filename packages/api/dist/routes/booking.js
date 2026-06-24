@@ -599,12 +599,13 @@ router.patch('/:id', async (req, res, next) => {
             if (booking.unit_id && booking.consumer_id) {
                 const existingAlloc = await client.query(`SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 LIMIT 1`, [booking.consumer_id, booking.unit_id]);
                 if (existingAlloc.rows.length === 0) {
-                    const unitRow = await client.query(`SELECT base_price_inr FROM units WHERE id = $1`, [booking.unit_id]);
+                    const unitRow = await client.query(`SELECT base_price_inr, balcony_area_sqft FROM units WHERE id = $1`, [booking.unit_id]);
                     const unitBasePriceInr = parseInt(unitRow.rows[0]?.base_price_inr || 0);
                     const bookingRate = parseFloat(booking.basic_rate_inr_sqft || 0);
                     const bookingCarpet = parseFloat(booking.carpet_area_sqft || 0);
+                    const bookingBalcony = parseFloat(unitRow.rows[0]?.balcony_area_sqft || 0);
                     const basicCost = (bookingRate > 0 && bookingCarpet > 0)
-                        ? Math.round(bookingRate * bookingCarpet)
+                        ? Math.round(bookingRate * (bookingCarpet + bookingBalcony))
                         : unitBasePriceInr;
                     const totalAmount = basicCost
                         + parseFloat(booking.plc_amount || 0)
@@ -949,7 +950,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const ratePerSqft = storedRate > 0 ? storedRate
         : (carpetArea > 0 ? unitBasePrice / carpetArea : 0);
     const basePrice = storedRate > 0 && carpetArea > 0
-        ? Math.round(storedRate * carpetArea)
+        ? Math.round(storedRate * (carpetArea + balconyArea))
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
     const otherCharge = parseFloat(b.other_charge_amount || 0);
@@ -1395,9 +1396,10 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     const customerId = esc(consumer.form_no || consumer.registration_no || '—');
     const storedRate = parseFloat(b.basic_rate_inr_sqft || 0);
     const carpetAreaP2 = parseFloat(b.carpet_area_sqft || 0);
+    const balconyAreaP2 = parseFloat(b.balcony_area_sqft || 0);
     const unitBasePrice = parseFloat(b.base_price_inr || 0);
     const basePrice = storedRate > 0 && carpetAreaP2 > 0
-        ? Math.round(storedRate * carpetAreaP2)
+        ? Math.round(storedRate * (carpetAreaP2 + balconyAreaP2))
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
     const otherCharge = parseFloat(b.other_charge_amount || 0);

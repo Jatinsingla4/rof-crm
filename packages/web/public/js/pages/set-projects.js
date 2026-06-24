@@ -258,37 +258,18 @@ Pages.setProjects = async function(params = {}) {
               </div>
               <div class="fg">
                 <label class="fl">Carpet Area (sqft)</label>
-                <input type="number" step="0.001" class="fc" id="spj-unit-carpet" name="carpet_area_sqft" oninput="SPJPage.calculateUnitPrice()">
+                <input type="number" step="0.001" class="fc" id="spj-unit-carpet" name="carpet_area_sqft" oninput="SPJPage.calcSuperArea()">
               </div>
               <div class="fg">
                 <label class="fl">Super Area (sqft)</label>
-                <input type="number" step="0.001" class="fc" name="super_area_sqft">
+                <input type="number" step="0.001" class="fc" id="spj-unit-super" name="super_area_sqft" placeholder="Auto-calculated" readonly>
               </div>
               <div class="fg">
                 <label class="fl">Balcony Area (sqft)</label>
-                <input type="number" step="0.001" class="fc" name="balcony_area_sqft" id="spj-unit-balcony" oninput="SPJPage.calculateUnitPrice()">
-              </div>
-              <div class="fg">
-                <label class="fl">Carpet Rate (₹/sqft)</label>
-                <input type="number" step="0.01" class="fc" id="spj-unit-carpet-rate" name="carpet_rate" placeholder="e.g. 5575" oninput="SPJPage.calculateUnitPrice()">
+                <input type="number" step="0.001" class="fc" name="balcony_area_sqft" id="spj-unit-balcony" oninput="SPJPage.calcSuperArea()">
               </div>
             </div>
             <div class="sp-grid">
-              <div class="fg">
-                <label class="fl">Balcony Rate (₹/sqft)</label>
-                <input type="number" step="0.01" class="fc" id="spj-unit-balcony-rate" name="balcony_rate" placeholder="e.g. 1300" oninput="SPJPage.calculateUnitPrice()">
-              </div>
-              <div class="fg">
-                <label class="fl">Balcony Rate Cap (₹)</label>
-                <input type="number" step="1" class="fc" id="spj-unit-balcony-cap" name="balcony_cap" placeholder="e.g. 130000" oninput="SPJPage.calculateUnitPrice()">
-              </div>
-            </div>
-            <div class="sp-grid">
-              <div class="fg">
-                <label class="fl">Base Price (₹)</label>
-                <input type="number" class="fc" id="spj-unit-base-price" name="base_price_inr" placeholder="Auto-calculated from rates" oninput="SPJPage.calculateUnitPrice()">
-                <div style="font-size:11px;color:var(--text3);margin-top:4px">Auto-calculated from carpet and balcony rates</div>
-              </div>
               <div class="fg">
                 <label class="fl">Status</label>
                 <select class="fc" name="status">
@@ -887,24 +868,13 @@ Object.assign(SPJPage, {
     } catch { towSel.innerHTML = `<option value="">No towers</option>`; }
   },
 
-  calculateUnitPrice() {
-    const carpetArea = parseFloat(document.getElementById('spj-unit-carpet')?.value || 0);
-    const balconyArea = parseFloat(document.getElementById('spj-unit-balcony')?.value || 0);
-    const carpetRate = parseFloat(document.getElementById('spj-unit-carpet-rate')?.value || 0);
-    const balconyRate = parseFloat(document.getElementById('spj-unit-balcony-rate')?.value || 0);
-    const balconyCap = parseFloat(document.getElementById('spj-unit-balcony-cap')?.value || 0);
-
-    if (carpetArea && carpetRate) {
-      const carpetPrice = carpetArea * carpetRate;
-      let balconyPrice = balconyArea * balconyRate;
-      if (balconyCap > 0 && balconyPrice > balconyCap) {
-        balconyPrice = balconyCap;
-      }
-      const total = Math.round(carpetPrice + balconyPrice);
-      const priceField = document.getElementById('spj-unit-base-price');
-      if (priceField) {
-        priceField.value = total;
-      }
+  calcSuperArea() {
+    const carpet = parseFloat(document.getElementById('spj-unit-carpet')?.value || 0);
+    const balcony = parseFloat(document.getElementById('spj-unit-balcony')?.value || 0);
+    const superEl = document.getElementById('spj-unit-super');
+    if (superEl) {
+      superEl.value = carpet + balcony ? (carpet + balcony).toFixed(3) : '';
+      superEl.readOnly = true;
     }
   },
 
@@ -916,8 +886,6 @@ Object.assign(SPJPage, {
 
     const projectId = document.getElementById('spj-unit-project')?.value;
     const towerId = document.getElementById('spj-unit-tower')?.value;
-    const basePriceValue = formData.base_price_inr ? parseFloat(formData.base_price_inr) : null;
-
     // Map form fields to API expected camelCase field names
     const body = {
       projectId: projectId,
@@ -928,10 +896,6 @@ Object.assign(SPJPage, {
       carpetAreaSqft: formData.carpet_area_sqft ? parseFloat(formData.carpet_area_sqft) : null,
       superAreaSqft: formData.super_area_sqft ? parseFloat(formData.super_area_sqft) : null,
       balconyAreaSqft: formData.balcony_area_sqft ? parseFloat(formData.balcony_area_sqft) : null,
-      balconyRateInrSqft: formData.balcony_rate ? parseFloat(formData.balcony_rate) || null : null,
-      balconyRateCapInr: formData.balcony_cap ? parseFloat(formData.balcony_cap) || null : null,
-      basePriceInr: basePriceValue,
-      totalPriceInr: basePriceValue,  // Set equal to base price at creation time
       facing: formData.facing || undefined,
       status: formData.status || 'available'
     };

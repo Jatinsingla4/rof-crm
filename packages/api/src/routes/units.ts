@@ -30,7 +30,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       floorPlanUrl,
     } = req.body;
 
-    if (!projectId || !towerId || !unitNumber || !bhkType || !totalPriceInr) {
+    if (!projectId || !towerId || !unitNumber || !bhkType) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
     if (floor === undefined || floor === null || floor === '') {

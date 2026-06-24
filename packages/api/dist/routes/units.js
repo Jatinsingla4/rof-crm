@@ -12,7 +12,7 @@ const router = (0, express_1.Router)();
 router.post('/', async (req, res, next) => {
     try {
         const { projectId, towerId, floor, unitNumber, bhkType, carpetAreaSqft, superAreaSqft, balconyAreaSqft, balconyRateInrSqft, balconyRateCapInr, basePriceInr, totalPriceInr, facing, floorPlanUrl, } = req.body;
-        if (!projectId || !towerId || !unitNumber || !bhkType || !totalPriceInr) {
+        if (!projectId || !towerId || !unitNumber || !bhkType) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
         if (floor === undefined || floor === null || floor === '') {
