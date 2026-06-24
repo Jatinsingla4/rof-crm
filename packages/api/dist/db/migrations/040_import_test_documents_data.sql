@@ -40,6 +40,14 @@ BEGIN
   CASCADE;
 END $$;
 
+-- seed_flags is NOT linked to consumers via CASCADE so it survives
+-- TRUNCATE consumers CASCADE. Used to ensure phases 4-8 only ever
+-- run once, even after a manual wipe of the consumers table.
+CREATE TABLE IF NOT EXISTS seed_flags (
+  flag_name VARCHAR(100) PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- ═══════════════════════════════════════════════════════════════════
 -- PHASE 1: PROJECTS (2 records)
 -- ═══════════════════════════════════════════════════════════════════
@@ -133,144 +141,150 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- ═══════════════════════════════════════════════════════════════════
--- PHASE 4: CONSUMERS (5 records with EXACT details)
+-- PHASES 4–8: CONSUMER DATA (seeded exactly once, permanently)
+-- seed_flags survives TRUNCATE consumers CASCADE so the flag persists
+-- across wipes. Only way to re-seed is:
+--   DELETE FROM seed_flags WHERE flag_name = 'migration_040_consumers_seeded';
 -- ═══════════════════════════════════════════════════════════════════
 
-INSERT INTO consumers (id, name, mobile, email, project_id, aadhaar_hash, pan_hash, total_overdue_amt, created_at, updated_at)
-VALUES
-  (
-    'd0000000-0000-0000-0000-000000000001', 
-    'Mr. Amit Rohilla', 
-    '9729693567', 
-    'amit.rohilla.184@gmail.com', 
-    'a0000000-0000-0000-0000-000000000002', 
-    encode(digest('427561482370', 'sha256'), 'hex'), 
-    encode(digest('BYKPR8556H', 'sha256'), 'hex'), 
-    125000.00, 
-    NOW(), NOW()
-  ),
-  (
-    'd0000000-0000-0000-0000-000000000002', 
-    'Mr. Dharam Veer', 
-    '8448393206', 
-    'dharamveer4229@gmail.com', 
-    'a0000000-0000-0000-0000-000000000002', 
-    encode(digest('936632541944', 'sha256'), 'hex'), 
-    encode(digest('AMXPV7204J', 'sha256'), 'hex'), 
-    85400.00, 
-    NOW(), NOW()
-  ),
-  (
-    'd0000000-0000-0000-0000-000000000003', 
-    'Mr. Prem Kumar', 
-    '9910077853', 
-    'vikas.yadav@philbygroup.in', 
-    'a0000000-0000-0000-0000-000000000002', 
-    encode(digest('710593413256', 'sha256'), 'hex'), 
-    encode(digest('BPFPK7011E', 'sha256'), 'hex'), 
-    0.00, 
-    NOW(), NOW()
-  ),
-  (
-    'd0000000-0000-0000-0000-000000000004', 
-    'Ms. Rashmi Gupta', 
-    '9911292456', 
-    'rashmi.rgupta21@gmail.com', 
-    'a0000000-0000-0000-0000-000000000002', 
-    encode(digest('839803315733', 'sha256'), 'hex'), 
-    encode(digest('BGIPG9370C', 'sha256'), 'hex'), 
-    42000.00, 
-    NOW(), NOW()
-  ),
-  (
-    'd0000000-0000-0000-0000-000000000005', 
-    'Mr. Rohit Kumar Singh', 
-    '9041003354', 
-    'singhar87@gmail.com', 
-    'a0000000-0000-0000-0000-000000000002', 
-    encode(digest('469824159857', 'sha256'), 'hex'), 
-    encode(digest('BWGPS0103K', 'sha256'), 'hex'), 
-    12500.00, 
-    NOW(), NOW()
-  )
-ON CONFLICT DO NOTHING;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM seed_flags
+    WHERE flag_name = 'migration_040_consumers_seeded'
+  ) THEN
 
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 5: CO-APPLICANTS (1 record)
--- ═══════════════════════════════════════════════════════════════════
+    -- PHASE 4: CONSUMERS (5 records with EXACT details)
+    INSERT INTO consumers (id, name, mobile, email, project_id, aadhaar_hash, pan_hash, total_overdue_amt, created_at, updated_at)
+    VALUES
+      (
+        'd0000000-0000-0000-0000-000000000001',
+        'Mr. Amit Rohilla',
+        '9729693567',
+        'amit.rohilla.184@gmail.com',
+        'a0000000-0000-0000-0000-000000000002',
+        encode(digest('427561482370', 'sha256'), 'hex'),
+        encode(digest('BYKPR8556H', 'sha256'), 'hex'),
+        125000.00,
+        NOW(), NOW()
+      ),
+      (
+        'd0000000-0000-0000-0000-000000000002',
+        'Mr. Dharam Veer',
+        '8448393206',
+        'dharamveer4229@gmail.com',
+        'a0000000-0000-0000-0000-000000000002',
+        encode(digest('936632541944', 'sha256'), 'hex'),
+        encode(digest('AMXPV7204J', 'sha256'), 'hex'),
+        85400.00,
+        NOW(), NOW()
+      ),
+      (
+        'd0000000-0000-0000-0000-000000000003',
+        'Mr. Prem Kumar',
+        '9910077853',
+        'vikas.yadav@philbygroup.in',
+        'a0000000-0000-0000-0000-000000000002',
+        encode(digest('710593413256', 'sha256'), 'hex'),
+        encode(digest('BPFPK7011E', 'sha256'), 'hex'),
+        0.00,
+        NOW(), NOW()
+      ),
+      (
+        'd0000000-0000-0000-0000-000000000004',
+        'Ms. Rashmi Gupta',
+        '9911292456',
+        'rashmi.rgupta21@gmail.com',
+        'a0000000-0000-0000-0000-000000000002',
+        encode(digest('839803315733', 'sha256'), 'hex'),
+        encode(digest('BGIPG9370C', 'sha256'), 'hex'),
+        42000.00,
+        NOW(), NOW()
+      ),
+      (
+        'd0000000-0000-0000-0000-000000000005',
+        'Mr. Rohit Kumar Singh',
+        '9041003354',
+        'singhar87@gmail.com',
+        'a0000000-0000-0000-0000-000000000002',
+        encode(digest('469824159857', 'sha256'), 'hex'),
+        encode(digest('BWGPS0103K', 'sha256'), 'hex'),
+        12500.00,
+        NOW(), NOW()
+      )
+    ON CONFLICT DO NOTHING;
 
-INSERT INTO co_applicants (id, consumer_id, name, relationship, aadhaar_hash, pan_hash, created_at)
-VALUES
-  (
-    'e0000000-0000-0000-0000-000000000001', 
-    'd0000000-0000-0000-0000-000000000001', 
-    'Mrs. Usha rohila', 
-    'Wife', 
-    encode(digest('220638779544', 'sha256'), 'hex'), 
-    encode(digest('ABTPU2504R', 'sha256'), 'hex'), 
-    NOW()
-  )
-ON CONFLICT DO NOTHING;
+    -- PHASE 5: CO-APPLICANTS (1 record)
+    INSERT INTO co_applicants (id, consumer_id, name, relationship, aadhaar_hash, pan_hash, created_at)
+    VALUES
+      (
+        'e0000000-0000-0000-0000-000000000001',
+        'd0000000-0000-0000-0000-000000000001',
+        'Mrs. Usha rohila',
+        'Wife',
+        encode(digest('220638779544', 'sha256'), 'hex'),
+        encode(digest('ABTPU2504R', 'sha256'), 'hex'),
+        NOW()
+      )
+    ON CONFLICT DO NOTHING;
 
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 6: ALLOCATIONS & DENORMALIZATION
--- ═══════════════════════════════════════════════════════════════════
+    -- PHASE 6: ALLOCATIONS & DENORMALIZATION
+    INSERT INTO allocations (id, consumer_id, unit_id, project_id, allocated_date, status, created_at)
+    VALUES
+      ('a1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
+      ('a1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
+      ('a1000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000022', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
+      ('a1000000-0000-0000-0000-000000000004', 'd0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000023', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
+      ('a1000000-0000-0000-0000-000000000005', 'd0000000-0000-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000024', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW())
+    ON CONFLICT DO NOTHING;
 
-INSERT INTO allocations (id, consumer_id, unit_id, project_id, allocated_date, status, created_at)
-VALUES
-  ('a1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
-  ('a1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
-  ('a1000000-0000-0000-0000-000000000003', 'd0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000022', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
-  ('a1000000-0000-0000-0000-000000000004', 'd0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000023', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW()),
-  ('a1000000-0000-0000-0000-000000000005', 'd0000000-0000-0000-0000-000000000005', 'c0000000-0000-0000-0000-000000000024', 'a0000000-0000-0000-0000-000000000002', NOW(), 'allotted', NOW())
-ON CONFLICT DO NOTHING;
+    UPDATE consumers c SET allocated_unit_id = a.unit_id FROM allocations a WHERE a.consumer_id = c.id;
 
-UPDATE consumers c SET allocated_unit_id = a.unit_id FROM allocations a WHERE a.consumer_id = c.id;
+    -- PHASE 7: PAYMENT PLANS & SCHEDULES
+    INSERT INTO payment_plans (id, allocation_id, consumer_id, unit_id, project_id, total_amount_inr, created_at)
+    VALUES
+      ('a2000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000002', 6000000, NOW()),
+      ('a2000000-0000-0000-0000-000000000002', 'a1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000002', 6000000, NOW())
+    ON CONFLICT DO NOTHING;
 
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 7: PAYMENT PLANS & SCHEDULES
--- ═══════════════════════════════════════════════════════════════════
+    INSERT INTO plan_schedule_templates (id, project_id, plan_name, installment_index, installment_name, percentage, created_at)
+    VALUES
+      ('a3000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 1, 'At the time of booking', 10.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 2, 'Within 30 Days of Booking', 30.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 3, 'On Completion of Super Structure', 30.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 4, 'On Intimation for offer of Possession', 30.00, NOW()),
 
-INSERT INTO payment_plans (id, allocation_id, consumer_id, unit_id, project_id, total_amount_inr, created_at)
-VALUES
-  ('a2000000-0000-0000-0000-000000000001', 'a1000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000020', 'a0000000-0000-0000-0000-000000000002', 6000000, NOW()),
-  ('a2000000-0000-0000-0000-000000000002', 'a1000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000021', 'a0000000-0000-0000-0000-000000000002', 6000000, NOW())
-ON CONFLICT DO NOTHING;
+      ('a3000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 1, 'At the time of booking', 10.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 2, 'Within 30 Days of Booking', 30.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 3, 'On the start of Excavation', 20.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 4, 'On Casting of Ground Floor Slab', 30.00, NOW()),
+      ('a3000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 5, 'On Intimation for offer of Possession', 10.00, NOW())
+    ON CONFLICT DO NOTHING;
 
--- Payment Plan Templates (Commercial)
-INSERT INTO plan_schedule_templates (id, project_id, plan_name, installment_index, installment_name, percentage, created_at)
-VALUES
-  ('a3000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 1, 'At the time of booking', 10.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 2, 'Within 30 Days of Booking', 30.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 3, 'On Completion of Super Structure', 30.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000001', 'PLP@92', 4, 'On Intimation for offer of Possession', 30.00, NOW()),
-  
-  ('a3000000-0000-0000-0000-000000000005', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 1, 'At the time of booking', 10.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000006', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 2, 'Within 30 Days of Booking', 30.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000007', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 3, 'On the start of Excavation', 20.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000008', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 4, 'On Casting of Ground Floor Slab', 30.00, NOW()),
-  ('a3000000-0000-0000-0000-000000000009', 'a0000000-0000-0000-0000-000000000001', 'CLP@92', 5, 'On Intimation for offer of Possession', 10.00, NOW())
-ON CONFLICT DO NOTHING;
+    -- PHASE 8: OPERATIONAL MOCKS (Dashboard & Recovery)
+    INSERT INTO demands (id, payment_plan_id, consumer_id, installment_index, amount_due_inr, due_date, delivery_status, status, generated_at)
+    VALUES
+      ('f0000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 1, 125000, CURRENT_DATE - 5, 'sent', 'pending', NOW()),
+      ('f0000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 1, 85400, CURRENT_DATE - 10, 'sent', 'pending', NOW())
+    ON CONFLICT (id) DO NOTHING;
 
--- ═══════════════════════════════════════════════════════════════════
--- PHASE 8: OPERATIONAL MOCKS (Dashboard & Recovery)
--- ═══════════════════════════════════════════════════════════════════
+    INSERT INTO receipts (id, payment_plan_id, consumer_id, installment_index, amount_received_inr, payment_method, status, received_date, created_at)
+    VALUES
+      ('70000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 1, 50000, 'cheque', 'pending', CURRENT_DATE, NOW())
+    ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO demands (id, payment_plan_id, consumer_id, installment_index, amount_due_inr, due_date, delivery_status, status, generated_at)
-VALUES
-  ('f0000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 1, 125000, CURRENT_DATE - 5, 'sent', 'pending', NOW()),
-  ('f0000000-0000-0000-0000-000000000002', 'a2000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 1, 85400, CURRENT_DATE - 10, 'sent', 'pending', NOW())
-ON CONFLICT (id) DO NOTHING;
+    INSERT INTO tasks (id, title, description, status, priority, due_date, assigned_to, consumer_id, created_at)
+    VALUES
+      ('80000000-0000-0000-0000-000000000001', 'Follow up on payment', 'Amit requested call back after 2pm', 'open', 'high', CURRENT_DATE, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'd0000000-0000-0000-0000-000000000001', NOW())
+    ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO receipts (id, payment_plan_id, consumer_id, installment_index, amount_received_inr, payment_method, status, received_date, created_at)
-VALUES
-  ('70000000-0000-0000-0000-000000000001', 'a2000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 1, 50000, 'cheque', 'pending', CURRENT_DATE, NOW())
-ON CONFLICT (id) DO NOTHING;
+    -- Mark as permanently seeded — survives TRUNCATE consumers CASCADE
+    INSERT INTO seed_flags (flag_name)
+    VALUES ('migration_040_consumers_seeded')
+    ON CONFLICT DO NOTHING;
 
-INSERT INTO tasks (id, title, description, status, priority, due_date, assigned_to, consumer_id, created_at)
-VALUES
-  ('80000000-0000-0000-0000-000000000001', 'Follow up on payment', 'Amit requested call back after 2pm', 'open', 'high', CURRENT_DATE, 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'd0000000-0000-0000-0000-000000000001', NOW())
-ON CONFLICT (id) DO NOTHING;
+  END IF;
+END $$;
 
 -- Final success report
 SELECT 'DATABASE RESET SUCCESSFUL: ONLY AUTHENTIC TEST DATA REMAINS' AS status;
