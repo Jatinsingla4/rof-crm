@@ -16,6 +16,15 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 DO $$
 BEGIN
+  -- Check seed_flags FIRST — this table survives TRUNCATE CASCADE so
+  -- once set, TRUNCATE never runs again even after a consumers wipe.
+  IF EXISTS (
+    SELECT 1 FROM seed_flags
+    WHERE flag_name = 'migration_040_consumers_seeded'
+  ) THEN
+    RAISE NOTICE 'Migration 040: seed_flags set — skipping TRUNCATE';
+    RETURN;
+  END IF;
   -- Skip if seed data already present (migration already ran once)
   IF EXISTS (
     SELECT 1 FROM consumers
