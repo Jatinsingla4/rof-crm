@@ -1829,7 +1829,11 @@ function buildApplicantPage2(
     addonRowNum++;
     const ocCgst  = otherCharge * cgstPct / 100;
     const ocSgst  = otherCharge * sgstPct / 100;
-    const ocReceived = otherCharge * proportionPaid;
+    // Other charges (IFMS etc.) are tracked inside installment amounts.
+    // Do not show proportional received here — only show actual dedicated
+    // payments against other charges. Until dedicated other-charge receipts
+    // are implemented, received = 0.
+    const ocReceived = 0;
     addonNetTotal    += otherCharge; addonCgstTotal += ocCgst;
     addonSgstTotal   += ocSgst;     addonGrandTotal += otherCharge + ocCgst + ocSgst;
     addonReceivedTotal += ocReceived;
