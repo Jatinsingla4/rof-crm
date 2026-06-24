@@ -785,9 +785,18 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           const totalBsp = bookingBspRate > 0 && bookingCarpetSqft > 0
             ? Math.round(bookingBspRate * bookingCarpetSqft)
             : 0;
-          const basicRatio = totalBsp > 0 && totalAmountInr > 0
-            ? totalBsp / totalAmountInr
+          // Recalculate total from rate × super_area to correct any legacy
+          // bookings where total_amount_inr was double-counted
+          const recalcTotal = bookingBspRate > 0 && bookingCarpetSqft > 0
+            ? Math.round(bookingBspRate * bookingCarpetSqft)
+            : totalAmountInr;
+          const basicRatio = totalBsp > 0 && recalcTotal > 0
+            ? totalBsp / recalcTotal
             : 1;
+          // True unit areas for direct area-based row split
+          const trueCarpet  = parseFloat(plan.carpet_area_sqft  || 0);
+          const trueBalcony = parseFloat(plan.balcony_area_sqft || 0);
+          const superArea = trueCarpet + trueBalcony;
 
           let rowsNoInterest = '';
           let rowsWithInterest = '';
@@ -800,7 +809,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             // If demand exists, use its amounts; otherwise calculate from template percentage
             const hasDemand = !!dm.demand_id;
             const pct = parseFloat(dm.percentage || 0) / 100;
-            const calculatedAmt = Math.round(totalAmountInr * pct);
+            const calculatedAmt = Math.round(recalcTotal * pct);
             const installment = hasDemand
               ? parseFloat(dm.amount_due_inr || 0)
               : calculatedAmt;
@@ -858,21 +867,30 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               : '0.00';
 
             // Split into Basic Price (carpet area) and Balcony Charges rows
-            const basicAmt = Math.round(installment * basicRatio);
-            const balconyAmt = installment - basicAmt;
-            const basicCgst = Math.round(cgst * basicRatio);
+            // Row 1 = rate × true carpet × pct, Row 2 = rate × balcony × pct
+            const basicAmt = superArea > 0
+              ? Math.round(bookingBspRate * trueCarpet * pct)
+              : Math.round(installment * (trueCarpet / (trueCarpet + trueBalcony || 1)));
+            const balconyAmt = superArea > 0
+              ? Math.round(bookingBspRate * trueBalcony * pct)
+              : installment - basicAmt;
+            // Use carpet/superArea ratio for GST + interest split —
+            // basicRatio = 1.0 (totalBsp === recalcTotal) so cannot use it here
+            const carpetRatio = superArea > 0 ? trueCarpet / superArea : 1;
+            const basicCgst = Math.round(cgst * carpetRatio);
             const balconyCgst = cgst - basicCgst;
-            const basicSgst = Math.round(sgst * basicRatio);
+            const basicSgst = Math.round(sgst * carpetRatio);
             const balconySgst = sgst - basicSgst;
             const basicDue = basicAmt + basicCgst + basicSgst;
             const balconyDue = balconyAmt + balconyCgst + balconySgst;
-            const basicPaid = Math.round(amtPaid * basicRatio);
-            const balconyPaid = amtPaid - basicPaid;
+            // Waterfall: fill Row 1 up to full basicDue (base + GST), then remainder to Row 2
+            const basicPaid = Math.min(amtPaid, basicDue);
+            const balconyPaid = Math.max(0, amtPaid - basicPaid);
             const basicPayable = Math.max(0, basicDue - basicPaid);
             const balconyPayable = Math.max(0, balconyDue - balconyPaid);
 
             // Interest split for with-interest version
-            const basicInterest = Math.round(rowInterest * basicRatio);
+            const basicInterest = Math.round(rowInterest * carpetRatio);
             const balconyInterest = rowInterest - basicInterest;
             const basicDueWI = basicDue + basicInterest;
             const balconyDueWI = balconyDue + balconyInterest;
@@ -884,7 +902,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
 
             // 11-column row (without interest)
             rowsNoInterest += `<tr>
-              <td class="tc" rowspan="2" style="vertical-align:middle">${idx + 1}</td>
+              <td class="tc" rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${idx + 1}</td>
               <td>${label} — Basic Price</td>
               <td class="tc" data-field-key="dueDate_${idx}" data-field-label="Due Date (Row ${idx})" data-value-type="date" data-section="payment_table">${dueDt}</td>
               <td class="tr">${DS(`basicAmt_${idx}`, `Basic Amount (Row ${idx})`, basicAmt, ` data-cgst-pct="${cgstPct}" data-gst-type="basic"`)}</td>
@@ -896,7 +914,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr">${DS(`basicPaid_${idx}`, `Amount Paid (Row ${idx})`, basicPaid)}</td>
               <td class="tr bold">${DS(`basicPayable_${idx}`, `Net Payable (Row ${idx})`, basicPayable)}</td>
             </tr>
-            <tr>
+            ${trueBalcony > 0 ? `<tr>
               <td>${label} — Balcony Charges</td>
               <td class="tc">${dueDt}</td>
               <td class="tr">${DS(`balconyAmt_${idx}`, `Balcony Amount (Row ${idx})`, balconyAmt, ' data-gst-type="basic"')}</td>
@@ -907,11 +925,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr">${DS(`balconyTotal_${idx}`, `Balcony Total (Row ${idx})`, balconyDue)}</td>
               <td class="tr">${DS(`balconyPaid_${idx}`, `Balcony Paid (Row ${idx})`, balconyPaid)}</td>
               <td class="tr bold">${DS(`balconyPayable_${idx}`, `Balcony Payable (Row ${idx})`, balconyPayable)}</td>
-            </tr>`;
+            </tr>` : ''}`;
 
             // 12-column row (with interest — adds Interest col after SGST)
             rowsWithInterest += `<tr>
-              <td class="tc" rowspan="2" style="vertical-align:middle">${idx + 1}</td>
+              <td class="tc" rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${idx + 1}</td>
               <td>${label} — Basic Price</td>
               <td class="tc" data-field-key="dueDate_${idx}" data-field-label="Due Date (Row ${idx})" data-value-type="date" data-section="interest_table">${dueDt}</td>
               <td class="tr">${DS(`basicAmt_${idx}`, `Basic Amount (Row ${idx})`, basicAmt, ` data-cgst-pct="${cgstPct}" data-gst-type="basic"`)}</td>
@@ -924,7 +942,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr">${DS(`basicPaid_${idx}`, `Amount Paid (Row ${idx})`, basicPaid)}</td>
               <td class="tr bold">${DS(`basicPayable_${idx}`, `Net Payable (Row ${idx})`, basicPayableWI)}</td>
             </tr>
-            <tr>
+            ${trueBalcony > 0 ? `<tr>
               <td>${label} — Balcony Charges</td>
               <td class="tc">${dueDt}</td>
               <td class="tr">${DS(`balconyAmt_${idx}`, `Balcony Amount (Row ${idx})`, balconyAmt, ' data-gst-type="basic"')}</td>
@@ -936,7 +954,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr">${DS(`balconyTotal_${idx}`, `Balcony Total (Row ${idx})`, balconyDueWI)}</td>
               <td class="tr">${DS(`balconyPaid_${idx}`, `Balcony Paid (Row ${idx})`, balconyPaid)}</td>
               <td class="tr bold">${DS(`balconyPayable_${idx}`, `Balcony Payable (Row ${idx})`, balconyPayableWI)}</td>
-            </tr>`;
+            </tr>` : ''}`;
           });
 
           // Guard against slight overpayment (advance receipt covers base+GST, totalDue tracks base only)

@@ -758,7 +758,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
           const bookingCarpet  = parseFloat(booking.carpet_area_sqft || 0);
           const bookingBalcony = parseFloat(unitRow.rows[0]?.balcony_area_sqft || 0);
           const basicCost = (bookingRate > 0 && bookingCarpet > 0)
-            ? Math.round(bookingRate * (bookingCarpet + bookingBalcony))
+            ? Math.round(bookingRate * bookingCarpet)
             : unitBasePriceInr;
           const totalAmount = basicCost
             + parseFloat(booking.plc_amount || 0)
@@ -1135,8 +1135,6 @@ function buildApplicantPage1(
   const plcAmount     = parseFloat(b.plc_amount        || 0);
   const otherCharge   = parseFloat(b.other_charge_amount || 0);
   const isGstExempt   = ['nri','oci','pio'].includes((consumer.nationality || '').toLowerCase());
-  const cgst          = isGstExempt ? 0 : parseFloat(b.cgst_amount       || 0);
-  const sgst          = isGstExempt ? 0 : parseFloat(b.sgst_amount       || 0);
   const cgstPct       = isGstExempt ? 0 : parseFloat(b.cgst_pct          || 0);
   const sgstPct       = isGstExempt ? 0 : parseFloat(b.sgst_pct          || 0);
   const interest      = parseFloat(b.interest_amount   || 0);
@@ -1146,6 +1144,9 @@ function buildApplicantPage1(
   const addonTotal         = addonCharges.reduce((sum: number, c: any) => sum + parseFloat(c.total_amount || 0), 0);
   const agreementValue     = netBasicPrice + plcAmount + otherCharge + addonTotal;
   const totalConsideration = agreementValue;
+  // Recalculate GST from current totalConsideration — avoids stale stored values from booking_payment_taxes
+  const cgst          = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(totalConsideration * cgstPct / 100) : 0);
+  const sgst          = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(totalConsideration * sgstPct / 100) : 0);
   const totalTax           = cgst + sgst;
   const totalWithTax       = totalConsideration + totalTax;
   const totalReceivables   = totalWithTax + interest;
