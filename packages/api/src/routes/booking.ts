@@ -2941,7 +2941,7 @@ router.get('/:id/receipt-html', async (req: AuthRequest, res: Response) => {
           p.location as project_location,
           p.rera_number,
           u.unit_number, u.floor, u.bhk_type,
-          u.carpet_area_sqft, u.super_area_sqft,
+          u.carpet_area_sqft, u.balcony_area_sqft, u.super_area_sqft,
           u.base_price_inr, u.total_price_inr,
           bpt.s_tax_pct, bpt.cgst_pct, bpt.sgst_pct,
           bpt.cgst_amount, bpt.sgst_amount,
