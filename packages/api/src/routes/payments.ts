@@ -3127,7 +3127,8 @@ function buildReceiptDetailHtml(rows: any[]): string {
       amount: acc.amount + dr.amount, cgst: acc.cgst + dr.cgst,
       sgst: acc.sgst + dr.sgst, net: acc.net + dr.netAmount
     }), { amount: 0, cgst: 0, sgst: 0, net: 0 });
-    const bg = idx % 2 === 0 ? '#ffffff' : '#fef9f0';
+    // Status-based color coding — matches applicant file receipt section exactly
+    const bg = ({ pending:'#FFFF99', deposited:'#d4edda', bounced:'#ffcccc', on_hold:'#cce5ff', cleared:'#ffffff', cancelled:'#e2e3e5' } as Record<string,string>)[r.status] ?? '#ffffff';
 
     const detailRowsHtml = drows.map((dr: any) => `
         <tr>
@@ -3195,6 +3196,15 @@ function buildReceiptDetailHtml(rows: any[]): string {
     <span><strong>Project:</strong> ${consumer.project_name}</span>
     <span><strong>Name:</strong> ${consumer.consumer_name}</span>
     <span><strong>Registration No.:</strong> ${consumer.registration_no}</span>
+  </div>
+  <div class="no-print" style="margin:8px 0;padding:8px 12px;background:white;border:1px solid #dee2e6;border-top:none;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;align-items:center;">
+    <strong>Status:</strong>
+    <span style="background:#ffffff;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x2705; Cleared</span>
+    <span style="background:#FFFF99;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x1F550; Pending</span>
+    <span style="background:#d4edda;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x1F3E6; Deposited</span>
+    <span style="background:#cce5ff;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x23F8; On Hold</span>
+    <span style="background:#ffcccc;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x274C; Bounced</span>
+    <span style="background:#e2e3e5;border:1px solid #ccc;padding:2px 8px;border-radius:3px;">&#x1F6AB; Cancelled</span>
   </div>
   <div style="overflow-x:auto;border:1px solid #dee2e6;border-top:none;background:white;">
     <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:1200px;">
