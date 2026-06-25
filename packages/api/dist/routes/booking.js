@@ -970,7 +970,8 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const totalWithTax = totalConsideration + totalTax;
     const totalReceivables = totalWithTax + interest;
     const totalReceived = parseFloat(b.total_received_inr || 0);
-    const lessReceipt = totalReceived > 0 ? totalReceived : bookingAmt;
+    // Show only cleared receipts. No fallback to booking amount — if nothing cleared yet, show ₹0.
+    const lessReceipt = totalReceived;
     const paidPct = totalReceivables > 0
         ? (lessReceipt / totalReceivables * 100).toFixed(2) : '0.00';
     const balance = totalReceivables - lessReceipt;

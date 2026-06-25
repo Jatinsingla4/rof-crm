@@ -570,7 +570,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const paymentResult = await db.query(
       `SELECT
         SUM(total_amount_inr) as total_due,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1) as collected
+        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared') as collected
        FROM payment_plans WHERE consumer_id = $1`,
       [id]
     );
@@ -1084,7 +1084,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
             SELECT SUM(r.amount_received_inr)
             FROM receipts r
             WHERE r.consumer_id = c.id
-            AND r.status != 'cancelled'
+            AND r.status = 'cleared'
           ), 0) AS total_received_inr,
           COALESCE((
             SELECT json_agg(json_build_object(
@@ -1096,7 +1096,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
                      SUM(amount_received_inr) AS total_paid
               FROM receipts
               WHERE consumer_id = c.id
-                AND status != 'cancelled'
+                AND status = 'cleared'
               GROUP BY installment_index
             ) rr
           ), '[]'::json) AS installment_payments
@@ -1238,7 +1238,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
       db.query(
         `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
-         FROM receipts WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
+         FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
          ORDER BY received_date ASC, created_at ASC`,
         [consumerId]
       ),

@@ -627,7 +627,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
                 SELECT SUM(r.amount_received_inr)
                 FROM receipts r
                 WHERE r.consumer_id = c.id
-                AND r.status != 'cancelled'
+                AND r.status = 'cleared'
               ), 0) AS total_received_inr
             FROM consumers c
             LEFT JOIN LATERAL (
@@ -688,7 +688,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
-                 WHERE r.demand_id = d.id AND r.status != 'cancelled'), 0
+                 WHERE r.demand_id = d.id AND r.status = 'cleared'), 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
             FROM demands d
@@ -715,7 +715,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
-                 WHERE r.demand_id = d.id AND r.status != 'cancelled'),
+                 WHERE r.demand_id = d.id AND r.status = 'cleared'),
                 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
@@ -743,7 +743,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
                 d.amount_due_inr, d.cgst_amount, d.sgst_amount, d.due_date,
                 COALESCE(
                   (SELECT SUM(amount_received_inr) FROM receipts
-                   WHERE demand_id = d.id AND status != 'cancelled'), 0
+                   WHERE demand_id = d.id AND status = 'cleared'), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
                 COALESCE(pst2.percentage, 0) AS percentage
@@ -772,7 +772,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             db.query<WaterfallReceipt>(
               `SELECT id, amount_received_inr, demand_id, installment_index, status,
                       received_date, payment_method
-               FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+               FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`,
               [consumerId]
             ),
             db.query<WaterfallDemand>(

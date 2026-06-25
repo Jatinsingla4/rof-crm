@@ -268,7 +268,7 @@ router.post('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFun
       // Get total received
       const paymentResult = await client.query(
         `SELECT COALESCE(SUM(amount_received_inr), 0) as total_received
-         FROM receipts WHERE consumer_id = $1`,
+         FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`,
         [consumerId]
       );
 
@@ -400,7 +400,7 @@ router.post('/import-edraw', async (req: AuthRequest, res: Response, next: NextF
           const bookingResult = await db.query(
             `SELECT COALESCE(SUM(r.amount_received_inr), 0) as total_paid
              FROM receipts r
-             WHERE r.consumer_id = $1`,
+             WHERE r.consumer_id = $1 AND r.status = 'cleared'`,
             [consumerId]
           );
 

@@ -210,7 +210,7 @@ router.post('/:id/cancel', async (req, res, next) => {
             const forfeitureAmountInr = 29500;
             // Get total received
             const paymentResult = await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_received
-         FROM receipts WHERE consumer_id = $1`, [consumerId]);
+         FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]);
             const totalReceived = paymentResult.rows[0].total_received;
             const refundAmountInr = totalReceived - forfeitureAmountInr;
             // Create cancellation record
@@ -290,7 +290,7 @@ router.post('/import-edraw', async (req, res, next) => {
                     // Get booking amount from receipts
                     const bookingResult = await index_js_1.db.query(`SELECT COALESCE(SUM(r.amount_received_inr), 0) as total_paid
              FROM receipts r
-             WHERE r.consumer_id = $1`, [consumerId]);
+             WHERE r.consumer_id = $1 AND r.status = 'cleared'`, [consumerId]);
                     const bookingAmountPaid = bookingResult.rows[0].total_paid || 0;
                     if (bookingAmountPaid > 0) {
                         // Create draw refund record (due within 30 days per AHP policy)
