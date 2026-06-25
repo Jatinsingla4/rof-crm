@@ -969,6 +969,17 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           const planOcCgst = planOtherCharge > 0 ? Math.round(planOtherCharge * defaultCgstPct / 100) : 0;
           const planOcSgst = planOtherCharge > 0 ? Math.round(planOtherCharge * defaultSgstPct / 100) : 0;
           const planOcDue  = planOtherCharge + planOcCgst + planOcSgst;
+          // Calculate how much of Other Charge has been paid via installment payments.
+          // OC is embedded in each demand proportionally: ocProportion = OC / totalAmountInr
+          // totalPaid is GST-inclusive waterfall total across all rendered demands.
+          // Must use totalAmountInr (BSP+OC) NOT recalcTotal (BSP only).
+          const ocProportion = planOtherCharge > 0 && totalAmountInr > 0
+            ? planOtherCharge / totalAmountInr
+            : 0;
+          const ocPaid = planOtherCharge > 0
+            ? Math.round(totalPaid * ocProportion)
+            : 0;
+          const ocPayable = Math.max(0, Math.round(planOcDue - ocPaid));
           // Universal rule: show Other Charges row ONLY when ALL installments of
           // this payment plan are shown in this demand letter.
           const demandsShownCount = demandsRes.rows.length;
@@ -986,8 +997,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tc">${defaultSgstPct.toFixed(2)}%</td>
               <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
               <td class="tr">${fmtIndianNumber(planOcDue)}</td>
-              <td class="tr">0.00</td>
-              <td class="tr bold">${fmtIndianNumber(planOcDue)}</td>
+              <td class="tr">${fmtIndianNumber(ocPaid)}</td>
+              <td class="tr bold">${ocPayable === 0 ? '0' : '—'}</td>
             </tr>`;
             rowsWithInterest += `<tr style="background:#f9f9f9">
               <td class="tc">—</td>
@@ -1000,8 +1011,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
               <td class="tr" style="color:#c00">0.00</td>
               <td class="tr">${fmtIndianNumber(planOcDue)}</td>
-              <td class="tr">0.00</td>
-              <td class="tr bold">${fmtIndianNumber(planOcDue)}</td>
+              <td class="tr">${fmtIndianNumber(ocPaid)}</td>
+              <td class="tr bold">${ocPayable === 0 ? '0' : '—'}</td>
             </tr>`;
           }
 
