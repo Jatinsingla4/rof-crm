@@ -2797,6 +2797,9 @@ const ReportsPage = {
         acc.received_amount     += n('received_amount');
         acc.interest_received   += n('interest_received');
         acc.outstanding_amount  += n('outstanding_amount');
+        acc.interest_charged    += n('interest_charged');
+        acc.interest_waived     += n('interest_waived');
+        acc.interest_outstanding += n('interest_outstanding');
         return acc;
       }, {
         base_price_inr:0, total_discount:0, net_basic_price:0,
@@ -2804,6 +2807,7 @@ const ReportsPage = {
         cost_cgst_amount:0, cost_sgst_amount:0, total_cost_with_gst:0,
         dues_amount:0, dues_cgst:0, dues_sgst:0, dues_total:0,
         received_amount:0, interest_received:0, outstanding_amount:0,
+        interest_charged:0, interest_waived:0, interest_outstanding:0,
       });
 
       const rows  = data.map((row, i) => this._apfRow(row, i));
@@ -2821,7 +2825,7 @@ const ReportsPage = {
                 <th colspan="6"  class="group-header">RECEIVED</th>
                 <th colspan="5"  class="group-header">CREDIT</th>
                 <th colspan="5"  class="group-header">OUTSTANDING</th>
-                <th colspan="4"  class="group-header">INTEREST</th>
+                <th colspan="6"  class="group-header">INTEREST</th>
               </tr>
               <tr>
                 <th>REG. NO.</th><th>NAME</th><th>BOOKING DATE</th><th>MOBILE NO.</th>
@@ -2836,7 +2840,7 @@ const ReportsPage = {
                 <th>AMOUNT</th><th>CGST</th><th>SGST</th><th>ITC</th><th>TOTAL</th><th>(%)</th>
                 <th>AMOUNT</th><th>S.TAX</th><th>CGST</th><th>SGST</th><th>TOTAL</th>
                 <th>AMOUNT</th><th>S.TAX</th><th>CGST</th><th>SGST</th><th>TOTAL</th>
-                <th>INTEREST</th><th>RECEIVED</th><th>OUTSTANDING</th><th>RECEIVED GST</th>
+                <th>INTEREST</th><th>WAIVED</th><th>NET INTEREST</th><th>RECEIVED</th><th>OUTSTANDING</th><th>RECEIVED GST</th>
               </tr>
             </thead>
             <tbody>${rows.join('')}</tbody>
@@ -2932,9 +2936,11 @@ const ReportsPage = {
       <td style="text-align:right">0.00</td>
       <td style="text-align:right">0.00</td>
       <td style="text-align:right;color:${outColor}">${f(outstanding)}</td>
-      <td style="text-align:right">0.00</td>
+      <td style="text-align:right">${f(r.interest_charged)}</td>
+      <td style="text-align:right">${f(r.interest_waived)}</td>
+      <td style="text-align:right">${f(r.interest_charged - r.interest_waived)}</td>
       <td style="text-align:right">${f(r.interest_received)}</td>
-      <td style="text-align:right">0.00</td>
+      <td style="text-align:right">${f(r.interest_outstanding)}</td>
       <td style="text-align:right">0.00</td>
     </tr>`;
   },
@@ -2974,9 +2980,11 @@ const ReportsPage = {
       <td style="text-align:right">0.00</td>
       <td style="text-align:right">0.00</td>
       ${B(t.outstanding_amount)}
-      <td style="text-align:right">0.00</td>
+      ${B(t.interest_charged)}
+      ${B(t.interest_waived)}
+      ${B(t.interest_charged - t.interest_waived)}
       ${B(t.interest_received)}
-      <td style="text-align:right">0.00</td>
+      ${B(t.interest_outstanding)}
       <td style="text-align:right">0.00</td>
     </tr>`;
   },

@@ -728,8 +728,34 @@ router.get('/applicant-payment-file', async (req, res, next) => {
             WHERE r.consumer_id = c.id AND r.status != 'cancelled'), 0)
         )                                                                       AS outstanding_amount,
         0                                                                       AS credit_amount,
-        0                                                                       AS interest_charged,
-        0                                                                       AS interest_outstanding
+        COALESCE((
+          SELECT SUM(
+            COALESCE(pi.amount_inr, 0)
+          )
+          FROM penal_interests pi
+          WHERE pi.consumer_id = c.id
+        ), 0)                                                                   AS interest_charged,
+        COALESCE((
+          SELECT SUM(COALESCE(pi.interest_waived_inr, 0))
+          FROM penal_interests pi
+          WHERE pi.consumer_id = c.id
+        ), 0)                                                                   AS interest_waived,
+        GREATEST(0,
+          COALESCE((
+            SELECT SUM(GREATEST(0,
+              COALESCE(pi.amount_inr, 0)
+              - COALESCE(pi.interest_waived_inr, 0)
+            ))
+            FROM penal_interests pi
+            WHERE pi.consumer_id = c.id
+          ), 0)
+          - COALESCE((
+            SELECT SUM(COALESCE(r.interest_amount, 0))
+            FROM receipts r
+            WHERE r.consumer_id = c.id
+            AND r.status != 'cancelled'
+          ), 0)
+        )                                                                       AS interest_outstanding
       ${baseJoins}
       ${where}
       ORDER BY c.id, br.booking_date DESC`; // DESC: latest booking wins for DISTINCT ON
@@ -754,7 +780,7 @@ router.get('/applicant-payment-file', async (req, res, next) => {
             'total_cost_with_gst',
             'dues_amount', 'dues_cgst', 'dues_sgst', 'dues_total',
             'received_amount', 'interest_received',
-            'outstanding_amount', 'credit_amount', 'interest_charged', 'interest_outstanding',
+            'outstanding_amount', 'credit_amount', 'interest_charged', 'interest_waived', 'interest_outstanding',
         ];
         const rows = dataResult.rows.map(row => {
             const out = { ...row };

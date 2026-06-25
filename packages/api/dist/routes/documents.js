@@ -749,6 +749,26 @@ router.post('/generate', async (req, res, next) => {
                     ]);
                     const allWfResults = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsRes.rows, wfDemandsRes.rows);
                     const wfMap = new Map(allWfResults.map(w => [w.demand_id, w.paid]));
+                    // Fetch approved interest from penal_interests table — respects
+                    // admin-approved amounts and waivers
+                    const piRes = await index_js_1.db.query(`
+            SELECT
+              installment_index,
+              GREATEST(0,
+                COALESCE(amount_inr, 0)
+                - COALESCE(interest_waived_inr, 0)
+              ) AS net_interest_inr
+            FROM penal_interests
+            WHERE consumer_id = $1
+            ORDER BY installment_index
+          `, [consumerId]);
+                    // Build map: installment_index → net interest
+                    const piMap = new Map();
+                    piRes.rows.forEach(r => {
+                        piMap.set(r.installment_index, Number(r.net_interest_inr));
+                    });
+                    // Sum total interest from DB
+                    const totalInterestFromDB = piRes.rows.reduce((sum, r) => sum + Number(r.net_interest_inr), 0);
                     let totalDue = 0, totalPaid = 0, totalCgst = 0, totalSgst = 0;
                     let totalInterestCalc = 0; // always-calculated interest for with-interest mode
                     // BSP amount-based split ratio for Basic Price vs Balcony Charges rows
@@ -814,11 +834,13 @@ router.post('/generate', async (req, res, next) => {
                         const daysOverdue = dueDateVal
                             ? Math.max(0, Math.floor((invoiceDate.getTime() - dueDateVal.getTime()) / 86400000))
                             : 0;
-                        // Interest principal = full installment amount (HRERA Rule 15), regardless of
-                        // payment status — even a paid-but-late installment accrues interest.
-                        const rowInterest = daysOverdue > 0
-                            ? parseFloat((installment * (penalRate / 100) * daysOverdue / 365).toFixed(2))
-                            : 0;
+                        // Use DB-approved interest if exists (respects admin approval + waivers).
+                        // Fall back to live formula only if no penal_interests record exists.
+                        const rowInterest = piMap.has(dm.installment_index)
+                            ? piMap.get(dm.installment_index)
+                            : daysOverdue > 0
+                                ? parseFloat((installment * (penalRate / 100) * daysOverdue / 365).toFixed(2))
+                                : 0;
                         totalDue += amtDue;
                         totalPaid += amtPaid;
                         totalCgst += cgst;
@@ -968,7 +990,9 @@ router.post('/generate', async (req, res, next) => {
                     }
                     // Guard against slight overpayment (advance receipt covers base+GST, totalDue tracks base only)
                     const totalPayable = Math.max(0, Math.round(totalDue - totalPaid));
-                    const totalPayableWithInterest = Math.max(0, Math.round(totalDue - totalPaid + totalInterestCalc));
+                    // Use DB-sourced interest when available (respects waivers)
+                    const effectiveInterest = totalInterestFromDB > 0 ? totalInterestFromDB : totalInterestCalc;
+                    const totalPayableWithInterest = Math.max(0, Math.round(totalDue - totalPaid + effectiveInterest));
                     const ratePerSqft = parseFloat(plan.booking_basic_rate_inr_sqft || 0) > 0
                         ? Math.round(parseFloat(plan.booking_basic_rate_inr_sqft))
                         : (plan.carpet_area_sqft > 0
@@ -1027,7 +1051,8 @@ router.post('/generate', async (req, res, next) => {
                         demandRowsWithInterest: rowsWithInterest,
                         totalDue: fmtIndianNumber(totalDue),
                         totalPaid: fmtIndianNumber(totalPaid),
-                        totalInterest: fmtIndianNumber(0),
+                        // Use DB total if available, fallback to live computed value
+                        totalInterest: fmtIndianNumber(Math.round(totalInterestFromDB > 0 ? totalInterestFromDB : totalInterestCalc)),
                         totalInterestCalc: fmtIndianNumber(Math.round(totalInterestCalc)),
                         totalPayable: fmtIndianNumber(totalPayable),
                         totalPayableWithInterest: fmtIndianNumber(totalPayableWithInterest),
