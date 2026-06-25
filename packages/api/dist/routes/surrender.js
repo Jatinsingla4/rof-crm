@@ -114,7 +114,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
                 r.amount_received_inr, r.cheque_no, r.bank_name,
                 r.clearing_date, r.status, r.interest_amount
          FROM receipts r
-         WHERE r.consumer_id = $1 AND r.status != 'cancelled'
+         WHERE r.consumer_id = $1 AND r.status = 'cleared'
          ORDER BY r.received_date ASC`, [consumerId]),
             index_js_1.db.query(`SELECT d.installment_index, d.due_date, d.amount_due_inr,
                 d.cgst_amount, d.sgst_amount, d.status
@@ -339,6 +339,12 @@ router.post('/', async (req, res, next) => {
             if (unitId) {
                 await index_js_1.db.query(`UPDATE units SET status = 'available' WHERE id = $1`, [unitId]);
             }
+            await index_js_1.db.query(`UPDATE demands SET status = 'cancelled'
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         AND demand_type = 'installment'`, [consumerId]);
+            await index_js_1.db.query(`UPDATE demands SET status = 'cancelled'
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         AND demand_type = 'bounce_penalty'`, [consumerId]);
             await index_js_1.db.query('COMMIT');
             return res.status(201).json({ success: true, data: { surrenderId, type: type || 'surrender' } });
         }

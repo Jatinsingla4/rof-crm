@@ -111,6 +111,10 @@ router.get('/daily-status', async (req, res, next) => {
       LEFT JOIN booking_records br ON br.project_id = p.id
       LEFT JOIN payment_plans pp ON pp.project_id = p.id
       LEFT JOIN receipts r ON r.payment_plan_id = pp.id
+        AND r.status = 'cleared'
+        AND r.consumer_id NOT IN (
+          SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
+        )
       GROUP BY p.id, p.name
       ORDER BY p.name
     `);
@@ -129,6 +133,10 @@ router.get('/daily-status', async (req, res, next) => {
         FROM projects p
         LEFT JOIN payment_plans pp ON pp.project_id = p.id
         LEFT JOIN receipts r ON r.payment_plan_id = pp.id
+          AND r.status = 'cleared'
+          AND r.consumer_id NOT IN (
+            SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
+          )
         GROUP BY p.id, p.name
         ORDER BY p.name
       `);

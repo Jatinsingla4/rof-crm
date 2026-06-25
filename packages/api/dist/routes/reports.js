@@ -65,8 +65,16 @@ router.get('/financial-dashboard', async (req, res, next) => {
         // Get financial metrics
         const result = await pool_1.db.query(`SELECT
         COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
-        COALESCE((SELECT SUM(amount_received_inr) FROM receipts), 0) as total_collected,
-        COALESCE(SUM(pp.total_amount_inr), 0) - COALESCE((SELECT SUM(amount_received_inr) FROM receipts), 0) as outstanding,
+        COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2
+                  WHERE r2.status = 'cleared'
+                  AND r2.consumer_id NOT IN (
+                    SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
+                  )), 0) as total_collected,
+        COALESCE(SUM(pp.total_amount_inr), 0) - COALESCE((SELECT SUM(r3.amount_received_inr) FROM receipts r3
+                  WHERE r3.status = 'cleared'
+                  AND r3.consumer_id NOT IN (
+                    SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
+                  )), 0) as outstanding,
         COUNT(DISTINCT d.id) as total_demands,
         COUNT(CASE WHEN d.due_date < NOW() THEN 1 END) as overdue_count
        FROM payment_plans pp
@@ -111,7 +119,11 @@ router.get('/project-dashboard', async (req, res, next) => {
         COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r
                   JOIN payment_plans pp2 ON r.payment_plan_id = pp2.id
-                  WHERE ($1::uuid IS NULL OR pp2.project_id = $1::uuid)), 0) as total_collected
+                  WHERE ($1::uuid IS NULL OR pp2.project_id = $1::uuid)
+                  AND r.status = 'cleared'
+                  AND r.consumer_id NOT IN (
+                    SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
+                  )), 0) as total_collected
        FROM payment_plans pp WHERE ($1::uuid IS NULL OR pp.project_id = $1::uuid)`, [pid]);
         // Get construction milestone progress
         const milestonesResult = await pool_1.db.query(`SELECT
