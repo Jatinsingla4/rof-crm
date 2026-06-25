@@ -933,7 +933,7 @@ function amtWords(amount) {
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
 // ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = []) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = []) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -1314,7 +1314,18 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       </tr></tfoot>
     </table>`;
     // ── SECTION 10 — PAYMENT CONTRIBUTION ────
-    const contribTotal = bookingAmt + cgst + sgst + interest;
+    // Compute cleared receipt totals for Payment Contribution table
+    const clearedReceipts = (receiptRows || []).filter((r) => r.status === 'cleared');
+    // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
+    const clearedBase = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
+    const clearedCgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.cgst_amount || 0), 0);
+    const clearedSgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.sgst_amount || 0), 0);
+    const clearedInterest = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.interest_amount || 0), 0);
+    const contribAmt = clearedBase;
+    const contribCgst = clearedCgst;
+    const contribSgst = clearedSgst;
+    const contribInterest = clearedInterest;
+    const contribTotal = clearedBase + clearedCgst + clearedSgst + clearedInterest;
     const payContribSection = `
     <div ${sectionHd}>Payment Contribution</div>
     <table style="width:100%;border-collapse:collapse;">
@@ -1325,18 +1336,18 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       </tr></thead>
       <tbody><tr>
         <td ${tdL}>Own Contribution</td>
-        <td ${tdR}>${fmtIndianNumber(bookingAmt)}</td>
-        <td ${tdR}>${fmtIndianNumber(cgst)}</td>
-        <td ${tdR}>${fmtIndianNumber(sgst)}</td>
-        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribAmt)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribCgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribSgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribInterest)}</td>
         <td ${tdR}>${fmtIndianNumber(contribTotal)}</td>
       </tr></tbody>
       <tfoot><tr>
         <td ${tdL}><strong>Total</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(bookingAmt)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(cgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(sgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(interest)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribAmt)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribCgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribSgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribInterest)}</strong></td>
         <td ${tdR}><strong>${fmtIndianNumber(contribTotal)}</strong></td>
       </tr></tfoot>
     </table>`;
@@ -2052,7 +2063,7 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
 function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = []) {
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges);
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

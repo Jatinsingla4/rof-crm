@@ -1111,6 +1111,7 @@ function buildApplicantPage1(
   allocation: any | null,
   parkingSlots: any[] = [],
   addonCharges: any[] = [],
+  receiptRows: any[] = [],
 ): string {
 
   // ── derived values ──────────────────────
@@ -1532,7 +1533,18 @@ function buildApplicantPage1(
     </table>`;
 
   // ── SECTION 10 — PAYMENT CONTRIBUTION ────
-  const contribTotal = bookingAmt + cgst + sgst + interest;
+  // Compute cleared receipt totals for Payment Contribution table
+  const clearedReceipts  = (receiptRows || []).filter((r: any) => r.status === 'cleared');
+  // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
+  const clearedBase      = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
+  const clearedCgst      = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.cgst_amount || 0), 0);
+  const clearedSgst      = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.sgst_amount || 0), 0);
+  const clearedInterest  = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.interest_amount || 0), 0);
+  const contribAmt       = clearedBase;
+  const contribCgst      = clearedCgst;
+  const contribSgst      = clearedSgst;
+  const contribInterest  = clearedInterest;
+  const contribTotal     = clearedBase + clearedCgst + clearedSgst + clearedInterest;
   const payContribSection = `
     <div ${sectionHd}>Payment Contribution</div>
     <table style="width:100%;border-collapse:collapse;">
@@ -1543,18 +1555,18 @@ function buildApplicantPage1(
       </tr></thead>
       <tbody><tr>
         <td ${tdL}>Own Contribution</td>
-        <td ${tdR}>${fmtIndianNumber(bookingAmt)}</td>
-        <td ${tdR}>${fmtIndianNumber(cgst)}</td>
-        <td ${tdR}>${fmtIndianNumber(sgst)}</td>
-        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribAmt)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribCgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribSgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(contribInterest)}</td>
         <td ${tdR}>${fmtIndianNumber(contribTotal)}</td>
       </tr></tbody>
       <tfoot><tr>
         <td ${tdL}><strong>Total</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(bookingAmt)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(cgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(sgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(interest)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribAmt)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribCgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribSgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(contribInterest)}</strong></td>
         <td ${tdR}><strong>${fmtIndianNumber(contribTotal)}</strong></td>
       </tr></tfoot>
     </table>`;
@@ -2346,7 +2358,7 @@ export function buildApplicantFileHtml(
   interestCalcRows: any[] = [],
   addonCharges: any[] = [],
 ): string {
-  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges);
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
   const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
 
