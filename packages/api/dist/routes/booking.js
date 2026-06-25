@@ -1599,9 +1599,9 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
       <td ${tdR}>${fmtIndianNumber(ocCgst)}</td>
       <td ${tdR}>${fmtIndianNumber(ocSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
+      <td ${tdR}>${fmtIndianNumber(otherCharge + ocCgst + ocSgst)}</td>
       <td ${tdR}>${fmtIndianNumber(ocReceived)}</td>
-      <td ${tdR}>${fmtIndianNumber(otherCharge - ocReceived)}</td>
+      <td ${tdR}>${fmtIndianNumber((otherCharge + ocCgst + ocSgst) - ocReceived)}</td>
       <td ${tdC}>—</td>
     </tr>`;
     }
@@ -1633,9 +1633,9 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
         <td ${tdBR}>${fmtIndianNumber(addonCgstTotal)}</td>
         <td ${tdBR}>${fmtIndianNumber(addonSgstTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
         <td ${tdBR}>${fmtIndianNumber(addonReceivedTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonNetTotal - addonReceivedTotal)}</td>
+        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal - addonReceivedTotal)}</td>
         <td ${tdBR}></td>
       </tr></tfoot>
     </table>`;

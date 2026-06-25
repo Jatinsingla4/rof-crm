@@ -598,6 +598,8 @@ router.post('/generate', async (req, res, next) => {
               COALESCE(br.booking_amount, 0) AS booking_amount,
               COALESCE(br.basic_rate_inr_sqft, 0) AS booking_basic_rate_inr_sqft,
               COALESCE(br.carpet_area_sqft, 0) AS booking_carpet_area_sqft,
+              COALESCE(br.other_charge_amount, 0) AS other_charge_amount,
+              COALESCE(br.other_charge_desc, '') AS other_charge_desc,
               COALESCE(br.payment_mode, '') AS booking_payment_mode,
               COALESCE(NULLIF(br.payment_ref, ''), '') AS booking_payment_ref,
               COALESCE(NULLIF(br.bank_name, ''), '') AS booking_bank_name,
@@ -732,6 +734,11 @@ router.post('/generate', async (req, res, next) => {
                     else {
                         demandsRes = await index_js_1.db.query(demandQuery, demandParams);
                     }
+                    // Count all template installments for this plan (used to decide Other Charges visibility)
+                    const planSchedCountRes = projectId && planName
+                        ? await index_js_1.db.query(`SELECT COUNT(*) FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [projectId, planName])
+                        : { rows: [{ count: '0' }] };
+                    const totalPlanInstallments = parseInt(planSchedCountRes.rows[0]?.count || '0');
                     // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
                     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
                         index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
@@ -823,14 +830,12 @@ router.post('/generate', async (req, res, next) => {
                         const sgstPct = (defaultSgstPct > 0 || sgst > 0)
                             ? (installment > 0 ? ((sgst / installment) * 100).toFixed(2) : defaultSgstPct.toFixed(2))
                             : '0.00';
-                        // Split into Basic Price (carpet area) and Balcony Charges rows
-                        // Row 1 = rate × true carpet × pct, Row 2 = rate × balcony × pct
-                        const basicAmt = superArea > 0
-                            ? Math.round(bookingBspRate * trueCarpet * pct)
-                            : Math.round(installment * (trueCarpet / (trueCarpet + trueBalcony || 1)));
-                        const balconyAmt = superArea > 0
-                            ? Math.round(bookingBspRate * trueBalcony * pct)
-                            : installment - basicAmt;
+                        // Split into Basic Price (carpet area) and Balcony Charges rows.
+                        // Use installment (DB demand = BSP+IFMS) split by carpet/super ratio —
+                        // ensures rows always sum to the full demand amount.
+                        const carpetOnlyRatio = superArea > 0 ? trueCarpet / superArea : 1;
+                        const basicAmt = Math.round(installment * carpetOnlyRatio);
+                        const balconyAmt = installment - basicAmt;
                         // Use carpet/superArea ratio for GST + interest split —
                         // basicRatio = 1.0 (totalBsp === recalcTotal) so cannot use it here
                         const carpetRatio = superArea > 0 ? trueCarpet / superArea : 1;
@@ -909,6 +914,47 @@ router.post('/generate', async (req, res, next) => {
               <td class="tr bold">${DS(`balconyPayable_${idx}`, `Balcony Payable (Row ${idx})`, balconyPayableWI)}</td>
             </tr>` : ''}`;
                     });
+                    // Other Charges row (IFMS etc.) — appended after all installment rows
+                    const planOtherCharge = parseFloat(plan.other_charge_amount || 0);
+                    const planOtherDesc = plan.other_charge_desc || 'Other Charges';
+                    const planOcCgst = planOtherCharge > 0 ? Math.round(planOtherCharge * defaultCgstPct / 100) : 0;
+                    const planOcSgst = planOtherCharge > 0 ? Math.round(planOtherCharge * defaultSgstPct / 100) : 0;
+                    const planOcDue = planOtherCharge + planOcCgst + planOcSgst;
+                    // Universal rule: show Other Charges row ONLY when ALL installments of
+                    // this payment plan are shown in this demand letter.
+                    const demandsShownCount = demandsRes.rows.length;
+                    const showOtherCharges = planOtherCharge > 0
+                        && totalPlanInstallments > 0
+                        && demandsShownCount >= totalPlanInstallments;
+                    if (showOtherCharges) {
+                        rowsNoInterest += `<tr style="background:#f9f9f9">
+              <td class="tc">—</td>
+              <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
+              <td class="tc">—</td>
+              <td class="tr">${fmtIndianNumber(planOtherCharge)}</td>
+              <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
+              <td class="tr">${fmtIndianNumber(planOcCgst)}</td>
+              <td class="tc">${defaultSgstPct.toFixed(2)}%</td>
+              <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
+              <td class="tr">${fmtIndianNumber(planOcDue)}</td>
+              <td class="tr">0.00</td>
+              <td class="tr bold">${fmtIndianNumber(planOcDue)}</td>
+            </tr>`;
+                        rowsWithInterest += `<tr style="background:#f9f9f9">
+              <td class="tc">—</td>
+              <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
+              <td class="tc">—</td>
+              <td class="tr">${fmtIndianNumber(planOtherCharge)}</td>
+              <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
+              <td class="tr">${fmtIndianNumber(planOcCgst)}</td>
+              <td class="tc">${defaultSgstPct.toFixed(2)}%</td>
+              <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
+              <td class="tr" style="color:#c00">0.00</td>
+              <td class="tr">${fmtIndianNumber(planOcDue)}</td>
+              <td class="tr">0.00</td>
+              <td class="tr bold">${fmtIndianNumber(planOcDue)}</td>
+            </tr>`;
+                    }
                     // Guard against slight overpayment (advance receipt covers base+GST, totalDue tracks base only)
                     const totalPayable = Math.max(0, Math.round(totalDue - totalPaid));
                     const totalPayableWithInterest = Math.max(0, Math.round(totalDue - totalPaid + totalInterestCalc));
