@@ -1022,8 +1022,25 @@ router.get('/:id/applicant-file', async (req, res, next) => {
          LEFT JOIN demands d ON d.id = r.demand_id
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
-         ORDER BY r.received_date ASC, r.created_at ASC`, [consumerId]),
-            index_js_1.db.query(`SELECT installment_index, due_date, status, amount_due_inr, cgst_amount, sgst_amount FROM demands WHERE consumer_id = $1 ORDER BY installment_index ASC`, [consumerId]),
+           AND r.payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )
+         ORDER BY r.received_date ASC, r.created_at ASC`, [consumerId, row.unit_id]),
+            index_js_1.db.query(`SELECT installment_index, due_date, status, amount_due_inr, cgst_amount, sgst_amount
+         FROM demands
+         WHERE consumer_id = $1
+           AND payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )
+         ORDER BY installment_index ASC`, [consumerId, row.unit_id]),
         ]);
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.

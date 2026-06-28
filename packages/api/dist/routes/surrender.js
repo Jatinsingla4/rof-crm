@@ -340,10 +340,10 @@ router.post('/', async (req, res, next) => {
                 await index_js_1.db.query(`UPDATE units SET status = 'available' WHERE id = $1`, [unitId]);
             }
             await index_js_1.db.query(`UPDATE demands SET status = 'cancelled'
-         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded')
          AND demand_type = 'installment'`, [consumerId]);
             await index_js_1.db.query(`UPDATE demands SET status = 'cancelled'
-         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded')
          AND demand_type = 'bounce_penalty'`, [consumerId]);
             await index_js_1.db.query('COMMIT');
             return res.status(201).json({ success: true, data: { surrenderId, type: type || 'surrender' } });

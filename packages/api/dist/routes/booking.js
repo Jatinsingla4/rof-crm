@@ -256,7 +256,8 @@ router.post('/', async (req, res, next) => {
              comm_pin           = COALESCE($6, comm_pin),
              comm_city          = COALESCE($7, comm_city),
              comm_state         = COALESCE($8, comm_state),
-             comm_country       = COALESCE($9, comm_country)
+             comm_country       = COALESCE($9, comm_country),
+             lead_stage         = 'allotted'
          WHERE id = $10`, [registrationNo, formNo, mailing_address_type || 'present', communication_mode || 'email',
                 comm_address_line1 || null, comm_pin || null, comm_city || null, comm_state || null, comm_country || null,
                 consumer_id]);

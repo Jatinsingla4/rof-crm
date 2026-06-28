@@ -389,13 +389,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 
       await db.query(
         `UPDATE demands SET status = 'cancelled'
-         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded')
          AND demand_type = 'installment'`,
         [consumerId],
       );
       await db.query(
         `UPDATE demands SET status = 'cancelled'
-         WHERE consumer_id = $1 AND status IN ('pending', 'overdue')
+         WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded')
          AND demand_type = 'bounce_penalty'`,
         [consumerId],
       );
