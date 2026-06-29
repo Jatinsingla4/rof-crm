@@ -457,7 +457,7 @@ router.get('/demands', async (req, res, next) => {
                  JOIN units u ON u.id = pp.unit_id
                  JOIN projects p ON u.project_id = p.id
                  LEFT JOIN towers tw ON u.tower_id = tw.id
-                 LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id IS NOT NULL
+                 LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id = pp.unit_id
                  LEFT JOIN plan_schedule_templates pst
                    ON pst.project_id = u.project_id
                    AND pst.installment_index = d.installment_index
@@ -467,6 +467,18 @@ router.get('/demands', async (req, res, next) => {
         if (consumerId) {
             query += ` AND d.consumer_id = $${params.length + 1}`;
             params.push(consumerId);
+            const consumerParamIndex = params.length;
+            query += ` AND d.payment_plan_id = (
+        SELECT pp2.id FROM payment_plans pp2
+        WHERE pp2.consumer_id = $${consumerParamIndex}
+          AND pp2.unit_id = (
+            SELECT br.unit_id FROM booking_records br
+            WHERE br.consumer_id = $${consumerParamIndex}
+              AND br.status IN ('complete','pending_payment','active')
+            ORDER BY br.created_at DESC LIMIT 1
+          )
+        ORDER BY pp2.created_at DESC LIMIT 1
+      )`;
         }
         if (projectId) {
             const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -796,6 +808,18 @@ router.get('/receipts', async (req, res, next) => {
         if (consumerId) {
             query += ` AND r.consumer_id = $${params.length + 1}`;
             params.push(consumerId);
+            const consumerParamIndex = params.length;
+            query += ` AND r.payment_plan_id = (
+        SELECT pp2.id FROM payment_plans pp2
+        WHERE pp2.consumer_id = $${consumerParamIndex}
+          AND pp2.unit_id = (
+            SELECT br.unit_id FROM booking_records br
+            WHERE br.consumer_id = $${consumerParamIndex}
+              AND br.status IN ('complete','pending_payment','active')
+            ORDER BY br.created_at DESC LIMIT 1
+          )
+        ORDER BY pp2.created_at DESC LIMIT 1
+      )`;
         }
         if (projectId) {
             query += ` AND pp.project_id = $${params.length + 1}`;
