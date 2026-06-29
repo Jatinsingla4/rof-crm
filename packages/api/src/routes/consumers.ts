@@ -1256,13 +1256,27 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       db.query(
         `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
+           AND payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )
          ORDER BY received_date ASC, created_at ASC`,
-        [consumerId]
+        [consumerId, row.unit_id]
       ),
       db.query(
         `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
-         FROM demands WHERE consumer_id = $1`,
-        [consumerId]
+         FROM demands WHERE consumer_id = $1
+           AND payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )`,
+        [consumerId, row.unit_id]
       ),
     ]);
     row.installment_payments = applyWaterfall(wfRcptsRes.rows, wfDemandsRes.rows).map(w => ({

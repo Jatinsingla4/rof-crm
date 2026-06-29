@@ -162,7 +162,7 @@ router.post('/', async (req, res, next) => {
             // Prevent duplicate bookings: consumer can only have one complete booking
             const existingBooking = await client.query(`SELECT br.id, u.unit_number FROM booking_records br
          LEFT JOIN units u ON u.id = br.unit_id
-         WHERE br.consumer_id = $1 AND br.status = 'complete' LIMIT 1`, [consumer_id]);
+         WHERE br.consumer_id = $1 AND br.status = 'complete' AND br.unit_id = $2 LIMIT 1`, [consumer_id, unit_id]);
             if (existingBooking.rows.length > 0) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({

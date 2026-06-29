@@ -1047,9 +1047,23 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
             index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
-         ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+           AND payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )
+         ORDER BY received_date ASC, created_at ASC`, [consumerId, row.unit_id]),
             index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
-         FROM demands WHERE consumer_id = $1`, [consumerId]),
+         FROM demands WHERE consumer_id = $1
+           AND payment_plan_id = (
+             SELECT id FROM payment_plans
+             WHERE consumer_id = $1
+               AND unit_id = $2
+             ORDER BY created_at DESC
+             LIMIT 1
+           )`, [consumerId, row.unit_id]),
         ]);
         row.installment_payments = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsRes.rows, wfDemandsRes.rows).map(w => ({
             installment_index: w.installment_index,
