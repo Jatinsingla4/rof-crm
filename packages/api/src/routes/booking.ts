@@ -344,7 +344,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
              comm_city          = COALESCE($7, comm_city),
              comm_state         = COALESCE($8, comm_state),
              comm_country       = COALESCE($9, comm_country),
-             lead_stage         = 'allotted'
+             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
          WHERE id = $10`,
         [registrationNo, formNo, mailing_address_type||'present', communication_mode||'email',
          comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
