@@ -347,7 +347,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
   try {
 
-    let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
+    let query = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
                         COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
                         b.name as broker_name,
@@ -615,8 +615,7 @@ router.patch('/:id', requireProcess('edit_applicant', 'maker'), async (req: Auth
 
     const result = await db.query(
       `UPDATE consumers
-       SET name                = COALESCE($1,  name),
-           email               = COALESCE($2,  email),
+       SET email               = COALESCE($2,  email),
            income_category     = COALESCE($3,  income_category),
            lead_stage          = COALESCE($4,  lead_stage),
            present_address     = COALESCE($5,  present_address),

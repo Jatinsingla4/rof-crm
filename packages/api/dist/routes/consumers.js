@@ -280,7 +280,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
 router.get('/', async (req, res, next) => {
     const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, firstName, middleName, lastName, secondApplicant, secondApplicantPan, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
     try {
-        let query = `SELECT c.id, c.name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
+        let query = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
                         COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
                         b.name as broker_name,
@@ -494,8 +494,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
         // New fields (migration 035)
         father_name, anniversary_date, marital_status, no_of_children, passport_no, email_2, designation, has_poa, } = req.body;
         const result = await index_js_1.db.query(`UPDATE consumers
-       SET name                = COALESCE($1,  name),
-           email               = COALESCE($2,  email),
+       SET email               = COALESCE($2,  email),
            income_category     = COALESCE($3,  income_category),
            lead_stage          = COALESCE($4,  lead_stage),
            present_address     = COALESCE($5,  present_address),
