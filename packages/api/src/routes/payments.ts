@@ -2141,6 +2141,27 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
           ${TDR(SF('rowTotal_1','Row Total (Row 1)',pmtFmtAmt(basicGross),'currency',' data-gst-type="basic"'))}
         </tr>`;
     }
+  } else if (currentInst == null && r.installment_index == null && r.demand_id == null) {
+    // Other payment — no installment/demand link; render one row directly from receipt's own amounts
+    const otherGross = totalAmount;
+    const otherCgst  = isNri ? 0 : parseFloat(r.cgst_amount || 0);
+    const otherSgst  = isNri ? 0 : parseFloat(r.sgst_amount || 0);
+    const otherNet   = otherGross - otherCgst - otherSgst;
+    if (otherGross > 0) {
+      sNo++;
+      sumNet += otherNet; sumCgst += otherCgst; sumSgst += otherSgst; sumGross += otherGross;
+      tableBodyRows += `
+        <tr>
+          ${TDC(String(sNo))}
+          ${TDx(SF('installmentName_'+sNo,'Installment (Row '+sNo+')','Payment','text'))}
+          ${TDx(SF('chargeType_'+sNo,'Charge Type (Row '+sNo+')','Basic','text'))}
+          ${TDC(SF('hsnSac_'+sNo,'HSN/SAC (Row '+sNo+')',pmtEsc(hsnSacCode),'text'))}
+          ${TDR(SF('amountNet_'+sNo,'Amount (Row '+sNo+')',pmtFmtAmt(otherNet),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('cgstAmount_'+sNo,'CGST (Row '+sNo+')',pmtFmtAmt(otherCgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('sgstAmount_'+sNo,'SGST (Row '+sNo+')',pmtFmtAmt(otherSgst),'currency',' data-gst-type="basic"'))}
+          ${TDR(SF('rowTotal_'+sNo,'Row Total (Row '+sNo+')',pmtFmtAmt(otherGross),'currency',' data-gst-type="basic"'))}
+        </tr>`;
+    }
   }
 
   // ── ADDON CHARGE ROWS ─────────────────────────────────────────────────
