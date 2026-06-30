@@ -818,6 +818,49 @@
         </div>
       </div>
       <div class="gstc-card">
+        <div class="gstc-card-title">CREATE GST CHARGE MAPPING</div>
+        <div class="gstc-card-body">
+          <div id="gstc-map-create-msg"></div>
+          <div class="gstc-form-row">
+            <div class="gstc-field">
+              <label>*Project:</label>
+              <select id="gstc-map-add-proj" style="min-width:180px">
+                <option value="">&lt;-Select-&gt;</option>
+                ${projOpts}
+              </select>
+            </div>
+            <div class="gstc-field">
+              <label>*Slab:</label>
+              <select id="gstc-map-add-slab" style="min-width:180px" onchange="GSTConfig.onMapSlabChange()">
+                <option value="">&lt;-Select-&gt;</option>
+                ${slabOpts}
+              </select>
+            </div>
+            <div class="gstc-field">
+              <label>*Charge Type:</label>
+              <select id="gstc-map-add-chargetype" style="min-width:160px">
+                <option value="">&lt;-Select-&gt;</option>
+                <option value="BASIC">BASIC</option>
+                <option value="PLC">PLC</option>
+                <option value="OTHER CHARGE">OTHER CHARGE</option>
+                <option value="IFMS">IFMS</option>
+                <option value="EXTRA ADD ON">EXTRA ADD ON</option>
+                <option value="OTHERS">OTHERS</option>
+              </select>
+            </div>
+            <div class="gstc-field">
+              <label>*Rate:</label>
+              <select id="gstc-map-add-rate" style="min-width:220px">
+                <option value="">&lt;-Select Slab First-&gt;</option>
+              </select>
+            </div>
+            <div class="gstc-field" style="justify-content:flex-end">
+              <button class="gstc-btn-save" onclick="GSTConfig.saveChargeMap()">SAVE</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="gstc-card">
         <div class="gstc-card-title">GST TAX CHARGE MAPPING</div>
         <div style="overflow-x:auto">
           <table class="gstc-table">
@@ -862,6 +905,52 @@
       await _fetchChargeMap();
     } catch (e) {
       alert('Error: ' + e.message);
+    }
+  }
+
+  async function _onMapSlabChange() {
+    const slabId = document.getElementById('gstc-map-add-slab')?.value;
+    const rateSelect = document.getElementById('gstc-map-add-rate');
+    if (!slabId) {
+      rateSelect.innerHTML = '<option value="">&lt;-Select Slab First-&gt;</option>';
+      return;
+    }
+    rateSelect.innerHTML = '<option value="">Loading...</option>';
+    try {
+      const r = await _api('GET', '/gst-tax-setup?slabId=' + slabId);
+      const rows = r.data || [];
+      if (rows.length === 0) {
+        rateSelect.innerHTML = '<option value="">No rates for this slab</option>';
+        return;
+      }
+      rateSelect.innerHTML = '<option value="">&lt;-Select-&gt;</option>' +
+        rows.map(t =>
+          `<option value="${t.id}">${_esc(t.gst_code)} (CGST ${t.cgst_pct}% / SGST ${t.sgst_pct}%)</option>`
+        ).join('');
+    } catch (e) {
+      rateSelect.innerHTML = '<option value="">Error loading rates</option>';
+    }
+  }
+
+  async function _saveChargeMap() {
+    const projectId  = document.getElementById('gstc-map-add-proj')?.value;
+    const slabId     = document.getElementById('gstc-map-add-slab')?.value;
+    const chargeType = document.getElementById('gstc-map-add-chargetype')?.value;
+    const gstTaxId   = document.getElementById('gstc-map-add-rate')?.value;
+    const msgEl      = document.getElementById('gstc-map-create-msg');
+
+    if (!projectId || !slabId || !chargeType || !gstTaxId) {
+      msgEl.innerHTML = '<div class="gstc-msg-error">All fields are required.</div>';
+      return;
+    }
+    try {
+      const r = await _api('POST', '/gst-charge-mapping', { projectId, slabId, gstTaxId, chargeType });
+      if (!r.success) throw new Error(r.error || 'Failed to save mapping.');
+      msgEl.innerHTML = '<div class="gstc-msg-success">Mapping saved successfully.</div>';
+      document.getElementById('gstc-map-add-chargetype').value = '';
+      document.getElementById('gstc-map-add-rate').innerHTML = '<option value="">&lt;-Select Slab First-&gt;</option>';
+    } catch (e) {
+      msgEl.innerHTML = '<div class="gstc-msg-error">' + _esc(e.message || 'Failed to save mapping.') + '</div>';
     }
   }
 
@@ -1115,6 +1204,8 @@
     fetchChargeMap:      _fetchChargeMap,
     openAddonConfig:     _openAddonConfig,
     deleteChargeMap:     _deleteChargeMap,
+    onMapSlabChange:     _onMapSlabChange,
+    saveChargeMap:       _saveChargeMap,
     saveGstin:           _saveGstin,
     editGstin:           _editGstin,
     loadTowersForRera:   _loadTowersForRera,
