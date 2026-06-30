@@ -1120,10 +1120,10 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {
-            const existing = await index_js_1.db.query(`SELECT id FROM documents WHERE document_type = 'applicant_file' AND consumer_id = $1 LIMIT 1`, [consumerId]);
+            const existing = await index_js_1.db.query(`SELECT id FROM documents WHERE document_type = 'applicant_file' AND consumer_id = $1 AND reference_id = COALESCE($2::uuid, $1::uuid) LIMIT 1`, [consumerId, row.unit_id || null]);
             if (existing.rows.length === 0) {
                 const docInsert = await index_js_1.db.query(`INSERT INTO documents (document_type, consumer_id, html_content, reference_id, document_subtype, version_number, edit_count, is_edited, created_by_user_id)
-           VALUES ('applicant_file', $1, $2, $1, 'applicant_file', 1, 0, FALSE, $3) RETURNING id`, [consumerId, html, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa']);
+           VALUES ('applicant_file', $1, $2, COALESCE($4::uuid, $1::uuid), 'applicant_file', 1, 0, FALSE, $3) RETURNING id`, [consumerId, html, req.userId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', row.unit_id || null]);
                 applicantDocId = docInsert.rows[0].id;
                 await index_js_1.db.query(`INSERT INTO document_versions (document_id, version_number, html_content, is_original, edit_reason)
            VALUES ($1, 1, $2, TRUE, 'Original generation')`, [applicantDocId, html]);
