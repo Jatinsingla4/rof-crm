@@ -9,6 +9,7 @@ import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
+import { resolveGstForComponents } from '../utils/gst-resolver.js';
 
 const router = Router();
 
@@ -390,7 +391,7 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
       SELECT pp.id as payment_plan_id, pp.consumer_id, pp.unit_id, pp.project_id,
              pp.total_amount_inr, c.name as consumer_name,
              COALESCE(c.nationality, 'indian') as nationality,
-             br.booking_date
+             br.booking_date, br.plc_amount, br.other_charge_amount
       FROM payment_plans pp
       JOIN consumers c ON c.id = pp.consumer_id
       LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id IS NOT NULL
@@ -410,13 +411,6 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
     if (plans.rows.length === 0) {
       return res.status(404).json({ error: 'No payment plans found for the given criteria' });
     }
-
-    const gstRes = await db.query(
-      `SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`
-    );
-    const gstMap = Object.fromEntries(gstRes.rows.map((r: any) => [r.key, parseFloat(r.value)]));
-    const basicCgstPct = (gstMap['basic_cgst_percent'] ?? 0.5) / 100;
-    const basicSgstPct = (gstMap['basic_sgst_percent'] ?? 0.5) / 100;
 
     let totalCreated = 0;
     const created: any[] = [];
@@ -442,6 +436,12 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
       }
       if (!resolvedPlanName) continue;
 
+      const projectNameRes = await db.query(
+        'SELECT name FROM projects WHERE id = $1',
+        [plan.project_id]
+      );
+      const projectName = projectNameRes.rows[0]?.name || plan.project_id;
+
       // Get installment templates for this plan
       const templates = await db.query(
         `SELECT installment_index, installment_name, percentage, installment_type, COALESCE(due_date_offset_days, 30) as due_date_offset_days
@@ -462,14 +462,26 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
         const pct = parseFloat(tmpl.percentage) / 100;
         const amountDue = Math.round(plan.total_amount_inr * pct);
 
-        // GST: AHP rate is 1% total. Residents pay 0.5% CGST + 0.5% SGST.
-        // NRIs pay IGST instead (intrastate split doesn't apply); store as 0 CGST/SGST.
-        // Rates are read from global_settings (basic_cgst_percent / basic_sgst_percent).
-        const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
-        const cgstAmount = isNri ? 0 : Math.round(amountDue * basicCgstPct);
-        const sgstAmount = isNri ? 0 : Math.round(amountDue * basicSgstPct);
-
         const bookingDate = plan.booking_date || new Date().toISOString().split('T')[0];
+        const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
+        const plcAmt = parseFloat(plan.plc_amount || 0);
+        const otherAmt = parseFloat(plan.other_charge_amount || 0);
+        const basicAmt = plan.total_amount_inr - plcAmt - otherAmt;
+        const basicPortion = Math.round(basicAmt * pct);
+        const plcPortion = Math.round(plcAmt * pct);
+        const otherPortion = Math.round(otherAmt * pct);
+        const { cgstAmount, sgstAmount } = await resolveGstForComponents(
+          db,
+          plan.project_id,
+          projectName,
+          bookingDate,
+          isNri,
+          [
+            { chargeType: 'BASIC', amount: basicPortion },
+            { chargeType: 'PLC', amount: plcPortion },
+            { chargeType: 'OTHER CHARGE', amount: otherPortion },
+          ]
+        );
         const offsetDays = tmpl.due_date_offset_days || 0;
         const dueDate = offsetDays > 0
           ? new Date(new Date(bookingDate).getTime() + offsetDays * 24 * 60 * 60 * 1000)

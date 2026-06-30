@@ -6,6 +6,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { resolveGstForComponents } from '../utils/gst-resolver.js';
 
 const router = Router();
 
@@ -808,13 +809,46 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
               : safeLocalDate(new Date());
+
+            const projectRes = await client.query(
+              'SELECT name FROM projects WHERE id = $1',
+              [booking.project_id]
+            );
+            const projectName = projectRes.rows[0]?.name || booking.project_id;
+
+            const consumerRes = await client.query(
+              'SELECT nationality FROM consumers WHERE id = $1',
+              [booking.consumer_id]
+            );
+            const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
+              .includes(consumerRes.rows[0]?.nationality);
+
             for (const tmpl of templates.rows) {
               const pct = parseFloat(tmpl.percentage || 0) / 100;
               const amountDue = tmpl.flat_amount_inr
                 ? parseInt(tmpl.flat_amount_inr)
                 : Math.round(totalAmount * pct);
-              const cgstAmount = Math.round(amountDue * 0.005);
-              const sgstAmount = Math.round(amountDue * 0.005);
+              const basicPortion = tmpl.flat_amount_inr
+                ? amountDue
+                : Math.round(basicCost * pct);
+              const plcPortion = tmpl.flat_amount_inr
+                ? 0
+                : Math.round(parseFloat(booking.plc_amount || 0) * pct);
+              const otherPortion = tmpl.flat_amount_inr
+                ? 0
+                : Math.round(parseFloat(booking.other_charge_amount || 0) * pct);
+              const { cgstAmount, sgstAmount } = await resolveGstForComponents(
+                client,
+                booking.project_id,
+                projectName,
+                bookingDateStr,
+                isNri,
+                [
+                  { chargeType: 'BASIC', amount: basicPortion },
+                  { chargeType: 'PLC', amount: plcPortion },
+                  { chargeType: 'OTHER CHARGE', amount: otherPortion },
+                ]
+              );
               const offsetDays = parseInt(tmpl.due_date_offset_days || 0);
               // Two separate queries to avoid unreferenced $4/$5 params when due_date is NULL
               if (offsetDays > 0) {
