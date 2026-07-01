@@ -107,6 +107,14 @@ function buildInterestRows(receipts, demands, penalRate, options) {
             applyCredit(applied, entry.received_date);
         }
         if (!anyApplied) {
+            const asOf = options?.asOfDate ?? null;
+            const delayDays = asOf && dueDate
+                ? Math.max(0, Math.floor((asOf.getTime() - dueDate.getTime()) / 86400000))
+                : 0;
+            const intPeriod = Math.max(0, delayDays - graceDays);
+            const intAmt = dueAmt > 0 && intPeriod > 0
+                ? Math.round(dueAmt * effectiveRate / 100 / 365 * intPeriod * 100) / 100
+                : 0;
             rows.push({
                 installment_name: demand.installment_name,
                 installment_index: demand.installment_index,
@@ -115,11 +123,11 @@ function buildInterestRows(receipts, demands, penalRate, options) {
                 amount_received: 0,
                 date_received: null,
                 delay_amount: dueAmt,
-                delay_days: 0,
+                delay_days: delayDays,
                 grace_period: graceDays,
-                interest_period: 0,
+                interest_period: intPeriod,
                 roi: effectiveRate,
-                interest_amount: 0,
+                interest_amount: intAmt,
                 is_first_receipt: true,
             });
         }

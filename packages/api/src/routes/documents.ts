@@ -9,7 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { applyRecalc, extractFieldValue, buildEditScript } from '../utils/document-recalc.js';
 import { writebackField, WritebackContext } from '../utils/document-writeback.js';
-import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
+import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
 
 const router = Router();
 
@@ -589,7 +589,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             SELECT
               c.name AS consumer_name, c.father_name, c.mobile, c.email,
               c.registration_no, c.income_category, c.present_address,
-              c.nationality,
+              c.nationality, c.interest_start_date, c.grace_period_days,
               COALESCE(u_al.unit_number, u_pp.unit_number, u_br.unit_number) AS unit_number,
               COALESCE(u_al.bhk_type, u_pp.bhk_type, u_br.bhk_type) AS bhk_type,
               COALESCE(u_al.carpet_area_sqft, u_pp.carpet_area_sqft, u_br.carpet_area_sqft) AS carpet_area_sqft,
@@ -811,6 +811,43 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           const totalInterestFromDB =
             piRes.rows.reduce((sum, r) => sum + Number(r.net_interest_inr), 0);
 
+          // Build interest map via buildInterestRows (same logic as applicant file).
+          // Uses actual receipt dates for paid demands; asOfDate for still-unpaid ones.
+          const letterAsOfDate = dueDate
+            ? new Date(dueDate + 'T00:00:00')
+            : new Date();
+          const demandsForIR = demandsRes.rows
+            .filter((d: any) => !!d.demand_id)
+            .map((d: any) => ({
+              id: String(d.demand_id),
+              installment_index: Number(d.installment_index),
+              installment_name: String(d.installment_name || d.demand_type || '—'),
+              due_date: d.due_date || null,
+              amount_due_inr: d.amount_due_inr,
+              interest_rate_percent: null as number | null,
+            }));
+          const irRows = buildInterestRows(
+            wfRcptsRes.rows,
+            demandsForIR,
+            parseFloat(String(penalRate)) || 15,
+            {
+              interestStartDate: plan.interest_start_date
+                ? new Date(String(plan.interest_start_date))
+                : null,
+              gracePeriodDays: parseInt(String(plan.grace_period_days || 0)),
+              asOfDate: letterAsOfDate,
+            }
+          );
+          // Sum interest per installment_index (partial payments may produce multiple rows)
+          const irMap = new Map<number, number>();
+          for (const ir of irRows) {
+            irMap.set(ir.installment_index, (irMap.get(ir.installment_index) || 0) + ir.interest_amount);
+          }
+          // piMap overrides take precedence (admin-approved amounts)
+          for (const [idx, piAmt] of piMap.entries()) {
+            if (piAmt > 0) irMap.set(idx, piAmt);
+          }
+
           let totalDue = 0, totalPaid = 0, totalCgst = 0, totalSgst = 0;
           let totalInterestCalc = 0;  // always-calculated interest for with-interest mode
 
@@ -876,19 +913,9 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             }
             // else: milestone-based with no stored date → dueDateVal stays null → renders '—'
 
-            // Invoice date = today at local midnight for accurate day counting
-            const invoiceDate = new Date();
-            invoiceDate.setHours(0, 0, 0, 0);
-            const daysOverdue = dueDateVal
-              ? Math.max(0, Math.floor((invoiceDate.getTime() - dueDateVal.getTime()) / 86400000))
-              : 0;
-            // Use DB-approved interest if exists (respects admin approval + waivers).
-            // Fall back to live formula only if no penal_interests record exists.
-            const rowInterest = piMap.has(dm.installment_index)
-              ? piMap.get(dm.installment_index)!
-              : daysOverdue > 0
-                ? parseFloat((installment * (penalRate / 100) * daysOverdue / 365).toFixed(2))
-                : 0;
+            // Interest from buildInterestRows (uses actual receipt dates for paid demands,
+            // accrues to letterAsOfDate for unpaid; piMap overrides already applied to irMap).
+            const rowInterest = irMap.get(dm.installment_index) || 0;
 
             totalDue += amtDue;
             totalPaid += amtPaid;
