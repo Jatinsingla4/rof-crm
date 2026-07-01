@@ -725,7 +725,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               AND pst.plan_name = $3
               AND pst.installment_index = d.installment_index
             WHERE d.payment_plan_id = $1
-              AND d.status IN ('demanded', 'pending', 'paid')
+              AND d.status IN ('demanded', 'paid')
               AND d.due_date IS NOT NULL
               AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
@@ -752,7 +752,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               LEFT JOIN plan_schedule_templates pst2
                 ON pst2.project_id = pp2.project_id AND pst2.installment_index = d.installment_index
               WHERE d.consumer_id = $1
-                AND d.status IN ('demanded', 'pending', 'paid')
+                AND d.status IN ('demanded', 'paid')
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;

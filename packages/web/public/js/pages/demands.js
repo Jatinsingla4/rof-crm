@@ -216,7 +216,7 @@ const DemandsPage = {
               <td><span class="chip ${clsMap[dtype]||'ch-blue'}">${typeMap[dtype]||dtype}</span></td>
               <td><span class="chip ${statusChipCls}">${statusChipTxt}</span></td>
               <td><div style="display:flex;gap:3px">
-                <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this)">Print</button>
+                <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this,'${dueDate||''}')">Print</button>
                 ${paid ? '' : `<button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>`}
               </div></td>
             </tr>`;
@@ -325,7 +325,7 @@ const DemandsPage = {
                 <td><span class="chip ${statusChipCls}">${statusChipTxt}</span></td>
                 <td style="font-size:10.5px">${sent ? Utils.date(d.sent_at||d.sentAt) : '—'}</td>
                 <td><div style="display:flex;gap:3px">
-                  <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this)">Print</button>
+                  <button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${d.consumer_id}','${d.id}',this,'${dueDate||''}')">Print</button>
                   ${paid ? '' : `<button class="btn ${sent?'btn-ghost':'btn-teal'} btn-sm" onclick="DemandsPage.sendDemand('${d.id}',this)">${sent?'Re-Send':'Send'}</button>`}
                 </div></td>
               </tr>`;
@@ -432,13 +432,15 @@ const DemandsPage = {
     });
   },
 
-  async printDemandLetter(consumerId, demandId, btn) {
+  async printDemandLetter(consumerId, demandId, btn, dueDate) {
     if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
     try {
+      const normalizedDueDate = dueDate ? new Date(dueDate).toLocaleDateString('en-CA') : null;
       const genRes = await Api.post('/documents/generate', {
         consumerId,
         documentType: 'demand_letter',
         demandId,
+        dueDate: normalizedDueDate || null,
         includeInterest: true,
       });
       const documentId = genRes.data?.documentId || genRes.documentId;

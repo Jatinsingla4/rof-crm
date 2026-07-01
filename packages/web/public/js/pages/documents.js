@@ -1146,7 +1146,7 @@ const DocsPage = {
       const token=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';
       const res=await fetch('/api/documents/generate',{
         method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-        body:JSON.stringify({documentType:'demand_letter',consumerId,includeAllDemands:true,dueDate:new Date().toISOString().split('T')[0]}),
+        body:JSON.stringify({documentType:'demand_letter',consumerId,dueDate:document.getElementById('dpr-due-date')?.value||new Date().toISOString().split('T')[0]}),
       });
       const json=await res.json();
       const docId=json.data?.documentId||json.documentId;

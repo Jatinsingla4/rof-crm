@@ -261,7 +261,7 @@ const DS = {
       const res = await fetch('/api/documents/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ consumerId, documentType: 'demand_letter', includeAllDemands: true, dueDate: today }),
+        body: JSON.stringify({ consumerId, documentType: 'demand_letter', dueDate: document.getElementById('ds-due-to')?.value || today }),
       });
       const json = await res.json();
       if (!json.success && !json.documentId && !json.data?.html) throw new Error(json.error || 'Generation failed');

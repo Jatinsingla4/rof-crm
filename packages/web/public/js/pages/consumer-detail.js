@@ -407,7 +407,7 @@ const ConsumerDetailPage = {
                     <td style="color:var(--warn)">${Utils.date(d.due_date||d.dueDate)}</td>
                     <td><span class="chip ${chipCls}">${dtype}</span></td>
                     <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
-                    <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this)">Print</button></td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this,'${d.due_date||d.dueDate||''}')">Print</button></td>
                   </tr>`;}).join('')}
           </tbody>
         </table>`;
