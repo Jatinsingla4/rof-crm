@@ -1216,11 +1216,13 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
                 r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
                 r.bank_name, r.branch, r.interest_amount, r.status,
                 r.deposit_date, r.clearing_date, r.hold_remark,
-                COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
-                COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * 0.005)) AS sgst_amount,
+                COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
+                COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount,
                 COALESCE(d.demand_type, 'Booking') AS on_account_of
          FROM receipts r
          LEFT JOIN demands d ON d.id = r.demand_id
+         LEFT JOIN payment_plans pp2 ON pp2.id = r.payment_plan_id
+         LEFT JOIN projects proj ON proj.id = pp2.project_id
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
            AND r.payment_plan_id = (

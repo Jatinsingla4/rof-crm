@@ -2097,8 +2097,10 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
       }
       if (balconyInstGross > 0) {
         sNo++;
-        const balcCgst  = isNri ? 0 : Math.round(balconyInstGross * basicCgstPct / 100);
-        const balcSgst  = isNri ? 0 : Math.round(balconyInstGross * basicSgstPct / 100);
+        const effectiveCgstRate = currentInst ? parseFloat(String(currentInst.cgst_amount || 0)) / (parseFloat(String(currentInst.amount_due_inr || 1)) || 1) : basicCgstPct / 100;
+        const effectiveSgstRate = currentInst ? parseFloat(String(currentInst.sgst_amount || 0)) / (parseFloat(String(currentInst.amount_due_inr || 1)) || 1) : basicSgstPct / 100;
+        const balcCgst  = isNri ? 0 : Math.round(balconyInstGross * effectiveCgstRate);
+        const balcSgst  = isNri ? 0 : Math.round(balconyInstGross * effectiveSgstRate);
         const balcTotal = balconyInstGross + balcCgst + balcSgst;
         sumNet += balconyInstGross; sumCgst += balcCgst; sumSgst += balcSgst; sumGross += balcTotal;
         tableBodyRows += `
@@ -2449,8 +2451,8 @@ router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: N
           u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr, u.total_price_inr,
           u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
           pp.total_amount_inr AS plan_total_inr,
-          COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * 0.005)) AS cgst_amount,
-          COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * 0.005)) AS sgst_amount
+          COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
+          COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount
         FROM receipts r
         JOIN consumers c ON c.id = r.consumer_id
         LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
@@ -3125,8 +3127,8 @@ function buildReceiptDetailHtml(rows: any[]): string {
     const drows: any[] = [];
     let sno = 1;
     const basicAmt  = parseFloat(String(r.amount_received_inr || 0));
-    const basicCgst = basicAmt * 0.005;
-    const basicSgst = basicAmt * 0.005;
+    const basicCgst = parseFloat(String(r.cgst_amount || 0));
+    const basicSgst = parseFloat(String(r.sgst_amount || 0));
     drows.push({ sno: sno++, installmentName: r.installment_name || '—', head: 'Basic Price', amount: basicAmt, cgst: basicCgst, sgst: basicSgst, netAmount: basicAmt });
 
     if (parseFloat(String(r.plc_amount || 0)) > 0) {
@@ -3168,13 +3170,13 @@ function buildReceiptDetailHtml(rows: any[]): string {
     const extra = parseFloat(String(r.plc_amount || 0)) + parseFloat(String(r.edc_amount || 0))
                 + parseFloat(String(r.idc_amount || 0)) + parseFloat(String(r.other_charge_amount || 0));
     // amt is inclusive of GST — GST is informational only, not added to net
-    totalAmount += amt; totalGst += amt * 0.01; totalInterest += intr; totalExtraCharge += extra;
+    totalAmount += amt; totalGst += parseFloat(String(r.cgst_amount || 0)) + parseFloat(String(r.sgst_amount || 0)); totalInterest += intr; totalExtraCharge += extra;
     totalNet += amt + intr + extra;
   });
 
   const receiptRowsHtml = rows.map((r: any, idx: number) => {
     const amt   = parseFloat(String(r.amount_received_inr || 0));
-    const gst   = amt * 0.01; // back-calculated for display column only — inclusive in amt
+    const gst   = parseFloat(String(r.cgst_amount || 0)) + parseFloat(String(r.sgst_amount || 0));
     const intr  = parseFloat(String(r.interest_amount || 0));
     const extra = parseFloat(String(r.plc_amount || 0)) + parseFloat(String(r.edc_amount || 0))
                 + parseFloat(String(r.idc_amount || 0)) + parseFloat(String(r.other_charge_amount || 0));
@@ -3341,13 +3343,16 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
         c.registration_no,
         p.name  AS project_name,
         un.unit_number,
-        t.tower_name
+        t.tower_name,
+        COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
+        COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount
       FROM receipts r
       JOIN consumers c    ON c.id  = r.consumer_id
       JOIN payment_plans pp ON pp.id = r.payment_plan_id
       JOIN units un        ON un.id = pp.unit_id
       JOIN projects p      ON p.id  = pp.project_id
       LEFT JOIN towers t   ON t.id  = un.tower_id
+      LEFT JOIN demands d  ON d.id  = r.demand_id
       LEFT JOIN users u    ON u.id  = r.received_by_user_id
       LEFT JOIN LATERAL (
         SELECT installment_name

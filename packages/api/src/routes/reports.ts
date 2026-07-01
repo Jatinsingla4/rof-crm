@@ -1471,8 +1471,8 @@ router.get('/customer-dues', async (req: AuthRequest, res: Response, next: NextF
         -- RECEIVED
         0 AS received_pending,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_clear,
-        COALESCE((SELECT ROUND(SUM(r.amount_received_inr)*0.005,2) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_cgst,
-        COALESCE((SELECT ROUND(SUM(r.amount_received_inr)*0.005,2) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_sgst,
+        COALESCE((SELECT ROUND(SUM(COALESCE(d.cgst_amount, r.amount_received_inr*0.005)),2) FROM receipts r LEFT JOIN demands d ON d.id = r.demand_id WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_cgst,
+        COALESCE((SELECT ROUND(SUM(COALESCE(d.sgst_amount, r.amount_received_inr*0.005)),2) FROM receipts r LEFT JOIN demands d ON d.id = r.demand_id WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_sgst,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_total,
 
         -- CREDIT
