@@ -316,7 +316,7 @@ const ReportsPage = {
           <td>${u.bhk_type}</td>
           <td>${u.super_area_sqft}</td>
           <td>${Utils.chip(u.status)}</td>
-          <td>${u.consumer_name || '—'}</td>
+          <td>${u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name || '—')}</td>
           <td style="font-size:10px">${u.broker_name || '—'}</td>
           <td>${u.registry_status ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}</td>
         </tr>`)
@@ -1494,7 +1494,7 @@ const ReportsPage = {
         return `<tr>
           <td style="${aC}">${i+1}</td>
           <td>${r.registration_no || '—'}</td>
-          <td style="font-weight:600">${r.consumer_name}</td>
+          <td style="font-weight:600"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name}</a></td>
           <td>${r.mobile || '—'}</td>
           <td>${r.project_name}</td>
           <td>${r.tower_name || '—'}</td>
@@ -3138,7 +3138,7 @@ const ReportsPage = {
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
           <td>${fmtDate(r.booking_date)}</td>
-          <td class="td-bold">${(r.consumer_name || '').trim() || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${(r.consumer_name || '').trim() || '—'}</a></td>
           <td>${r.registration_no || '—'}</td>
           <td>${r.mobile || '—'}</td>
           <td>${r.project_name || '—'}</td>
@@ -3192,7 +3192,7 @@ const ReportsPage = {
         ['#', 'Consumer', 'Reg. No.', 'Project', 'Tower', 'Unit', 'BHK', 'Booking Amt', 'TDS @1%', 'Challan No.', 'Challan Date', 'TDS Paid', 'FY', 'Qtr', 'Status'],
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold">${(r.consumer_name || '').trim() || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${(r.consumer_name || '').trim() || '—'}</a></td>
           <td>${r.registration_no || '—'}</td>
           <td>${r.project_name || '—'}</td>
           <td>${r.tower_name || '—'}</td>

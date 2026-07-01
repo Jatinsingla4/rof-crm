@@ -566,7 +566,7 @@ router.get('/inventory-full', async (req: AuthRequest, res: Response, next: Next
     );
 
     const units = await db.query(
-      `SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name
+      `SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name, a.consumer_id
        FROM units u
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN allocations a ON u.id = a.unit_id AND a.status = 'allotted'
@@ -1150,6 +1150,7 @@ router.get('/due-report', async (req: AuthRequest, res: Response, next: NextFunc
     const dataQuery = `
       SELECT
         c.registration_no,
+        c.id AS consumer_id,
         TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS consumer_name,
         c.mobile,
         u.unit_number,
@@ -2320,6 +2321,7 @@ router.get('/booking-authentication', async (req: AuthRequest, res: Response, ne
         br.status,
         br.remarks,
         br.created_at,
+        c.id AS consumer_id,
         c.first_name || ' ' || COALESCE(c.last_name, '') AS consumer_name,
         c.mobile,
         c.registration_no,
@@ -2360,6 +2362,7 @@ router.get('/tds-status', async (req: AuthRequest, res: Response, next: NextFunc
         c.first_name || ' ' || COALESCE(c.last_name, '') AS consumer_name,
         c.registration_no,
         c.mobile,
+        c.id AS consumer_id,
         p.name          AS project_name,
         t.tower_name,
         u.unit_number,

@@ -471,7 +471,7 @@ router.get('/inventory-full', async (req, res, next) => {
         COUNT(CASE WHEN status::text = 'held' OR hold_status = true THEN 1 END) as hold,
         SUM(super_area_sqft) as total_area
        FROM units WHERE ($1::uuid IS NULL OR project_id = $1::uuid)`, [pid]);
-        const units = await pool_1.db.query(`SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name
+        const units = await pool_1.db.query(`SELECT u.*, t.tower_name, c.name as consumer_name, b.name as broker_name, a.consumer_id
        FROM units u
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN allocations a ON u.id = a.unit_id AND a.status = 'allotted'
@@ -1021,6 +1021,7 @@ router.get('/due-report', async (req, res, next) => {
         const dataQuery = `
       SELECT
         c.registration_no,
+        c.id AS consumer_id,
         TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS consumer_name,
         c.mobile,
         u.unit_number,
@@ -2164,6 +2165,7 @@ router.get('/booking-authentication', async (req, res, next) => {
         br.status,
         br.remarks,
         br.created_at,
+        c.id AS consumer_id,
         c.first_name || ' ' || COALESCE(c.last_name, '') AS consumer_name,
         c.mobile,
         c.registration_no,
@@ -2205,6 +2207,7 @@ router.get('/tds-status', async (req, res, next) => {
         c.first_name || ' ' || COALESCE(c.last_name, '') AS consumer_name,
         c.registration_no,
         c.mobile,
+        c.id AS consumer_id,
         p.name          AS project_name,
         t.tower_name,
         u.unit_number,
