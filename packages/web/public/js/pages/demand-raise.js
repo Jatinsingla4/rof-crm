@@ -709,7 +709,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.tower_name || '—'}</td>
           <td>${instName}</td>
@@ -722,7 +722,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.floor !== null && d.floor !== undefined ? d.floor : '—'}</td>
           <td>${instName || d.demand_type || '—'}</td>
@@ -735,7 +735,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_type || '—'}</td>
           <td class="td-bold">${d.unit_address || '—'}</td>
           <td>${instName}</td>
@@ -755,7 +755,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.tower_name || '—'}</td>
           <td>${instName}</td>
@@ -770,7 +770,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.floor !== null && d.floor !== undefined ? d.floor : '—'}</td>
           <td>${d.tower_name || '—'}</td>
@@ -786,7 +786,7 @@ const DemandRaisePage = {
         <tr>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold">${d.consumer_name || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.demand_type || ('Index ' + d.installment_index)}</td>
           <td class="td-bold">${amt}</td>

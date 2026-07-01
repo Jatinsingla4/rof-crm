@@ -404,7 +404,7 @@
         rows += '<tr class="' + firstCls + '">' +
           '<td>' + (i + 1) + '</td>' +
           '<td>' + (r.registration_no || '&mdash;') + '</td>' +
-          '<td><span class="cwi-link-blue">' + (r.name || '') + '</span></td>' +
+          '<td><a href="/api/consumers/' + r.consumer_id + '/applicant-file?token=' + (Auth.getToken()||'') + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">' + (r.name || '') + '</a></td>' +
           '<td>' + (r.unit_address || '') + '</td>' +
           '<td>' + (r.payment_plan || 'Payment Plan') + '</td>' +
           '<td><input type="date" class="cwi-date-input" id="cwi-date-' + i + '" value="' + existingDate + '"></td>' +
@@ -436,7 +436,7 @@
         rows += '<tr class="' + firstCls + '" id="cwi-del-row-' + i + '">' +
           '<td>' + (i + 1) + '</td>' +
           '<td>' + (r.registration_no || '&mdash;') + '</td>' +
-          '<td>' + (r.name || '') + '</td>' +
+          '<td><a href="/api/consumers/' + r.consumer_id + '/applicant-file?token=' + (Auth.getToken()||'') + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">' + (r.name || '') + '</a></td>' +
           '<td>' + (r.unit_address || '') + '</td>' +
           '<td>' + (r.payment_plan || 'Payment Plan') + '</td>' +
           '<td style="text-align:right">₹' + intAmt + '</td>' +
@@ -474,7 +474,7 @@
         rows += '<tr class="' + firstCls + '">' +
           '<td>' + (i + 1) + '</td>' +
           '<td>' + (r.registration_no || '&mdash;') + '</td>' +
-          '<td>' + (r.name || '') + '</td>' +
+          '<td><a href="/api/consumers/' + r.consumer_id + '/applicant-file?token=' + (Auth.getToken()||'') + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">' + (r.name || '') + '</a></td>' +
           '<td>' + (r.unit_address || '') + '</td>' +
           '<td>' + (r.payment_plan || 'Payment Plan') + '</td>' +
           '<td><select class="cwi-inst-sel" id="cwi-inst-' + i + '">' +

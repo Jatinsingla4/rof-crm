@@ -212,7 +212,7 @@ const DS = {
           <td style="padding:7px 6px;">${(this._page-1)*this._limit+i+1}</td>
           <td style="padding:7px 6px;color:#1a237e;font-weight:500;cursor:pointer;" onclick="DS.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
           <td style="padding:7px 6px;font-size:11px;">${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
-          <td style="padding:7px 6px;color:#1976D2;cursor:pointer;" onclick="DS.openConsumer('${r.consumer_id}')">${r.name||'—'}</td>
+          <td style="padding:7px 6px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.name||'—'}</a></td>
           <td style="padding:7px 6px;">${r.bhk_type||'—'}</td>
           <td style="padding:7px 6px;font-weight:500;">${r.unit_number||'—'}</td>
           <td style="padding:7px 6px;">${r.tower_name||'—'}</td>

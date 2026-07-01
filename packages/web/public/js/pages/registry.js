@@ -92,7 +92,7 @@ const RegistryPage = {
         <thead><tr><th>Consumer</th><th>Unit</th><th>Appt. Date</th><th>Reg. Date</th><th>Status</th></tr></thead>
         <tbody>
           ${list.map(r => `<tr>
-            <td class="td-bold">${r.consumer_name}</td>
+            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name}</a></td>
             <td>${r.unit_number}</td>
             <td>${Utils.date(r.appointment_date)}</td>
             <td>${r.registry_date ? Utils.date(r.registry_date) : '—'}</td>

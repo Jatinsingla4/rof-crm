@@ -156,7 +156,7 @@ const InterestWaiver = (() => {
       return `<tr style="${bg}">
         <td style="padding:6px 8px;text-align:center;font-size:12px;">${i + 1}</td>
         <td style="padding:6px 8px;font-size:12px;">${r.registration_no || ''}</td>
-        <td style="padding:6px 8px;font-size:12px;color:#337ab7;cursor:pointer;" onclick="InterestWaiver._openDetail(${i},false)">${r.name || ''}</td>
+        <td style="padding:6px 8px;font-size:12px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.name || ''}</a></td>
         <td style="padding:6px 8px;font-size:12px;">${r.unit_address || ''}</td>
         <td style="padding:6px 8px;font-size:12px;">${r.type || ''}</td>
         <td style="padding:6px 8px;text-align:right;font-size:12px;">${fmt(r.total_interest_inr)}</td>
@@ -542,7 +542,7 @@ const InterestWaiver = (() => {
         return `<tr style="${bg}">
           <td style="padding:6px 8px;text-align:center;font-size:12px;">${i+1}</td>
           <td style="padding:6px 8px;font-size:12px;">${r.registration_no || ''}</td>
-          <td style="padding:6px 8px;font-size:12px;">${r.consumer_name || ''}</td>
+          <td style="padding:6px 8px;font-size:12px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name || ''}</a></td>
           <td style="padding:6px 8px;font-size:12px;">${r.unit_address || ''}</td>
           <td style="${tdR}">${fmt(r.total_interest_inr)}</td>
           <td style="${tdR}">${fmt(r.total_waived_inr)}</td>

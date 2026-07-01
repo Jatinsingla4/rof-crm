@@ -180,7 +180,7 @@ table.trr-tbl tr:hover td { background: #eef4ff; }
         <td>${i + 1}</td>
         <td>${_fmtDate(r.booking_date)}</td>
         <td>${_esc(_buildRegNo(r))}</td>
-        <td><span class="trr-link" onclick="Router.navigate('/consumer',{id:'${cid}'})">${_esc(r.name)}</span></td>
+        <td><a href="/api/consumers/${cid}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${_esc(r.name)}</a></td>
         <td>${_esc(r.floor)}</td>
         <td>${_esc(r.unit_number)}</td>
         <td>${_esc(r.payment_plan)}</td>

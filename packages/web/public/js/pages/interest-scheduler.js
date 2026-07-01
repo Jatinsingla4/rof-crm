@@ -326,7 +326,7 @@
             html += `
       <tr>
         <td>${sno++}</td>
-        <td>${c.consumer_name}</td>
+        <td><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
         <td>${c.registration_number || '—'}</td>
         <td>${row.installment_name}</td>
         <td>${row.installment_date ? new Date(row.installment_date).toLocaleDateString('en-IN') : '—'}</td>

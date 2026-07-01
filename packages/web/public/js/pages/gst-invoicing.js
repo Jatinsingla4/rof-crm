@@ -613,7 +613,7 @@ const GSTPage = {
         <div class="sp" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px">
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;font-size:11px">
             <div><div style="color:var(--text3)">Invoice No.</div><div style="font-weight:600">${inv.invoice_number||'—'}</div></div>
-            <div><div style="color:var(--text3)">Consumer</div><div style="font-weight:600">${inv.consumer_name||inv.consumerName||'—'}</div></div>
+            <div><div style="color:var(--text3)">Consumer</div><div style="font-weight:600"><a href="/api/consumers/${inv.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${inv.consumer_name||inv.consumerName||'—'}</a></div></div>
             <div><div style="color:var(--teal)">Base</div><div style="font-weight:600">${Utils.currency(inv.base_amount||inv.amount||0)}</div></div>
             <div><div style="color:var(--blue)">GST</div><div style="font-weight:600">${Utils.currency(inv.gst_amount||0)} (${inv.gst_rate||5}%)</div></div>
             <div><div style="color:var(--text3)">Status</div><div>${Utils.chip(inv.status||'active')}</div></div>
@@ -730,7 +730,7 @@ const GSTPage = {
             <tbody>
               ${list.map(r => `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
-                <td class="td-bold">${r.consumer_name||r.consumerName||'—'}</td>
+                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||'—'}</a></td>
                 <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
                 <td>${r.payment_mode||r.paymentMode||'—'}</td>
                 <td>${Utils.date(r.payment_date||r.created_at)}</td>
@@ -807,7 +807,7 @@ const GSTPage = {
                 const igstA  = parseFloat(inv.igst_amount||inv.igstAmount||0);
                 return `<tr>
                   <td class="td-mono">${inv.invoice_number||'—'}</td>
-                  <td class="td-bold">${inv.consumer_name||inv.consumerName||'—'}</td>
+                  <td class="td-bold"><a href="/api/consumers/${inv.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${inv.consumer_name||inv.consumerName||'—'}</a></td>
                   <td>${Utils.currency(base)}</td>
                   <td>${rate}%</td>
                   <td>${Utils.currency(cgstA)}</td>

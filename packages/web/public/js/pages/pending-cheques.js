@@ -173,7 +173,7 @@ const PC = {
         '<td><input type="checkbox" class="pc-cb" value="' + r.id + '" onchange="PC._rowCheck(this)"></td>' +
         '<td>' + (i + 1) + '</td>' +
         '<td style="color:#1e3a5f;font-weight:500;">' + (r.registration_number || '—') + '</td>' +
-        '<td style="color:#2563eb;cursor:pointer;" onclick="PC._openConsumer(\'' + consId + '\')">' + (r.consumer_name || '—') + '</td>' +
+        '<td><a href="/api/consumers/' + consId + '/applicant-file?token=' + pcGetToken() + '" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">' + (r.consumer_name || '—') + '</a></td>' +
         '<td>' + (r.unit_address || '—') + '</td>' +
         '<td>' + (r.tower_name || '—') + '</td>' +
         '<td>' + (r.bank_name || '—') + '</td>' +

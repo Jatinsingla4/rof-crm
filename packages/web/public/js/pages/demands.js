@@ -207,7 +207,7 @@ const DemandsPage = {
             const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
             return `<tr>
               <td class="td-mono">${(d.id||'').slice(0,8)}</td>
-              <td class="td-bold">${d.consumer_name||d.consumerName||'—'}</td>
+              <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
               <td>${d.unit_no||d.unitNo||'—'}</td>
               <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>
               <td style="font-size:10.5px">${d.instalment_name||d.instalmentName||'—'}</td>
@@ -315,7 +315,7 @@ const DemandsPage = {
               const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
               return `<tr>
                 <td>${i+1}</td>
-                <td class="td-bold">${d.consumer_name||d.consumerName||'—'}</td>
+                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
                 <td>${d.unit_no||d.unitNo||'—'}</td>
                 <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>
                 <td style="font-size:10.5px">${d.instalment_name||d.instalmentName||'—'}</td>
@@ -376,7 +376,7 @@ const DemandsPage = {
             <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
             <tbody>
               ${list.map(d => `<tr>
-                <td class="td-bold">${d.consumer_name||d.name||'—'}</td>
+                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.name||'—'}</a></td>
                 <td>${d.mobile||'—'}</td>
                 <td>${d.unit_no||d.unitNo||'—'}</td>
                 <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>

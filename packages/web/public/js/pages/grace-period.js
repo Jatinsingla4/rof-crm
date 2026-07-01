@@ -159,7 +159,7 @@
       return `<tr class="${firstCls}" data-consumer-id="${c.consumer_id}">
         <td style="text-align:center;">${i + 1}</td>
         <td>${c.registration_no || '&mdash;'}</td>
-        <td style="color:#1d3a6e;font-weight:500;">${c.name || ''}</td>
+        <td style="color:#1d3a6e;font-weight:500;"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.name || ''}</a></td>
         <td>${c.unit_address || '&mdash;'}</td>
         <td>${c.payment_plan || '&mdash;'}</td>
         <td style="text-align:center;">
