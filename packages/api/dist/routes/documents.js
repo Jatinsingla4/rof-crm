@@ -548,7 +548,7 @@ router.post('/generate', async (req, res, next) => {
                     const settingsRes = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
                     const settings = {};
                     settingsRes.rows.forEach((r) => { settings[r.key] = r.value; });
-                    const penalRate = parseFloat(settings['penal_interest_rate_percent'] || '11.10');
+                    let penalRate = parseFloat(settings['penal_interest_rate_percent'] || '11.10');
                     // Fetch per-project company details (overrides global_settings if found)
                     const projCompanyRes = await index_js_1.db.query(`
             SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
@@ -632,6 +632,21 @@ router.post('/generate', async (req, res, next) => {
             LIMIT 1
           `, [consumerId]);
                     const plan = planRes.rows[0] || {};
+                    if (plan?.project_id) {
+                        try {
+                            const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates
+                 WHERE project_id = $1
+                   AND effective_from <= CURRENT_DATE
+                 ORDER BY effective_from DESC
+                 LIMIT 1`, [plan.project_id]);
+                            if (projRateRes.rows.length > 0) {
+                                penalRate = parseFloat(projRateRes.rows[0].rate_percent);
+                            }
+                        }
+                        catch {
+                            // fall through to global rate
+                        }
+                    }
                     // Fetch co-applicants
                     const coRes = await index_js_1.db.query(`SELECT name, relationship FROM co_applicants WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 3`, [consumerId]);
                     const coApplicants = coRes.rows
@@ -653,6 +668,7 @@ router.post('/generate', async (req, res, next) => {
               COALESCE(pst.installment_name, d.demand_type, 'Installment') AS installment_name,
               COALESCE(pst.percentage, 0) AS percentage,
               COALESCE(pst.due_date_offset_days, 0) AS due_date_offset_days,
+              pst.interest_rate_percent,
               d.id AS demand_id,
               d.status AS demand_status,
               d.delivery_status,
@@ -679,6 +695,7 @@ router.post('/generate', async (req, res, next) => {
               pst.installment_name,
               pst.percentage,
               pst.due_date_offset_days,
+              pst.interest_rate_percent,
               d.id AS demand_id,
               d.status AS demand_status,
               d.delivery_status,
@@ -719,7 +736,8 @@ router.post('/generate', async (req, res, next) => {
                    WHERE demand_id = d.id AND status = 'cleared'), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
-                COALESCE(pst2.percentage, 0) AS percentage
+                COALESCE(pst2.percentage, 0) AS percentage,
+                pst2.interest_rate_percent
               FROM demands d
               LEFT JOIN payment_plans pp2 ON pp2.id = d.payment_plan_id
               LEFT JOIN plan_schedule_templates pst2
@@ -782,7 +800,7 @@ router.post('/generate', async (req, res, next) => {
                         installment_name: String(d.installment_name || d.demand_type || '—'),
                         due_date: d.due_date || null,
                         amount_due_inr: d.amount_due_inr,
-                        interest_rate_percent: null,
+                        interest_rate_percent: d.interest_rate_percent ? parseFloat(d.interest_rate_percent) : null,
                     }));
                     const irRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForIR, parseFloat(String(penalRate)) || 15, {
                         interestStartDate: plan.interest_start_date

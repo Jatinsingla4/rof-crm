@@ -1147,6 +1147,7 @@ function buildApplicantPage1(
   parkingSlots: any[] = [],
   addonCharges: any[] = [],
   receiptRows: any[] = [],
+  totalWaivedInr: number = 0,
 ): string {
 
   // ── derived values ──────────────────────
@@ -1617,7 +1618,7 @@ function buildApplicantPage1(
       </tr></thead>
       <tbody><tr>
         <td ${tdR}>${fmtIndianNumber(interest)}</td>
-        <td ${tdR}>0.00</td>
+        <td ${tdR}>${fmtIndianNumber(totalWaivedInr)}</td>
         <td ${tdR}>${fmtIndianNumber(interest)}</td>
         <td ${tdR}>0.00</td>
         <td ${tdR}>0.00</td>
@@ -2392,8 +2393,9 @@ export function buildApplicantFileHtml(
   demands: any[] = [],
   interestCalcRows: any[] = [],
   addonCharges: any[] = [],
+  totalWaivedInr: number = 0,
 ): string {
-  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows);
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
   const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
 

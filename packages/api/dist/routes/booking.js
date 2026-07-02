@@ -952,7 +952,7 @@ function amtWords(amount) {
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
 // ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = []) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -1381,7 +1381,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       </tr></thead>
       <tbody><tr>
         <td ${tdR}>${fmtIndianNumber(interest)}</td>
-        <td ${tdR}>0.00</td>
+        <td ${tdR}>${fmtIndianNumber(totalWaivedInr)}</td>
         <td ${tdR}>${fmtIndianNumber(interest)}</td>
         <td ${tdR}>0.00</td>
         <td ${tdR}>0.00</td>
@@ -2081,8 +2081,8 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = []) {
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows);
+function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0) {
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

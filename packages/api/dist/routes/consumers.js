@@ -1118,7 +1118,12 @@ router.get('/:id/applicant-file', async (req, res, next) => {
             gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
         });
         // ─────────────────────────────────────────
-        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges);
+        const waiverRes = await index_js_1.db.query(`SELECT COALESCE(SUM(waiver_amount_inr), 0) AS total_waived
+       FROM interest_waivers
+       WHERE consumer_id = $1
+         AND status = 'approved'`, [consumerId]);
+        const totalWaivedInr = parseFloat(waiverRes.rows[0]?.total_waived || 0);
+        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges, totalWaivedInr);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {

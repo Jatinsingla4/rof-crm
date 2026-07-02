@@ -3235,10 +3235,12 @@ router.post('/interest-scheduler', async (req, res, next) => {
         const penalRate = await getPenalInterestRate(project_id);
         // Step B: all consumers for project (optionally filtered by tower)
         const consumersRes = await index_js_1.db.query(`SELECT DISTINCT
-         c.id        AS consumer_id,
-         c.name      AS consumer_name,
+         c.id                   AS consumer_id,
+         c.name                 AS consumer_name,
          c.registration_no,
-         pp.id       AS payment_plan_id
+         pp.id                  AS payment_plan_id,
+         c.grace_period_days,
+         c.interest_start_date
        FROM consumers c
        JOIN allocations a  ON a.consumer_id = c.id
        JOIN units u        ON u.id = a.unit_id
@@ -3279,7 +3281,13 @@ router.post('/interest-scheduler', async (req, res, next) => {
                     installment_name: templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
                     interest_rate_percent: templateRateMap[d.installment_index] ?? null,
                 })) };
-            const allRows = (0, payment_waterfall_js_1.buildInterestRows)(receiptsRes.rows, demandsRes.rows, penalRate);
+            const allRows = (0, payment_waterfall_js_1.buildInterestRows)(receiptsRes.rows, demandsRes.rows, penalRate, {
+                gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
+                interestStartDate: consumer.interest_start_date
+                    ? new Date(String(consumer.interest_start_date))
+                    : null,
+                asOfDate: new Date(),
+            });
             const interestRows = allRows.filter(r => r.interest_amount > 0);
             if (interestRows.length > 0) {
                 const consumerTotal = interestRows.reduce((s, r) => s + r.interest_amount, 0);

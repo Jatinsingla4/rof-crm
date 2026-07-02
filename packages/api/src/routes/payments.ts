@@ -3670,10 +3670,12 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
     // Step B: all consumers for project (optionally filtered by tower)
     const consumersRes = await db.query(
       `SELECT DISTINCT
-         c.id        AS consumer_id,
-         c.name      AS consumer_name,
+         c.id                   AS consumer_id,
+         c.name                 AS consumer_name,
          c.registration_no,
-         pp.id       AS payment_plan_id
+         pp.id                  AS payment_plan_id,
+         c.grace_period_days,
+         c.interest_start_date
        FROM consumers c
        JOIN allocations a  ON a.consumer_id = c.id
        JOIN units u        ON u.id = a.unit_id
@@ -3731,7 +3733,13 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
         interest_rate_percent: templateRateMap[d.installment_index] ?? null,
       })) };
 
-      const allRows = buildInterestRows(receiptsRes.rows, demandsRes.rows, penalRate);
+      const allRows = buildInterestRows(receiptsRes.rows, demandsRes.rows, penalRate, {
+        gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
+        interestStartDate: consumer.interest_start_date
+          ? new Date(String(consumer.interest_start_date))
+          : null,
+        asOfDate: new Date(),
+      });
       const interestRows = allRows.filter(r => r.interest_amount > 0);
 
       if (interestRows.length > 0) {
