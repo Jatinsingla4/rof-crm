@@ -489,6 +489,12 @@ Pages.setProjects = async function(params = {}) {
                   <input class="fc" name="notes" placeholder="Optional notes">
                 </div>
               </div>
+              <div id="spj-plan-addon-section" style="display:none;margin-top:16px;border-top:1px solid var(--border);padding-top:16px">
+                <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Addon Charge Percentages</div>
+                <div id="spj-plan-addon-inputs" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
+                  <!-- populated dynamically when project is selected -->
+                </div>
+              </div>
               <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
                 <button type="submit" class="btn btn-teal">Add Installment</button>
                 <button type="button" class="btn btn-ghost" onclick="SPJPage.clearPlanForm()">Clear Form</button>
@@ -1057,7 +1063,36 @@ Object.assign(SPJPage, {
   async onPlanProjectChange() {
     const projectId = document.getElementById('spj-plan-project')?.value;
     const planName  = document.getElementById('spj-plan-name')?.value || 'Standard AHP Plan';
-    if (projectId) await this.loadPlanPreview(projectId, planName);
+    if (projectId) {
+      await this.loadPlanPreview(projectId, planName);
+      await this.loadAddonInputs(projectId);
+    } else {
+      const sec = document.getElementById('spj-plan-addon-section');
+      if (sec) sec.style.display = 'none';
+    }
+  },
+
+  async loadAddonInputs(projectId) {
+    const section = document.getElementById('spj-plan-addon-section');
+    const container = document.getElementById('spj-plan-addon-inputs');
+    if (!section || !container) return;
+    try {
+      const res = await Api.get(`/addon-charges/master?projectId=${projectId}`);
+      const masters = res.data || [];
+      if (!masters.length) { section.style.display = 'none'; return; }
+      container.innerHTML = masters.map(m => `
+        <div class="fg">
+          <label class="fl">${Utils.esc(m.charge_name)}<small style="color:var(--text3)"> (GST ${(parseFloat(m.cgst_pct||0)+parseFloat(m.sgst_pct||0)).toFixed(0)}%)</small></label>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="number" min="0" max="100" step="0.1" class="fc" id="spj-addon-${m.id}" data-charge-master-id="${m.id}" data-charge-name="${Utils.esc(m.charge_name)}" value="0" style="width:80px;text-align:right" />
+            <span style="color:var(--text2)">%</span>
+          </div>
+        </div>`).join('');
+      section.style.display = 'block';
+    } catch(e) {
+      console.error('Failed to load addon masters', e);
+      section.style.display = 'none';
+    }
   },
 
   showPercentageWarning(currentTotal, adding, newTotal) {
@@ -1110,7 +1145,8 @@ Object.assign(SPJPage, {
     }
 
     try {
-      await Api.post(`/projects/${projectId}/plan-templates`, body);
+      const created = await Api.post(`/projects/${projectId}/plan-templates`, body);
+      const newTemplateId = created?.data?.id;
       Utils.success(`"${body.installment_name}" added`);
       // Auto-increment index
       const idxEl = document.getElementById('spj-plan-idx');
@@ -1123,6 +1159,23 @@ Object.assign(SPJPage, {
       if (amt) amt.value = '';
       const notes = form.querySelector('[name="notes"]');
       if (notes) notes.value = '';
+      // Save addon charge percentages if any are configured
+      if (newTemplateId) {
+        const addonInputs = document.querySelectorAll('#spj-plan-addon-inputs input[data-charge-master-id]');
+        const addonSaves = [];
+        addonInputs.forEach(inp => {
+          const addonPct = parseFloat(inp.value || 0);
+          if (addonPct > 0) {
+            addonSaves.push(Api.post(`/projects/${projectId}/plan-templates/${newTemplateId}/addon-charges`, { charge_master_id: inp.getAttribute('data-charge-master-id'), pct: addonPct }));
+          }
+        });
+        if (addonSaves.length) {
+          try { await Promise.all(addonSaves); }
+          catch(e) { Utils.warn('Installment saved but some addon percentages failed to save. Use the Addon % button to retry.'); }
+        }
+        // Reset addon inputs to 0
+        addonInputs.forEach(inp => { inp.value = 0; });
+      }
       // Refresh live preview
       await this.loadPlanPreview(projectId, body.plan_name);
     } catch (err) { Utils.error(err.message); }
@@ -1133,33 +1186,47 @@ Object.assign(SPJPage, {
     if (!el || !projectId) return;
     try {
       const params = planName ? `?planName=${encodeURIComponent(planName)}` : '';
-      const res = await Api.get(`/projects/${projectId}/plan-templates${params}`);
+      const [res, addonRes] = await Promise.all([
+        Api.get(`/projects/${projectId}/plan-templates${params}`),
+        planName ? Api.get(`/projects/${projectId}/plan-addon-pcts?planName=${encodeURIComponent(planName)}`).catch(() => ({ data: [] })) : Promise.resolve({ data: [] }),
+      ]);
       const rows = res.data || [];
       if (!rows.length) { el.innerHTML = ''; return; }
+      // Build map: installment_index → [{charge_name, pct}]
+      const addonMap = new Map();
+      (addonRes.data || []).forEach(a => {
+        if (!addonMap.has(a.installment_index)) addonMap.set(a.installment_index, []);
+        addonMap.get(a.installment_index).push(a);
+      });
       const total = rows.reduce((s, r) => s + (parseFloat(r.percentage) || 0), 0);
       const totalOk = Math.abs(total - 100) < 0.1;
-      el.innerHTML = `
-        <div class="sp">
-          <div class="sp-hdr">
-            <div class="sp-title">Current Schedule: ${Utils.esc(planName || 'Plan')}</div>
-            <span class="chip ${totalOk ? 'chip-teal' : 'chip-warn'}">${total.toFixed(1)}% total${totalOk ? ' ✓' : ' — needs 100%'}</span>
-          </div>
-          <div class="sp-body" style="padding:0">
-            <table class="dash-tbl">
-              <thead><tr><th>#</th><th>Name</th><th>Type</th><th class="txt-right">%</th><th class="txt-right">Flat ₹</th><th class="txt-right">Due (days)</th><th>Addon %</th><th>Remove</th></tr></thead>
-              <tbody>
-                ${rows.map(r => `<tr>
+      const rowsHtml = rows.map(r => {
+        const entries = addonMap.get(r.installment_index) || [];
+        const nonZero = entries.filter(e => parseFloat(e.pct) > 0);
+        const addonCell = nonZero.length
+          ? nonZero.map(e => `<span style="display:inline-block;background:var(--teal-light,#e6f7f5);color:var(--teal,#0d9488);border-radius:4px;padding:1px 5px;margin:1px;font-size:10px">${Utils.esc(e.charge_name.split(' ')[0])}:${parseFloat(e.pct).toFixed(0)}%</span>`).join('') + `<button class="btn btn-ghost btn-xs" style="margin-left:4px" onclick="SPJPage.openAddonPctModal('${r.id}','${projectId}')">Edit</button>`
+          : `<button class="btn btn-ghost btn-xs" onclick="SPJPage.openAddonPctModal('${r.id}','${projectId}')">Set Addon %</button>`;
+        return `<tr>
                   <td>${r.installment_index}</td>
                   <td class="td-bold">${Utils.esc(r.installment_name)}</td>
                   <td>${Utils.chip(r.installment_type || 'installment')}</td>
                   <td class="txt-right">${r.percentage ? parseFloat(r.percentage).toFixed(1) + '%' : '—'}</td>
                   <td class="txt-right">${r.flat_amount_inr ? Utils.currency(r.flat_amount_inr) : '—'}</td>
                   <td class="txt-right">${r.due_date_offset_days || 0}d</td>
-                  <td><button class="btn btn-ghost btn-xs" onclick="SPJPage.openAddonPctModal('${r.id}','${projectId}')">Addon %</button></td>
-                  <td><button class="btn btn-ghost btn-xs" style="color:var(--red)"
-                      onclick="SPJPage.deleteTemplate(this,'${r.id}','${projectId}')">✕</button></td>
-                </tr>`).join('')}
-              </tbody>
+                  <td>${addonCell}</td>
+                  <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteTemplate(this,'${r.id}','${projectId}')">✕</button></td>
+                </tr>`;
+      }).join('');
+      el.innerHTML = `
+        <div class="sp">
+          <div class="sp-hdr">
+            <div class="sp-title">Current Schedule: ${Utils.esc(planName || 'Plan')}</div>
+            <span class="chip ${totalOk ? 'chip-teal' : 'chip-warn'}">${total.toFixed(1)}% total${totalOk ? ' ✓' : ' — needs 100%'}</span>
+          </div>
+          <div class="sp-body" style="padding:0;overflow-x:auto">
+            <table class="dash-tbl">
+              <thead><tr><th>#</th><th>Name</th><th>Type</th><th class="txt-right">%</th><th class="txt-right">Flat ₹</th><th class="txt-right">Due (days)</th><th>Addon %</th><th>Remove</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
             </table>
           </div>
         </div>`;
@@ -1195,8 +1262,11 @@ Object.assign(SPJPage, {
 
     document.body.insertAdjacentHTML('beforeend', `
       <div id="addon-pct-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center">
-        <div style="background:var(--card);border-radius:8px;padding:24px;min-width:400px;max-width:540px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
-          <h3 style="margin:0 0 8px;font-size:16px">Addon Charge %</h3>
+        <div style="background:var(--surface,#fff);border-radius:12px;padding:32px;min-width:420px;max-width:560px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+            <h3 style="margin:0;font-size:16px;font-weight:600">Addon Charge %</h3>
+            <button onclick="document.getElementById('addon-pct-modal')?.remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);line-height:1">✕</button>
+          </div>
           <p style="color:var(--text3);font-size:12px;margin:0 0 16px">Set the % of each addon charge due in this installment. Each charge type must total 100% across all installments.</p>
           <table style="width:100%;border-collapse:collapse">
             <thead><tr style="border-bottom:1px solid var(--border)">
@@ -1211,6 +1281,10 @@ Object.assign(SPJPage, {
           </div>
         </div>
       </div>`);
+    const modal = document.getElementById('addon-pct-modal');
+    modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+    const escHandler = e => { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', escHandler); } };
+    document.addEventListener('keydown', escHandler);
   },
 
   async saveAddonPcts(templateId, projectId) {
@@ -1220,7 +1294,7 @@ Object.assign(SPJPage, {
       const v = parseFloat(inp.value || 0);
       if (v < 0 || v > 100) hasError = true;
     });
-    if (hasError) { alert('Each percentage must be between 0 and 100.'); return; }
+    if (hasError) { Utils.warn('Each percentage must be between 0 and 100.'); return; }
 
     const saves = [];
     inputs.forEach(inp => {
@@ -1233,8 +1307,11 @@ Object.assign(SPJPage, {
       await Promise.all(saves);
       document.getElementById('addon-pct-modal')?.remove();
       Utils.toast('Addon percentages saved ✅');
+      const pid = document.getElementById('spj-plan-project')?.value;
+      const pname = document.getElementById('spj-plan-name')?.value;
+      if (pid && pname) await this.loadPlanPreview(pid, pname);
     } catch (err) {
-      alert('Save failed: ' + (err.message || 'Unknown error'));
+      Utils.error('Save failed: ' + (err.message || 'Unknown error'));
     }
   },
 
