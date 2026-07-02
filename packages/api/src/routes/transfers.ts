@@ -125,6 +125,67 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       return res.status(400).json({ error: 'Old consumer does not own this unit' });
     }
 
+    // 2a. Snapshot seller balances before moving any financial records
+    const snapRes = await client.query(
+      `SELECT
+         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = $1), 0) AS total_paid,
+         COALESCE((SELECT SUM(d.amount_due_inr)      FROM demands d  WHERE d.consumer_id = $1), 0) AS total_due`,
+      [oldConsumerId]
+    );
+    const sellerTotalPaid = parseFloat(snapRes.rows[0].total_paid || 0);
+    const sellerTotalDue  = parseFloat(snapRes.rows[0].total_due  || 0);
+    const sellerBalance   = sellerTotalDue - sellerTotalPaid;
+
+    // 2b. Move demands (before payment_plans so subquery scope still works)
+    await client.query(
+      `UPDATE demands
+       SET consumer_id = $1, updated_at = NOW()
+       WHERE payment_plan_id IN (
+         SELECT id FROM payment_plans WHERE consumer_id = $2 AND unit_id = $3
+       )`,
+      [newConsumerId, oldConsumerId, unitId]
+    );
+
+    // 2c. Move receipts (before payment_plans for same reason)
+    await client.query(
+      `UPDATE receipts
+       SET consumer_id = $1, updated_at = NOW()
+       WHERE payment_plan_id IN (
+         SELECT id FROM payment_plans WHERE consumer_id = $2 AND unit_id = $3
+       )`,
+      [newConsumerId, oldConsumerId, unitId]
+    );
+
+    // 2d. Move payment_plans
+    await client.query(
+      `UPDATE payment_plans SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`,
+      [newConsumerId, oldConsumerId, unitId]
+    );
+
+    // 2e. Move booking_records
+    await client.query(
+      `UPDATE booking_records SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`,
+      [newConsumerId, oldConsumerId, unitId]
+    );
+
+    // 2f. Move penal_interests
+    await client.query(
+      `UPDATE penal_interests SET consumer_id = $1 WHERE consumer_id = $2`,
+      [newConsumerId, oldConsumerId]
+    );
+
+    // 2g. Move interest_waivers
+    await client.query(
+      `UPDATE interest_waivers SET consumer_id = $1 WHERE consumer_id = $2`,
+      [newConsumerId, oldConsumerId]
+    );
+
+    // 2h. Move consumer_addon_charges
+    await client.query(
+      `UPDATE consumer_addon_charges SET consumer_id = $1 WHERE consumer_id = $2`,
+      [newConsumerId, oldConsumerId]
+    );
+
     // 2. Clear old consumer's allocation
     await client.query(
       `UPDATE consumers SET allocated_unit_id = NULL, lead_stage = 'transferred' WHERE id = $1`,
@@ -150,17 +211,19 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       [newConsumerId, unitId, req.userId]
     );
 
-    // 6. Log the transfer event
+    // 6. Log the transfer event (includes snapshotted seller balances)
     const transferRes = await client.query(
       `INSERT INTO ownership_transfers (
          unit_id, old_consumer_id, new_consumer_id,
          transfer_fee_inr, admin_charges_inr, transfer_remarks, created_by_user_id,
          transfer_no, application_date, transfer_type, transfer_amount_inr,
          stax_amount, cgst_amount, sgst_amount, igst_amount, ugst_amount,
-         basic_price, gstin, broker_company, main_broker, sales_person_name, transfer_receipt_no
+         basic_price, gstin, broker_company, main_broker, sales_person_name, transfer_receipt_no,
+         seller_total_paid_inr, seller_total_due_inr, seller_balance_inr
        ) VALUES (
          $1,$2,$3,$4,$5,$6,$7,
-         $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+         $8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
+         $23,$24,$25
        ) RETURNING id`,
       [
         unitId, oldConsumerId, newConsumerId,
@@ -168,7 +231,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         transferNo || null, applicationDate || null, transferType || null, transferAmountInr || 0,
         staxAmount || 0, cgstAmount || 0, sgstAmount || 0, igstAmount || 0, ugstAmount || 0,
         basicPrice || 0, gstin || null, brokerCompany || null, mainBroker || null,
-        salesPersonName || null, transferReceiptNo || null
+        salesPersonName || null, transferReceiptNo || null,
+        sellerTotalPaid, sellerTotalDue, sellerBalance
       ]
     );
 
@@ -486,16 +550,9 @@ const TRANSFER_DETAIL_QUERY = `
      WHERE pst.project_id = p.id
      ORDER BY pst.installment_index ASC
      LIMIT 1) as payment_plan,
-    COALESCE(
-      (SELECT SUM(r.amount_received_inr)
-       FROM receipts r
-       WHERE r.consumer_id = oc.id), 0
-    ) as seller_total_received,
-    COALESCE(
-      (SELECT SUM(d.amount_due_inr)
-       FROM demands d
-       WHERE d.consumer_id = oc.id), 0
-    ) as seller_total_due,
+    COALESCE(ot.seller_total_paid_inr, 0) AS seller_total_received,
+    COALESCE(ot.seller_total_due_inr,  0) AS seller_total_due,
+    COALESCE(ot.seller_balance_inr,    0) AS seller_balance,
     COALESCE(
       (SELECT COUNT(*)::int
        FROM ownership_transfers ot2

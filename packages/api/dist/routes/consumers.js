@@ -104,7 +104,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
         // Finance
         finance_bank, loan_amount, loan_sanction_date, 
         // Legacy applicant fields (migration 035)
-        father_name, anniversary_date, marital_status = 'not_specified', no_of_children = 0, passport_no, email_2, designation, has_poa = false, phone_no, fax_no, } = req.body;
+        father_name, anniversary_date, marital_status = 'not_specified', no_of_children = 0, passport_no, email_2, designation, has_poa = false, phone_no, fax_no, registration_no, } = req.body;
         const consumerMobile = mobile || req.body.mobile;
         const titleCase = (s) => s ? s.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
         const consumerName = name
@@ -140,7 +140,8 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
          finance_bank, loan_amount, loan_sanction_date, form_no,
          applicant_type, company_name, company_reg_no, company_gstin, authorized_person, authorized_designation,
          father_name, anniversary_date, marital_status, no_of_children,
-         passport_no, email_2, designation, has_poa
+         passport_no, email_2, designation, has_poa,
+         registration_no
        )
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
@@ -153,7 +154,8 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
          $64,$65,$66,$67,
          $68,$69,$70,$71,
          $72,$73,$74,$75,$76,$77,
-         $78,$79,$80,$81,$82,$83,$84,$85
+         $78,$79,$80,$81,$82,$83,$84,$85,
+         $86
        )
        ON CONFLICT (project_id, mobile) DO UPDATE SET
          updated_at = NOW(),
@@ -207,6 +209,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
             no_of_children ? parseInt(no_of_children) : 0,
             passport_no || null, email_2 || null, designation || null,
             has_poa === true || has_poa === 'true',
+            registration_no || null,
         ]);
         const consumer = result.rows[0];
         // If multiple applicant type and co-applicant data provided, insert co-applicant record
