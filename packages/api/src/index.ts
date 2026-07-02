@@ -479,15 +479,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // ============================================
 
 (async () => {
-  try {
-    console.log('[STARTUP] Running migrations...');
-    lastMigrationLog = await runMigrations();
-    console.log('[STARTUP] ✅ Migrations completed successfully');
-  } catch (error) {
-    console.error('[STARTUP] ⚠️ Migration error:', (error as Error).message);
-    lastMigrationLog.push(`[STARTUP] FAILED: ${(error as Error).message}`);
-    console.error('[STARTUP] Continuing with app startup (migrations may not be critical)');
-  }
+  // Migrations run during build phase (npm run db:migrate in render.yaml buildCommand).
+  // Awaiting runMigrations() here caused Neon cold-start hangs on Render free tier —
+  // 80+ sequential DB queries blocked app.listen(), server never bound to port.
+  lastMigrationLog = ['[STARTUP] Migrations skipped at runtime — applied during build phase'];
+  console.log('[STARTUP] Skipping runtime migrations (already applied during build)');
 
   app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`ROF CRM API running on port ${PORT}`);

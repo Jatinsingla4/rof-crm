@@ -63,7 +63,6 @@ const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
 const pool_1 = require("./db/pool");
-const migrations_1 = require("./db/migrations");
 var pool_2 = require("./db/pool");
 Object.defineProperty(exports, "db", { enumerable: true, get: function () { return pool_2.db; } });
 // ============================================
@@ -381,16 +380,11 @@ app.use((err, req, res, next) => {
 // SERVER STARTUP
 // ============================================
 (async () => {
-    try {
-        console.log('[STARTUP] Running migrations...');
-        lastMigrationLog = await (0, migrations_1.runMigrations)();
-        console.log('[STARTUP] ✅ Migrations completed successfully');
-    }
-    catch (error) {
-        console.error('[STARTUP] ⚠️ Migration error:', error.message);
-        lastMigrationLog.push(`[STARTUP] FAILED: ${error.message}`);
-        console.error('[STARTUP] Continuing with app startup (migrations may not be critical)');
-    }
+    // Migrations run during build phase (npm run db:migrate in render.yaml buildCommand).
+    // Awaiting runMigrations() here caused Neon cold-start hangs on Render free tier —
+    // 80+ sequential DB queries blocked app.listen(), server never bound to port.
+    lastMigrationLog = ['[STARTUP] Migrations skipped at runtime — applied during build phase'];
+    console.log('[STARTUP] Skipping runtime migrations (already applied during build)');
     app.listen(Number(PORT), '0.0.0.0', () => {
         console.log(`ROF CRM API running on port ${PORT}`);
         console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
