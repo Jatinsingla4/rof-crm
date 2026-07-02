@@ -1443,12 +1443,12 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     const bookingAmt = parseFloat(b.booking_amount || 0);
     const bookingDate = b.booking_date ? new Date(b.booking_date) : null;
     // ── shared styles ───────────────────────
-    const baseFont = 'font-family:Arial,sans-serif;font-size:10px;color:#000;';
-    const thStyle = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:3px 4px;text-align:center;white-space:nowrap;"`;
-    const tdC = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:center;"`;
-    const tdR = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:right;"`;
-    const tdL = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:left;"`;
-    const tdBR = `style="${baseFont}border:1px solid #999;padding:3px 4px;text-align:right;font-weight:700;"`;
+    const baseFont = 'font-family:Arial,sans-serif;font-size:8px;color:#000;';
+    const thStyle = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:2px 3px;text-align:center;white-space:nowrap;"`;
+    const tdC = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:center;"`;
+    const tdR = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:right;"`;
+    const tdL = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:left;"`;
+    const tdBR = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
     const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
     // ── demand due date map: installment_index → due_date ──
     const demandDueDateMap = {};
@@ -1466,6 +1466,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
                 amt: Number(d.amount_due_inr || 0),
                 cgst: Number(d.cgst_amount || 0),
                 sgst: Number(d.sgst_amount || 0),
+                addon: Number(d.addon_charge_amount || 0),
             };
         }
     });
@@ -1501,10 +1502,10 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         paidMap[Number(p.installment_index)] = parseFloat(p.total_paid || 0);
     });
     let schedRows = '';
-    let totPct = 0, totNetBsp = 0, totOther = 0, totInstAmt = 0;
+    let totPct = 0, totNetBsp = 0, totOther = 0, totAddon = 0, totInstAmt = 0;
     let totCgst = 0, totSgst = 0, totNetDue = 0, totPaid = 0;
     if (filteredTemplates.length === 0) {
-        schedRows = `<tr><td colspan="12" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
+        schedRows = `<tr><td colspan="13" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
     }
     else {
         filteredTemplates.forEach((t, idx) => {
@@ -1514,6 +1515,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const dbAmt = demandAmountMap[t.installment_index];
             // Use DB-stored amounts when available — avoids JS float rounding gap (e.g. 626.45 vs 626.00)
             const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst);
+            const addonInst = dbAmt ? dbAmt.addon : 0;
             const instCgst = dbAmt ? dbAmt.cgst : Math.round((netBsp + otherInst) * cgstPct) / 100;
             const instSgst = dbAmt ? dbAmt.sgst : Math.round((netBsp + otherInst) * sgstPct) / 100;
             const netDue = instAmt + instCgst + instSgst;
@@ -1525,6 +1527,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             totPct += pct;
             totNetBsp += netBsp;
             totOther += otherInst;
+            totAddon += addonInst;
             totInstAmt += instAmt;
             totCgst += instCgst;
             totSgst += instSgst;
@@ -1537,6 +1540,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <td ${tdR}><span data-field-key="schedPercentage_${idx}" data-field-label="Schedule % (Row ${idx})" data-value-type="percentage" data-section="payment_schedule">${pct.toFixed(2)}</span></td>
         <td ${tdR}>${fmtIndianNumber(netBsp)}</td>
         <td ${tdR}>${fmtIndianNumber(otherInst)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonInst)}</td>
         <td ${tdR}><span data-field-key="schedAmount_${idx}" data-field-label="Amount (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianNumber(instAmt)}</span></td>
         <td ${tdR}><span data-field-key="schedCgst_${idx}" data-field-label="CGST (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianNumber(instCgst)}</span></td>
         <td ${tdR}><span data-field-key="schedSgst_${idx}" data-field-label="SGST (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianNumber(instSgst)}</span></td>
@@ -1552,6 +1556,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       <td ${tdBR}>${totPct.toFixed(2)}</td>
       <td ${tdBR}>${fmtIndianNumber(totNetBsp)}</td>
       <td ${tdBR}>${fmtIndianNumber(totOther)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totAddon)}</td>
       <td ${tdBR}>${fmtIndianNumber(totInstAmt)}</td>
       <td ${tdBR}>${fmtIndianNumber(totCgst)}</td>
       <td ${tdBR}>${fmtIndianNumber(totSgst)}</td>
@@ -1569,6 +1574,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <th ${thStyle}>%</th>
         <th ${thStyle}>NET BSP</th>
         <th ${thStyle}>OTHER CHARGES</th>
+        <th ${thStyle}>ADDON CHARGES</th>
         <th ${thStyle}>INST. AMT. DUE</th>
         <th ${thStyle}>INST. CGST</th>
         <th ${thStyle}>SGST</th>
