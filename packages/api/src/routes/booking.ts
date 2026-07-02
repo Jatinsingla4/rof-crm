@@ -1148,6 +1148,8 @@ function buildApplicantPage1(
   addonCharges: any[] = [],
   receiptRows: any[] = [],
   totalWaivedInr: number = 0,
+  otherChargeCgstPct: number = 0,
+  otherChargeSgstPct: number = 0,
 ): string {
 
   // ── derived values ──────────────────────
@@ -1181,9 +1183,10 @@ function buildApplicantPage1(
   const addonTotal         = addonCharges.reduce((sum: number, c: any) => sum + parseFloat(c.total_amount || 0), 0);
   const agreementValue     = netBasicPrice + plcAmount + otherCharge + addonTotal;
   const totalConsideration = agreementValue;
-  // Recalculate GST from current totalConsideration — avoids stale stored values from booking_payment_taxes
-  const cgst          = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(totalConsideration * cgstPct / 100) : 0);
-  const sgst          = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(totalConsideration * sgstPct / 100) : 0);
+  // Split GST: basic+PLC at booking rate, other charges at their own GST rate
+  const basicPlusPLC  = basePrice + plcAmount;
+  const cgst          = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) : 0);
+  const sgst          = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) : 0);
   const totalTax           = cgst + sgst;
   const totalWithTax       = totalConsideration + totalTax;
   const totalReceivables   = totalWithTax + interest;
@@ -2400,8 +2403,10 @@ export function buildApplicantFileHtml(
   interestCalcRows: any[] = [],
   addonCharges: any[] = [],
   totalWaivedInr: number = 0,
+  otherChargeCgstPct: number = 0,
+  otherChargeSgstPct: number = 0,
 ): string {
-  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr);
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
   const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
 

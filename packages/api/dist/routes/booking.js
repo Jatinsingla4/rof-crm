@@ -952,7 +952,7 @@ function amtWords(amount) {
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
 // ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -982,9 +982,10 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const addonTotal = addonCharges.reduce((sum, c) => sum + parseFloat(c.total_amount || 0), 0);
     const agreementValue = netBasicPrice + plcAmount + otherCharge + addonTotal;
     const totalConsideration = agreementValue;
-    // Recalculate GST from current totalConsideration — avoids stale stored values from booking_payment_taxes
-    const cgst = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(totalConsideration * cgstPct / 100) : 0);
-    const sgst = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(totalConsideration * sgstPct / 100) : 0);
+    // Split GST: basic+PLC at booking rate, other charges at their own GST rate
+    const basicPlusPLC = basePrice + plcAmount;
+    const cgst = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) : 0);
+    const sgst = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) : 0);
     const totalTax = cgst + sgst;
     const totalWithTax = totalConsideration + totalTax;
     const totalReceivables = totalWithTax + interest;
@@ -2087,8 +2088,8 @@ function buildApplicantPage3(b, consumer, settings, documentDispatches) {
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0) {
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr);
+function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0) {
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
     const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');
