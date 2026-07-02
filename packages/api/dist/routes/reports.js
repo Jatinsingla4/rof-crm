@@ -651,6 +651,7 @@ router.get('/applicant-payment-file', async (req, res, next) => {
         const innerSelect = `
       SELECT DISTINCT ON (c.id)
         c.id                                                                    AS consumer_id,
+        u.id                                                                    AS unit_id,
         c.registration_no,
         TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))     AS consumer_name,
         c.mobile,
@@ -788,6 +789,54 @@ router.get('/applicant-payment-file', async (req, res, next) => {
             numFields.forEach(f => { out[f] = parseFloat(out[f] ?? '0') || 0; });
             return out;
         });
+        // Fix interest: replace penal_interests-only values with buildInterestRows() which
+        // computes correctly from actual receipt dates regardless of whether scheduler has run.
+        // penal_interests overrides per-installment when scheduler has previously stored values.
+        await Promise.all(rows.map(async (row) => {
+            const consumerId = row.consumer_id;
+            const unitId = row.unit_id;
+            const [rcptsRes, demandsRes, piRes, settingsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )
+             ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
+                pool_1.db.query(`SELECT id, installment_index, installment_index AS installment_name,
+               due_date, amount_due_inr, cgst_amount, sgst_amount
+             FROM demands
+             WHERE consumer_id = $1
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )`, [consumerId, unitId]),
+                pool_1.db.query(`SELECT installment_index,
+               COALESCE(interest_waived_inr, 0) AS interest_waived_inr,
+               GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0)) AS net_interest_inr
+             FROM penal_interests
+             WHERE consumer_id = $1`, [consumerId]),
+                pool_1.db.query(`SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent' LIMIT 1`),
+            ]);
+            const penalRate = parseFloat(settingsRes.rows[0]?.value || '15');
+            const piMap = new Map();
+            for (const pi of piRes.rows) {
+                if (parseFloat(pi.net_interest_inr) > 0) {
+                    piMap.set(Number(pi.installment_index), parseFloat(pi.net_interest_inr));
+                }
+            }
+            const irRows = (0, payment_waterfall_js_1.buildInterestRows)(rcptsRes.rows, demandsRes.rows.map((d) => ({ ...d, installment_name: d.demand_type || String(d.installment_index) })), penalRate, { asOfDate: new Date() });
+            let totalInterest = 0;
+            for (const ir of irRows) {
+                const piOverride = piMap.get(ir.installment_index);
+                totalInterest += piOverride !== undefined ? piOverride : ir.interest_amount;
+            }
+            const totalWaived = piRes.rows.reduce((sum, pi) => sum + parseFloat(pi.interest_waived_inr || 0), 0);
+            row.interest_charged = Math.round(totalInterest * 100) / 100;
+            row.interest_waived = Math.round(totalWaived * 100) / 100;
+            row.interest_outstanding = Math.max(0, Math.round((totalInterest - totalWaived - (row.interest_received || 0)) * 100) / 100);
+        }));
         // Page-level summary (accurate when all rows fit in one page; use as indicator otherwise)
         const totalDues = rows.reduce((s, r) => s + r.dues_amount, 0);
         const totalReceived = rows.reduce((s, r) => s + r.received_amount, 0);
@@ -1324,6 +1373,7 @@ router.get('/customer-dues', async (req, res, next) => {
         const dataQuery = `
       SELECT
         c.id AS consumer_id,
+        u.id AS unit_id,
         c.registration_no,
         TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS consumer_name,
         c.mobile,
@@ -1368,8 +1418,8 @@ router.get('/customer-dues', async (req, res, next) => {
         -- RECEIVED
         0 AS received_pending,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_clear,
-        COALESCE((SELECT ROUND(SUM(COALESCE(d.cgst_amount, r.amount_received_inr*0.005)),2) FROM receipts r LEFT JOIN demands d ON d.id = r.demand_id WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_cgst,
-        COALESCE((SELECT ROUND(SUM(COALESCE(d.sgst_amount, r.amount_received_inr*0.005)),2) FROM receipts r LEFT JOIN demands d ON d.id = r.demand_id WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_sgst,
+        0 AS received_cgst,
+        0 AS received_sgst,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_total,
 
         -- CREDIT
@@ -1409,6 +1459,63 @@ router.get('/customer-dues', async (req, res, next) => {
         ]);
         // Build summary matrix from JS aggregation
         const rows = dataRes.rows;
+        // Waterfall post-processing: fix received_cgst/received_sgst for advance receipts.
+        // SQL COALESCE(d.cgst_amount, r.amount*0.005) was replaced with 0 placeholder above;
+        // here we compute the true GST received per consumer via applyWaterfall.
+        const cuMap = new Map();
+        for (const row of rows) {
+            const key = `${row.consumer_id}:${row.unit_id}`;
+            if (!cuMap.has(key))
+                cuMap.set(key, { consumerId: row.consumer_id, unitId: row.unit_id });
+        }
+        const wfGstMap = new Map();
+        await Promise.all([...cuMap.entries()].map(async ([key, { consumerId, unitId }]) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )
+             ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
+                pool_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+             FROM demands
+             WHERE consumer_id = $1
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )`, [consumerId, unitId]),
+            ]);
+            const demandGst = new Map();
+            for (const d of demandsRes.rows) {
+                const cgst = parseFloat(d.cgst_amount || 0);
+                const sgst = parseFloat(d.sgst_amount || 0);
+                const total = parseFloat(d.amount_due_inr || 0) + cgst + sgst;
+                demandGst.set(String(d.id), { cgst, sgst, total });
+            }
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            let totalCgst = 0;
+            let totalSgst = 0;
+            for (const w of wfResult) {
+                if (w.paid > 0 && w.demand_id) {
+                    const gst = demandGst.get(String(w.demand_id));
+                    if (gst) {
+                        const ratio = gst.total > 0 ? Math.min(1, w.paid / gst.total) : 0;
+                        totalCgst += gst.cgst * ratio;
+                        totalSgst += gst.sgst * ratio;
+                    }
+                }
+            }
+            wfGstMap.set(key, { cgst: Math.round(totalCgst * 100) / 100, sgst: Math.round(totalSgst * 100) / 100 });
+        }));
+        for (const row of rows) {
+            const gst = wfGstMap.get(`${row.consumer_id}:${row.unit_id}`);
+            if (gst) {
+                row.received_cgst = gst.cgst;
+                row.received_sgst = gst.sgst;
+            }
+        }
         const sumClrAmt = rows.reduce((a, r) => a + parseFloat(r.received_clear || 0), 0);
         const sumClrCgst = rows.reduce((a, r) => a + parseFloat(r.received_cgst || 0), 0);
         const sumClrSgst = rows.reduce((a, r) => a + parseFloat(r.received_sgst || 0), 0);
