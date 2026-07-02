@@ -1146,7 +1146,7 @@ Object.assign(SPJPage, {
           </div>
           <div class="sp-body" style="padding:0">
             <table class="dash-tbl">
-              <thead><tr><th>#</th><th>Name</th><th>Type</th><th class="txt-right">%</th><th class="txt-right">Flat ₹</th><th class="txt-right">Due (days)</th><th>Remove</th></tr></thead>
+              <thead><tr><th>#</th><th>Name</th><th>Type</th><th class="txt-right">%</th><th class="txt-right">Flat ₹</th><th class="txt-right">Due (days)</th><th>Addon %</th><th>Remove</th></tr></thead>
               <tbody>
                 ${rows.map(r => `<tr>
                   <td>${r.installment_index}</td>
@@ -1155,6 +1155,7 @@ Object.assign(SPJPage, {
                   <td class="txt-right">${r.percentage ? parseFloat(r.percentage).toFixed(1) + '%' : '—'}</td>
                   <td class="txt-right">${r.flat_amount_inr ? Utils.currency(r.flat_amount_inr) : '—'}</td>
                   <td class="txt-right">${r.due_date_offset_days || 0}d</td>
+                  <td><button class="btn btn-ghost btn-xs" onclick="SPJPage.openAddonPctModal('${r.id}','${projectId}')">Addon %</button></td>
                   <td><button class="btn btn-ghost btn-xs" style="color:var(--red)"
                       onclick="SPJPage.deleteTemplate(this,'${r.id}','${projectId}')">✕</button></td>
                 </tr>`).join('')}
@@ -1164,6 +1165,76 @@ Object.assign(SPJPage, {
         </div>`;
     } catch (err) {
       el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
+    }
+  },
+
+  async openAddonPctModal(templateId, projectId) {
+    const [mastersRes, existingRes] = await Promise.all([
+      Api.get(`/addon-charges/master?projectId=${projectId}`),
+      Api.get(`/projects/${projectId}/plan-templates/${templateId}/addon-charges`),
+    ]);
+    const masters  = mastersRes.data  || [];
+    const existing = existingRes.data || [];
+
+    const pctMap = {};
+    existing.forEach(e => { pctMap[e.charge_master_id] = parseFloat(e.pct || 0); });
+
+    if (!masters.length) {
+      Utils.warn('No addon charge types configured for this project.');
+      return;
+    }
+
+    const rows = masters.map(m => `
+      <tr>
+        <td style="padding:6px 10px">${Utils.esc(m.charge_name)}<small style="color:var(--text3);margin-left:4px">(GST ${(parseFloat(m.cgst_pct||0)+parseFloat(m.sgst_pct||0)).toFixed(0)}%)</small></td>
+        <td style="padding:6px 10px;text-align:right">
+          <input type="number" min="0" max="100" step="0.1" class="fc" style="width:80px;text-align:right"
+            data-charge-master-id="${m.id}" value="${pctMap[m.id] !== undefined ? pctMap[m.id] : 0}" />%
+        </td>
+      </tr>`).join('');
+
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="addon-pct-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center">
+        <div style="background:var(--card);border-radius:8px;padding:24px;min-width:400px;max-width:540px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+          <h3 style="margin:0 0 8px;font-size:16px">Addon Charge %</h3>
+          <p style="color:var(--text3);font-size:12px;margin:0 0 16px">Set the % of each addon charge due in this installment. Each charge type must total 100% across all installments.</p>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:6px 10px;font-size:12px">Charge Type</th>
+              <th style="text-align:right;padding:6px 10px;font-size:12px">Percentage</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-ghost btn-sm" onclick="document.getElementById('addon-pct-modal').remove()">Cancel</button>
+            <button class="btn btn-teal btn-sm" onclick="SPJPage.saveAddonPcts('${templateId}','${projectId}')">Save</button>
+          </div>
+        </div>
+      </div>`);
+  },
+
+  async saveAddonPcts(templateId, projectId) {
+    const inputs = document.querySelectorAll('#addon-pct-modal input[data-charge-master-id]');
+    let hasError = false;
+    inputs.forEach(inp => {
+      const v = parseFloat(inp.value || 0);
+      if (v < 0 || v > 100) hasError = true;
+    });
+    if (hasError) { alert('Each percentage must be between 0 and 100.'); return; }
+
+    const saves = [];
+    inputs.forEach(inp => {
+      const chargeMasterId = inp.getAttribute('data-charge-master-id');
+      const pct = parseFloat(inp.value || 0);
+      saves.push(Api.post(`/projects/${projectId}/plan-templates/${templateId}/addon-charges`, { charge_master_id: chargeMasterId, pct }));
+    });
+
+    try {
+      await Promise.all(saves);
+      document.getElementById('addon-pct-modal')?.remove();
+      Utils.toast('Addon percentages saved ✅');
+    } catch (err) {
+      alert('Save failed: ' + (err.message || 'Unknown error'));
     }
   },
 

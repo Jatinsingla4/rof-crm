@@ -177,6 +177,111 @@ router.delete('/:id/plan-templates/:itemId', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/projects/:id/plan-templates/:templateId/addon-charges
+router.get('/:id/plan-templates/:templateId/addon-charges', async (req, res, next) => {
+    try {
+        const { templateId } = req.params;
+        const result = await index_js_1.db.query(`SELECT
+         pacp.id,
+         pacp.plan_schedule_template_id,
+         pacp.charge_master_id,
+         pacp.pct,
+         acm.charge_name,
+         acm.cgst_pct,
+         acm.sgst_pct,
+         acm.default_amount
+       FROM plan_addon_charge_pct pacp
+       JOIN addon_charge_master acm ON acm.id = pacp.charge_master_id
+       WHERE pacp.plan_schedule_template_id = $1
+       ORDER BY acm.charge_name ASC`, [templateId]);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// POST /api/projects/:id/plan-templates/:templateId/addon-charges
+// Body: { charge_master_id, pct }
+// Upserts. Validates: sum of pct for this charge_master_id across all
+// installments in the same plan must not exceed 100.
+router.post('/:id/plan-templates/:templateId/addon-charges', async (req, res, next) => {
+    try {
+        const { id, templateId } = req.params;
+        const { charge_master_id, pct } = req.body;
+        const userId = req.userId || null;
+        const pctNum = parseFloat(pct);
+        if (isNaN(pctNum) || pctNum < 0 || pctNum > 100) {
+            return res.status(400).json({ success: false, error: 'pct must be between 0 and 100' });
+        }
+        const tmplRes = await index_js_1.db.query(`SELECT plan_name, project_id FROM plan_schedule_templates WHERE id = $1`, [templateId]);
+        if (!tmplRes.rows.length) {
+            return res.status(404).json({ success: false, error: 'Template not found' });
+        }
+        const { plan_name } = tmplRes.rows[0];
+        // Sum pct for this charge type across all other installments in the same plan
+        const sumRes = await index_js_1.db.query(`SELECT COALESCE(SUM(pacp.pct), 0) AS current_total
+       FROM plan_addon_charge_pct pacp
+       JOIN plan_schedule_templates pst ON pst.id = pacp.plan_schedule_template_id
+       WHERE pst.plan_name = $1
+         AND pst.project_id = $2
+         AND pacp.charge_master_id = $3
+         AND pacp.plan_schedule_template_id != $4`, [plan_name, id, charge_master_id, templateId]);
+        const currentTotal = parseFloat(sumRes.rows[0].current_total);
+        if (currentTotal + pctNum > 100) {
+            return res.status(400).json({
+                success: false,
+                error: `Total percentage for this charge type would exceed 100% (current: ${currentTotal}%, adding: ${pctNum}%)`
+            });
+        }
+        const result = await index_js_1.db.query(`INSERT INTO plan_addon_charge_pct
+         (plan_schedule_template_id, charge_master_id, pct, created_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (plan_schedule_template_id, charge_master_id)
+       DO UPDATE SET pct = EXCLUDED.pct, updated_at = NOW()
+       RETURNING *`, [templateId, charge_master_id, pctNum, userId]);
+        res.json({ success: true, data: result.rows[0] });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// DELETE /api/projects/:id/plan-templates/:templateId/addon-charges/:chargeId
+router.delete('/:id/plan-templates/:templateId/addon-charges/:chargeId', async (req, res, next) => {
+    try {
+        const { chargeId } = req.params;
+        await index_js_1.db.query(`DELETE FROM plan_addon_charge_pct WHERE id = $1`, [chargeId]);
+        res.json({ success: true });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// GET /api/projects/:id/plan-addon-pcts?planName=CLP@92
+// Returns all addon pcts for all installments in a plan (used by Stage 2 demand creation)
+router.get('/:id/plan-addon-pcts', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { planName } = req.query;
+        const result = await index_js_1.db.query(`SELECT
+         pacp.plan_schedule_template_id,
+         pacp.charge_master_id,
+         pacp.pct,
+         pst.installment_index,
+         acm.charge_name,
+         acm.cgst_pct,
+         acm.sgst_pct
+       FROM plan_addon_charge_pct pacp
+       JOIN plan_schedule_templates pst ON pst.id = pacp.plan_schedule_template_id
+       JOIN addon_charge_master acm ON acm.id = pacp.charge_master_id
+       WHERE pst.project_id = $1
+         AND pst.plan_name = $2
+       ORDER BY pst.installment_index, acm.charge_name`, [id, planName]);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // GET /api/projects/:id
 router.get('/:id', async (req, res, next) => {
     try {
