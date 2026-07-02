@@ -525,8 +525,11 @@ Pages.setProjects = async function(params = {}) {
       <div class="sp" style="margin-bottom:12px">
         <div class="sp-body" style="padding:10px 14px">
           <div style="display:flex;gap:8px;align-items:center">
-            <select class="fc" id="spj-planview-project" onchange="SPJPage.loadPaymentPlans()" style="max-width:280px">
+            <select class="fc" id="spj-planview-project" onchange="SPJPage.onPlanviewProjectChange()" style="max-width:280px">
               <option value="">All Projects</option>
+            </select>
+            <select class="fc" id="spj-planview-plan" style="max-width:280px">
+              <option value="">-- All Plans --</option>
             </select>
             <button class="btn btn-fetch btn-sm" onclick="SPJPage.loadPaymentPlans()">FETCH</button>
           </div>
@@ -1324,6 +1327,29 @@ Object.assign(SPJPage, {
     } catch (err) { Utils.error(err.message); }
   },
 
+  async onPlanviewProjectChange() {
+    const projectId = document.getElementById('spj-planview-project')?.value;
+    const planSel = document.getElementById('spj-planview-plan');
+    if (!planSel) return;
+
+    planSel.innerHTML = '<option value="">-- All Plans --</option>';
+
+    if (!projectId) return;
+
+    try {
+      const res = await Api.get(`/payments/plan-names/${projectId}`);
+      const names = res.data || res || [];
+      names.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        planSel.appendChild(opt);
+      });
+    } catch (e) {
+      console.error('Failed to load plan names', e);
+    }
+  },
+
   async loadPaymentPlans() {
     const el = document.getElementById('spj-plans-body');
     if (!el) return;
@@ -1332,7 +1358,11 @@ Object.assign(SPJPage, {
       const projects = projectId ? [{ id: projectId, name: this._projects.find(p=>p.id===projectId)?.name||'' }] : this._projects;
       let html = '';
       for (const proj of projects) {
-        const res = await Api.get(`/projects/${proj.id}/plan-templates`);
+        const selectedPlan = document.getElementById('spj-planview-plan')?.value || '';
+        const url = selectedPlan
+          ? `/projects/${proj.id}/plan-templates?planName=${encodeURIComponent(selectedPlan)}`
+          : `/projects/${proj.id}/plan-templates`;
+        const res = await Api.get(url);
         const templates = res.data || [];
 
         // Group by plan_name
