@@ -3,6 +3,62 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const router = (0, express_1.Router)();
+// ── Helpers ──────────────────────────────────────────────────────────────────
+async function getPaymentPlanInfo(client, consumerId, projectId) {
+    const res = await client.query(`SELECT pp.id AS payment_plan_id,
+            br.selected_plan_name AS plan_name
+     FROM booking_records br
+     JOIN payment_plans pp
+       ON pp.consumer_id = br.consumer_id
+      AND pp.unit_id = br.unit_id
+     WHERE br.consumer_id = $1
+       AND br.project_id  = $2
+       AND br.status != 'cancelled'
+     ORDER BY br.created_at DESC
+     LIMIT 1`, [consumerId, projectId]);
+    if (!res.rows.length)
+        return null;
+    return {
+        paymentPlanId: res.rows[0].payment_plan_id,
+        planName: res.rows[0].plan_name,
+    };
+}
+async function recomputeAddonDemands(client, consumerId, projectId, paymentPlanId, planName) {
+    await client.query(`UPDATE demands
+     SET addon_charge_amount = 0,
+         updated_at = NOW()
+     WHERE payment_plan_id = $1
+       AND status NOT IN ('cancelled')`, [paymentPlanId]);
+    const chargesRes = await client.query(`SELECT id, charge_master_id,
+            amount + COALESCE(increase_amount, 0) AS effective_amount
+     FROM consumer_addon_charges
+     WHERE consumer_id = $1
+       AND project_id  = $2
+       AND status = 'active'`, [consumerId, projectId]);
+    if (!chargesRes.rows.length)
+        return;
+    for (const charge of chargesRes.rows) {
+        const pctRes = await client.query(`SELECT pst.installment_index,
+              SUM(pacp.pct) AS total_pct
+       FROM plan_addon_charge_pct pacp
+       JOIN plan_schedule_templates pst
+         ON pst.id = pacp.plan_schedule_template_id
+       WHERE pst.plan_name        = $1
+         AND pacp.charge_master_id = $2
+       GROUP BY pst.installment_index`, [planName, charge.charge_master_id]);
+        for (const row of pctRes.rows) {
+            const addonAmt = Math.round(parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100 * 100) / 100;
+            if (addonAmt === 0)
+                continue;
+            await client.query(`UPDATE demands
+         SET addon_charge_amount = addon_charge_amount + $1,
+             updated_at = NOW()
+         WHERE payment_plan_id  = $2
+           AND installment_index = $3
+           AND status NOT IN ('cancelled')`, [addonAmt, paymentPlanId, row.installment_index]);
+        }
+    }
+}
 // ── A: GET /api/addon-charges/master?projectId=uuid ──────────────────────────
 router.get('/master', async (req, res, next) => {
     try {
@@ -106,19 +162,21 @@ router.get('/consumer', async (req, res, next) => {
 });
 // ── F: POST /api/addon-charges/consumer ──────────────────────────────────────
 router.post('/consumer', async (req, res, next) => {
+    const { consumerId, projectId, chargeMasterId, chargeName, amount, cgstPct, sgstPct, remark, effectiveDate, } = req.body;
+    if (!consumerId || !projectId || !chargeName) {
+        return res.status(400).json({ error: 'consumerId, projectId and chargeName are required' });
+    }
+    const amt = parseFloat(amount || 0);
+    const cPct = parseFloat(cgstPct ?? 9);
+    const sPct = parseFloat(sgstPct ?? 9);
+    const amountWithIncrease = amt;
+    const cgstAmount = Math.round(amountWithIncrease * cPct / 100 * 100) / 100;
+    const sgstAmount = Math.round(amountWithIncrease * sPct / 100 * 100) / 100;
+    const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
+    const client = await index_js_1.db.connect();
     try {
-        const { consumerId, projectId, chargeMasterId, chargeName, amount, cgstPct, sgstPct, remark, effectiveDate, } = req.body;
-        if (!consumerId || !projectId || !chargeName) {
-            return res.status(400).json({ error: 'consumerId, projectId and chargeName are required' });
-        }
-        const amt = parseFloat(amount || 0);
-        const cPct = parseFloat(cgstPct ?? 9);
-        const sPct = parseFloat(sgstPct ?? 9);
-        const amountWithIncrease = amt;
-        const cgstAmount = Math.round(amountWithIncrease * cPct / 100 * 100) / 100;
-        const sgstAmount = Math.round(amountWithIncrease * sPct / 100 * 100) / 100;
-        const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
-        const result = await index_js_1.db.query(`INSERT INTO consumer_addon_charges
+        await client.query('BEGIN');
+        const result = await client.query(`INSERT INTO consumer_addon_charges
          (consumer_id, project_id, charge_master_id,
           charge_name, effective_date, amount,
           increase_amount, cgst_pct, sgst_pct,
@@ -141,29 +199,42 @@ router.post('/consumer', async (req, res, next) => {
             remark || null,
             req.userId || null,
         ]);
+        const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
+        if (planInfo) {
+            await recomputeAddonDemands(client, consumerId, projectId, planInfo.paymentPlanId, planInfo.planName);
+        }
+        await client.query('COMMIT');
         return res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (err) {
+        await client.query('ROLLBACK');
         next(err);
+    }
+    finally {
+        client.release();
     }
 });
 // ── G: PATCH /api/addon-charges/consumer/:id ─────────────────────────────────
 router.patch('/consumer/:id', async (req, res, next) => {
+    const { id } = req.params;
+    const { amount, increaseAmount, remark } = req.body;
+    const existing = await index_js_1.db.query(`SELECT consumer_id, project_id, cgst_pct, sgst_pct
+     FROM consumer_addon_charges WHERE id = $1`, [id]);
+    if (existing.rows.length === 0)
+        return res.status(404).json({ error: 'Charge not found' });
+    const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
+    const cgstPct = parseFloat(existing.rows[0].cgst_pct);
+    const sgstPct = parseFloat(existing.rows[0].sgst_pct);
+    const amt = parseFloat(amount || 0);
+    const inc = parseFloat(increaseAmount || 0);
+    const amountWithIncrease = amt + inc;
+    const cgstAmount = Math.round(amountWithIncrease * cgstPct / 100 * 100) / 100;
+    const sgstAmount = Math.round(amountWithIncrease * sgstPct / 100 * 100) / 100;
+    const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
+    const client = await index_js_1.db.connect();
     try {
-        const { id } = req.params;
-        const { amount, increaseAmount, remark } = req.body;
-        const existing = await index_js_1.db.query(`SELECT cgst_pct, sgst_pct FROM consumer_addon_charges WHERE id = $1`, [id]);
-        if (existing.rows.length === 0)
-            return res.status(404).json({ error: 'Charge not found' });
-        const cgstPct = parseFloat(existing.rows[0].cgst_pct);
-        const sgstPct = parseFloat(existing.rows[0].sgst_pct);
-        const amt = parseFloat(amount || 0);
-        const inc = parseFloat(increaseAmount || 0);
-        const amountWithIncrease = amt + inc;
-        const cgstAmount = Math.round(amountWithIncrease * cgstPct / 100 * 100) / 100;
-        const sgstAmount = Math.round(amountWithIncrease * sgstPct / 100 * 100) / 100;
-        const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
-        const result = await index_js_1.db.query(`UPDATE consumer_addon_charges SET
+        await client.query('BEGIN');
+        const result = await client.query(`UPDATE consumer_addon_charges SET
          amount          = $2,
          increase_amount = $3,
          cgst_amount     = $4,
@@ -173,47 +244,82 @@ router.patch('/consumer/:id', async (req, res, next) => {
          updated_at      = now()
        WHERE id = $1
        RETURNING *`, [id, amt, inc, cgstAmount, sgstAmount, totalAmount, remark || null]);
+        const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
+        if (planInfo) {
+            await recomputeAddonDemands(client, consumerId, projectId, planInfo.paymentPlanId, planInfo.planName);
+        }
+        await client.query('COMMIT');
         return res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
+        await client.query('ROLLBACK');
         next(err);
+    }
+    finally {
+        client.release();
     }
 });
 // ── H: PATCH /api/addon-charges/consumer/:id/cancel ──────────────────────────
 router.patch('/consumer/:id/cancel', async (req, res, next) => {
+    const { id } = req.params;
+    const existing = await index_js_1.db.query(`SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`, [id]);
+    if (existing.rows.length === 0)
+        return res.status(404).json({ error: 'Charge not found' });
+    const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
+    const client = await index_js_1.db.connect();
     try {
-        const { id } = req.params;
-        const result = await index_js_1.db.query(`UPDATE consumer_addon_charges SET
+        await client.query('BEGIN');
+        const result = await client.query(`UPDATE consumer_addon_charges SET
          status       = 'cancelled',
          cancelled_at = now(),
          updated_at   = now()
        WHERE id = $1
        RETURNING id, status`, [id]);
-        if (result.rows.length === 0)
-            return res.status(404).json({ error: 'Charge not found' });
+        const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
+        if (planInfo) {
+            await recomputeAddonDemands(client, consumerId, projectId, planInfo.paymentPlanId, planInfo.planName);
+        }
+        await client.query('COMMIT');
         return res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
+        await client.query('ROLLBACK');
         next(err);
+    }
+    finally {
+        client.release();
     }
 });
 // ── I: PATCH /api/addon-charges/consumer/:id/waive ───────────────────────────
 router.patch('/consumer/:id/waive', async (req, res, next) => {
+    const { id } = req.params;
+    const { waiveRemark } = req.body;
+    const existing = await index_js_1.db.query(`SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`, [id]);
+    if (existing.rows.length === 0)
+        return res.status(404).json({ error: 'Charge not found' });
+    const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
+    const client = await index_js_1.db.connect();
     try {
-        const { id } = req.params;
-        const { waiveRemark } = req.body;
-        const result = await index_js_1.db.query(`UPDATE consumer_addon_charges SET
+        await client.query('BEGIN');
+        const result = await client.query(`UPDATE consumer_addon_charges SET
          status       = 'waived',
          waive_remark = $2,
          updated_at   = now()
        WHERE id = $1
        RETURNING id, status`, [id, waiveRemark || null]);
-        if (result.rows.length === 0)
-            return res.status(404).json({ error: 'Charge not found' });
+        const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
+        if (planInfo) {
+            await recomputeAddonDemands(client, consumerId, projectId, planInfo.paymentPlanId, planInfo.planName);
+        }
+        await client.query('COMMIT');
         return res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
+        await client.query('ROLLBACK');
         next(err);
+    }
+    finally {
+        client.release();
     }
 });
 // ── J: GET /api/addon-charges/consumers?projectId=uuid&... ───────────────────
