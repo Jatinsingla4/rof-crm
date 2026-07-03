@@ -287,7 +287,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
             if (excess > 0) {
               // Find next unpaid demand in the same plan
               const nextDemand = await matchClient.query(
-                `SELECT id FROM demands
+                `SELECT id, installment_index FROM demands
                  WHERE payment_plan_id = $1
                    AND consumer_id = $2
                    AND installment_index > $3
@@ -298,15 +298,16 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
               );
               if (nextDemand.rows[0]) {
                 const nextId = nextDemand.rows[0].id;
+                const nextIdx = nextDemand.rows[0].installment_index;
                 const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
                 await matchClient.query(
                   `INSERT INTO receipts
-                     (consumer_id, payment_plan_id, demand_id, amount_received_inr,
+                     (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
                       payment_method, received_date, received_by_user_id, receipt_number,
                       plc_amount, status, approval_status, print_status,
                       is_advance, advance_from_demand_id)
-                   VALUES ($1,$2,$3,$4,$5,CURRENT_DATE,$6,$7,0,'pending','pending','not_printed',true,$8)`,
-                  [demand.consumer_id, resolvedPlanId, nextId, excess,
+                   VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)`,
+                  [demand.consumer_id, resolvedPlanId, nextId, nextIdx, excess,
                    method, req.userId, advanceNum, demand.id]
                 );
                 await matchClient.query(
