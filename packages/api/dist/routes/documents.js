@@ -675,6 +675,9 @@ router.post('/generate', async (req, res, next) => {
               d.amount_due_inr,
               d.cgst_amount,
               d.sgst_amount,
+              d.addon_charge_amount,
+              d.addon_cgst_amount,
+              d.addon_sgst_amount,
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
@@ -702,6 +705,9 @@ router.post('/generate', async (req, res, next) => {
               d.amount_due_inr,
               d.cgst_amount,
               d.sgst_amount,
+              d.addon_charge_amount,
+              d.addon_cgst_amount,
+              d.addon_sgst_amount,
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
@@ -848,15 +854,31 @@ router.post('/generate', async (req, res, next) => {
                         const hasDemand = !!dm.demand_id;
                         const pct = parseFloat(dm.percentage || 0) / 100;
                         const calculatedAmt = Math.round(recalcTotal * pct);
-                        const installment = hasDemand
+                        // Addon charges: included in installment/cgst/sgst so all
+                        // downstream (amtDue, basicAmt, balconyAmt, totalDue, totalPayable,
+                        // amountInWords) auto-correct. hasDemand guard ensures 0 for
+                        // non-demanded/fallback rows. Non-addon bookings unaffected
+                        // (columns default 0 per migration 081).
+                        const addonAmt = hasDemand
+                            ? parseFloat(dm.addon_charge_amount || 0)
+                            : 0;
+                        const addonCgst = hasDemand
+                            ? parseFloat(dm.addon_cgst_amount || 0)
+                            : 0;
+                        const addonSgst = hasDemand
+                            ? parseFloat(dm.addon_sgst_amount || 0)
+                            : 0;
+                        const installment = (hasDemand
                             ? parseFloat(dm.amount_due_inr || 0)
-                            : calculatedAmt;
-                        const cgst = hasDemand
+                            : calculatedAmt) + addonAmt;
+                        const cgst = (hasDemand
                             ? parseFloat(dm.cgst_amount || 0)
-                            : Math.round(installment * defaultCgstPct / 100);
-                        const sgst = hasDemand
+                            : Math.round(installment * defaultCgstPct / 100))
+                            + addonCgst;
+                        const sgst = (hasDemand
                             ? parseFloat(dm.sgst_amount || 0)
-                            : Math.round(installment * defaultSgstPct / 100);
+                            : Math.round(installment * defaultSgstPct / 100))
+                            + addonSgst;
                         const totalGst = cgst + sgst;
                         const amtDue = installment + cgst + sgst;
                         // Use waterfall allocation (covers advance/booking receipts) with fallback to direct linkage.
