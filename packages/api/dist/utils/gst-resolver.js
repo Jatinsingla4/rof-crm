@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.resolveRate = resolveRate;
 exports.resolveGstForComponents = resolveGstForComponents;
 async function resolveRate(db, projectId, projectName, chargeType, bookingDate) {
     const r = await db.query(`SELECT gts.cgst_pct, gts.sgst_pct

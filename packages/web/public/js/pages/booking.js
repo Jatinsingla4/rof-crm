@@ -1442,28 +1442,33 @@ const BookingPage = {
     // Default receipt date to today
     const rdEl = document.getElementById('bk-receipt-date');
     if (rdEl && !rdEl.value) rdEl.value = new Date().toISOString().split('T')[0];
-    // Tax slabs — store on instance, seed payment fields with residential 1% defaults
-    try {
-      const res = await Api.get('/master/tax-slabs');
-      this._taxSlabs = (res.data||[]).filter(s => s.is_active !== false);
-    } catch {
-      this._taxSlabs = [{ name:'Residential GST (1%)', cgst_percent:0.5, sgst_percent:0.5 }];
-    }
-    const defaultSlab = this._taxSlabs.find(s => s.cgst_percent <= 1) || this._taxSlabs[0];
-    if (defaultSlab) {
-      ['bk-cgst-pct','bk-cgst-pct-d','bk-cgst-pct-o','bk-cgst-pct-c'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = defaultSlab.cgst_percent;
-      });
-      ['bk-sgst-pct','bk-sgst-pct-d','bk-sgst-pct-o','bk-sgst-pct-c'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = defaultSlab.sgst_percent;
-      });
-      // S.Tax is a legacy field — always defaults to 0, not derived from slab
-      ['bk-stax-pct','bk-stax-pct-d','bk-stax-pct-o','bk-stax-pct-c'].forEach(id => {
-        const el = document.getElementById(id); if (el) el.value = 0;
-      });
-    }
+    // S.Tax is a legacy field — always defaults to 0
+    ['bk-stax-pct','bk-stax-pct-d','bk-stax-pct-o','bk-stax-pct-c'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = 0;
+    });
     this.calculatePaymentTaxes();
     this.updateTaxLabels();
+  },
+
+  async _applyProjectGstRate(projectId) {
+    if (!projectId) return;
+    try {
+      const bookingDate = new Date().toISOString().split('T')[0];
+      const gstRes = await Api.get(`/gst-configuration/resolve?projectId=${projectId}&chargeType=BASIC&date=${bookingDate}`);
+      const { cgstPct, sgstPct } = gstRes.data || {};
+      if (cgstPct !== undefined) {
+        ['bk-cgst-pct','bk-cgst-pct-d','bk-cgst-pct-o','bk-cgst-pct-c'].forEach(id => {
+          const el = document.getElementById(id); if (el) el.value = cgstPct;
+        });
+        ['bk-sgst-pct','bk-sgst-pct-d','bk-sgst-pct-o','bk-sgst-pct-c'].forEach(id => {
+          const el = document.getElementById(id); if (el) el.value = sgstPct;
+        });
+        this.calculatePaymentTaxes();
+        this.updateTaxLabels();
+      }
+    } catch (e) {
+      console.warn('GST rate fetch failed:', e.message);
+    }
   },
 
   async onProjectChange(projectId) {
@@ -1489,6 +1494,9 @@ const BookingPage = {
 
       // Load payment plans
       this.loadPaymentPlans(projectId);
+
+      // Fetch real project GST rate (System A: gst_tax_charge_mapping)
+      this._applyProjectGstRate(projectId);
     } catch {}
   },
 

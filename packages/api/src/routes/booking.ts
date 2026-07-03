@@ -6,7 +6,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
-import { resolveGstForComponents } from '../utils/gst-resolver.js';
+import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 
 const router = Router();
 
@@ -710,6 +710,38 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
         return res.status(404).json({ error: 'Booking not found' });
       }
 
+      const booking = updateResult.rows[0];
+
+      // Resolve BASIC GST rate from System A (gst_tax_charge_mapping) to store
+      // correct rate in booking_payment_taxes. Replaces frontend-submitted
+      // cgst_pct/sgst_pct which came from the disconnected tax_slabs table.
+      const bookingDateForGst = booking.booking_date
+        ? new Date(booking.booking_date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+
+      const projectRowForGst = await client.query(
+        'SELECT name FROM projects WHERE id = $1',
+        [booking.project_id]
+      );
+      const projectNameForGst = projectRowForGst.rows[0]?.name || booking.project_id;
+
+      const consumerRowForGst = await client.query(
+        'SELECT nationality FROM consumers WHERE id = $1',
+        [booking.consumer_id]
+      );
+      const isNriForGst = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
+        .includes(consumerRowForGst.rows[0]?.nationality);
+
+      const gstRateForBpt = isNriForGst
+        ? { cgstPct: 0, sgstPct: 0 }
+        : await resolveRate(
+            db,
+            booking.project_id,
+            projectNameForGst,
+            'BASIC',
+            bookingDateForGst
+          );
+
       // Upsert tax row (delete + insert to handle both old and new bookings cleanly)
       await client.query(
         `DELETE FROM booking_payment_taxes WHERE booking_record_id = $1`,
@@ -722,14 +754,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           id,
-          parseFloat(s_tax_pct||0), parseFloat(cgst_pct||0), parseFloat(sgst_pct||0),
+          parseFloat(s_tax_pct||0), gstRateForBpt.cgstPct * 100, gstRateForBpt.sgstPct * 100,
           parseFloat(gst_interest_pct||0), parseFloat(cgst_amount||0),
           parseFloat(sgst_amount||0), parseFloat(tds_amount||0),
         ]
       );
 
       // Lock the unit now that payment is confirmed
-      const booking = updateResult.rows[0];
       if (booking.unit_id) {
         await client.query(
           `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
@@ -1672,6 +1703,8 @@ function buildApplicantPage2(
   receiptRows: any[] = [],
   demands: any[] = [],
   interestCalcRows: any[] = [],
+  otherChargeCgstPct: number = 0,
+  otherChargeSgstPct: number = 0,
 ): string {
 
   // ── derived values ──────────────────────
@@ -1885,8 +1918,8 @@ function buildApplicantPage2(
 
   if (b.has_other_charge && otherCharge > 0) {
     addonRowNum++;
-    const ocCgst  = otherCharge * cgstPct / 100;
-    const ocSgst  = otherCharge * sgstPct / 100;
+    const ocCgst  = otherCharge * otherChargeCgstPct / 100;
+    const ocSgst  = otherCharge * otherChargeSgstPct / 100;
     // Other charges (IFMS etc.) are tracked inside installment amounts.
     // Do not show proportional received here — only show actual dedicated
     // payments against other charges. Until dedicated other-charge receipts
@@ -2407,7 +2440,7 @@ export function buildApplicantFileHtml(
   otherChargeSgstPct: number = 0,
 ): string {
   const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
-  const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows);
+  const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
   const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
 
   const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

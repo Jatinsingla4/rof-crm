@@ -493,6 +493,81 @@ router.delete('/gst-charge-mapping/:id', async (req: AuthRequest, res: Response,
   }
 });
 
+// GET /api/gst-configuration/resolve?projectId=X&chargeType=BASIC&date=Y
+// Returns resolved GST rate for a specific project + charge type + date.
+// Used by booking forms to show real rates instead of generic tax_slabs.
+router.get('/resolve', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, chargeType, date } = req.query as {
+      projectId: string;
+      chargeType: string;
+      date?: string;
+    };
+
+    if (!projectId || !chargeType) {
+      return res.status(400).json({ success: false, error: 'projectId and chargeType required' });
+    }
+
+    const resolveDate = date || new Date().toISOString().split('T')[0];
+
+    const projRes = await db.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
+    const projectName = projRes.rows[0]?.name || projectId;
+
+    const result = await db.query(
+      `SELECT gts.cgst_pct, gts.sgst_pct
+       FROM gst_tax_charge_mapping gcm
+       JOIN gst_slabs gs ON gs.id = gcm.slab_id
+        AND gs.from_date <= $3::date
+        AND gs.to_date   >= $3::date
+       JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
+       WHERE gcm.project_id = $1
+         AND gcm.charge_type = $2
+       LIMIT 1`,
+      [projectId, chargeType, resolveDate]
+    );
+
+    if (!result.rows.length) {
+      // Fallback to BASIC if non-BASIC not configured (matches gst-resolver.ts behavior)
+      if (chargeType !== 'BASIC') {
+        const fallback = await db.query(
+          `SELECT gts.cgst_pct, gts.sgst_pct
+           FROM gst_tax_charge_mapping gcm
+           JOIN gst_slabs gs ON gs.id = gcm.slab_id
+            AND gs.from_date <= $2::date
+            AND gs.to_date   >= $2::date
+           JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
+           WHERE gcm.project_id = $1
+             AND gcm.charge_type = 'BASIC'
+           LIMIT 1`,
+          [projectId, resolveDate]
+        );
+        if (fallback.rows.length) {
+          return res.json({
+            success: true,
+            data: {
+              cgstPct: parseFloat(fallback.rows[0].cgst_pct),
+              sgstPct: parseFloat(fallback.rows[0].sgst_pct),
+              fallback: true,
+            },
+          });
+        }
+      }
+      return res.status(404).json({ success: false, error: `No GST mapping for ${chargeType} on ${projectName}` });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        cgstPct: parseFloat(result.rows[0].cgst_pct),
+        sgstPct: parseFloat(result.rows[0].sgst_pct),
+        fallback: false,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ── TAB 7: PROJECT WISE GSTIN ─────────────────────────────────────────────────
 
 // GET /api/gst-configuration/project-gstin

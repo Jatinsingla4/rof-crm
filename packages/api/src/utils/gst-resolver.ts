@@ -8,7 +8,7 @@ export interface ChargeComponent {
   amount: number;
 }
 
-async function resolveRate(
+export async function resolveRate(
   db: any,
   projectId: string,
   projectName: string,

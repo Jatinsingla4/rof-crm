@@ -21,18 +21,21 @@ Pages.bookingPayment = async function(params = {}) {
     return;
   }
 
-  // Load banks, employees, tax slabs in parallel
-  let banks = [], employees = [], taxSlabs = [];
+  // Load banks, employees, real project GST rate in parallel
+  let banks = [], employees = [], gstRate = null;
   try {
-    const [banksRes, empsRes, taxRes] = await Promise.all([
+    const gstDate = booking.booking_date || new Date().toISOString().split('T')[0];
+    const [banksRes, empsRes, gstRes] = await Promise.all([
       Api.get('/master/banks'),
       Api.get('/employees'),
-      Api.get('/master/tax-slabs'),
+      Api.get(`/gst-configuration/resolve?projectId=${booking.project_id}&chargeType=BASIC&date=${gstDate}`),
     ]);
     banks     = banksRes.data || [];
     employees = empsRes.data || [];
-    taxSlabs  = (taxRes.data || []).filter(s => s.is_active !== false);
-  } catch {}
+    gstRate   = gstRes.data || null;
+  } catch (e) {
+    console.warn('GST rate fetch failed:', e.message);
+  }
 
   const bankOpts = banks.map(b => `<option value="${b.name}">${b.name}</option>`).join('');
   const empOpts  = employees.map(e => {
@@ -360,21 +363,20 @@ Pages.bookingPayment = async function(params = {}) {
   BkPayPage._regNo = regNo;
   BkPayPage._booking = booking;
   BkPayPage._chequeWarningAcknowledged = false; // unused — kept for safety
-  BkPayPage._taxSlabs = taxSlabs;
+  BkPayPage._gstRate = gstRate;
 
-  // Seed tax slabs
-  const defaultSlab = taxSlabs.find(s => s.cgst_percent <= 1) || taxSlabs[0];
-  if (defaultSlab) {
+  // Seed GST rate fields from real project config (System A)
+  if (gstRate && gstRate.cgstPct !== undefined) {
     ['bkp-cgst-pct','bkp-cgst-pct-d','bkp-cgst-pct-o','bkp-cgst-pct-c'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = defaultSlab.cgst_percent;
+      const el = document.getElementById(id); if (el) el.value = gstRate.cgstPct;
     });
     ['bkp-sgst-pct','bkp-sgst-pct-d','bkp-sgst-pct-o','bkp-sgst-pct-c'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = defaultSlab.sgst_percent;
-    });
-    ['bkp-stax-pct','bkp-stax-pct-d','bkp-stax-pct-o','bkp-stax-pct-c'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = 0;
+      const el = document.getElementById(id); if (el) el.value = gstRate.sgstPct;
     });
   }
+  ['bkp-stax-pct','bkp-stax-pct-d','bkp-stax-pct-o','bkp-stax-pct-c'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = 0;
+  });
 
   // Override GST to 0 for NRI / OCI / PIO buyers
   const _buyerNat = (booking.nationality || '').toLowerCase();
@@ -406,7 +408,7 @@ const BkPayPage = {
   _regNo: null,
   _booking: null,
   _chequeWarningAcknowledged: false,
-  _taxSlabs: [],
+  _gstRate: null,
 
   setToggleValue(fieldId, value, buttonIds) {
     const inputEl = document.getElementById(`bkp-${fieldId.replace(/_/g,'-')}`);
