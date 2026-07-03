@@ -344,22 +344,61 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         );
       }
 
-      // Update consumer with registration number, form number, communication preferences, and comm address
-      await client.query(
-        `UPDATE consumers
-         SET registration_no = $1, form_no = $2,
-             mailing_address_type = $3, communication_mode = $4,
-             comm_address_line1 = COALESCE($5, comm_address_line1),
-             comm_pin           = COALESCE($6, comm_pin),
-             comm_city          = COALESCE($7, comm_city),
-             comm_state         = COALESCE($8, comm_state),
-             comm_country       = COALESCE($9, comm_country),
-             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
-         WHERE id = $10`,
-        [registrationNo, formNo, mailing_address_type||'present', communication_mode||'email',
-         comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
-         consumer_id]
+      // Registration number is permanent once assigned.
+      // Do not overwrite on re-booking — this previously caused a real data-corruption
+      // incident (consumer 9e9d7841, TULA-2026-0002 wrongly overwritten to ALAN-2026-0016
+      // during unrelated testing).
+      const existingConsumer = await client.query(
+        `SELECT registration_no, project_id FROM consumers WHERE id = $1`,
+        [consumer_id]
       );
+      const existingRegNo = existingConsumer.rows[0]?.registration_no;
+      const existingProjectId = existingConsumer.rows[0]?.project_id;
+
+      if (existingRegNo && existingProjectId !== project_id) {
+        // Different project than consumer's original registration — reject.
+        await client.query('ROLLBACK');
+        return res.status(409).json({
+          error: `Consumer is already registered as ${existingRegNo} under a different project. Create a new consumer record to book under this project instead.`
+        });
+      }
+
+      // Update consumer with form number, communication preferences, and comm address.
+      // registration_no is only set on first-ever assignment; a same-project re-book
+      // (e.g. post-surrender) preserves the consumer's original registration_no.
+      if (existingRegNo) {
+        await client.query(
+          `UPDATE consumers
+           SET form_no = $1,
+               mailing_address_type = $2, communication_mode = $3,
+               comm_address_line1 = COALESCE($4, comm_address_line1),
+               comm_pin           = COALESCE($5, comm_pin),
+               comm_city          = COALESCE($6, comm_city),
+               comm_state         = COALESCE($7, comm_state),
+               comm_country       = COALESCE($8, comm_country),
+               lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
+           WHERE id = $9`,
+          [formNo, mailing_address_type||'present', communication_mode||'email',
+           comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
+           consumer_id]
+        );
+      } else {
+        await client.query(
+          `UPDATE consumers
+           SET registration_no = $1, form_no = $2,
+               mailing_address_type = $3, communication_mode = $4,
+               comm_address_line1 = COALESCE($5, comm_address_line1),
+               comm_pin           = COALESCE($6, comm_pin),
+               comm_city          = COALESCE($7, comm_city),
+               comm_state         = COALESCE($8, comm_state),
+               comm_country       = COALESCE($9, comm_country),
+               lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
+           WHERE id = $10`,
+          [registrationNo, formNo, mailing_address_type||'present', communication_mode||'email',
+           comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
+           consumer_id]
+        );
+      }
 
       // Auto-create pending commission record when booking type is broker
       if (booking_type === 'broker' && broker_id) {
