@@ -245,9 +245,11 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     const receiptId = result.rows[0].id;
 
     // Auto-match receipt to demand, then apply partial/full/excess payment logic
+    const matchClient = await db.connect();
     try {
+      await matchClient.query('BEGIN');
       if (resolvedPlanId && resolvedIdx != null) {
-        const matchedDemand = await db.query(
+        const matchedDemand = await matchClient.query(
           `SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
                   d.installment_index, d.consumer_id
            FROM demands d
@@ -260,10 +262,10 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         );
         if (matchedDemand.rows[0]) {
           const demand = matchedDemand.rows[0];
-          await db.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
+          await matchClient.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
 
           // Sum all non-cancelled receipts linked to this demand
-          const paidResult = await db.query(
+          const paidResult = await matchClient.query(
             `SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
              FROM receipts
              WHERE demand_id = $1 AND status != 'cancelled'`,
@@ -276,7 +278,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
 
           if (totalPaid >= amountDue) {
             // Fully paid (or excess)
-            await db.query(
+            await matchClient.query(
               `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
               [demand.id]
             );
@@ -284,7 +286,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
             const excess = totalPaid - amountDue;
             if (excess > 0) {
               // Find next unpaid demand in the same plan
-              const nextDemand = await db.query(
+              const nextDemand = await matchClient.query(
                 `SELECT id FROM demands
                  WHERE payment_plan_id = $1
                    AND consumer_id = $2
@@ -297,17 +299,17 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
               if (nextDemand.rows[0]) {
                 const nextId = nextDemand.rows[0].id;
                 const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
-                await db.query(
+                await matchClient.query(
                   `INSERT INTO receipts
                      (consumer_id, payment_plan_id, demand_id, amount_received_inr,
                       payment_method, received_date, received_by_user_id, receipt_number,
                       plc_amount, status, approval_status, print_status,
                       is_advance, advance_from_demand_id)
-                   VALUES ($1,$2,$3,$4,'advance',CURRENT_DATE,$5,$6,0,'pending','pending','not_printed',true,$7)`,
+                   VALUES ($1,$2,$3,$4,$5,CURRENT_DATE,$6,$7,0,'pending','pending','not_printed',true,$8)`,
                   [demand.consumer_id, resolvedPlanId, nextId, excess,
-                   req.userId, advanceNum, demand.id]
+                   method, req.userId, advanceNum, demand.id]
                 );
-                await db.query(
+                await matchClient.query(
                   `UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`,
                   [excess, resolvedPlanId]
                 );
@@ -315,15 +317,19 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
             }
           } else {
             // Partial payment
-            await db.query(
+            await matchClient.query(
               `UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`,
               [demand.id]
             );
           }
         }
       }
+      await matchClient.query('COMMIT');
     } catch (matchErr: any) {
-      console.warn('Demand auto-match failed:', matchErr.message);
+      await matchClient.query('ROLLBACK');
+      console.error('Demand auto-match failed, rolled back:', matchErr.message);
+    } finally {
+      matchClient.release();
     }
 
     res.status(201).json({ success: true, data: result.rows[0] });
