@@ -59,6 +59,7 @@
 </style>`;
 
   let _editingId = null;
+  let _rows = [];
 
   function _render() {
     return ACM_STYLES + `
@@ -167,6 +168,7 @@
   }
 
   function _renderTable(rows) {
+    _rows = rows;
     const tableSection = document.getElementById('acm-table-section');
     if (!tableSection) return;
     if (rows.length === 0) {
@@ -189,7 +191,7 @@
         '<td style="text-align:center">' + parseFloat(r.sgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + statusBadge + '</td>' +
         '<td>' +
-          '<span class="acm-act-link" onclick="AddonChargeMaster.edit(' + JSON.stringify(r) + ')">Edit</span>' +
+          '<span class="acm-act-link" onclick="AddonChargeMaster.edit(\'' + r.id + '\')">Edit</span>' +
           '<span class="acm-act-del" onclick="AddonChargeMaster.deactivate(\'' + r.id + '\')">Deactivate</span>' +
         '</td>' +
         '</tr>';
@@ -198,7 +200,9 @@
     tableSection.innerHTML = html;
   }
 
-  function _editRow(row) {
+  function _editRow(id) {
+    const row = _rows.find(function(r) { return r.id === id; });
+    if (!row) return;
     _editingId = row.id;
     _setVal('acm-charge-name', row.charge_name);
     _setVal('acm-default-amount', row.default_amount);
@@ -278,7 +282,8 @@
   }
 
   async function _deactivate(id) {
-    if (!window.confirm('Deactivate this charge type?')) return;
+    const ok = window.confirm('This will deactivate the charge type and cancel it for all existing consumers who currently have it, recalculating their payment schedules. Continue?');
+    if (!ok) return;
     const token = localStorage.getItem('rof-jwt') || '';
     try {
       const res = await fetch('/api/addon-charges/master/' + id, {
@@ -287,7 +292,11 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Deactivate failed');
-      _showMsg('Charge type deactivated.', true);
+      if (data.affectedConsumers > 0) {
+        _showMsg('Charge type deactivated — cancelled for ' + data.affectedConsumers + ' consumer(s).', true);
+      } else {
+        _showMsg('Charge type deactivated.', true);
+      }
       const projectId = document.getElementById('acm-project') && document.getElementById('acm-project').value;
       if (projectId) await _loadCharges(projectId);
     } catch (e) {

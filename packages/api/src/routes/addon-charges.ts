@@ -239,20 +239,66 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
 
 // ── D: DELETE /api/addon-charges/master/:id (soft delete) ────────────────────
 router.delete('/master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
   try {
+    await client.query('BEGIN');
+
     const { id } = req.params;
 
-    const result = await db.query(
+    const masterRes = await client.query(
       `UPDATE addon_charge_master
        SET is_active = false, updated_at = now()
        WHERE id = $1
        RETURNING id`,
       [id],
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Charge master not found' });
-    return res.json({ success: true });
+
+    if (masterRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Charge master not found' });
+    }
+
+    // Cascade: cancel all active consumer charges of this type
+    // (mirrors the per-consumer cancel pattern in H below) and
+    // recompute their demands so the addon amount drops out of
+    // the APF/demand letter/interest calc.
+    const cascadeRes = await client.query(
+      `UPDATE consumer_addon_charges
+       SET status       = 'cancelled',
+           cancelled_at = now(),
+           updated_at   = now()
+       WHERE charge_master_id = $1
+         AND status = 'active'
+       RETURNING consumer_id, project_id`,
+      [id],
+    );
+
+    // Dedupe by consumer_id (multiple booking_records per consumer
+    // can otherwise cause the same consumer to be recomputed twice).
+    const seen = new Set<string>();
+    const uniqueConsumers = cascadeRes.rows.filter((r) => {
+      if (seen.has(r.consumer_id)) return false;
+      seen.add(r.consumer_id);
+      return true;
+    });
+
+    for (const row of uniqueConsumers) {
+      const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
+      if (planInfo) {
+        await recomputeAddonDemands(
+          client, row.consumer_id, row.project_id,
+          planInfo.paymentPlanId, planInfo.planName,
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ success: true, affectedConsumers: uniqueConsumers.length });
   } catch (err) {
+    await client.query('ROLLBACK');
     next(err);
+  } finally {
+    client.release();
   }
 });
 
