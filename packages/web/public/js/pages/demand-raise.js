@@ -643,6 +643,7 @@ const DemandRaisePage = {
       raisedFrom,
       raisedTo,
       status:           statusFilter,
+      scope:            (view === 'customer' ? 'customer' : undefined),
       pageSize:         200,
     };
 
@@ -741,7 +742,7 @@ const DemandRaisePage = {
           <td>${instName}</td>
           <td class="td-bold">${amt}</td>
           <td>${Utils.currency(d.total_paid || 0)}</td>
-          <td class="td-bold" style="color:#dc3545">${Utils.currency(parseFloat(d.amount_due_inr||0) - parseFloat(d.total_paid||0))}</td>
+          <td class="td-bold" style="color:${d.status === 'paid' ? '#28a745' : '#dc3545'}">${d.status === 'paid' ? 'Paid' : Utils.currency(parseFloat(d.amount_due_inr||0) - parseFloat(d.total_paid||0))}</td>
           <td>${isRaised ? Utils.date(d.due_date) : 'N/A'}</td>
           ${checkbox}
         </tr>`;

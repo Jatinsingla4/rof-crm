@@ -579,7 +579,7 @@ router.get('/demands/by-stage', async (req: AuthRequest, res: Response, next: Ne
 // GET /api/payments/demands - List all demands (with legacy fetch grid support)
 router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, projectId, status, installmentType, installmentIndex, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, raisedFrom, raisedTo, page = 1, pageSize = 50 } = req.query;
+    const { consumerId, projectId, status, installmentType, installmentIndex, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, raisedFrom, raisedTo, scope, page = 1, pageSize = 50 } = req.query;
 
     let query = `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
                         d.due_date, d.status, d.demand_type, d.delivery_status, d.sent_at, d.generated_at,
@@ -664,8 +664,13 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       params.push(unitAddress);
     }
     if (status && status !== 'all') {
-      query += ` AND d.status = $${params.length + 1}`;
-      params.push(status);
+      if (scope === 'customer' && status === 'pending') {
+        query += ` AND (d.status = $${params.length + 1} OR (d.status = 'paid' AND d.raised_at IS NULL))`;
+        params.push(status);
+      } else {
+        query += ` AND d.status = $${params.length + 1}`;
+        params.push(status);
+      }
     }
     const dFrom = from || dateFrom;
     if (dFrom) {
