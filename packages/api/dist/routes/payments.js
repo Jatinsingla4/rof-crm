@@ -456,9 +456,11 @@ router.get('/demands', async (req, res, next) => {
     try {
         const { consumerId, projectId, status, installmentType, installmentIndex, tower, towerId, floor, registrationNo, name, unitAddress, from, to, dateFrom, dateTo, raisedFrom, raisedTo, scope, page = 1, pageSize = 50 } = req.query;
         let query = `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
+                        d.addon_charge_amount, d.addon_cgst_amount, d.addon_sgst_amount,
                         d.due_date, d.status, d.demand_type, d.delivery_status, d.sent_at, d.generated_at,
                         c.name as consumer_name, c.mobile,
                         br.registration_no,
+                        pp.unit_id,
                         u.unit_number as unit_address, u.bhk_type as unit_type, u.floor,
                         tw.tower_name,
                         p.name as project_name,
@@ -568,11 +570,58 @@ router.get('/demands', async (req, res, next) => {
         }
         query += ` ORDER BY d.installment_index ASC, d.due_date ASC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
         const result = await index_js_1.db.query(query, params);
-        // Add Balance calculation in memory for speed
-        const data = result.rows.map(r => ({
-            ...r,
-            balance: parseFloat(r.amount_due_inr) - parseFloat(r.total_paid)
+        const rows = result.rows;
+        // Waterfall post-processing: total_paid must reflect each installment's actual
+        // clamped share, not a consumer-wide receipt sum (see reports.ts lines 1280-1324).
+        const consumerUnits = new Map();
+        for (const row of rows) {
+            const key = `${row.consumer_id}:${row.unit_id}`;
+            if (!consumerUnits.has(key)) {
+                consumerUnits.set(key, { consumerId: row.consumer_id, unitId: row.unit_id });
+            }
+        }
+        const wfPaidMap = new Map();
+        await Promise.all([...consumerUnits.entries()].map(async ([key, { consumerId, unitId }]) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans
+                 WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )
+             ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
+                index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+             FROM demands
+             WHERE consumer_id = $1
+               AND payment_plan_id = (
+                 SELECT id FROM payment_plans
+                 WHERE consumer_id = $1 AND unit_id = $2
+                 ORDER BY created_at DESC LIMIT 1
+               )`, [consumerId, unitId]),
+            ]);
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            const idxMap = new Map();
+            for (const w of wfResult) {
+                idxMap.set(w.installment_index, w.paid);
+            }
+            wfPaidMap.set(key, idxMap);
         }));
+        // Add Balance calculation in memory for speed
+        const data = rows.map(r => {
+            const key = `${r.consumer_id}:${r.unit_id}`;
+            const idxMap = wfPaidMap.get(key);
+            const totalPaid = idxMap ? (idxMap.get(Number(r.installment_index)) || 0) : parseFloat(r.total_paid);
+            const netDue = parseFloat(r.amount_due_inr) + parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0)
+                + parseFloat(r.addon_charge_amount || 0) + parseFloat(r.addon_cgst_amount || 0) + parseFloat(r.addon_sgst_amount || 0);
+            return {
+                ...r,
+                total_paid: totalPaid,
+                balance: netDue - totalPaid,
+            };
+        });
         res.json({ success: true, data });
     }
     catch (error) {

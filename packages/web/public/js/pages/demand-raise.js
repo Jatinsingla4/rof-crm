@@ -697,7 +697,13 @@ const DemandRaisePage = {
     const instName = document.getElementById('f-installment')?.selectedOptions?.[0]?.text?.replace(/^\d+ — /,'') || '—';
 
     const rows = list.map((d, i) => {
-      const amt = Utils.currency(parseFloat(d.amount_due_inr || 0));
+      const netDue = parseFloat(d.amount_due_inr||0)
+        + parseFloat(d.cgst_amount||0)
+        + parseFloat(d.sgst_amount||0)
+        + parseFloat(d.addon_charge_amount||0)
+        + parseFloat(d.addon_cgst_amount||0)
+        + parseFloat(d.addon_sgst_amount||0);
+      const amt = Utils.currency(netDue);
       const isRaised = d.status === 'demanded';
       const raisedClass = (view === 'installment' && isRaised) ? ' class="row-greyed"' : '';
       const checkbox = (view !== 'unraise' && !(view === 'installment' && isRaised))
@@ -742,7 +748,7 @@ const DemandRaisePage = {
           <td>${instName}</td>
           <td class="td-bold">${amt}</td>
           <td>${Utils.currency(d.total_paid || 0)}</td>
-          <td class="td-bold" style="color:${d.status === 'paid' ? '#28a745' : '#dc3545'}">${d.status === 'paid' ? 'Paid' : Utils.currency(parseFloat(d.amount_due_inr||0) - parseFloat(d.total_paid||0))}</td>
+          <td class="td-bold" style="color:${d.status === 'paid' ? '#28a745' : '#dc3545'}">${d.status === 'paid' ? 'Paid' : Utils.currency(netDue - parseFloat(d.total_paid||0))}</td>
           <td>${isRaised ? Utils.date(d.due_date) : 'N/A'}</td>
           ${checkbox}
         </tr>`;
