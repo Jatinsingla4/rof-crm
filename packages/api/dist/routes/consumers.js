@@ -1026,6 +1026,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
          LEFT JOIN projects proj ON proj.id = pp2.project_id
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
+           AND (r.is_advance IS NOT TRUE)
            AND r.payment_plan_id = (
              SELECT id FROM payment_plans
              WHERE consumer_id = $1

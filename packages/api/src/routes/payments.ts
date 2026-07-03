@@ -3385,6 +3385,7 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
       ) pst ON true
       WHERE r.consumer_id = $1
         AND r.status != 'cancelled'
+        AND (r.is_advance IS NOT TRUE)
       ORDER BY r.received_date ASC, r.created_at ASC
     `, [consumerId]);
 
