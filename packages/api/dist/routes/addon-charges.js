@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.recomputeAddonDemands = recomputeAddonDemands;
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const router = (0, express_1.Router)();

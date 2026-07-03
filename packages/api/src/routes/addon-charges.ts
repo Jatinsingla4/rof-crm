@@ -32,7 +32,7 @@ async function getPaymentPlanInfo(
   };
 }
 
-async function recomputeAddonDemands(
+export async function recomputeAddonDemands(
   client: any,
   consumerId: string,
   projectId: string,

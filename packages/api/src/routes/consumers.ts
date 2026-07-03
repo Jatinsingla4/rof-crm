@@ -1368,8 +1368,32 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
        LIMIT 1`,
       [projectId],
     );
-    const otherChargeCgstPct = parseFloat(otherChargeGstRes.rows[0]?.cgst_pct || 0);
-    const otherChargeSgstPct = parseFloat(otherChargeGstRes.rows[0]?.sgst_pct || 0);
+    let otherChargeCgstPct = parseFloat(otherChargeGstRes.rows[0]?.cgst_pct || 0);
+    let otherChargeSgstPct = parseFloat(otherChargeGstRes.rows[0]?.sgst_pct || 0);
+
+    if (otherChargeGstRes.rows.length === 0) {
+      const basicFallback = await db.query(
+        `SELECT gts.cgst_pct, gts.sgst_pct
+         FROM gst_tax_charge_mapping gcm
+         JOIN gst_slabs gs
+           ON gs.id = gcm.slab_id
+          AND gs.from_date <= CURRENT_DATE
+          AND gs.to_date   >= CURRENT_DATE
+         JOIN gst_tax_setup gts
+           ON gts.id = gcm.gst_tax_id
+         WHERE gcm.project_id  = $1
+           AND gcm.charge_type = 'BASIC'
+         LIMIT 1`,
+        [projectId],
+      );
+      otherChargeCgstPct = parseFloat(basicFallback.rows[0]?.cgst_pct || 0);
+      otherChargeSgstPct = parseFloat(basicFallback.rows[0]?.sgst_pct || 0);
+      if (basicFallback.rows.length > 0) {
+        console.warn(
+          `[GST] No OTHER CHARGE mapping for project ${projectId} — using BASIC rate for APF display.`
+        );
+      }
+    }
 
     const html = buildApplicantFileHtml(
       row,

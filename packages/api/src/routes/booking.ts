@@ -7,6 +7,7 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
+import { recomputeAddonDemands } from './addon-charges.js';
 
 const router = Router();
 
@@ -939,6 +940,86 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                 booking.payment_mode === 'cheque' ? (booking.payment_ref || null) : null,
                 booking.cheque_date || null,
               ]
+            );
+          }
+
+          // Step H: Auto-apply plan-level addon
+          // charge templates to this consumer.
+          // Uses plan_addon_charge_pct + addon_charge_master
+          // to create consumer_addon_charges rows
+          // and update demands.addon_charge_amount.
+          // Only runs once per consumer+unit
+          // (inside existingAlloc === 0 guard).
+          const bookingDateStr = booking.booking_date
+            ? safeLocalDate(booking.booking_date)
+            : safeLocalDate(new Date());
+
+          const addonPctRows = await client.query(
+            `SELECT DISTINCT
+               pac.charge_master_id,
+               acm.charge_name,
+               acm.default_amount,
+               acm.cgst_pct,
+               acm.sgst_pct
+             FROM plan_addon_charge_pct pac
+             JOIN plan_schedule_templates pst
+               ON pst.id = pac.plan_schedule_template_id
+             JOIN addon_charge_master acm
+               ON acm.id = pac.charge_master_id
+             WHERE pst.project_id = $1
+               AND pst.plan_name = $2
+               AND acm.is_active = true`,
+            [booking.project_id, booking.selected_plan_name]
+          );
+
+          for (const row of addonPctRows.rows) {
+            // Skip if already exists (idempotency guard)
+            const existing = await client.query(
+              `SELECT id FROM consumer_addon_charges
+               WHERE consumer_id = $1
+                 AND project_id = $2
+                 AND charge_master_id = $3`,
+              [booking.consumer_id, booking.project_id, row.charge_master_id]
+            );
+            if (existing.rows.length > 0) continue;
+
+            // Compute GST amounts from master
+            const amt = parseFloat(row.default_amount);
+            const cPct = parseFloat(row.cgst_pct);
+            const sPct = parseFloat(row.sgst_pct);
+            const cgstAmt = Math.round(amt * cPct / 100 * 100) / 100;
+            const sgstAmt = Math.round(amt * sPct / 100 * 100) / 100;
+            const totalAmt = amt + cgstAmt + sgstAmt;
+
+            await client.query(
+              `INSERT INTO consumer_addon_charges
+                 (consumer_id, project_id, charge_master_id, charge_name,
+                  effective_date, amount, increase_amount, cgst_pct,
+                  sgst_pct, cgst_amount, sgst_amount, total_amount,
+                  created_by)
+               VALUES
+                 ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12)`,
+              [
+                booking.consumer_id,
+                booking.project_id,
+                row.charge_master_id,
+                row.charge_name,
+                bookingDateStr,
+                amt, cPct, sPct,
+                cgstAmt, sgstAmt, totalAmt,
+                req.userId
+              ]
+            );
+          }
+
+          // Recompute addon demand amounts for all installed charges
+          if (addonPctRows.rows.length > 0) {
+            await recomputeAddonDemands(
+              client,
+              booking.consumer_id,
+              booking.project_id,
+              paymentPlanId,
+              booking.selected_plan_name
             );
           }
         }
