@@ -768,7 +768,8 @@ router.post('/generate', async (req, res, next) => {
                         index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
-                        index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+                        index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                      addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                FROM demands WHERE consumer_id = $1`, [consumerId]),
                     ]);
                     const allWfResults = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsRes.rows, wfDemandsRes.rows);

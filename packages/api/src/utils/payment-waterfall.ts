@@ -25,6 +25,9 @@ export interface WaterfallDemand {
   amount_due_inr: number;
   cgst_amount: number;
   sgst_amount: number;
+  addon_charge_amount: number;
+  addon_cgst_amount: number;
+  addon_sgst_amount: number;
 }
 
 export interface WaterfallResult {
@@ -234,7 +237,18 @@ export function applyWaterfall(
   const results: WaterfallResult[] = [];
 
   for (const d of sorted) {
-    const totalDue = Number(d.amount_due_inr) + Number(d.cgst_amount) + Number(d.sgst_amount);
+    // Addon charges included so waterfall
+    // fills installment to its real capacity
+    // (BSP+OC+GST+addon+addonGST) before
+    // overflowing to the next installment.
+    // Non-addon bookings unaffected:
+    // addon columns default 0 (mig 081).
+    const totalDue = Number(d.amount_due_inr)
+      + Number(d.cgst_amount)
+      + Number(d.sgst_amount)
+      + Number(d.addon_charge_amount || 0)
+      + Number(d.addon_cgst_amount   || 0)
+      + Number(d.addon_sgst_amount   || 0);
     // Merge demand-linked + index-orphan amounts for this installment
     const linked = (linkedMap[d.id] || 0) + (indexOrphanMap[d.installment_index] || 0);
     const gap = Math.max(0, totalDue - linked);

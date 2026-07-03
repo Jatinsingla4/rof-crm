@@ -807,7 +807,8 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
           [consumer_id]
         ),
         client.query<WaterfallDemand>(
-          `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+          `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                  addon_charge_amount, addon_cgst_amount, addon_sgst_amount
            FROM demands WHERE consumer_id = $1`,
           [consumer_id]
         ),
@@ -1750,7 +1751,9 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
         [receipt.consumer_id]
       ),
       client.query(
-        `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status, delivery_status
+        `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                status, delivery_status
          FROM demands
          WHERE consumer_id = $1`,
         [receipt.consumer_id]

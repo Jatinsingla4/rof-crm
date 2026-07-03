@@ -641,7 +641,8 @@ router.patch('/demands/activate', async (req, res, next) => {
             const [wfRcpts, wfDemands] = await Promise.all([
                 client.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
            FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`, [consumer_id]),
-                client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+                client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                  addon_charge_amount, addon_cgst_amount, addon_sgst_amount
            FROM demands WHERE consumer_id = $1`, [consumer_id]),
             ]);
             const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(wfRcpts.rows, wfDemands.rows)
@@ -1405,7 +1406,9 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
             client.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
          FROM receipts
          WHERE consumer_id = $1 AND status != 'cancelled'`, [receipt.consumer_id]),
-            client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, status, delivery_status
+            client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                status, delivery_status
          FROM demands
          WHERE consumer_id = $1`, [receipt.consumer_id]),
         ]);

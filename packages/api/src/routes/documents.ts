@@ -803,7 +803,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               [consumerId]
             ),
             db.query<WaterfallDemand>(
-              `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount
+              `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                      addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                FROM demands WHERE consumer_id = $1`,
               [consumerId]
             ),
