@@ -1453,9 +1453,10 @@ function buildApplicantPage1(
         `<span data-field-key="plcCharge" data-field-label="PLC Charges" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(plcAmount)}</span>`)}
       ${pRow('Add: Other Charges (Rs.)',
         `<span data-field-key="otherCharges" data-field-label="Other Charges" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherCharge)}</span>`)}
+      ${pRow('Add on Charges (Rs.)',
+        `<span data-field-key="addonTotal" data-field-label="Add on Charges" data-value-type="currency" data-section="pricing" style="display:block;text-align:right;">${fmtIndianCurrency(addonTotal)}</span>`)}
       ${pRow('Agreement Value',
         `<span data-field-key="agreementValue" data-field-label="Agreement Value" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(agreementValue)}</span>`, true)}
-      ${pRow('Add on Charges (Rs.)', 'Rs. 0.00')}
       ${pRow('Total Consideration',  fmtIndianCurrency(totalConsideration), true)}
       ${pRow(`CGST (${cgstPct}%)`,
         `<span data-field-key="cgstAmount" data-field-label="CGST Amount" data-value-type="currency" data-section="pricing" data-cgst-pct="${cgstPct}">${fmtIndianCurrency(cgst)}</span>`)}
@@ -1596,14 +1597,14 @@ function buildApplicantPage1(
   const addonTotalsRow = addonRows.length > 0
     ? `<tr style="font-weight:bold">
         <td colspan="3" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.amount)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.increaseAmount)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.amountWithIncrease)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.cgstAmount)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.sgstAmount)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.itcCgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.itcSgst)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(addonTotals.totalAmount)}</strong></td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.amount)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.increaseAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.amountWithIncrease)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.cgstAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.sgstAmount)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.itcCgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.itcSgst)}</td>
+        <td ${tdR}>${fmtIndianNumber(addonTotals.totalAmount)}</td>
       </tr>`
     : '';
 
