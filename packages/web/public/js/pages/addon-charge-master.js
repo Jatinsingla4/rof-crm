@@ -227,6 +227,11 @@
     const chargeName = (_gv('acm-charge-name') || '').trim();
     if (!chargeName) { _showMsg('Charge Name is required.', false); return; }
 
+    if (_editingId) {
+      const ok = window.confirm('This will update all existing consumer charges for this type and recalculate their payment schedules. Continue?');
+      if (!ok) return;
+    }
+
     const saveBtn = document.getElementById('acm-save-btn');
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = _editingId ? 'Updating...' : 'Saving...'; }
     _clearMsg();
@@ -257,7 +262,11 @@
       }
       data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      _showMsg(_editingId ? 'Charge type updated.' : 'Charge type saved.', true);
+      if (_editingId && data.affectedConsumers > 0) {
+        _showMsg('Charge type updated — recalculated for ' + data.affectedConsumers + ' consumer(s).', true);
+      } else {
+        _showMsg(_editingId ? 'Charge type updated.' : 'Charge type saved.', true);
+      }
       _editingId = null;
       _resetForm();
       await _loadCharges(projectId);

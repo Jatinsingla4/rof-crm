@@ -151,11 +151,14 @@ router.post('/master', async (req: AuthRequest, res: Response, next: NextFunctio
 
 // ── C: PATCH /api/addon-charges/master/:id ───────────────────────────────────
 router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const client = await db.connect();
   try {
+    await client.query('BEGIN');
+
     const { id } = req.params;
     const { chargeName, defaultAmount, cgstPct, sgstPct, isActive } = req.body;
 
-    const result = await db.query(
+    const masterRes = await client.query(
       `UPDATE addon_charge_master SET
          charge_name    = COALESCE($2, charge_name),
          default_amount = COALESCE($3, default_amount),
@@ -174,10 +177,63 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
         isActive != null ? isActive : null,
       ],
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Charge master not found' });
-    return res.json({ success: true, data: result.rows[0] });
+
+    if (masterRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Charge master not found' });
+    }
+
+    const master = masterRes.rows[0];
+    const newAmount = parseFloat(master.default_amount || 0);
+    const newCgstPct = parseFloat(master.cgst_pct || 0);
+    const newSgstPct = parseFloat(master.sgst_pct || 0);
+
+    // Cascade to all active consumer charges of this type.
+    // GST computed on (amount + increase_amount) to preserve
+    // per-consumer escalations (Option A).
+    const cascadeRes = await client.query(
+      `UPDATE consumer_addon_charges
+       SET amount       = $2,
+           cgst_pct     = $3,
+           sgst_pct     = $4,
+           cgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2),
+           sgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+           total_amount = ($2 + COALESCE(increase_amount, 0))
+             + ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2)
+             + ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+           updated_at   = NOW()
+       WHERE charge_master_id = $1
+         AND status = 'active'
+       RETURNING consumer_id, project_id`,
+      [id, newAmount, newCgstPct, newSgstPct],
+    );
+
+    // Dedupe by consumer_id (multiple booking_records per consumer
+    // can otherwise cause the same consumer to be recomputed twice).
+    const seen = new Set<string>();
+    const uniqueConsumers = cascadeRes.rows.filter((r) => {
+      if (seen.has(r.consumer_id)) return false;
+      seen.add(r.consumer_id);
+      return true;
+    });
+
+    for (const row of uniqueConsumers) {
+      const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
+      if (planInfo) {
+        await recomputeAddonDemands(
+          client, row.consumer_id, row.project_id,
+          planInfo.paymentPlanId, planInfo.planName,
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    return res.json({ success: true, data: master, affectedConsumers: uniqueConsumers.length });
   } catch (err) {
+    await client.query('ROLLBACK');
     next(err);
+  } finally {
+    client.release();
   }
 });
 
