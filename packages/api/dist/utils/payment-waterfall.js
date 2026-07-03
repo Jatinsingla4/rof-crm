@@ -12,6 +12,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildInterestRows = buildInterestRows;
 exports.applyWaterfall = applyWaterfall;
+exports.resolveBookingScope = resolveBookingScope;
+exports.recomputeBookingAmount = recomputeBookingAmount;
 function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
@@ -195,5 +197,46 @@ function applyWaterfall(receipts, demands) {
         });
     }
     return results;
+}
+// ── booking_amount auto-recompute ───────────────────────────────────────────
+/**
+ * Resolves the (unit_id, project_id) a receipt's payments apply to, so a
+ * booking_amount recompute can be scoped to the single correct booking
+ * instead of all of a consumer's bookings. booking_records.payment_plan_id
+ * is never populated at booking creation, so this goes through payment_plans
+ * instead of joining on it directly.
+ */
+async function resolveBookingScope(client, receipt) {
+    let paymentPlanId = receipt.payment_plan_id;
+    if (!paymentPlanId && receipt.demand_id) {
+        const demandPlan = await client.query(`SELECT payment_plan_id FROM demands WHERE id = $1`, [receipt.demand_id]);
+        paymentPlanId = demandPlan.rows[0]?.payment_plan_id;
+    }
+    if (!paymentPlanId)
+        return null;
+    const plan = await client.query(`SELECT unit_id, project_id FROM payment_plans WHERE id = $1`, [paymentPlanId]);
+    if (plan.rows.length === 0)
+        return null;
+    return { unitId: plan.rows[0].unit_id, projectId: plan.rows[0].project_id, paymentPlanId };
+}
+/**
+ * booking_amount = amount of the earliest CLEARED receipt (by created_at) tied
+ * to this specific booking's payment plan (directly via payment_plan_id, or
+ * indirectly via a demand belonging to that plan). Scoping by payment_plan_id
+ * (not just consumer_id) prevents a receipt from an unrelated booking of the
+ * same consumer from being picked up. Zero cleared receipts → booking_amount = 0.
+ * Auto-recompute always wins over any manual document-writeback edit.
+ */
+async function recomputeBookingAmount(client, consumerId, unitId, projectId, paymentPlanId) {
+    const result = await client.query(`SELECT amount_received_inr FROM receipts
+     WHERE consumer_id = $1 AND status = 'cleared'
+       AND (payment_plan_id = $2
+            OR demand_id IN (SELECT id FROM demands WHERE payment_plan_id = $2))
+     ORDER BY created_at ASC LIMIT 1`, [consumerId, paymentPlanId]);
+    const newAmount = result.rows.length > 0 ? result.rows[0].amount_received_inr : 0;
+    await client.query(`UPDATE booking_records
+     SET booking_amount = $1
+     WHERE consumer_id = $2 AND unit_id = $3
+       AND project_id = $4 AND status != 'cancelled'`, [newAmount, consumerId, unitId, projectId]);
 }
 //# sourceMappingURL=payment-waterfall.js.map

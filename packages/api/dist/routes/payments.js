@@ -1347,6 +1347,11 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
         if (demand_id) {
             await client.query(`UPDATE demands SET status = 'pending', updated_at = NOW() WHERE id = $1`, [demand_id]);
         }
+        // 3b. Recompute booking_amount for the specific booking this receipt applies to
+        const bounceScope = await (0, payment_waterfall_js_1.resolveBookingScope)(client, { payment_plan_id, demand_id });
+        if (bounceScope) {
+            await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, consumer_id, bounceScope.unitId, bounceScope.projectId, bounceScope.paymentPlanId);
+        }
         // 4. Log the bounce
         await client.query(`INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
        VALUES ($1, $2, CURRENT_DATE, $3, $4)`, [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']);
@@ -1437,6 +1442,11 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
                     }
                 }
             }
+        }
+        // Step 2c: Recompute booking_amount for the specific booking this receipt applies to
+        const cancelScope = await (0, payment_waterfall_js_1.resolveBookingScope)(client, receipt);
+        if (cancelScope) {
+            await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId, cancelScope.paymentPlanId);
         }
         // Step 3: Write audit log (non-fatal)
         try {

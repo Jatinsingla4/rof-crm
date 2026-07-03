@@ -7,7 +7,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows } from '../utils/payment-waterfall.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { resolveGstForComponents } from '../utils/gst-resolver.js';
 
@@ -1662,6 +1662,12 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       );
     }
 
+    // 3b. Recompute booking_amount for the specific booking this receipt applies to
+    const bounceScope = await resolveBookingScope(client, { payment_plan_id, demand_id });
+    if (bounceScope) {
+      await recomputeBookingAmount(client, consumer_id, bounceScope.unitId, bounceScope.projectId, bounceScope.paymentPlanId);
+    }
+
     // 4. Log the bounce
     await client.query(
       `INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
@@ -1791,6 +1797,12 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
           }
         }
       }
+    }
+
+    // Step 2c: Recompute booking_amount for the specific booking this receipt applies to
+    const cancelScope = await resolveBookingScope(client, receipt);
+    if (cancelScope) {
+      await recomputeBookingAmount(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId, cancelScope.paymentPlanId);
     }
 
     // Step 3: Write audit log (non-fatal)
