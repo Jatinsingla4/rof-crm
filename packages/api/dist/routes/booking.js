@@ -1543,6 +1543,8 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
                 cgst: Number(d.cgst_amount || 0),
                 sgst: Number(d.sgst_amount || 0),
                 addon: Number(d.addon_charge_amount || 0),
+                addonCgst: Number(d.addon_cgst_amount || 0),
+                addonSgst: Number(d.addon_sgst_amount || 0),
             };
         }
     });
@@ -1594,7 +1596,9 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const addonInst = dbAmt ? dbAmt.addon : 0;
             const instCgst = dbAmt ? dbAmt.cgst : Math.round((netBsp + otherInst) * cgstPct) / 100;
             const instSgst = dbAmt ? dbAmt.sgst : Math.round((netBsp + otherInst) * sgstPct) / 100;
-            const netDue = instAmt + instCgst + instSgst;
+            const addonCgstInst = dbAmt ? dbAmt.addonCgst : 0;
+            const addonSgstInst = dbAmt ? dbAmt.addonSgst : 0;
+            const netDue = instAmt + instCgst + instSgst + addonInst + addonCgstInst + addonSgstInst;
             const dueDate = demandDueDateMap[t.installment_index] != null
                 ? fmtDDMMYYYY(demandDueDateMap[t.installment_index])
                 : '—';

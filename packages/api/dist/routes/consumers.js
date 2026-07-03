@@ -1034,7 +1034,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
              LIMIT 1
            )
          ORDER BY r.received_date ASC, r.created_at ASC`, [consumerId, row.unit_id]),
-            index_js_1.db.query(`SELECT installment_index, due_date, status, amount_due_inr, addon_charge_amount, cgst_amount, sgst_amount
+            index_js_1.db.query(`SELECT installment_index, due_date, status, amount_due_inr, addon_charge_amount, addon_cgst_amount, addon_sgst_amount, cgst_amount, sgst_amount
          FROM demands
          WHERE consumer_id = $1
            AND payment_plan_id = (

@@ -42,6 +42,8 @@ export async function recomputeAddonDemands(
   await client.query(
     `UPDATE demands
      SET addon_charge_amount = 0,
+         addon_cgst_amount = 0,
+         addon_sgst_amount = 0,
          updated_at = NOW()
      WHERE payment_plan_id = $1
        AND status NOT IN ('cancelled')`,
@@ -49,7 +51,7 @@ export async function recomputeAddonDemands(
   );
 
   const chargesRes = await client.query(
-    `SELECT id, charge_master_id,
+    `SELECT id, charge_master_id, cgst_pct, sgst_pct,
             amount + COALESCE(increase_amount, 0) AS effective_amount
      FROM consumer_addon_charges
      WHERE consumer_id = $1
@@ -81,14 +83,21 @@ export async function recomputeAddonDemands(
 
       if (addonAmt === 0) continue;
 
+      const addonCgstAmt =
+        Math.round(addonAmt * parseFloat(charge.cgst_pct) / 100 * 100) / 100;
+      const addonSgstAmt =
+        Math.round(addonAmt * parseFloat(charge.sgst_pct) / 100 * 100) / 100;
+
       await client.query(
         `UPDATE demands
          SET addon_charge_amount = addon_charge_amount + $1,
+             addon_cgst_amount = addon_cgst_amount + $2,
+             addon_sgst_amount = addon_sgst_amount + $3,
              updated_at = NOW()
-         WHERE payment_plan_id  = $2
-           AND installment_index = $3
+         WHERE payment_plan_id  = $4
+           AND installment_index = $5
            AND status NOT IN ('cancelled')`,
-        [addonAmt, paymentPlanId, row.installment_index],
+        [addonAmt, addonCgstAmt, addonSgstAmt, paymentPlanId, row.installment_index],
       );
     }
   }

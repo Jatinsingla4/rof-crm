@@ -1831,14 +1831,16 @@ function buildApplicantPage2(
 
   // ── demand amount map: installment_index → DB-stored amounts ──
   // Use these instead of recalculating from percentages to avoid JS float rounding gaps
-  const demandAmountMap: Record<number, { amt: number; cgst: number; sgst: number; addon: number }> = {};
+  const demandAmountMap: Record<number, { amt: number; cgst: number; sgst: number; addon: number; addonCgst: number; addonSgst: number }> = {};
   demands.forEach((d: any) => {
     if (d.installment_index != null) {
       demandAmountMap[Number(d.installment_index)] = {
-        amt:   Number(d.amount_due_inr      || 0),
-        cgst:  Number(d.cgst_amount         || 0),
-        sgst:  Number(d.sgst_amount         || 0),
-        addon: Number(d.addon_charge_amount || 0),
+        amt:       Number(d.amount_due_inr      || 0),
+        cgst:      Number(d.cgst_amount         || 0),
+        sgst:      Number(d.sgst_amount         || 0),
+        addon:     Number(d.addon_charge_amount || 0),
+        addonCgst: Number(d.addon_cgst_amount   || 0),
+        addonSgst: Number(d.addon_sgst_amount   || 0),
       };
     }
   });
@@ -1893,7 +1895,9 @@ function buildApplicantPage2(
       const addonInst  = dbAmt ? dbAmt.addon : 0;
       const instCgst   = dbAmt ? dbAmt.cgst  : Math.round((netBsp + otherInst) * cgstPct) / 100;
       const instSgst   = dbAmt ? dbAmt.sgst : Math.round((netBsp + otherInst) * sgstPct) / 100;
-      const netDue     = instAmt + instCgst + instSgst;
+      const addonCgstInst = dbAmt ? dbAmt.addonCgst : 0;
+      const addonSgstInst = dbAmt ? dbAmt.addonSgst : 0;
+      const netDue     = instAmt + instCgst + instSgst + addonInst + addonCgstInst + addonSgstInst;
       const dueDate    = demandDueDateMap[t.installment_index] != null
         ? fmtDDMMYYYY(demandDueDateMap[t.installment_index])
         : '—';
