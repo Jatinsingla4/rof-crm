@@ -961,9 +961,9 @@ router.patch('/demands/:id/cancel', async (req: AuthRequest, res: Response, next
     const result = await db.query(
       `UPDATE demands
        SET status = 'pending', delivery_status = 'pending',
-           raised_at = NULL, updated_at = NOW()
+           raised_at = NULL, due_date = NULL, updated_at = NOW()
        WHERE id = $1
-       RETURNING id, status, delivery_status`,
+       RETURNING id, status, delivery_status, due_date`,
       [id]
     );
 

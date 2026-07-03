@@ -764,9 +764,9 @@ router.patch('/demands/:id/cancel', async (req, res, next) => {
         }
         const result = await index_js_1.db.query(`UPDATE demands
        SET status = 'pending', delivery_status = 'pending',
-           raised_at = NULL, updated_at = NOW()
+           raised_at = NULL, due_date = NULL, updated_at = NOW()
        WHERE id = $1
-       RETURNING id, status, delivery_status`, [id]);
+       RETURNING id, status, delivery_status, due_date`, [id]);
         res.json({ success: true, data: { ...result.rows[0], cancel_reason: reason || null }, message: 'Demand cancelled and reset to pending' });
     }
     catch (error) {
