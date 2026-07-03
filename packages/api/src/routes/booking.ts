@@ -226,17 +226,25 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         }
       }
 
-      // Prevent duplicate bookings: consumer can only have one complete booking
+      // Prevent duplicate active bookings on the same unit —
+      // scoped by unit_id alone (not consumer_id), since a unit
+      // can only have ONE active (pending_payment, active, or complete)
+      // booking at a time regardless of who it's for.
       const existingBooking = await client.query(
-        `SELECT br.id, u.unit_number FROM booking_records br
+        `SELECT br.id, br.status, u.unit_number,
+                c.first_name, c.last_name, c.registration_no
+         FROM booking_records br
          LEFT JOIN units u ON u.id = br.unit_id
-         WHERE br.consumer_id = $1 AND br.status = 'complete' AND br.unit_id = $2 LIMIT 1`,
-        [consumer_id, unit_id]
+         LEFT JOIN consumers c ON c.id = br.consumer_id
+         WHERE br.unit_id = $1 AND br.status IN ('pending_payment', 'active', 'complete')
+         LIMIT 1`,
+        [unit_id]
       );
       if (existingBooking.rows.length > 0) {
         await client.query('ROLLBACK');
+        const existing = existingBooking.rows[0];
         return res.status(400).json({
-          error: `Consumer already has a completed booking for unit ${existingBooking.rows[0].unit_number}. Please cancel the existing booking first.`
+          error: `Unit ${existing.unit_number} already has an active booking (${existing.status}) for ${existing.first_name} ${existing.last_name} (${existing.registration_no}). Cancel or complete the existing booking first.`
         });
       }
 
