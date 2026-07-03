@@ -3275,7 +3275,9 @@ router.post('/interest-scheduler', async (req, res, next) => {
          WHERE consumer_id = $1
            AND status NOT IN ('cancelled','bounced')
          ORDER BY received_date ASC, created_at ASC`, [cid]);
-            const demandsRaw = await index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, due_date
+            const demandsRaw = await index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, due_date,
+                cgst_amount, sgst_amount,
+                addon_charge_amount, addon_cgst_amount, addon_sgst_amount
          FROM demands
          WHERE consumer_id = $1
          ORDER BY installment_index ASC`, [cid]);
@@ -3649,7 +3651,9 @@ router.post('/consumer-interest-detail/:consumerId', async (req, res, next) => {
        WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
        ORDER BY received_date ASC, created_at ASC`, [consumerId]);
         // Demands
-        const demandsRaw = await client.query(`SELECT id, installment_index, amount_due_inr, due_date
+        const demandsRaw = await client.query(`SELECT id, installment_index, amount_due_inr, due_date,
+              cgst_amount, sgst_amount,
+              addon_charge_amount, addon_cgst_amount, addon_sgst_amount
        FROM demands
        WHERE consumer_id = $1
        ORDER BY installment_index ASC`, [consumerId]);

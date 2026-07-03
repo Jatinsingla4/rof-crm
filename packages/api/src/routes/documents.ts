@@ -853,6 +853,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               due_date: d.due_date || null,
               amount_due_inr: d.amount_due_inr,
               interest_rate_percent: d.interest_rate_percent ? parseFloat(d.interest_rate_percent) : null,
+              cgst_amount: d.cgst_amount,
+              sgst_amount: d.sgst_amount,
+              addon_charge_amount: d.addon_charge_amount,
+              addon_cgst_amount: d.addon_cgst_amount,
+              addon_sgst_amount: d.addon_sgst_amount,
             }));
           const irRows = buildInterestRows(
             wfRcptsRes.rows,

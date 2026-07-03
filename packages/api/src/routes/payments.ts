@@ -3724,7 +3724,9 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       );
 
       const demandsRaw = await db.query(
-        `SELECT id, installment_index, amount_due_inr, due_date
+        `SELECT id, installment_index, amount_due_inr, due_date,
+                cgst_amount, sgst_amount,
+                addon_charge_amount, addon_cgst_amount, addon_sgst_amount
          FROM demands
          WHERE consumer_id = $1
          ORDER BY installment_index ASC`,
@@ -4165,7 +4167,9 @@ router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, re
 
     // Demands
     const demandsRaw = await client.query(
-      `SELECT id, installment_index, amount_due_inr, due_date
+      `SELECT id, installment_index, amount_due_inr, due_date,
+              cgst_amount, sgst_amount,
+              addon_charge_amount, addon_cgst_amount, addon_sgst_amount
        FROM demands
        WHERE consumer_id = $1
        ORDER BY installment_index ASC`,

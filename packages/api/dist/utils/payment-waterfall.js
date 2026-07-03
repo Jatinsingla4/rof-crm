@@ -50,7 +50,17 @@ function buildInterestRows(receipts, demands, penalRate, options) {
     }
     const rows = [];
     for (const demand of sortedDemands) {
-        const dueAmt = parseFloat(String(demand.amount_due_inr));
+        // Full NET DUE = BSP + GST + addon
+        // + addon GST (Option B — interest
+        // on complete installment amount).
+        // Non-addon bookings unaffected:
+        // optional fields default via || 0.
+        const dueAmt = parseFloat(String(demand.amount_due_inr || 0))
+            + parseFloat(String(demand.cgst_amount || 0))
+            + parseFloat(String(demand.sgst_amount || 0))
+            + parseFloat(String(demand.addon_charge_amount || 0))
+            + parseFloat(String(demand.addon_cgst_amount || 0))
+            + parseFloat(String(demand.addon_sgst_amount || 0));
         const dueDate = demand.due_date ? new Date(demand.due_date) : null;
         let balance = dueAmt;
         let isFirst = true;

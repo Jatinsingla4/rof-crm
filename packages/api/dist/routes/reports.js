@@ -805,7 +805,8 @@ router.get('/applicant-payment-file', async (req, res, next) => {
                )
              ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
                 pool_1.db.query(`SELECT id, installment_index, installment_index AS installment_name,
-               due_date, amount_due_inr, cgst_amount, sgst_amount
+               due_date, amount_due_inr, cgst_amount, sgst_amount,
+               addon_charge_amount, addon_cgst_amount, addon_sgst_amount
              FROM demands
              WHERE consumer_id = $1
                AND payment_plan_id = (
