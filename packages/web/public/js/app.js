@@ -131,6 +131,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/transfer-report',        (p) => Pages.transferReport(p));
   Router.register('/transfer-detail',        (p) => Pages.transferDetail(p));
   Router.register('/transfer-date-edit',     (p) => Pages.transferDateEdit(p));
+  Router.register('/charge-master',          (p) => Pages.chargeMaster(p));
   Router.register('/addon-charge-master',    (p) => Pages.addonChargeMaster(p));
   Router.register('/set-addon-charge',       (p) => Pages.setAddonCharge(p));
   Router.register('/cancel-addon-charge',    (p) => Pages.cancelAddonCharge(p));

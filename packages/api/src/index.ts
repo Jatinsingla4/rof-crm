@@ -40,6 +40,7 @@ import bookingDocumentsRoutes from './routes/booking_documents.js';
 import employeesRoutes from './routes/employees.js';
 import operationsRoutes from './routes/operations.js';
 import addonChargesRoutes from './routes/addon-charges.js';
+import chargeMasterRoutes from './routes/charge-master.js';
 import surrenderRoutes from './routes/surrender.js';
 import transfersRoutes from './routes/transfers.js';
 import registryRoutes from './routes/registry.js';
@@ -442,6 +443,7 @@ app.use('/api/booking-documents', authenticateToken,                      bookin
 app.use('/api/employees', authenticateToken, employeesRoutes);
 app.use('/api/operations', authenticateToken, operationsRoutes);
 app.use('/api/addon-charges',       authenticateToken, addonChargesRoutes);
+app.use('/api/charge-master',       authenticateToken, chargeMasterRoutes);
 app.use('/api/gst-configuration',   authenticateToken, gstConfigRoutes);
 app.use('/api/surrender', authenticateToken, surrenderRoutes);
 app.use('/api/transfers', authenticateToken, transfersRoutes);

@@ -168,7 +168,7 @@
           <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'reminder-master'})">Reminder Master</a>
           <div class="dd-link has-sub">Charge Master <span class="arr">▶</span>
             <div class="sub-sub-dd" style="min-width:210px">
-              <a class="dd-link" onclick="closeAllNavDropdowns()">Other Charge</a>
+              <a class="dd-link" onclick="closeAllNavDropdowns();Router.navigate('/charge-master')">Other Charge</a>
               <a class="dd-link" onclick="closeAllNavDropdowns()">Preferred Location Charges (PLC)</a>
               <div class="dd-link has-sub">Addon Charges <span class="arr">▶</span>
                 <div class="sub-sub-dd" style="min-width:240px">
@@ -550,6 +550,7 @@
 <script src="/js/pages/surrender-restore.js"></script>
 <script src="/js/pages/transfers.js"></script>
 <script src="/js/pages/edit-booking.js"></script>
+<script src="/js/pages/charge-master.js"></script>
 <script src="/js/pages/addon-charge-master.js"></script>
 <script src="/js/pages/set-addon-charge.js"></script>
 <script src="/js/pages/cancel-addon-charge.js"></script>
