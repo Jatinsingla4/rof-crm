@@ -53,9 +53,10 @@ If it does not → **STOP. Do not proceed.**
 ### Why This Matters
 
 - **dist/ is committed to GitHub** (not gitignored)
-- **Render production uses pre-built dist/ files directly** (no TypeScript compilation on deploy)
-- **If dist/ is stale, production runs old code** (src/ changes never reach users)
-- **src/ without dist/ rebuild = silent failure to deploy code changes**
+- **Per render.yaml, Render's build phase runs `npm install && npm run build && npm run db:migrate` on every deploy**, from a fresh checkout of the git repo. `npm run build` is `tsc && node copy-files.js` — so Render DOES compile TypeScript on every deploy; it does not simply run whatever `dist/` was committed. The state of `dist/` in git has no effect on what code actually runs in production — Render regenerates it fresh from `src/` every time.
+- **Despite that, `dist/` must still be kept correct and committed — for local development/testing, not production.** Local runs (e.g. `localhost:3001`) use the committed `dist/` directly via `node dist/index.js`, with no rebuild step. If `dist/` is stale, local testing runs old code even though production would rebuild correctly.
+- **src/ without dist/ rebuild = silent failure of local testing to reflect src/ changes** (production is unaffected, since Render rebuilds independently — but this repo does not rely on that safety net for local work, so the rule stays mandatory).
+- **Migrations run once, during this same Render build phase** (`npm run db:migrate`), **not at server startup.** Runtime migration execution was deliberately disabled in `index.ts` (see the Neon cold-start hang workaround) — the server logs `[STARTUP] Skipping runtime migrations (already applied during build)` and never calls `runMigrations()` itself.
 
 ### Workflow for Every Change (MANDATORY)
 
@@ -85,10 +86,10 @@ src/ changes → npx tsc → dist/ rebuilt → git add → commit → git push
 
 Render's auto-deploy will:
 1. Pull commit from GitHub
-2. Use pre-built dist/ files (runs `node dist/index.js`)
-3. Serve production traffic
+2. Run `npm install && npm run build && npm run db:migrate` (rebuilds dist/ fresh from src/, then applies migrations)
+3. Start with `node dist/index.js`, serve production traffic
 
-If dist/ wasn't rebuilt before commit, Render runs stale bytecode.
+Because Render rebuilds dist/ itself, a stale committed dist/ does NOT cause stale production code. It DOES cause incorrect behavior when running the app locally from the committed dist/ (no local rebuild step) — which is why the rebuild-before-commit rule above remains mandatory.
 
 ---
 
@@ -168,10 +169,30 @@ If **more files changed** than explicitly discussed → **STOP and explain why**
 
 ---
 
-**Last Updated:** 2026-06-16  
+## RULE 3: COMMIT GATE — NEVER AUTO-COMMIT AFTER VERIFICATION
+
+### The Rule
+
+**Always stop after verification. Wait for the user's explicit "commit it" before running `git commit`.**
+
+### What This Means
+
+- ❌ DO NOT commit automatically once verification passes
+- ❌ DO NOT interpret "verification confirmed" as permission to commit
+- ✅ Show verification results, then STOP
+- ✅ Wait for the user to explicitly say "commit it" (or equivalent) in chat
+
+### Why This Rule Exists
+
+The user needs to review verification results before deciding to commit. Auto-committing removes that review window and creates commits the user did not intentionally authorize.
+
+---
+
+**Last Updated:** 2026-06-30  
 **Rule 0 Added:** 2026-06-05 (Working directory boundary — never touch Pay10 or Pay10 Bahrain)  
 **Rule 1 Added:** 2026-06-01 (Build dist/ before every commit)  
-**Rule 2 Added:** 2026-06-02 (Surgical changes only)
+**Rule 2 Added:** 2026-06-02 (Surgical changes only)  
+**Rule 3 Added:** 2026-06-30 (Commit gate — never auto-commit after verification)
 
 ---
 
