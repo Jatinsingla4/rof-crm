@@ -991,25 +991,18 @@ Pages.booking = async function(params = {}) {
           </div>
         </div>
 
-        <!-- Other Charge Row -->
-        <div style="display:flex;align-items:flex-start;gap:14px;padding:10px 0">
-          <label style="display:flex;align-items:center;gap:8px;min-width:160px;cursor:pointer;padding-top:2px">
-            <input type="checkbox" id="bk-has-other-chk" onchange="BookingPage.toggleOtherCharge(this.checked)" style="width:15px;height:15px;cursor:pointer">
-            <input type="hidden" id="bk-has-other-charge" name="has_other_charge" value="false">
-            <span style="font-size:13px;font-weight:600;color:var(--text)">Other Charge</span>
-          </label>
-          <div id="bk-other-charge-fields" style="display:none;flex:1;display:none">
-            <div style="display:flex;gap:12px;flex-wrap:wrap">
-              <div class="fg" style="min-width:180px">
-                <label class="fl">Amount (₹)</label>
-                <input type="number" class="fc" id="bk-other-charge-amount" name="other_charge_amount" value="0" min="0" placeholder="0.00">
-              </div>
-              <div class="fg" style="flex:1;min-width:200px">
-                <label class="fl">Description</label>
-                <input class="fc" id="bk-other-charge-desc" name="other_charge_desc" placeholder="e.g. IFMS, Club Membership, etc.">
-              </div>
-            </div>
+        <!-- Other Charges Row (opens popup: Balcony Charge display + Custom Charge) -->
+        <div style="display:flex;align-items:center;gap:14px;padding:10px 0">
+          <div style="min-width:160px">
+            <span style="font-size:13px;font-weight:600;color:var(--text)">Other Charges</span>
           </div>
+          <div style="flex:1;display:flex;align-items:center;gap:12px">
+            <button type="button" class="btn btn-ghost" style="font-size:12px;padding:4px 12px" onclick="BookingPage.openOtherChargesModal()">Other Charges</button>
+            <span id="bk-other-charges-summary" style="font-size:12.5px;color:var(--text3)">No other charges added.</span>
+          </div>
+          <input type="hidden" id="bk-has-other-charge" name="has_other_charge" value="false">
+          <input type="hidden" id="bk-other-charge-amount" name="other_charge_amount" value="0">
+          <input type="hidden" id="bk-other-charge-desc" name="other_charge_desc" value="">
         </div>
 
       </div>
@@ -1290,6 +1283,44 @@ Pages.booking = async function(params = {}) {
         <div class="modal-ftr" style="position:sticky;bottom:0">
           <button class="btn btn-ghost" onclick="BookingPage.closeAddlModal()">Cancel</button>
           <button class="btn btn-teal" onclick="BookingPage.saveAddlApplicant()">Save Applicant</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── OTHER CHARGES MODAL ───────────────────────────────── -->
+    <div id="bk-other-charges-modal-overlay" class="overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1200;align-items:center;justify-content:center">
+      <div class="modal" style="display:block;width:560px;max-width:96vw;max-height:88vh;overflow-y:auto;position:relative">
+        <div class="modal-hdr" style="position:sticky;top:0;z-index:1">
+          <div class="modal-title">Other Charges</div>
+          <button class="modal-close" onclick="BookingPage.closeOtherChargesModal()">×</button>
+        </div>
+        <div class="modal-body">
+
+          <div id="bk-balcony-charge-row-wrap"></div>
+
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border2)">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px">
+              <input type="checkbox" id="bk-modal-other-chk" onchange="BookingPage.toggleOtherCharge(this.checked)" style="width:15px;height:15px;cursor:pointer">
+              <span style="font-size:13px;font-weight:600;color:var(--text)">Add a custom charge</span>
+            </label>
+            <div id="bk-other-charge-fields" style="display:none">
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <div class="fg" style="min-width:180px">
+                  <label class="fl">Amount (₹)</label>
+                  <input type="number" class="fc" id="bk-modal-other-charge-amount" value="0" min="0" placeholder="0.00">
+                </div>
+                <div class="fg" style="flex:1;min-width:200px">
+                  <label class="fl">Description</label>
+                  <input class="fc" id="bk-modal-other-charge-desc" placeholder="e.g. IFMS, Club Membership, etc.">
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-ftr" style="position:sticky;bottom:0">
+          <button class="btn btn-ghost" onclick="BookingPage.cancelOtherChargesModal()">Cancel</button>
+          <button class="btn btn-teal" onclick="BookingPage.commitOtherChargesModal()">OK</button>
         </div>
       </div>
     </div>
@@ -1638,17 +1669,147 @@ const BookingPage = {
     }
   },
 
+  // Local-only: shows/hides the modal's own amount/description inputs.
+  // Does NOT touch the real hidden fields -- those are only written by
+  // commitOtherChargesModal() (OK).
   toggleOtherCharge(checked) {
     const fields = document.getElementById('bk-other-charge-fields');
-    const hidden = document.getElementById('bk-has-other-charge');
-    if (!fields || !hidden) return;
-    hidden.value = checked ? 'true' : 'false';
-    fields.style.display = checked ? 'flex' : 'none';
+    if (!fields) return;
+    fields.style.display = checked ? 'block' : 'none';
     if (!checked) {
-      const amtInput = document.getElementById('bk-other-charge-amount');
-      const descInput = document.getElementById('bk-other-charge-desc');
+      const amtInput = document.getElementById('bk-modal-other-charge-amount');
+      const descInput = document.getElementById('bk-modal-other-charge-desc');
       if (amtInput) amtInput.value = 0;
       if (descInput) descInput.value = '';
+    }
+  },
+
+  _updateOtherChargesSummary() {
+    const summary = document.getElementById('bk-other-charges-summary');
+    if (!summary) return;
+    const hasOther = document.getElementById('bk-has-other-charge')?.value === 'true';
+    const amt = parseFloat(document.getElementById('bk-other-charge-amount')?.value || 0) || 0;
+    const desc = document.getElementById('bk-other-charge-desc')?.value || '';
+    summary.textContent = hasOther
+      ? `Custom Charge: ₹${amt.toLocaleString('en-IN')}${desc ? ' (' + desc + ')' : ''}`
+      : 'No other charges added.';
+  },
+
+  async openOtherChargesModal() {
+    const overlay = document.getElementById('bk-other-charges-modal-overlay');
+    if (!overlay) return;
+    // Snapshot the real hidden fields so Cancel can restore them exactly.
+    this._otherChargeSnapshot = {
+      hasOther: document.getElementById('bk-has-other-charge')?.value || 'false',
+      amount: document.getElementById('bk-other-charge-amount')?.value || '0',
+      desc: document.getElementById('bk-other-charge-desc')?.value || '',
+    };
+    // Re-populate the modal's own inputs from the current committed state,
+    // so re-opening after a prior OK shows what was actually committed.
+    const checked = this._otherChargeSnapshot.hasOther === 'true';
+    const chk = document.getElementById('bk-modal-other-chk');
+    const amtInput = document.getElementById('bk-modal-other-charge-amount');
+    const descInput = document.getElementById('bk-modal-other-charge-desc');
+    if (chk) chk.checked = checked;
+    if (amtInput) amtInput.value = checked ? this._otherChargeSnapshot.amount : 0;
+    if (descInput) descInput.value = checked ? this._otherChargeSnapshot.desc : '';
+    this.toggleOtherCharge(checked);
+    await this._renderBalconyChargeRow();
+    overlay.style.display = 'flex';
+  },
+
+  // OK: commits the modal's local inputs into the real hidden fields
+  // (has_other_charge / other_charge_amount / other_charge_desc) that
+  // booking.ts's POST /booking has always read -- the modal is purely a
+  // relocated UI, the submitted data shape is unchanged.
+  commitOtherChargesModal() {
+    const checked = document.getElementById('bk-modal-other-chk')?.checked || false;
+    const amt = parseFloat(document.getElementById('bk-modal-other-charge-amount')?.value || 0) || 0;
+    const desc = document.getElementById('bk-modal-other-charge-desc')?.value || '';
+    const hasOther = document.getElementById('bk-has-other-charge');
+    const hiddenAmt = document.getElementById('bk-other-charge-amount');
+    const hiddenDesc = document.getElementById('bk-other-charge-desc');
+    if (hasOther) hasOther.value = checked ? 'true' : 'false';
+    if (hiddenAmt) hiddenAmt.value = checked ? amt : 0;
+    if (hiddenDesc) hiddenDesc.value = checked ? desc : '';
+    this._updateOtherChargesSummary();
+    this.closeOtherChargesModal();
+  },
+
+  // Cancel: discards the modal's local edits and restores the real hidden
+  // fields from the snapshot taken when the popup opened. Summary line is
+  // left untouched since the real fields never changed.
+  cancelOtherChargesModal() {
+    const snap = this._otherChargeSnapshot;
+    if (snap) {
+      const hasOther = document.getElementById('bk-has-other-charge');
+      const hiddenAmt = document.getElementById('bk-other-charge-amount');
+      const hiddenDesc = document.getElementById('bk-other-charge-desc');
+      if (hasOther) hasOther.value = snap.hasOther;
+      if (hiddenAmt) hiddenAmt.value = snap.amount;
+      if (hiddenDesc) hiddenDesc.value = snap.desc;
+    }
+    this.closeOtherChargesModal();
+  },
+
+  closeOtherChargesModal() {
+    const overlay = document.getElementById('bk-other-charges-modal-overlay');
+    if (overlay) overlay.style.display = 'none';
+  },
+
+  // Display-only Balcony Charge row -- same data source as the price-
+  // preview overlay (GET /charge-master/balcony-preview), shown here
+  // purely for staff visibility. The checkbox is disabled/always-checked;
+  // it has no effect on booking.ts's write-point, which computes and
+  // stores this charge unconditionally whenever the unit has balcony area.
+  async _renderBalconyChargeRow() {
+    const wrap = document.getElementById('bk-balcony-charge-row-wrap');
+    if (!wrap) return;
+
+    const selectedUnitId = document.querySelector('[name="unit_id"]')?.value;
+    const selectedUnit = this._units?.find(u => u.id === selectedUnitId);
+    const balconyAreaSqft = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
+    const projectId = document.querySelector('[name="project_id"]')?.value;
+    const bookingDate = document.querySelector('[name="booking_date"]')?.value;
+
+    if (!projectId || balconyAreaSqft <= 0) {
+      wrap.innerHTML = '';
+      return;
+    }
+
+    wrap.innerHTML = `<div style="font-size:12.5px;color:var(--text3)">Loading Balcony Charge…</div>`;
+    try {
+      const res = await Api.get('/charge-master/balcony-preview', {
+        params: { projectId, balconyAreaSqft, bookingDate }
+      });
+      const d = res.data || {};
+      const total = (parseFloat(d.balconyChargeAmount || 0) || 0)
+        + (parseFloat(d.balconyCgstAmount || 0) || 0)
+        + (parseFloat(d.balconySgstAmount || 0) || 0);
+      const fmt = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      wrap.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border2);color:var(--text3);text-align:left">
+              <th style="padding:6px 8px">S.NO</th><th style="padding:6px 8px">SEL</th>
+              <th style="padding:6px 8px">NAME OF CHARGE</th><th style="padding:6px 8px">TYPE</th>
+              <th style="padding:6px 8px">RATE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding:6px 8px">1</td>
+              <td style="padding:6px 8px"><input type="checkbox" checked disabled style="width:15px;height:15px"></td>
+              <td style="padding:6px 8px;font-weight:600">Balcony Charge</td>
+              <td style="padding:6px 8px">Fix</td>
+              <td style="padding:6px 8px">${fmt(total)}</td>
+            </tr>
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      wrap.innerHTML = '';
+      console.warn('Balcony charge row fetch failed:', err.message);
     }
   },
 
@@ -1979,8 +2140,15 @@ const BookingPage = {
     // Reset other costs section
     const plcChk = document.getElementById('bk-has-plc-chk');
     if (plcChk) { plcChk.checked = false; this.togglePlc(false); }
-    const otherChk = document.getElementById('bk-has-other-chk');
+    const otherChk = document.getElementById('bk-modal-other-chk');
     if (otherChk) { otherChk.checked = false; this.toggleOtherCharge(false); }
+    const hasOtherHidden = document.getElementById('bk-has-other-charge');
+    const hiddenAmt = document.getElementById('bk-other-charge-amount');
+    const hiddenDesc = document.getElementById('bk-other-charge-desc');
+    if (hasOtherHidden) hasOtherHidden.value = 'false';
+    if (hiddenAmt) hiddenAmt.value = '0';
+    if (hiddenDesc) hiddenDesc.value = '';
+    this._updateOtherChargesSummary();
   },
 
   _ordinalName(n) {
@@ -2279,24 +2447,43 @@ const BookingPage = {
     const selectedUnitId     = document.querySelector('[name="unit_id"]')?.value;
     const selectedUnit       = this._units?.find(u => u.id === selectedUnitId);
     const balconyAreaSqft    = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
-    const balconyRateInrSqft = parseFloat(selectedUnit?.balcony_rate_inr_sqft || '0') || 0;
-    const balconyCapInr      = parseFloat(selectedUnit?.balcony_rate_cap_inr || '0') || 0;
     const basicCost          = basicPrice * carpetAreaNum;
 
     const hasPLC  = gchk('bk-has-plc-chk');
     const plcAmt  = hasPLC ? parseFloat(gval('bk-plc-amount') || '0') || 0 : 0;
 
-    const hasOther  = gchk('bk-has-other-chk');
+    const hasOther  = document.getElementById('bk-has-other-charge')?.value === 'true';
     const otherAmt  = hasOther ? parseFloat(gval('bk-other-charge-amount') || '0') || 0 : 0;
     const otherDesc = hasOther ? (gval('bk-other-charge-desc') || 'Other Charges') : '';
 
-    let   balconyAmt         = balconyAreaSqft * balconyRateInrSqft;
-    if (balconyCapInr > 0 && balconyAmt > balconyCapInr) balconyAmt = balconyCapInr;
+    // Balcony Charge is GST-inclusive and computed server-side (same
+    // formula as booking.ts's write-point, via computeBalconyCharge()) --
+    // fetch the real figure instead of re-deriving it here, so this
+    // preview can never drift from what actually gets stored.
+    let balconyChargeAmount = 0, balconyCgstAmount = 0, balconySgstAmount = 0;
+    const projectIdForBalcony = qval('[name="project_id"]');
+    if (projectIdForBalcony && balconyAreaSqft > 0) {
+      try {
+        const balconyRes = await Api.get('/charge-master/balcony-preview', {
+          params: { projectId: projectIdForBalcony, balconyAreaSqft, bookingDate }
+        });
+        const bd = balconyRes.data || {};
+        balconyChargeAmount = parseFloat(bd.balconyChargeAmount || 0) || 0;
+        balconyCgstAmount   = parseFloat(bd.balconyCgstAmount || 0) || 0;
+        balconySgstAmount   = parseFloat(bd.balconySgstAmount || 0) || 0;
+      } catch (err) {
+        console.warn('Balcony charge preview fetch failed:', err.message);
+      }
+    }
+    const balconyInclusiveTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
 
-    const subTotal    = basicCost + plcAmt + otherAmt + balconyAmt;
+    // Balcony is kept out of subTotal/cgstAmt/sgstAmt below -- its GST is
+    // already baked into balconyInclusiveTotal, so folding it into the
+    // generic subtotal would tax it a second time.
+    const subTotal    = basicCost + plcAmt + otherAmt;
     const cgstAmt     = subTotal * cgstPct / 100;
     const sgstAmt     = subTotal * sgstPct / 100;
-    const grandTotal  = subTotal + cgstAmt + sgstAmt;
+    const grandTotal  = subTotal + cgstAmt + sgstAmt + balconyInclusiveTotal;
 
     // ── Broker / Sales ───────────────────────────────────────────
     const saleType  = document.getElementById('bk-booking-type')?.value === 'direct' ? 'Direct' : 'Broker';
@@ -2373,7 +2560,7 @@ const BookingPage = {
           ${basicCost > 0 ? row('Basic Cost (' + fmt(basicPrice) + '/sqft × ' + carpetAreaNum + ' sqft)', fmt(basicCost)) : ''}
           ${hasPLC         ? row('PLC (Preferential Location)', fmt(plcAmt)) : ''}
           ${hasOther       ? row(otherDesc || 'Other Charges', fmt(otherAmt)) : ''}
-          ${balconyAmt > 0 ? row('Balcony Charges', fmt(balconyAmt)) : ''}
+          ${balconyInclusiveTotal > 0 ? row('Balcony Charges', fmt(balconyInclusiveTotal)) : ''}
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8"><span>Sub Total</span><span>${fmt(subTotal)}</span></div>
           ${row('CGST (' + cgstPct + '%)', fmt(cgstAmt))}
           ${row('SGST (' + sgstPct + '%)', fmt(sgstAmt))}

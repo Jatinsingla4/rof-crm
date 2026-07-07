@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const gst_resolver_js_1 = require("../utils/gst-resolver.js");
+const balcony_charge_js_1 = require("../utils/balcony-charge.js");
 const router = (0, express_1.Router)();
 // GET /api/charge-master/config - list all charge master config rows
 router.get('/config', async (req, res, next) => {
@@ -37,6 +39,34 @@ router.patch('/config/:chargeKey', async (req, res, next) => {
        RETURNING id, charge_key, charge_name, rate_value, rate_unit, cap_value,
                  is_cap_configurable, updated_at, updated_by`, [parseFloat(rate_value), req.userId, chargeKey]);
         res.json({ success: true, data: result.rows[0] });
+    }
+    catch (error) {
+        next(error);
+    }
+});
+// GET /api/charge-master/balcony-preview?projectId=X&balconyAreaSqft=Y&bookingDate=Z
+// Read-only estimate for the booking-form preview -- computes the same
+// GST-inclusive paise-reconciliation figure as booking.ts's write-point,
+// via the shared computeBalconyCharge() function, so the preview can
+// never drift from what actually gets stored at booking creation.
+router.get('/balcony-preview', async (req, res, next) => {
+    try {
+        const { projectId, balconyAreaSqft, bookingDate } = req.query;
+        if (!projectId || balconyAreaSqft === undefined) {
+            return res.status(400).json({ success: false, error: 'projectId and balconyAreaSqft required' });
+        }
+        const resolveDate = bookingDate || new Date().toISOString().split('T')[0];
+        const projRes = await index_js_1.db.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
+        const projectName = projRes.rows[0]?.name || projectId;
+        const configRow = await index_js_1.db.query(`SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`);
+        const rate = parseFloat(configRow.rows[0]?.rate_value || 0);
+        const cap = configRow.rows[0]?.cap_value != null ? parseFloat(configRow.rows[0].cap_value) : null;
+        const { cgstPct, sgstPct } = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, projectName, 'BASIC', resolveDate);
+        const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(parseFloat(balconyAreaSqft), rate, cap, cgstPct, sgstPct);
+        res.json({
+            success: true,
+            data: { balconyChargeAmount, balconyCgstAmount, balconySgstAmount },
+        });
     }
     catch (error) {
         next(error);

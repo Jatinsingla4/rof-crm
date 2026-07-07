@@ -7,6 +7,7 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
+import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { recomputeAddonDemands } from './addon-charges.js';
 
 const router = Router();
@@ -854,50 +855,16 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
           const balconyCapValue    = balconyConfigRow.rows[0]?.cap_value != null
             ? parseFloat(balconyConfigRow.rows[0].cap_value)
             : null;
-          const balconyChargeRawExact = balconyRateApplied > 0 && trueBalconyArea > 0
-            ? trueBalconyArea * balconyRateApplied
-            : 0;
-          // The configured rate is GST-INCLUSIVE -- the cap applies to the
-          // final, tax-included figure, and base/CGST/SGST are derived
-          // backward from it so they always sum to exactly that figure
-          // (capped or not), with zero rounding drift. All math is done in
-          // integer paise to get real paisa-level precision (2 decimals)
-          // and avoid the 1-rupee CGST/SGST asymmetry that whole-rupee
-          // rounding produced on odd tax totals -- rupees are derived only
-          // at the very end, for storage.
-          const balconyRawInclusivePaise = Math.round(
-            (balconyCapValue != null ? Math.min(balconyChargeRawExact, balconyCapValue) : balconyChargeRawExact) * 100
-          );
           // Same BASIC GST rate already resolved above for booking_payment_taxes
           // (gstRateForBpt) -- reuse rather than re-querying gst_tax_charge_mapping.
-          // gstRateForBpt is already zeroed for NRI/OCI/PIO (isNriForGst, above),
-          // so isGstExempt here is a defensive alias, not a new exemption path.
-          const isGstExempt = isNriForGst;
-          const gstPct = isGstExempt ? 0 : (gstRateForBpt.cgstPct + gstRateForBpt.sgstPct);
-
-          let basePaise: number;
-          let cgstPaise: number;
-          let sgstPaise: number;
-
-          if (gstPct > 0) {
-            basePaise = Math.floor(balconyRawInclusivePaise / (1 + gstPct));
-            const totalTaxPaise = balconyRawInclusivePaise - basePaise;
-            if (gstRateForBpt.cgstPct === gstRateForBpt.sgstPct) {
-              cgstPaise = Math.floor(totalTaxPaise / 2);
-              sgstPaise = totalTaxPaise - cgstPaise;
-            } else {
-              cgstPaise = Math.round(totalTaxPaise * (gstRateForBpt.cgstPct / gstPct));
-              sgstPaise = totalTaxPaise - cgstPaise;
-            }
-          } else {
-            basePaise = balconyRawInclusivePaise;
-            cgstPaise = 0;
-            sgstPaise = 0;
-          }
-
-          const balconyChargeAmount = basePaise / 100;
-          const balconyCgstAmount = cgstPaise / 100;
-          const balconySgstAmount = sgstPaise / 100;
+          // gstRateForBpt is already zeroed for NRI/OCI/PIO (isNriForGst, above).
+          const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = computeBalconyCharge(
+            trueBalconyArea,
+            balconyRateApplied,
+            balconyCapValue,
+            gstRateForBpt.cgstPct,
+            gstRateForBpt.sgstPct
+          );
 
           await client.query(
             `UPDATE booking_records
