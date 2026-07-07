@@ -656,18 +656,76 @@ router.patch('/:id', async (req, res, next) => {
             if (booking.unit_id && booking.consumer_id) {
                 const existingAlloc = await client.query(`SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 LIMIT 1`, [booking.consumer_id, booking.unit_id]);
                 if (existingAlloc.rows.length === 0) {
-                    const unitRow = await client.query(`SELECT base_price_inr, balcony_area_sqft FROM units WHERE id = $1`, [booking.unit_id]);
+                    const unitRow = await client.query(`SELECT base_price_inr, carpet_area_sqft, balcony_area_sqft FROM units WHERE id = $1`, [booking.unit_id]);
                     const unitBasePriceInr = parseInt(unitRow.rows[0]?.base_price_inr || 0);
                     const bookingRate = parseFloat(booking.basic_rate_inr_sqft || 0);
-                    const bookingCarpet = parseFloat(booking.carpet_area_sqft || 0);
-                    const bookingBalcony = parseFloat(unitRow.rows[0]?.balcony_area_sqft || 0);
-                    const basicCost = (bookingRate > 0 && bookingCarpet > 0)
-                        ? Math.round(bookingRate * bookingCarpet)
+                    // booking_records.carpet_area_sqft stores carpet+balcony combined
+                    // (confirmed via live-data audit) -- use the units table's true
+                    // carpet area here instead, so Net Basic Price and Balcony Charge
+                    // don't double-count the balcony portion.
+                    const trueCarpetArea = parseFloat(unitRow.rows[0]?.carpet_area_sqft || 0);
+                    const trueBalconyArea = parseFloat(unitRow.rows[0]?.balcony_area_sqft || 0);
+                    const basicCost = (bookingRate > 0 && trueCarpetArea > 0)
+                        ? Math.round(bookingRate * trueCarpetArea)
                         : unitBasePriceInr;
+                    // Balcony Charge (Phase 2): MIN(true balcony area x configured rate, cap)
+                    const balconyConfigRow = await client.query(`SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`);
+                    const balconyRateApplied = parseFloat(balconyConfigRow.rows[0]?.rate_value || 0);
+                    const balconyCapValue = balconyConfigRow.rows[0]?.cap_value != null
+                        ? parseFloat(balconyConfigRow.rows[0].cap_value)
+                        : null;
+                    const balconyChargeRawExact = balconyRateApplied > 0 && trueBalconyArea > 0
+                        ? trueBalconyArea * balconyRateApplied
+                        : 0;
+                    // The configured rate is GST-INCLUSIVE -- the cap applies to the
+                    // final, tax-included figure, and base/CGST/SGST are derived
+                    // backward from it so they always sum to exactly that figure
+                    // (capped or not), with zero rounding drift. All math is done in
+                    // integer paise to get real paisa-level precision (2 decimals)
+                    // and avoid the 1-rupee CGST/SGST asymmetry that whole-rupee
+                    // rounding produced on odd tax totals -- rupees are derived only
+                    // at the very end, for storage.
+                    const balconyRawInclusivePaise = Math.round((balconyCapValue != null ? Math.min(balconyChargeRawExact, balconyCapValue) : balconyChargeRawExact) * 100);
+                    // Same BASIC GST rate already resolved above for booking_payment_taxes
+                    // (gstRateForBpt) -- reuse rather than re-querying gst_tax_charge_mapping.
+                    // gstRateForBpt is already zeroed for NRI/OCI/PIO (isNriForGst, above),
+                    // so isGstExempt here is a defensive alias, not a new exemption path.
+                    const isGstExempt = isNriForGst;
+                    const gstPct = isGstExempt ? 0 : (gstRateForBpt.cgstPct + gstRateForBpt.sgstPct);
+                    let basePaise;
+                    let cgstPaise;
+                    let sgstPaise;
+                    if (gstPct > 0) {
+                        basePaise = Math.floor(balconyRawInclusivePaise / (1 + gstPct));
+                        const totalTaxPaise = balconyRawInclusivePaise - basePaise;
+                        if (gstRateForBpt.cgstPct === gstRateForBpt.sgstPct) {
+                            cgstPaise = Math.floor(totalTaxPaise / 2);
+                            sgstPaise = totalTaxPaise - cgstPaise;
+                        }
+                        else {
+                            cgstPaise = Math.round(totalTaxPaise * (gstRateForBpt.cgstPct / gstPct));
+                            sgstPaise = totalTaxPaise - cgstPaise;
+                        }
+                    }
+                    else {
+                        basePaise = balconyRawInclusivePaise;
+                        cgstPaise = 0;
+                        sgstPaise = 0;
+                    }
+                    const balconyChargeAmount = basePaise / 100;
+                    const balconyCgstAmount = cgstPaise / 100;
+                    const balconySgstAmount = sgstPaise / 100;
+                    await client.query(`UPDATE booking_records
+               SET balcony_charge_amount = $1,
+                   balcony_cgst_amount = $2,
+                   balcony_sgst_amount = $3,
+                   balcony_rate_applied_inr_sqft = $4
+             WHERE id = $5`, [balconyChargeAmount, balconyCgstAmount, balconySgstAmount, balconyRateApplied || null, booking.id]);
                     const totalAmount = basicCost
                         + parseFloat(booking.plc_amount || 0)
                         + parseFloat(booking.other_charge_amount || 0)
-                        - parseFloat(booking.company_inaugural_disc || 0);
+                        - parseFloat(booking.company_inaugural_disc || 0)
+                        + balconyChargeAmount;
                     const allocRow = await client.query(`INSERT INTO allocations
                (consumer_id, unit_id, project_id, status, allotment_date, allocated_date, created_by_user_id)
              VALUES ($1, $2, $3, 'booked', NULL, NOW(), $4)
@@ -1083,11 +1141,23 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const unitBasePrice = parseFloat(b.base_price_inr || 0);
     const ratePerSqft = storedRate > 0 ? storedRate
         : (carpetArea > 0 ? unitBasePrice / carpetArea : 0);
-    const basePrice = storedRate > 0 && carpetArea > 0
-        ? Math.round(storedRate * (carpetArea + balconyArea))
+    // b.carpet_area_sqft/b.balcony_area_sqft here come from the units join
+    // (u.carpet_area_sqft/u.balcony_area_sqft placed after br.* in the SELECT
+    // that feeds this function -- confirmed via live query test that the
+    // units-sourced value overwrites the polluted booking_records column in
+    // the resulting row object), so these are already TRUE carpet/balcony
+    // areas, not the combined value. Net Basic Price is always true-carpet
+    // only; Balcony Charge is shown as its own separate line (see Other
+    // Charges table below), not folded into basePrice.
+    const basePrice = (storedRate > 0 && carpetArea > 0)
+        ? Math.round(storedRate * carpetArea)
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
     const otherCharge = parseFloat(b.other_charge_amount || 0);
+    const balconyChargeAmount = b.balcony_charge_amount != null ? parseFloat(b.balcony_charge_amount) : 0;
+    const balconyCgstAmount = b.balcony_cgst_amount != null ? parseFloat(b.balcony_cgst_amount) : 0;
+    const balconySgstAmount = b.balcony_sgst_amount != null ? parseFloat(b.balcony_sgst_amount) : 0;
+    const balconyChargeTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
     const isGstExempt = ['nri', 'oci', 'pio'].includes((consumer.nationality || '').toLowerCase());
     const cgstPct = isGstExempt ? 0 : parseFloat(b.cgst_pct || 0);
     const sgstPct = isGstExempt ? 0 : parseFloat(b.sgst_pct || 0);
@@ -1095,7 +1165,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const bookingAmt = parseFloat(b.booking_amount || 0);
     const netBasicPrice = basePrice;
     const addonTotal = addonCharges.reduce((sum, c) => sum + parseFloat(c.total_amount || 0), 0);
-    const agreementValue = netBasicPrice + plcAmount + otherCharge + addonTotal;
+    const agreementValue = netBasicPrice + plcAmount + otherCharge + addonTotal + balconyChargeTotal;
     const totalConsideration = agreementValue;
     // Split GST: basic+PLC at booking rate, other charges at their own GST rate
     const basicPlusPLC = basePrice + plcAmount;
@@ -1280,7 +1350,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
         ocRowNum++;
         otherChargeRows += `<tr>
       <td ${tdStyle}>${ocRowNum}</td>
-      <td ${tdL}>Balcony Charge</td>
+      <td ${tdL}>PLC</td>
       <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
       <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
       <td ${tdL}>—</td>
@@ -1294,6 +1364,16 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
       <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
       <td ${tdL}>${esc(b.other_charge_desc || '—')}</td>
+    </tr>`;
+    }
+    if (b.balcony_charge_amount != null) {
+        ocRowNum++;
+        otherChargeRows += `<tr>
+      <td ${tdStyle}>${ocRowNum}</td>
+      <td ${tdL}>Balcony Charge</td>
+      <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
+      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal)}</td>
+      <td ${tdL}>—</td>
     </tr>`;
     }
     if (!otherChargeRows) {
@@ -1315,7 +1395,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <tbody>${otherChargeRows}</tbody>
       <tfoot><tr>
         <td colspan="5" ${tdR} style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
-        <td ${tdR}><strong>${fmtIndianNumber(plcAmount + otherCharge)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(plcAmount + otherCharge + balconyChargeTotal)}</strong></td>
         <td ${tdL}></td>
       </tr></tfoot>
     </table>`;
@@ -1546,11 +1626,20 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     const carpetAreaP2 = parseFloat(b.carpet_area_sqft || 0);
     const balconyAreaP2 = parseFloat(b.balcony_area_sqft || 0);
     const unitBasePrice = parseFloat(b.base_price_inr || 0);
-    const basePrice = storedRate > 0 && carpetAreaP2 > 0
-        ? Math.round(storedRate * (carpetAreaP2 + balconyAreaP2))
+    // b.carpet_area_sqft/b.balcony_area_sqft here are true units-table values
+    // (see buildApplicantPage1's identical comment -- same b object, same
+    // units-join-overwrite behavior). Net Basic Price is always true-carpet
+    // only; Balcony Charge is shown as its own separate line (see
+    // OTHER/ADDON CHARGES table below), not folded into basePrice.
+    const basePrice = (storedRate > 0 && carpetAreaP2 > 0)
+        ? Math.round(storedRate * carpetAreaP2)
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
     const otherCharge = parseFloat(b.other_charge_amount || 0);
+    const balconyChargeAmount = b.balcony_charge_amount != null ? parseFloat(b.balcony_charge_amount) : 0;
+    const balconyCgstAmount = b.balcony_cgst_amount != null ? parseFloat(b.balcony_cgst_amount) : 0;
+    const balconySgstAmount = b.balcony_sgst_amount != null ? parseFloat(b.balcony_sgst_amount) : 0;
+    const balconyChargeTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
     const cgstPct = parseFloat(b.cgst_pct || 0);
     const sgstPct = parseFloat(b.sgst_pct || 0);
     const cgstAmt = parseFloat(b.cgst_amount || 0);
@@ -1724,7 +1813,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         addonReceivedTotal += plcReceived;
         addonRows += `<tr>
       <td ${tdC}>${addonRowNum}</td>
-      <td ${tdL}>Balcony Charge</td>
+      <td ${tdL}>PLC</td>
       <td ${tdC}>—</td>
       <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
       <td ${tdR}>${fmtIndianNumber(plcCgst)}</td>
@@ -1759,6 +1848,27 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       <td ${tdR}>${fmtIndianNumber(otherCharge + ocCgst + ocSgst)}</td>
       <td ${tdR}>${fmtIndianNumber(ocReceived)}</td>
       <td ${tdR}>${fmtIndianNumber((otherCharge + ocCgst + ocSgst) - ocReceived)}</td>
+      <td ${tdC}>—</td>
+    </tr>`;
+    }
+    if (b.balcony_charge_amount != null) {
+        addonRowNum++;
+        const balconyReceived = balconyChargeTotal * proportionPaid;
+        addonNetTotal += balconyChargeAmount;
+        addonCgstTotal += balconyCgstAmount;
+        addonSgstTotal += balconySgstAmount;
+        addonGrandTotal += balconyChargeTotal;
+        addonReceivedTotal += balconyReceived;
+        addonRows += `<tr>
+      <td ${tdC}>${addonRowNum}</td>
+      <td ${tdL}>Balcony Charge</td>
+      <td ${tdC}>—</td>
+      <td ${tdR}>${fmtIndianNumber(balconyChargeAmount)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconyCgstAmount)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconySgstAmount)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconyReceived)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal - balconyReceived)}</td>
       <td ${tdC}>—</td>
     </tr>`;
     }

@@ -123,6 +123,14 @@ function fmtDateIndia(d) {
 function fmtIndianNumber(n) {
     return Math.round(n).toLocaleString('en-IN');
 }
+// Decimal-aware formatter -- used ONLY for ATS's balcony_price/balcony_rate/
+// total_price merge fields (Phase 2 paise-precision), since those now carry
+// real paisa-level decimals. fmtIndianNumber above is intentionally left
+// untouched, as it is shared by 35 other call sites across demand letters,
+// allotment letters, and conveyance deeds.
+function fmtIndianNumberDecimal(n) {
+    return (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 // Get the professional demand letter HTML shell (bypasses template DB lookup)
 function getDemandLetterShell() {
     return `<!DOCTYPE html>
@@ -604,6 +612,9 @@ router.post('/generate', async (req, res, next) => {
               COALESCE(NULLIF(br.payment_ref, ''), '') AS booking_payment_ref,
               COALESCE(NULLIF(br.bank_name, ''), '') AS booking_bank_name,
               br.cheque_date AS booking_cheque_date,
+              br.balcony_charge_amount,
+              br.balcony_cgst_amount,
+              br.balcony_sgst_amount,
               COALESCE((
                 SELECT SUM(r.amount_received_inr)
                 FROM receipts r
@@ -921,18 +932,32 @@ router.post('/generate', async (req, res, next) => {
                             ? (installment > 0 ? ((sgst / installment) * 100).toFixed(2) : defaultSgstPct.toFixed(2))
                             : '0.00';
                         // Split into Basic Price (carpet area) and Balcony Charges rows.
-                        // Use installment (DB demand = BSP+IFMS) split by carpet/super ratio —
-                        // ensures rows always sum to the full demand amount.
+                        // For bookings with a stored balcony_charge_amount (Phase 2,
+                        // computed once at booking creation), derive each row from its
+                        // own true/stored source (this installment's proportional share)
+                        // instead of a ratio-based split of the combined installment
+                        // amount. Historical (NULL) bookings keep the exact prior
+                        // ratio-based split unchanged -- zero regression.
+                        const hasStoredBalcony = plan.balcony_charge_amount != null;
                         const carpetOnlyRatio = superArea > 0 ? trueCarpet / superArea : 1;
-                        const basicAmt = Math.round(installment * carpetOnlyRatio);
-                        const balconyAmt = installment - basicAmt;
+                        const trueCarpetBasicTotal = bookingBspRate > 0 && trueCarpet > 0
+                            ? Math.round(bookingBspRate * trueCarpet)
+                            : 0;
+                        const basicAmt = hasStoredBalcony
+                            ? Math.round(trueCarpetBasicTotal * pct)
+                            : Math.round(installment * carpetOnlyRatio);
+                        const balconyAmt = hasStoredBalcony
+                            ? Math.round(parseFloat(plan.balcony_charge_amount || 0) * pct)
+                            : installment - basicAmt;
                         // Use carpet/superArea ratio for GST + interest split —
                         // basicRatio = 1.0 (totalBsp === recalcTotal) so cannot use it here
                         const carpetRatio = superArea > 0 ? trueCarpet / superArea : 1;
-                        const basicCgst = Math.round(cgst * carpetRatio);
-                        const balconyCgst = cgst - basicCgst;
-                        const basicSgst = Math.round(sgst * carpetRatio);
-                        const balconySgst = sgst - basicSgst;
+                        const balconyCgstShare = hasStoredBalcony ? Math.round(parseFloat(plan.balcony_cgst_amount || 0) * pct) : 0;
+                        const balconySgstShare = hasStoredBalcony ? Math.round(parseFloat(plan.balcony_sgst_amount || 0) * pct) : 0;
+                        const basicCgst = hasStoredBalcony ? cgst - balconyCgstShare : Math.round(cgst * carpetRatio);
+                        const balconyCgst = hasStoredBalcony ? balconyCgstShare : cgst - basicCgst;
+                        const basicSgst = hasStoredBalcony ? sgst - balconySgstShare : Math.round(sgst * carpetRatio);
+                        const balconySgst = hasStoredBalcony ? balconySgstShare : sgst - basicSgst;
                         const basicDue = basicAmt + basicCgst + basicSgst;
                         const balconyDue = balconyAmt + balconyCgst + balconySgst;
                         // Waterfall: fill Row 1 up to full basicDue (base + GST), then remainder to Row 2
@@ -1449,7 +1474,7 @@ router.post('/generate', async (req, res, next) => {
               p.collaboration_agreement_date, p.khasra_details, p.village_name, p.sector_name, p.sub_registrar_office,
               p.authorised_signatory_name, p.authorised_signatory_aadhaar, p.board_resolution_date,
               p.id AS project_id, c.id AS consumer_id,
-              br.booking_amount, br.selected_plan_name,
+              br.booking_amount, br.selected_plan_name, br.balcony_charge_amount, br.basic_rate_inr_sqft,
               co.name AS company_name, co.cin, co.address1 AS promoter_address, co.pan_no AS company_pan
             FROM allocations a
             JOIN consumers c ON c.id = a.consumer_id
@@ -1482,7 +1507,7 @@ router.post('/generate', async (req, res, next) => {
               ORDER BY installment_index
             `, [projectId3, fallbackPlan3]);
                     }
-                    const totalPrice3 = parseFloat(ats.total_price_inr || 0);
+                    let totalPrice3 = parseFloat(ats.total_price_inr || 0);
                     let paymentPlanRows = '';
                     schedRes3.rows.forEach((row, idx) => {
                         const pct = parseFloat(row.percentage || 0);
@@ -1498,10 +1523,20 @@ router.post('/generate', async (req, res, next) => {
                     });
                     const carpetSqft3 = parseFloat(ats.carpet_area_sqft || 0);
                     const balconySqft3 = parseFloat(ats.balcony_area_sqft || 0);
-                    const basicPrice3 = parseFloat(ats.base_price_inr || 0);
+                    const hasStoredBalcony3 = ats.balcony_charge_amount !== null && ats.balcony_charge_amount !== undefined;
+                    let basicPrice3;
+                    let balconyPrice3;
+                    if (hasStoredBalcony3) {
+                        basicPrice3 = Math.round(parseFloat(ats.basic_rate_inr_sqft || 0) * carpetSqft3);
+                        balconyPrice3 = parseFloat(ats.balcony_charge_amount || 0);
+                        totalPrice3 = basicPrice3 + balconyPrice3;
+                    }
+                    else {
+                        basicPrice3 = parseFloat(ats.base_price_inr || 0);
+                        balconyPrice3 = totalPrice3 - basicPrice3;
+                    }
                     const basicRate3 = carpetSqft3 > 0 ? Math.round(basicPrice3 / carpetSqft3) : 0;
-                    const balconyRate3 = balconySqft3 > 0 ? Math.round((totalPrice3 - basicPrice3) / balconySqft3) : 0;
-                    const balconyPrice3 = totalPrice3 - basicPrice3;
+                    const balconyRate3 = balconySqft3 > 0 ? Math.round(balconyPrice3 / balconySqft3) : 0;
                     const bookingPct3 = (parseFloat(ats.booking_amount || 0) / totalPrice3 * 100).toFixed(2);
                     mergeData = {
                         allottee_name: `${ats.first_name || ''} ${ats.last_name || ''}`.trim() || '—',
@@ -1544,12 +1579,12 @@ router.post('/generate', async (req, res, next) => {
                         balcony_area: balconySqft3 > 0 ? balconySqft3.toFixed(3) : '___',
                         balcony_area_raw: balconySqft3 > 0 ? balconySqft3.toFixed(3) : '0',
                         parking_no: '—',
-                        total_price: fmtIndianNumber(totalPrice3),
+                        total_price: fmtIndianNumberDecimal(totalPrice3),
                         total_price_words: numberToWordsIndian(totalPrice3),
                         basic_price: fmtIndianNumber(basicPrice3),
-                        balcony_price: fmtIndianNumber(balconyPrice3),
+                        balcony_price: fmtIndianNumberDecimal(balconyPrice3),
                         rate_per_sqft: fmtIndianNumber(basicRate3),
-                        balcony_rate: fmtIndianNumber(balconyRate3),
+                        balcony_rate: fmtIndianNumberDecimal(balconyRate3),
                         booking_amount: fmtIndianNumber(parseFloat(ats.booking_amount || 0)),
                         booking_amount_words: numberToWordsIndian(parseFloat(ats.booking_amount || 0)),
                         booking_amount_pct: bookingPct3,
