@@ -1000,14 +1000,20 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             // ratio-based split unchanged -- zero regression.
             const hasStoredBalcony = plan.balcony_charge_amount != null;
             const carpetOnlyRatio = superArea > 0 ? trueCarpet / superArea : 1;
-            const trueCarpetBasicTotal = bookingBspRate > 0 && trueCarpet > 0
-              ? Math.round(bookingBspRate * trueCarpet)
+            // balconyAmt is the true, independently-rounded proportional share
+            // of the stored balcony total; basicAmt is defined as the remainder
+            // of this installment's real due amount, guaranteeing an exact sum
+            // by construction (same remainder pattern as the GST split below
+            // and the payment waterfall) instead of two independent roundings
+            // that could land ±1 rupee apart.
+            const balconyAmtStored = hasStoredBalcony
+              ? Math.round(parseFloat(plan.balcony_charge_amount || 0) * pct)
               : 0;
             const basicAmt = hasStoredBalcony
-              ? Math.round(trueCarpetBasicTotal * pct)
+              ? installment - balconyAmtStored
               : Math.round(installment * carpetOnlyRatio);
             const balconyAmt = hasStoredBalcony
-              ? Math.round(parseFloat(plan.balcony_charge_amount || 0) * pct)
+              ? balconyAmtStored
               : installment - basicAmt;
             // Use carpet/superArea ratio for GST + interest split —
             // basicRatio = 1.0 (totalBsp === recalcTotal) so cannot use it here
