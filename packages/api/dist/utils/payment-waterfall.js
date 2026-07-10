@@ -14,6 +14,9 @@ exports.buildInterestRows = buildInterestRows;
 exports.applyWaterfall = applyWaterfall;
 exports.resolveBookingScope = resolveBookingScope;
 exports.recomputeBookingAmount = recomputeBookingAmount;
+exports.recomputeBookingPaymentTaxes = recomputeBookingPaymentTaxes;
+const gst_resolver_js_1 = require("./gst-resolver.js");
+const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
 function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
@@ -238,5 +241,42 @@ async function recomputeBookingAmount(client, consumerId, unitId, projectId, pay
      SET booking_amount = $1
      WHERE consumer_id = $2 AND unit_id = $3
        AND project_id = $4 AND status != 'cancelled'`, [newAmount, consumerId, unitId, projectId]);
+}
+/**
+ * Keeps booking_payment_taxes.cgst_amount/sgst_amount in sync with
+ * booking_records.booking_amount after recomputeBookingAmount() runs (receipt
+ * cancel / bounce paths). Without this, a receipt cancel/bounce silently
+ * desyncs the stored tax amounts from the now-changed booking_amount --
+ * the amounts stay frozen at whatever they were computed from at the last
+ * PATCH /:id, permanently mismatched from the new booking_amount.
+ *
+ * No-op if the booking has no booking_payment_taxes row yet (never
+ * confirmed via PATCH /:id).
+ */
+async function recomputeBookingPaymentTaxes(client, consumerId, unitId, projectId) {
+    const bookingRes = await client.query(`SELECT id, booking_amount, booking_date
+     FROM booking_records
+     WHERE consumer_id = $1 AND unit_id = $2 AND project_id = $3 AND status != 'cancelled'
+     LIMIT 1`, [consumerId, unitId, projectId]);
+    if (bookingRes.rows.length === 0)
+        return;
+    const booking = bookingRes.rows[0];
+    const bptRes = await client.query(`SELECT id FROM booking_payment_taxes WHERE booking_record_id = $1`, [booking.id]);
+    if (bptRes.rows.length === 0)
+        return;
+    const bookingDateForGst = booking.booking_date
+        ? new Date(booking.booking_date).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0];
+    const projectRow = await client.query('SELECT name FROM projects WHERE id = $1', [projectId]);
+    const projectName = projectRow.rows[0]?.name || projectId;
+    const consumerRow = await client.query('SELECT nationality FROM consumers WHERE id = $1', [consumerId]);
+    const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.rows[0]?.nationality);
+    const gstRate = isNri
+        ? { cgstPct: 0, sgstPct: 0 }
+        : await (0, gst_resolver_js_1.resolveRate)(client, projectId, projectName, 'BASIC', bookingDateForGst);
+    const gstSplit = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(parseFloat(booking.booking_amount), gstRate.cgstPct * 100, gstRate.sgstPct * 100);
+    await client.query(`UPDATE booking_payment_taxes
+     SET cgst_amount = $1, sgst_amount = $2
+     WHERE booking_record_id = $3`, [gstSplit.cgstAmount, gstSplit.sgstAmount, booking.id]);
 }
 //# sourceMappingURL=payment-waterfall.js.map

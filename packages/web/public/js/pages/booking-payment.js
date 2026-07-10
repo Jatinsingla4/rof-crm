@@ -475,8 +475,27 @@ const BkPayPage = {
     const sfx   = sfxMap[tab] || '';
     const cgstPct = parseFloat(document.getElementById('bkp-cgst-pct' + sfx)?.value || 0);
     const sgstPct = parseFloat(document.getElementById('bkp-sgst-pct' + sfx)?.value || 0);
-    const cgstAmt = base * cgstPct / 100;
-    const sgstAmt = base * sgstPct / 100;
+    // GST-inclusive backward derivation (mirrors server-side
+    // computeInclusiveGstSplit() in gst-backward-derive.ts) -- base+cgst+sgst
+    // sums exactly to `base` (the gross figure), not base*(1+rate). This is a
+    // display-only mirror; the backend independently recomputes the
+    // authoritative amount at PATCH /:id and does not trust this value.
+    const grossPaise = Math.round(base * 100);
+    const combinedRate = cgstPct + sgstPct;
+    let cgstAmt = 0, sgstAmt = 0;
+    if (combinedRate > 0) {
+      const basePaise = Math.floor(grossPaise / (1 + combinedRate / 100));
+      const totalTaxPaise = grossPaise - basePaise;
+      let cgstPaise;
+      if (cgstPct === sgstPct) {
+        cgstPaise = Math.floor(totalTaxPaise / 2);
+      } else {
+        cgstPaise = Math.round(totalTaxPaise * (cgstPct / combinedRate));
+      }
+      const sgstPaise = totalTaxPaise - cgstPaise;
+      cgstAmt = cgstPaise / 100;
+      sgstAmt = sgstPaise / 100;
+    }
     const cgstH = document.getElementById('bkp-cgst-amount'); if (cgstH) cgstH.value = cgstAmt.toFixed(2);
     const sgstH = document.getElementById('bkp-sgst-amount'); if (sgstH) sgstH.value = sgstAmt.toFixed(2);
     this.updateTaxLabels();

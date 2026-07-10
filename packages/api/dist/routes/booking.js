@@ -9,6 +9,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
 const addon_charges_js_1 = require("./addon-charges.js");
 const router = (0, express_1.Router)();
 // Generate registration number with project-based prefix and sequential numbering
@@ -243,15 +244,32 @@ router.post('/', async (req, res, next) => {
                 parseFloat(basic_price || 0) > 0 ? parseFloat(basic_price) : null,
                 parseFloat(carpet_area_sqft || 0) > 0 ? parseFloat(carpet_area_sqft) : null,
             ]);
+            // Resolve BASIC GST rate server-side (same pattern as PATCH /:id) and
+            // derive cgst_amount/sgst_amount from the confirmed booking_amount --
+            // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
+            const bookingDateForGstCreate = booking_date || new Date().toISOString().split('T')[0];
+            const projectRowForGstCreate = project_id
+                ? await client.query('SELECT name FROM projects WHERE id = $1', [project_id])
+                : { rows: [] };
+            const projectNameForGstCreate = projectRowForGstCreate.rows[0]?.name || project_id;
+            const consumerRowForGstCreate = await client.query('SELECT nationality FROM consumers WHERE id = $1', [consumer_id]);
+            const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
+                .includes(consumerRowForGstCreate.rows[0]?.nationality);
+            const gstRateForBptCreate = (isNriForGstCreate || !project_id)
+                ? { cgstPct: 0, sgstPct: 0 }
+                : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, project_id, projectNameForGstCreate, 'BASIC', bookingDateForGstCreate);
+            const cgstPctForBptCreate = gstRateForBptCreate.cgstPct * 100;
+            const sgstPctForBptCreate = gstRateForBptCreate.sgstPct * 100;
+            const gstSplitCreate = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(parseFloat(booking_amount || 0), cgstPctForBptCreate, sgstPctForBptCreate);
             // Insert tax breakdown row (always, even if all zeros)
             await client.query(`INSERT INTO booking_payment_taxes
            (booking_record_id, s_tax_pct, cgst_pct, sgst_pct, gst_interest_pct,
             cgst_amount, sgst_amount, tds_amount)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
                 result.rows[0].id,
-                parseFloat(s_tax_pct || 0), parseFloat(cgst_pct || 0), parseFloat(sgst_pct || 0),
-                parseFloat(gst_interest_pct || 0), parseFloat(cgst_amount || 0),
-                parseFloat(sgst_amount || 0), parseFloat(tds_amount || 0),
+                parseFloat(s_tax_pct || 0), cgstPctForBptCreate, sgstPctForBptCreate,
+                parseFloat(gst_interest_pct || 0), gstSplitCreate.cgstAmount,
+                gstSplitCreate.sgstAmount, parseFloat(tds_amount || 0),
             ]);
             // Lock unit only when payment is present (active booking). pending_payment keeps unit available.
             if (unit_id && bookingStatus !== 'pending_payment') {
@@ -634,6 +652,13 @@ router.patch('/:id', async (req, res, next) => {
             const gstRateForBpt = isNriForGst
                 ? { cgstPct: 0, sgstPct: 0 }
                 : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, booking.project_id, projectNameForGst, 'BASIC', bookingDateForGst);
+            // Amount is always derived server-side from the resolved rate and the
+            // confirmed booking_amount -- the frontend-submitted cgst_amount/
+            // sgst_amount is ignored (it was flat-multiplied client-side and is
+            // never authoritative; see computeInclusiveGstSplit()).
+            const cgstPctForBpt = gstRateForBpt.cgstPct * 100;
+            const sgstPctForBpt = gstRateForBpt.sgstPct * 100;
+            const gstSplit = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(parseFloat(booking.booking_amount), cgstPctForBpt, sgstPctForBpt);
             // Upsert tax row (delete + insert to handle both old and new bookings cleanly)
             await client.query(`DELETE FROM booking_payment_taxes WHERE booking_record_id = $1`, [id]);
             await client.query(`INSERT INTO booking_payment_taxes
@@ -641,9 +666,9 @@ router.patch('/:id', async (req, res, next) => {
             cgst_amount, sgst_amount, tds_amount)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [
                 id,
-                parseFloat(s_tax_pct || 0), gstRateForBpt.cgstPct * 100, gstRateForBpt.sgstPct * 100,
-                parseFloat(gst_interest_pct || 0), parseFloat(cgst_amount || 0),
-                parseFloat(sgst_amount || 0), parseFloat(tds_amount || 0),
+                parseFloat(s_tax_pct || 0), cgstPctForBpt, sgstPctForBpt,
+                parseFloat(gst_interest_pct || 0), gstSplit.cgstAmount,
+                gstSplit.sgstAmount, parseFloat(tds_amount || 0),
             ]);
             // Lock the unit now that payment is confirmed
             if (booking.unit_id) {

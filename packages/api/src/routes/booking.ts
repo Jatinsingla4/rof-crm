@@ -8,6 +8,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
+import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { recomputeAddonDemands } from './addon-charges.js';
 
 const router = Router();
@@ -318,6 +319,41 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         ]
       );
 
+      // Resolve BASIC GST rate server-side (same pattern as PATCH /:id) and
+      // derive cgst_amount/sgst_amount from the confirmed booking_amount --
+      // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
+      const bookingDateForGstCreate = booking_date || new Date().toISOString().split('T')[0];
+
+      const projectRowForGstCreate = project_id
+        ? await client.query('SELECT name FROM projects WHERE id = $1', [project_id])
+        : { rows: [] as any[] };
+      const projectNameForGstCreate = projectRowForGstCreate.rows[0]?.name || project_id;
+
+      const consumerRowForGstCreate = await client.query(
+        'SELECT nationality FROM consumers WHERE id = $1',
+        [consumer_id]
+      );
+      const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
+        .includes(consumerRowForGstCreate.rows[0]?.nationality);
+
+      const gstRateForBptCreate = (isNriForGstCreate || !project_id)
+        ? { cgstPct: 0, sgstPct: 0 }
+        : await resolveRate(
+            db,
+            project_id,
+            projectNameForGstCreate,
+            'BASIC',
+            bookingDateForGstCreate
+          );
+
+      const cgstPctForBptCreate = gstRateForBptCreate.cgstPct * 100;
+      const sgstPctForBptCreate = gstRateForBptCreate.sgstPct * 100;
+      const gstSplitCreate = computeInclusiveGstSplit(
+        parseFloat(booking_amount || 0),
+        cgstPctForBptCreate,
+        sgstPctForBptCreate
+      );
+
       // Insert tax breakdown row (always, even if all zeros)
       await client.query(
         `INSERT INTO booking_payment_taxes
@@ -326,9 +362,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           result.rows[0].id,
-          parseFloat(s_tax_pct||0), parseFloat(cgst_pct||0), parseFloat(sgst_pct||0),
-          parseFloat(gst_interest_pct||0), parseFloat(cgst_amount||0),
-          parseFloat(sgst_amount||0), parseFloat(tds_amount||0),
+          parseFloat(s_tax_pct||0), cgstPctForBptCreate, sgstPctForBptCreate,
+          parseFloat(gst_interest_pct||0), gstSplitCreate.cgstAmount,
+          gstSplitCreate.sgstAmount, parseFloat(tds_amount||0),
         ]
       );
 
@@ -791,6 +827,18 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             bookingDateForGst
           );
 
+      // Amount is always derived server-side from the resolved rate and the
+      // confirmed booking_amount -- the frontend-submitted cgst_amount/
+      // sgst_amount is ignored (it was flat-multiplied client-side and is
+      // never authoritative; see computeInclusiveGstSplit()).
+      const cgstPctForBpt = gstRateForBpt.cgstPct * 100;
+      const sgstPctForBpt = gstRateForBpt.sgstPct * 100;
+      const gstSplit = computeInclusiveGstSplit(
+        parseFloat(booking.booking_amount),
+        cgstPctForBpt,
+        sgstPctForBpt
+      );
+
       // Upsert tax row (delete + insert to handle both old and new bookings cleanly)
       await client.query(
         `DELETE FROM booking_payment_taxes WHERE booking_record_id = $1`,
@@ -803,9 +851,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           id,
-          parseFloat(s_tax_pct||0), gstRateForBpt.cgstPct * 100, gstRateForBpt.sgstPct * 100,
-          parseFloat(gst_interest_pct||0), parseFloat(cgst_amount||0),
-          parseFloat(sgst_amount||0), parseFloat(tds_amount||0),
+          parseFloat(s_tax_pct||0), cgstPctForBpt, sgstPctForBpt,
+          parseFloat(gst_interest_pct||0), gstSplit.cgstAmount,
+          gstSplit.sgstAmount, parseFloat(tds_amount||0),
         ]
       );
 
