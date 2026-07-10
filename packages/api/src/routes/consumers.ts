@@ -1220,13 +1220,36 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
                 r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
                 r.bank_name, r.branch, r.interest_amount, r.status,
                 r.deposit_date, r.clearing_date, r.hold_remark,
-                COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
-                COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount,
+                COALESCE(d.cgst_amount, gtax.cgst_paise / 100.0) AS cgst_amount,
+                COALESCE(d.sgst_amount, (ttax.total_tax_paise - gtax.cgst_paise) / 100.0) AS sgst_amount,
                 COALESCE(d.demand_type, 'Booking') AS on_account_of
          FROM receipts r
          LEFT JOIN demands d ON d.id = r.demand_id
          LEFT JOIN payment_plans pp2 ON pp2.id = r.payment_plan_id
          LEFT JOIN projects proj ON proj.id = pp2.project_id
+         LEFT JOIN LATERAL (
+           SELECT gts.cgst_pct, gts.sgst_pct
+           FROM gst_tax_charge_mapping gcm
+           JOIN gst_slabs gs ON gs.id = gcm.slab_id
+             AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+           JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
+           WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC'
+           LIMIT 1
+         ) grate ON true
+         LEFT JOIN LATERAL (
+           SELECT
+             (ROUND(r.amount_received_inr * 100) -
+               FLOOR(ROUND(r.amount_received_inr * 100) / (1 + (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)) / 100.0))
+             )::bigint AS total_tax_paise
+         ) ttax ON true
+         LEFT JOIN LATERAL (
+           SELECT
+             CASE
+               WHEN COALESCE(grate.cgst_pct,0.5) = COALESCE(grate.sgst_pct,0.5)
+                 THEN FLOOR(ttax.total_tax_paise / 2.0)
+               ELSE ROUND(ttax.total_tax_paise * COALESCE(grate.cgst_pct,0.5) / (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)))
+             END::bigint AS cgst_paise
+         ) gtax ON true
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
            AND (r.is_advance IS NOT TRUE)
@@ -1255,6 +1278,17 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
         [consumerId, row.unit_id],
       ),
     ]);
+
+    // Interest/base-price GST is never charged to NRI/OCI/PIO consumers --
+    // the fallback backward-derive above computes a rate regardless of
+    // nationality, so zero it out here for NRI (mirrors the existing
+    // isNri gate used elsewhere for demand-linked amounts).
+    if (['nri', 'oci', 'pio'].includes((row.nationality || '').toLowerCase())) {
+      receiptsRes.rows.forEach((rr: any) => {
+        rr.cgst_amount = 0;
+        rr.sgst_amount = 0;
+      });
+    }
 
     // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
     // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.

@@ -2181,14 +2181,37 @@ router.get('/receipts/:id/html', async (req, res, next) => {
           u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr, u.total_price_inr,
           u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
           pp.total_amount_inr AS plan_total_inr,
-          COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
-          COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount
+          COALESCE(d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
+          COALESCE(d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
         FROM receipts r
         JOIN consumers c ON c.id = r.consumer_id
         LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
         LEFT JOIN projects p ON p.id = pp.project_id
         LEFT JOIN units u ON u.id = pp.unit_id
         LEFT JOIN demands d ON d.id = r.demand_id
+        LEFT JOIN LATERAL (
+          SELECT gts.cgst_pct, gts.sgst_pct
+          FROM gst_tax_charge_mapping gcm
+          JOIN gst_slabs gs ON gs.id = gcm.slab_id
+            AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+          JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
+          WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC'
+          LIMIT 1
+        ) grate ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            (ROUND(r.amount_received_inr * 100) -
+              FLOOR(ROUND(r.amount_received_inr * 100) / (1 + (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)) / 100.0))
+            )::bigint AS total_tax_paise
+        ) ttax ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            CASE
+              WHEN COALESCE(grate.cgst_pct,0.5) = COALESCE(grate.sgst_pct,0.5)
+                THEN FLOOR(ttax.total_tax_paise / 2.0)
+              ELSE ROUND(ttax.total_tax_paise * COALESCE(grate.cgst_pct,0.5) / (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)))
+            END::bigint AS cgst_paise
+        ) gtax ON true
         WHERE r.id = $1
       `, [id]),
         ]);
@@ -2784,7 +2807,7 @@ router.get('/receipt-form/:consumerId', async (req, res, next) => {
     }
 });
 // ── RECEIPT DETAIL PAGE (standalone HTML page) ─────────────────────────────────
-function buildReceiptDetailHtml(rows) {
+async function buildReceiptDetailHtml(rows) {
     const fmtD = (d) => {
         if (!d)
             return '—';
@@ -2803,32 +2826,34 @@ function buildReceiptDetailHtml(rows) {
     const tdStyle = `border:1px solid #dee2e6;padding:6px 8px;font-size:12px;`;
     const dthStyle = `border:1px solid #2d4d7a;padding:5px 6px;text-align:center;font-size:11px;font-weight:bold;white-space:nowrap;`;
     const dtdStyle = `border:1px solid #dee2e6;padding:4px 6px;font-size:11px;`;
-    const buildDetailRows = (r) => {
+    const buildDetailRows = async (r) => {
+        const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
         const drows = [];
         let sno = 1;
         const basicAmt = parseFloat(String(r.amount_received_inr || 0));
         const basicCgst = parseFloat(String(r.cgst_amount || 0));
         const basicSgst = parseFloat(String(r.sgst_amount || 0));
         drows.push({ sno: sno++, installmentName: r.installment_name || '—', head: 'Basic Price', amount: basicAmt, cgst: basicCgst, sgst: basicSgst, netAmount: basicAmt });
-        if (parseFloat(String(r.plc_amount || 0)) > 0) {
-            const a = parseFloat(String(r.plc_amount)), c = a * 0.09, s = a * 0.09;
-            drows.push({ sno: sno++, installmentName: '', head: 'PLC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
-        }
-        if (parseFloat(String(r.edc_amount || 0)) > 0) {
-            const a = parseFloat(String(r.edc_amount)), c = a * 0.09, s = a * 0.09;
-            drows.push({ sno: sno++, installmentName: '', head: 'EDC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
-        }
-        if (parseFloat(String(r.idc_amount || 0)) > 0) {
-            const a = parseFloat(String(r.idc_amount)), c = a * 0.09, s = a * 0.09;
-            drows.push({ sno: sno++, installmentName: '', head: 'IDC', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
-        }
-        if (parseFloat(String(r.other_charge_amount || 0)) > 0) {
-            const a = parseFloat(String(r.other_charge_amount)), c = a * 0.09, s = a * 0.09;
-            drows.push({ sno: sno++, installmentName: '', head: r.other_charge_desc || 'Other Charge', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
-        }
+        const pushChargeRow = async (amountRaw, head, chargeType) => {
+            const a = parseFloat(String(amountRaw || 0));
+            if (a <= 0)
+                return;
+            let c = 0, s = 0;
+            if (!isNri) {
+                const rate = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, r.project_id, r.project_name, chargeType, r.received_date);
+                c = Math.round(a * rate.cgstPct * 100) / 100;
+                s = Math.round(a * rate.sgstPct * 100) / 100;
+            }
+            drows.push({ sno: sno++, installmentName: '', head, amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+        };
+        await pushChargeRow(r.plc_amount, 'PLC', 'PLC');
+        await pushChargeRow(r.edc_amount, 'EDC', 'BASIC');
+        await pushChargeRow(r.idc_amount, 'IDC', 'BASIC');
+        await pushChargeRow(r.other_charge_amount, r.other_charge_desc || 'Other Charge', 'OTHER CHARGE');
+        // Interest never carries GST — confirmed business rule, no rate lookup.
         if (parseFloat(String(r.interest_amount || 0)) > 0) {
-            const a = parseFloat(String(r.interest_amount)), c = a * 0.005, s = a * 0.005;
-            drows.push({ sno: sno++, installmentName: '', head: 'Interest', amount: a, cgst: c, sgst: s, netAmount: a + c + s });
+            const a = parseFloat(String(r.interest_amount));
+            drows.push({ sno: sno++, installmentName: '', head: 'Interest', amount: a, cgst: 0, sgst: 0, netAmount: a });
         }
         return drows;
     };
@@ -2853,6 +2878,7 @@ function buildReceiptDetailHtml(rows) {
         totalExtraCharge += extra;
         totalNet += amt + intr + extra;
     });
+    const allDetailRows = await Promise.all(rows.map((r) => buildDetailRows(r)));
     const receiptRowsHtml = rows.map((r, idx) => {
         const amt = parseFloat(String(r.amount_received_inr || 0));
         const gst = parseFloat(String(r.cgst_amount || 0)) + parseFloat(String(r.sgst_amount || 0));
@@ -2860,7 +2886,7 @@ function buildReceiptDetailHtml(rows) {
         const extra = parseFloat(String(r.plc_amount || 0)) + parseFloat(String(r.edc_amount || 0))
             + parseFloat(String(r.idc_amount || 0)) + parseFloat(String(r.other_charge_amount || 0));
         const net = amt + intr + extra;
-        const drows = buildDetailRows(r);
+        const drows = allDetailRows[idx];
         const dtotal = drows.reduce((acc, dr) => ({
             amount: acc.amount + dr.amount, cgst: acc.cgst + dr.cgst,
             sgst: acc.sgst + dr.sgst, net: acc.net + dr.netAmount
@@ -3015,11 +3041,13 @@ router.get('/receipt-detail/:consumerId', async (req, res, next) => {
         END                                                    AS installment_name,
         c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
         c.registration_no,
+        c.nationality,
+        p.id    AS project_id,
         p.name  AS project_name,
         un.unit_number,
         t.tower_name,
-        COALESCE(d.cgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.cgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS cgst_amount,
-        COALESCE(d.sgst_amount, ROUND(r.amount_received_inr * COALESCE((SELECT gts.sgst_pct / 100 FROM gst_tax_charge_mapping gcm JOIN gst_slabs gs ON gs.id = gcm.slab_id AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC' LIMIT 1), 0.005))) AS sgst_amount
+        COALESCE(d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
+        COALESCE(d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
       FROM receipts r
       JOIN consumers c    ON c.id  = r.consumer_id
       JOIN payment_plans pp ON pp.id = r.payment_plan_id
@@ -3035,12 +3063,35 @@ router.get('/receipt-detail/:consumerId', async (req, res, next) => {
           AND  installment_index = r.installment_index
         LIMIT 1
       ) pst ON true
+      LEFT JOIN LATERAL (
+        SELECT gts.cgst_pct, gts.sgst_pct
+        FROM gst_tax_charge_mapping gcm
+        JOIN gst_slabs gs ON gs.id = gcm.slab_id
+          AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+        JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
+        WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC'
+        LIMIT 1
+      ) grate ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          (ROUND(r.amount_received_inr * 100) -
+            FLOOR(ROUND(r.amount_received_inr * 100) / (1 + (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)) / 100.0))
+          )::bigint AS total_tax_paise
+      ) ttax ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          CASE
+            WHEN COALESCE(grate.cgst_pct,0.5) = COALESCE(grate.sgst_pct,0.5)
+              THEN FLOOR(ttax.total_tax_paise / 2.0)
+            ELSE ROUND(ttax.total_tax_paise * COALESCE(grate.cgst_pct,0.5) / (COALESCE(grate.cgst_pct,0.5) + COALESCE(grate.sgst_pct,0.5)))
+          END::bigint AS cgst_paise
+      ) gtax ON true
       WHERE r.consumer_id = $1
         AND r.status != 'cancelled'
         AND (r.is_advance IS NOT TRUE)
       ORDER BY r.received_date ASC, r.created_at ASC
     `, [consumerId]);
-        const html = buildReceiptDetailHtml(result.rows);
+        const html = await buildReceiptDetailHtml(result.rows);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         res.send(html);
     }
