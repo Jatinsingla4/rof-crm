@@ -1263,6 +1263,39 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
         });
     }
     // ── SECTION 4 — PRICING SUMMARY ──────────
+    // ── helper: itemized tax breakup sub-rows (display/verification only —
+    // the final CGST(Rs.)/SGST(Rs.) totals below remain sourced from the
+    // already-computed cgst/sgst values, never re-derived from these lines)
+    function taxSubHeaderRow(label) {
+        return `<tr><td colspan="2" style="${baseFont}font-style:italic;color:#666;padding:2px 8px 1px 20px;">${label}</td></tr>`;
+    }
+    function taxSubRow(label, valueHtml) {
+        return `<tr>
+      <td style="${baseFont}font-style:italic;color:#444;padding:1px 8px 1px 32px;">${label}</td>
+      <td style="${baseFont}font-style:italic;color:#444;padding:1px 8px;text-align:right;">${valueHtml}</td>
+    </tr>`;
+    }
+    const basicPlusPlcCgst = Math.round(basicPlusPLC * cgstPct / 100);
+    const basicPlusPlcSgst = Math.round(basicPlusPLC * sgstPct / 100);
+    const otherChargeCgstAmt = Math.round(otherCharge * otherChargeCgstPct / 100);
+    const otherChargeSgstAmt = Math.round(otherCharge * otherChargeSgstPct / 100);
+    const taxBreakupBlock = isGstExempt ? '' : `
+    <tr><td colspan="2" style="${baseFont}font-weight:700;padding:4px 8px 1px;">Tax Breakup:</td></tr>
+    ${taxSubHeaderRow(`Basic Price + PLC (Rs. ${fmtIndianNumber(basicPlusPLC)})`)}
+    ${taxSubRow(`CGST @ ${cgstPct}%`, `<span data-field-key="taxBreakupBasicPlcCgst" data-field-label="Basic+PLC CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcCgst)}</span>`)}
+    ${taxSubRow(`SGST @ ${sgstPct}%`, `<span data-field-key="taxBreakupBasicPlcSgst" data-field-label="Basic+PLC SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcSgst)}</span>`)}
+    ${otherCharge > 0 ? `
+    ${taxSubHeaderRow(`Other Charges (Rs. ${fmtIndianNumber(otherCharge)})`)}
+    ${taxSubRow(`CGST @ ${otherChargeCgstPct}%`, `<span data-field-key="taxBreakupOtherChargeCgst" data-field-label="Other Charges CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeCgstAmt)}</span>`)}
+    ${taxSubRow(`SGST @ ${otherChargeSgstPct}%`, `<span data-field-key="taxBreakupOtherChargeSgst" data-field-label="Other Charges SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeSgstAmt)}</span>`)}` : ''}
+    ${b.balcony_charge_amount != null ? `
+    ${taxSubHeaderRow(`Balcony Charge (Rs. ${fmtIndianNumber(balconyChargeAmount)}) — GST already included in Rs. ${fmtIndianNumber(balconyChargeTotal)}`)}
+    ${taxSubRow(`CGST @ ${cgstPct}%`, `<span data-field-key="taxBreakupBalconyCgst" data-field-label="Balcony CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyCgstAmount)}</span>`)}
+    ${taxSubRow(`SGST @ ${sgstPct}%`, `<span data-field-key="taxBreakupBalconySgst" data-field-label="Balcony SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconySgstAmount)}</span>`)}` : ''}
+    ${addonTotal > 0 ? `
+    ${taxSubHeaderRow(`Add on Charges — GST already included in Rs. ${fmtIndianNumber(addonTotal)}`)}
+    ${taxSubHeaderRow(`(see Other/Addon Charges table below for full breakdown)`)}` : ''}
+  `;
     const pricingTable = `
     <table style="width:100%;border-collapse:collapse;">
       ${pRow('Carpet Area (Sq. Ft.)', `<span data-field-key="carpetArea" data-field-label="Carpet Area (sqft)" data-value-type="number" data-section="pricing">${carpetArea.toFixed(3)}</span>`)}
@@ -1272,10 +1305,12 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       ${pRow('Add: PLC (Rs.)', `<span data-field-key="plcCharge" data-field-label="PLC Charges" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(plcAmount)}</span>`)}
       ${pRow('Add: Other Charges (Rs.)', `<span data-field-key="otherCharges" data-field-label="Other Charges" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherCharge)}</span>`)}
       ${pRow('Add on Charges (Rs.)', `<span data-field-key="addonTotal" data-field-label="Add on Charges" data-value-type="currency" data-section="pricing" style="display:block;text-align:right;">${fmtIndianCurrency(addonTotal)}</span>`)}
+      ${b.balcony_charge_amount != null ? pRow('Add: Balcony Charge (Rs.)', `<span data-field-key="balconyChargeDisplay" data-field-label="Balcony Charge" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyChargeTotal)}</span>`) : ''}
       ${pRow('Agreement Value', `<span data-field-key="agreementValue" data-field-label="Agreement Value" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(agreementValue)}</span>`, true)}
       ${pRow('Total Consideration', fmtIndianCurrency(totalConsideration), true)}
-      ${pRow(`CGST (${cgstPct}%)`, `<span data-field-key="cgstAmount" data-field-label="CGST Amount" data-value-type="currency" data-section="pricing" data-cgst-pct="${cgstPct}">${fmtIndianCurrency(cgst)}</span>`)}
-      ${pRow(`SGST (${sgstPct}%)`, `<span data-field-key="sgstAmount" data-field-label="SGST Amount" data-value-type="currency" data-section="pricing" data-sgst-pct="${sgstPct}">${fmtIndianCurrency(sgst)}</span>`)}
+      ${taxBreakupBlock}
+      ${pRow('CGST (Rs.)', `<span data-field-key="cgstAmount" data-field-label="CGST Amount" data-value-type="currency" data-section="pricing" data-cgst-pct="${cgstPct}">${fmtIndianCurrency(cgst)}</span>`)}
+      ${pRow('SGST (Rs.)', `<span data-field-key="sgstAmount" data-field-label="SGST Amount" data-value-type="currency" data-section="pricing" data-sgst-pct="${sgstPct}">${fmtIndianCurrency(sgst)}</span>`)}
       ${isGstExempt ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
       ${pRow('', fmtIndianCurrency(totalTax))}
       ${pRow('Total Consideration With Tax', `<span data-field-key="totalAmountWithGst" data-field-label="Total with GST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalWithTax)}</span>`, true)}
@@ -1364,7 +1399,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       </tr></tfoot>
     </table>`;
     // ── SECTION 7 — ADDON CHARGES TABLE ──────
-    const addonRows = addonCharges.map((c) => ({
+    const addonRows = addonCharges.filter((c) => parseFloat(c.total_amount || 0) > 0).map((c) => ({
         id: c.id,
         chargeName: c.charge_name,
         effectiveDate: c.effective_date,
@@ -1758,118 +1793,6 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       <tbody>${schedRows}</tbody>
       <tfoot>${schedTotalRow}</tfoot>
     </table>`;
-    // ── SECTION 2 — OTHER/ADDON CHARGES SCHEDULE ──
-    let addonRows = '';
-    let addonRowNum = 0;
-    let addonNetTotal = 0, addonCgstTotal = 0, addonSgstTotal = 0, addonGrandTotal = 0;
-    let addonReceivedTotal = 0;
-    // Calculate proportional received amount based on installment payment progress
-    const proportionPaid = totNetDue > 0 ? totPaid / totNetDue : 0;
-    if (b.has_plc && plcAmount > 0) {
-        addonRowNum++;
-        const plcCgst = plcAmount * cgstPct / 100;
-        const plcSgst = plcAmount * sgstPct / 100;
-        const plcReceived = plcAmount * proportionPaid;
-        addonNetTotal += plcAmount;
-        addonCgstTotal += plcCgst;
-        addonSgstTotal += plcSgst;
-        addonGrandTotal += plcAmount + plcCgst + plcSgst;
-        addonReceivedTotal += plcReceived;
-        addonRows += `<tr>
-      <td ${tdC}>${addonRowNum}</td>
-      <td ${tdL}>PLC</td>
-      <td ${tdC}>—</td>
-      <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcCgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcAmount)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcReceived)}</td>
-      <td ${tdR}>${fmtIndianNumber(plcAmount - plcReceived)}</td>
-      <td ${tdC}>—</td>
-    </tr>`;
-    }
-    if (b.has_other_charge && otherCharge > 0) {
-        addonRowNum++;
-        const ocCgst = otherCharge * otherChargeCgstPct / 100;
-        const ocSgst = otherCharge * otherChargeSgstPct / 100;
-        // Other charges (IFMS etc.) are tracked inside installment amounts.
-        // Do not show proportional received here — only show actual dedicated
-        // payments against other charges. Until dedicated other-charge receipts
-        // are implemented, received = 0.
-        const ocReceived = 0;
-        addonNetTotal += otherCharge;
-        addonCgstTotal += ocCgst;
-        addonSgstTotal += ocSgst;
-        addonGrandTotal += otherCharge + ocCgst + ocSgst;
-        addonReceivedTotal += ocReceived;
-        addonRows += `<tr>
-      <td ${tdC}>${addonRowNum}</td>
-      <td ${tdL}>${esc(b.other_charge_desc || 'Other Charge')}</td>
-      <td ${tdC}>—</td>
-      <td ${tdR}>${fmtIndianNumber(otherCharge)}</td>
-      <td ${tdR}>${fmtIndianNumber(ocCgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(ocSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(otherCharge + ocCgst + ocSgst)}</td>
-      <td ${tdR}>${fmtIndianNumber(ocReceived)}</td>
-      <td ${tdR}>${fmtIndianNumber((otherCharge + ocCgst + ocSgst) - ocReceived)}</td>
-      <td ${tdC}>—</td>
-    </tr>`;
-    }
-    if (b.balcony_charge_amount != null) {
-        addonRowNum++;
-        const balconyReceived = balconyChargeTotal * proportionPaid;
-        addonNetTotal += balconyChargeAmount;
-        addonCgstTotal += balconyCgstAmount;
-        addonSgstTotal += balconySgstAmount;
-        addonGrandTotal += balconyChargeTotal;
-        addonReceivedTotal += balconyReceived;
-        addonRows += `<tr>
-      <td ${tdC}>${addonRowNum}</td>
-      <td ${tdL}>Balcony Charge</td>
-      <td ${tdC}>—</td>
-      <td ${tdR}>${fmtIndianNumber(balconyChargeAmount)}</td>
-      <td ${tdR}>${fmtIndianNumber(balconyCgstAmount)}</td>
-      <td ${tdR}>${fmtIndianNumber(balconySgstAmount)}</td>
-      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal)}</td>
-      <td ${tdR}>${fmtIndianNumber(balconyReceived)}</td>
-      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal - balconyReceived)}</td>
-      <td ${tdC}>—</td>
-    </tr>`;
-    }
-    if (!addonRows) {
-        addonRows = `<tr>
-      <td ${tdC}>—</td><td ${tdL}>—</td><td ${tdC}>—</td>
-      <td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdR}>0.00</td>
-      <td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdR}>0.00</td><td ${tdC}>—</td>
-    </tr>`;
-    }
-    const addonSection = `
-    <div ${sectionHd}>OTHER/ADDON CHARGES</div>
-    <table style="width:100%;border-collapse:collapse;">
-      <thead><tr>
-        <th ${thStyle}>S.NO.</th>
-        <th ${thStyle}>INSTALLMENT/CHARGES</th>
-        <th ${thStyle}>DUE DATE</th>
-        <th ${thStyle}>NET AMOUNT</th>
-        <th ${thStyle}>CGST</th>
-        <th ${thStyle}>SGST</th>
-        <th ${thStyle}>NET DUE</th>
-        <th ${thStyle}>RECEIVED</th>
-        <th ${thStyle}>OUTSTANDING</th>
-        <th ${thStyle}>REMARK</th>
-      </tr></thead>
-      <tbody>${addonRows}</tbody>
-      <tfoot><tr>
-        <td ${tdBR} colspan="3">Total:</td>
-        <td ${tdBR}>${fmtIndianNumber(addonNetTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonCgstTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonSgstTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonReceivedTotal)}</td>
-        <td ${tdBR}>${fmtIndianNumber(addonGrandTotal - addonReceivedTotal)}</td>
-        <td ${tdBR}></td>
-      </tr></tfoot>
-    </table>`;
     // ── SECTION 3 — RECEIPT INFORMATION ──────
     const paymentStatus = b.status === 'complete' ? 'Cleared' : 'Pending';
     const rowBg = paymentStatus === 'Pending'
@@ -2113,7 +2036,6 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     <div style="font-family:Arial,sans-serif;font-size:10px;color:#000;padding:20px;max-width:1200px;margin:0 auto;">
       ${pageHeader}
       ${schedSection}
-      ${addonSection}
       ${receiptSection}
       ${interestSection}
       ${remarksSection}
