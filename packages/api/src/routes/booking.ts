@@ -1392,8 +1392,8 @@ function buildApplicantPage1(
   const totalConsideration = agreementValue;
   // Split GST: basic+PLC at booking rate, other charges at their own GST rate
   const basicPlusPLC  = basePrice + plcAmount;
-  const cgst          = isGstExempt ? 0 : (parseFloat(b.cgst_amount || 0) > 0 ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) : 0);
-  const sgst          = isGstExempt ? 0 : (parseFloat(b.sgst_amount || 0) > 0 ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) : 0);
+  const cgst          = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) : 0;
+  const sgst          = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) : 0;
   const totalTax           = cgst + sgst;
   const totalWithTax       = totalConsideration + totalTax;
   const totalReceivables   = totalWithTax + interest;
