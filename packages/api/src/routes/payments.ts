@@ -7,7 +7,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes } from '../utils/payment-waterfall.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes, checkAndAutoRaiseInstallment1, reverseInstallment1IfNoValidReceipt } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 
@@ -331,6 +331,21 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       console.error('Demand auto-match failed, rolled back:', matchErr.message);
     } finally {
       matchClient.release();
+    }
+
+    // Auto-raise installment 1 if this is the first valid receipt against it
+    if (resolvedPlanId && resolvedIdx === 1) {
+      const autoRaiseClient = await db.connect();
+      try {
+        await autoRaiseClient.query('BEGIN');
+        await checkAndAutoRaiseInstallment1(autoRaiseClient, resolvedPlanId, receiptId, receiptDate, req.userId || null);
+        await autoRaiseClient.query('COMMIT');
+      } catch (autoRaiseErr: any) {
+        await autoRaiseClient.query('ROLLBACK');
+        console.error('Installment-1 auto-raise failed, rolled back:', autoRaiseErr.message);
+      } finally {
+        autoRaiseClient.release();
+      }
     }
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -1724,12 +1739,21 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       [id]
     );
 
-    // 3. Re-open the demand if linked
+    // 3. Re-open the demand if linked, but only if no other valid receipt still covers it
     if (demand_id) {
-      await client.query(
-        `UPDATE demands SET status = 'pending', updated_at = NOW() WHERE id = $1`,
+      const stillValid = await client.query(
+        `SELECT id FROM receipts WHERE demand_id = $1
+         AND status NOT IN ('bounced', 'cancelled') LIMIT 1`,
         [demand_id]
       );
+      if (stillValid.rows.length === 0) {
+        await client.query(
+          `UPDATE demands SET status = 'pending',
+           delivery_status = 'queued', updated_at = NOW()
+           WHERE id = $1`,
+          [demand_id]
+        );
+      }
     }
 
     // 3b. Recompute booking_amount for the specific booking this receipt applies to
@@ -1737,6 +1761,11 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
     if (bounceScope) {
       await recomputeBookingAmount(client, consumer_id, bounceScope.unitId, bounceScope.projectId, bounceScope.paymentPlanId);
       await recomputeBookingPaymentTaxes(client, consumer_id, bounceScope.unitId, bounceScope.projectId);
+    }
+
+    // 3c. Reverse installment-1 auto-raise if no valid idx1 receipt remains
+    if (installment_index === 1 && payment_plan_id) {
+      await reverseInstallment1IfNoValidReceipt(client, payment_plan_id);
     }
 
     // 4. Log the bounce
@@ -1781,7 +1810,7 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
 
     const receiptResult = await client.query(
       `SELECT id, receipt_number, status, approval_status,
-              demand_id, payment_plan_id, amount_received_inr, consumer_id
+              demand_id, payment_plan_id, amount_received_inr, consumer_id, installment_index
        FROM receipts WHERE id = $1 FOR UPDATE`,
       [id]
     );
@@ -1875,6 +1904,11 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
     if (cancelScope) {
       await recomputeBookingAmount(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId, cancelScope.paymentPlanId);
       await recomputeBookingPaymentTaxes(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId);
+    }
+
+    // Step 2d: Reverse installment-1 auto-raise if no valid idx1 receipt remains
+    if (receipt.installment_index === 1 && receipt.payment_plan_id) {
+      await reverseInstallment1IfNoValidReceipt(client, receipt.payment_plan_id);
     }
 
     // Step 3: Write audit log (non-fatal)

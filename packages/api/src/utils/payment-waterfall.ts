@@ -413,3 +413,164 @@ export async function recomputeBookingPaymentTaxes(
     [gstSplit.cgstAmount, gstSplit.sgstAmount, booking.id]
   );
 }
+
+// ── installment-1 auto-raise on first receipt ───────────────────────────────
+
+/**
+ * Fires when a newly-created receipt lands on installment_index=1. If no
+ * OTHER receipt already holds a valid (non-bounced/cancelled) claim on
+ * installment_index=1 for this plan, this receipt is the first valid one --
+ * raise the installment 1 demand using this receipt's own received_date,
+ * replicating PATCH /demands/activate's effect (payments.ts) exactly,
+ * including its audit_logs entry and orphan-receipt-linking side effect.
+ * No-op if installment 1's demand already has a due_date (either raised
+ * manually by staff before this receipt existed, or already auto-raised --
+ * both are treated as "already has its date", never overwritten), or if a
+ * different valid idx1 receipt already exists (this receipt is a duplicate/
+ * extra, not the first). Guarding on due_date rather than status also
+ * covers the case where this same receipt fully covers the demand and the
+ * pre-existing auto-match logic (payments.ts POST /receipts) has already
+ * flipped it straight to 'paid' -- due_date still gets set in that case,
+ * without downgrading status back to 'demanded'.
+ */
+export async function checkAndAutoRaiseInstallment1(
+  client: any,
+  paymentPlanId: string,
+  receiptId: string,
+  receivedDate: string,
+  userId: string | null,
+): Promise<void> {
+  const otherValid = await client.query(
+    `SELECT id FROM receipts
+     WHERE payment_plan_id = $1 AND installment_index = 1
+       AND id != $2 AND status NOT IN ('bounced', 'cancelled')
+     LIMIT 1`,
+    [paymentPlanId, receiptId]
+  );
+  if (otherValid.rows.length > 0) return;
+
+  const demandRes = await client.query(
+    `SELECT id, consumer_id, status, due_date FROM demands
+     WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type = 'installment'
+     ORDER BY created_at ASC LIMIT 1`,
+    [paymentPlanId]
+  );
+  if (demandRes.rows.length === 0) return;
+  const demand = demandRes.rows[0];
+  if (demand.due_date != null) return;
+
+  await client.query(
+    `UPDATE demands
+     SET due_date = $1, generated_at = NOW(), raised_at = NOW(),
+         status = CASE WHEN status = 'pending' THEN 'demanded' ELSE status END,
+         delivery_status = CASE WHEN status = 'pending' THEN 'queued' ELSE delivery_status END
+     WHERE id = $2`,
+    [receivedDate, demand.id]
+  );
+
+  await client.query(
+    `INSERT INTO audit_logs (user_id, action, resource_type, resource_id, new_values)
+     VALUES ($1, 'DEMAND_RAISE', 'demand', $2, $3)`,
+    [userId, demand.id, JSON.stringify({
+      installment_date: receivedDate, due_date: receivedDate,
+      consumer_id: demand.consumer_id, installment_index: 1,
+      auto_raised: true, trigger_receipt_id: receiptId,
+    })]
+  );
+
+  const retroResult = await client.query(
+    `UPDATE receipts
+     SET demand_id = $1, updated_at = NOW()
+     WHERE consumer_id = $2 AND installment_index = 1
+       AND demand_id IS NULL AND status != 'cancelled'
+     RETURNING receipt_number, amount_received_inr`,
+    [demand.id, demand.consumer_id]
+  );
+
+  if (retroResult.rows.length > 0) {
+    const totalLinked = retroResult.rows.reduce(
+      (s: number, r: any) => s + parseFloat(r.amount_received_inr), 0
+    );
+    try {
+      await client.query(
+        `INSERT INTO financial_audit_logs
+           (consumer_id, action_type, old_value, new_value, remarks)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          demand.consumer_id,
+          'receipts_retroactively_linked',
+          JSON.stringify({ demand_id: null }),
+          JSON.stringify({ demand_id: demand.id }),
+          `${retroResult.rows.length} receipt(s) totalling ₹${totalLinked} retroactively linked to demand ${demand.id} (installment_index=1, auto-raise)`,
+        ]
+      );
+    } catch (auditErr: any) {
+      console.error('Retro-link audit log failed (non-fatal):', auditErr.message);
+    }
+  }
+
+  const [wfRcpts, wfDemands] = await Promise.all([
+    client.query(
+      `SELECT id, amount_received_inr, demand_id, installment_index, status
+       FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
+      [demand.consumer_id]
+    ),
+    client.query(
+      `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+              addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+       FROM demands WHERE consumer_id = $1`,
+      [demand.consumer_id]
+    ),
+  ]);
+
+  const wfResult = applyWaterfall(wfRcpts.rows, wfDemands.rows)
+    .find((w) => w.demand_id === demand.id);
+
+  if (wfResult?.fully_covered) {
+    await client.query(
+      `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
+      [demand.id]
+    );
+    await client.query(
+      `INSERT INTO financial_audit_logs
+         (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
+       VALUES ($1, $2, $3, 'demand_auto_paid',
+         '{"status":"demanded","delivery_status":"queued"}',
+         '{"status":"paid","delivery_status":"paid"}',
+         'Auto-marked paid: fully covered on installment-1 auto-raise')`,
+      [demand.consumer_id, paymentPlanId, userId]
+    );
+  }
+}
+
+/**
+ * Fires when a receipt with installment_index=1 is bounced/cancelled. If no
+ * OTHER valid (non-bounced/cancelled) installment_index=1 receipt still
+ * exists for this plan, reverts the installment 1 demand back to its
+ * pre-raise state. Mirrors the manual PATCH /demands/:id/cancel reversal
+ * (payments.ts), which is the only existing code path that nulls due_date --
+ * neither the bounce nor the receipt-cancel endpoint does this today.
+ */
+export async function reverseInstallment1IfNoValidReceipt(
+  client: any,
+  paymentPlanId: string,
+): Promise<void> {
+  const stillValid = await client.query(
+    `SELECT id FROM receipts
+     WHERE payment_plan_id = $1 AND installment_index = 1
+       AND status NOT IN ('bounced', 'cancelled')
+     LIMIT 1`,
+    [paymentPlanId]
+  );
+  if (stillValid.rows.length > 0) return;
+
+  await client.query(
+    `UPDATE demands
+     SET status = 'pending', due_date = NULL, raised_at = NULL,
+         delivery_status = 'pending', updated_at = NOW()
+     WHERE payment_plan_id = $1 AND installment_index = 1
+       AND demand_type = 'installment'
+       AND (due_date IS NOT NULL OR status <> 'pending')`,
+    [paymentPlanId]
+  );
+}
