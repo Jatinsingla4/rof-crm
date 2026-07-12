@@ -1251,10 +1251,10 @@ const ReportsPage = {
           osCells = [
             `<td style="${osStyle}">${fmtA(r.outstanding_amount)}</td>`,
             `<td style="${aR}">0.00</td>`,
+            `<td style="${aR}">${fmtA(r.outstanding_cgst)}</td>`,
+            `<td style="${aR}">${fmtA(r.outstanding_sgst)}</td>`,
             `<td style="${aR}">0.00</td>`,
-            `<td style="${aR}">0.00</td>`,
-            `<td style="${aR}">0.00</td>`,
-            `<td style="${osStyle}">${fmtA(r.outstanding_amount)}</td>`,
+            `<td style="${osStyle}">${fmtA(r.outstanding_total)}</td>`,
             `<td style="${osStyle}">${osPct}%</td>`,
           ].join('');
         } else {

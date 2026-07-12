@@ -1519,6 +1519,18 @@ router.get('/customer-dues', async (req, res, next) => {
                 row.received_sgst = gst.sgst;
             }
         }
+        // Outstanding GST — pure arithmetic on already-fetched dues/received values, no new query.
+        for (const row of rows) {
+            const duesAmount = parseFloat(row.dues_amount || 0);
+            const duesCgst = parseFloat(row.dues_cgst || 0);
+            const duesSgst = parseFloat(row.dues_sgst || 0);
+            const receivedTotal = parseFloat(row.received_total || 0);
+            const receivedCgst = parseFloat(row.received_cgst || 0);
+            const receivedSgst = parseFloat(row.received_sgst || 0);
+            row.outstanding_cgst = Math.max(0, duesCgst - receivedCgst);
+            row.outstanding_sgst = Math.max(0, duesSgst - receivedSgst);
+            row.outstanding_total = (duesAmount + duesCgst + duesSgst) - (receivedTotal + receivedCgst + receivedSgst);
+        }
         const sumClrAmt = rows.reduce((a, r) => a + parseFloat(r.received_clear || 0), 0);
         const sumClrCgst = rows.reduce((a, r) => a + parseFloat(r.received_cgst || 0), 0);
         const sumClrSgst = rows.reduce((a, r) => a + parseFloat(r.received_sgst || 0), 0);
