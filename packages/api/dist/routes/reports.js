@@ -1107,7 +1107,7 @@ router.get('/due-report', async (req, res, next) => {
         d.amount_due_inr,
         COALESCE(d.cgst_amount,0) AS cgst_amount,
         COALESCE(d.sgst_amount,0) AS sgst_amount,
-        d.amount_due_inr AS total_due,
+        (d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)) AS total_due,
         d.status AS demand_status,
         COALESCE((
           SELECT SUM(r.amount_received_inr)
@@ -1133,7 +1133,7 @@ router.get('/due-report', async (req, res, next) => {
       SELECT
         COUNT(*)                                                           AS total_demands,
         SUM(d.amount_due_inr)                                             AS total_due,
-        SUM(d.amount_due_inr)                                             AS total_due_with_gst
+        SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)) AS total_due_with_gst
       ${baseFrom}
     `;
         // Use same params for count/sum (no limit/offset params needed — slice qp)
@@ -2175,7 +2175,7 @@ router.get('/month-wise-dues', async (req, res, next) => {
         COUNT(d.id) AS demand_count,
         SUM(d.amount_due_inr) AS total_due,
         COALESCE(SUM(COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)),0) AS total_gst,
-        SUM(d.amount_due_inr) AS total_due_with_gst,
+        SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)) AS total_due_with_gst,
         COALESCE(SUM((
           SELECT SUM(r.amount_received_inr) FROM receipts r
           WHERE r.consumer_id = d.consumer_id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
@@ -2531,7 +2531,7 @@ router.get('/customer-forecasting', async (req, res, next) => {
         d.amount_due_inr AS amount,
         COALESCE(d.cgst_amount, 0) AS cgst_amount,
         COALESCE(d.sgst_amount, 0) AS sgst_amount,
-        d.amount_due_inr AS total_with_gst,
+        (d.amount_due_inr + COALESCE(d.cgst_amount, 0) + COALESCE(d.sgst_amount, 0)) AS total_with_gst,
         d.status
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
