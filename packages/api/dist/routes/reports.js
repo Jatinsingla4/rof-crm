@@ -517,13 +517,14 @@ router.get('/unit-wise-plc', async (req, res, next) => {
          u.super_area_sqft,
          u.base_price_inr,
          u.status,
-         ROUND(u.base_price_inr * 0.05) AS plc_amount,
+         COALESCE(br.plc_amount, 0) AS plc_amount,
          COALESCE(c.first_name || ' ' || COALESCE(c.last_name, ''), 'Available') AS consumer_name
        FROM units u
        JOIN towers t   ON t.id  = u.tower_id
        JOIN projects p ON p.id  = u.project_id
        LEFT JOIN allocations a ON a.unit_id = u.id AND a.status = 'allotted'
        LEFT JOIN consumers c   ON c.id = a.consumer_id
+       LEFT JOIN booking_records br ON br.unit_id = u.id AND br.status != 'cancelled'
        WHERE t.deleted_at IS NULL
          AND (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid)
          AND (${bhkP}::text IS NULL OR u.bhk_type   = ${bhkP}::text)
