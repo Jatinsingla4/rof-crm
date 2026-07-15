@@ -1688,6 +1688,17 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
         const pidP = p(projectId || null);
         const tidP = p(towerId || null);
         const ddP = p(dueDate || null);
+        // Corrected unit-cost base (GST-exclusive): true-carpet basic price + capped
+        // Balcony Charge (balcony_charge_amount) when present; falls back to the old
+        // combined-area formula for historical bookings predating the Balcony Charge
+        // system (balcony_charge_amount IS NULL).
+        const unitCostBase = `
+      CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+        COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+      ELSE
+        COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+      END
+    `;
         const query = `
       WITH consumer_pct AS (
         SELECT
@@ -1698,7 +1709,7 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
           t.tower_name,
           u.bhk_type,
           p.name AS project_name,
-          COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0)) + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0) AS total_cost,
+          ${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0) AS total_cost,
           COALESCE((
             SELECT SUM(r.amount_received_inr) FROM receipts r
             WHERE r.consumer_id = c.id AND r.status != 'cancelled'
@@ -1712,18 +1723,18 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
             SELECT SUM(r.amount_received_inr) FROM receipts r
             WHERE r.consumer_id = c.id AND r.status != 'cancelled'
           ),0) AS outstanding,
-          CASE WHEN (COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0)) + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
+          CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
             ROUND(
               COALESCE((
                 SELECT SUM(r.amount_received_inr) FROM receipts r
                 WHERE r.consumer_id = c.id AND r.status != 'cancelled'
-              ),0) * 100.0 / (COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0)) + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0))
+              ),0) * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0))
             , 2)
           ELSE 0 END AS received_pct
         FROM consumers c
         JOIN (
           SELECT DISTINCT ON (consumer_id)
-            consumer_id, unit_id, plc_amount, other_charge_amount, basic_rate_inr_sqft
+            consumer_id, unit_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount
           FROM booking_records
           WHERE unit_id IS NOT NULL
           ORDER BY consumer_id, created_at DESC
@@ -1819,13 +1830,24 @@ router.get('/project-wise-dues', async (req, res, next) => {
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
         const ddP = p(dueDate || null);
+        // Corrected unit-cost base (GST-exclusive): true-carpet basic price + capped
+        // Balcony Charge (balcony_charge_amount) when present; falls back to the old
+        // combined-area formula for historical bookings predating the Balcony Charge
+        // system (balcony_charge_amount IS NULL).
+        const unitCostBase = `
+      CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+        COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+      ELSE
+        COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+      END
+    `;
         const query = `
       SELECT
         p.id AS project_id,
         p.name AS project_name,
         COUNT(DISTINCT c.id) AS consumer_count,
         COUNT(DISTINCT u.id) AS unit_count,
-        COALESCE(SUM(COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0)) + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)),0) AS total_cost,
+        COALESCE(SUM(${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)),0) AS total_cost,
         COALESCE(SUM((
           SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
@@ -1844,7 +1866,7 @@ router.get('/project-wise-dues', async (req, res, next) => {
       LEFT JOIN units u ON u.project_id = p.id
       LEFT JOIN (
         SELECT DISTINCT ON (unit_id)
-          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft
+          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount
         FROM booking_records
         WHERE unit_id IS NOT NULL
         ORDER BY unit_id, created_at DESC
