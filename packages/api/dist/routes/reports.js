@@ -238,31 +238,73 @@ router.get('/payment-ageing', async (req, res, next) => {
             baseWhere += ` AND pp.project_id = $${params.length + 1}`;
             params.push(projectId);
         }
-        const query = `SELECT bucket as ageing_bucket, count_demands, total_due_inr FROM (
-                    SELECT
-                      CASE
-                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 30 THEN '1-30 days'
-                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 90 THEN '31-90 days'
-                        WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 180 THEN '91-180 days'
-                        ELSE '180+ days'
-                      END as bucket,
-                      COUNT(*) as count_demands,
-                      SUM(d.amount_due_inr) as total_due_inr
-                     FROM demands d
-                     JOIN payment_plans pp ON d.payment_plan_id = pp.id
-                     WHERE ${baseWhere}
-                     GROUP BY bucket
-                   ) sub
-                   ORDER BY CASE bucket
-                     WHEN '1-30 days' THEN 1
-                     WHEN '31-90 days' THEN 2
-                     WHEN '91-180 days' THEN 3
-                     ELSE 4
-                   END`;
+        // Waterfall post-processing: total_due_inr previously summed the full
+        // overdue demand amount with no netting against receipts already paid at
+        // all. Fetch per-demand overdue rows, compute paid via applyWaterfall()
+        // (same pattern as stage-wise-dues/month-wise-dues), and net against the
+        // GST-inclusive due amount before bucketing.
+        const query = `
+      SELECT
+        d.id AS demand_id,
+        d.consumer_id,
+        d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        CASE
+          WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 30 THEN '1-30 days'
+          WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 90 THEN '31-90 days'
+          WHEN EXTRACT(DAY FROM (NOW() - d.due_date)) <= 180 THEN '91-180 days'
+          ELSE '180+ days'
+        END as bucket
+      FROM demands d
+      JOIN payment_plans pp ON d.payment_plan_id = pp.id
+      WHERE ${baseWhere}
+    `;
         const result = await pool_1.db.query(query, params);
+        const overdueRows = result.rows;
+        const consumerIds = Array.from(new Set(overdueRows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        const BUCKET_ORDER = ['1-30 days', '31-90 days', '91-180 days', '180+ days'];
+        const buckets = new Map();
+        for (const b of BUCKET_ORDER)
+            buckets.set(b, { count_demands: 0, total_due_inr: 0 });
+        for (const row of overdueRows) {
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            const dueWithGst = parseFloat(row.amount_due_inr || 0) + parseFloat(row.cgst_amount || 0) + parseFloat(row.sgst_amount || 0);
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            const b = buckets.get(row.bucket);
+            b.count_demands += 1;
+            b.total_due_inr += overdueAmt;
+        }
+        const rows = BUCKET_ORDER
+            .filter(b => buckets.get(b).count_demands > 0)
+            .map(b => ({
+            ageing_bucket: b,
+            count_demands: buckets.get(b).count_demands,
+            total_due_inr: buckets.get(b).total_due_inr,
+        }));
         res.json({
             success: true,
-            data: result.rows,
+            data: rows,
         });
     }
     catch (error) {
@@ -747,7 +789,7 @@ router.get('/applicant-payment-file', async (req, res, next) => {
           WHERE r.consumer_id = c.id AND r.status != 'cancelled'), 0)          AS interest_received,
         -- OUTSTANDING
         GREATEST(0,
-          COALESCE((SELECT SUM(d.amount_due_inr)
+          COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0))
             FROM demands d WHERE d.consumer_id = c.id ${dueDateGuard}), 0)
           - COALESCE((SELECT SUM(r.amount_received_inr)
             FROM receipts r
@@ -1949,50 +1991,107 @@ router.get('/ageing-project', async (req, res, next) => {
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
         const aodP = p(asOnDate || null);
+        // Waterfall post-processing: mirror stage-wise-dues/month-wise-dues — plain
+        // r.installment_index = d.installment_index matching (removed below) drops
+        // advance-pool receipts (both sides NULL). Fetch per-demand overdue rows raw,
+        // then compute paid via applyWaterfall() and bucket in JS, using the
+        // GST-inclusive due amount (amount_due_inr + cgst + sgst) on the due side.
         const query = `
-      WITH overdue AS (
-        SELECT
-          p.id AS project_id, p.name AS project_name,
-          c.id AS consumer_id,
-          d.amount_due_inr, d.due_date,
-          GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue,
-          COALESCE((
-            SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-          ),0) AS paid
-        FROM demands d
-        JOIN consumers c ON c.id = d.consumer_id
-        JOIN (
-          SELECT DISTINCT ON (consumer_id)
-            consumer_id, unit_id
-          FROM booking_records
-          WHERE unit_id IS NOT NULL
-          ORDER BY consumer_id, created_at DESC
-        ) br ON br.consumer_id = c.id
-        JOIN units u    ON u.id  = br.unit_id
-        JOIN projects p ON p.id  = u.project_id
-        WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
-          AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
-      )
       SELECT
-        project_id, project_name,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 1  AND 30  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_0_30,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 1  AND 30  THEN consumer_id END) AS count_0_30,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 31 AND 60  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_31_60,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 31 AND 60  THEN consumer_id END) AS count_31_60,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 61 AND 90  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_61_90,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 61 AND 90  THEN consumer_id END) AS count_61_90,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 91 AND 180 THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_91_180,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 91 AND 180 THEN consumer_id END) AS count_91_180,
-        COALESCE(SUM(CASE WHEN days_overdue > 180             THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_180_plus,
-        COUNT(DISTINCT CASE WHEN days_overdue > 180             THEN consumer_id END) AS count_180_plus,
-        COALESCE(SUM(GREATEST(0,amount_due_inr-paid)),0) AS total_overdue
-      FROM overdue
-      GROUP BY project_id, project_name
-      ORDER BY project_name
+        p.id AS project_id, p.name AS project_name,
+        c.id AS consumer_id,
+        d.id AS demand_id,
+        d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue
+      FROM demands d
+      JOIN consumers c ON c.id = d.consumer_id
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id  = br.unit_id
+      JOIN projects p ON p.id  = u.project_id
+      WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
+        AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
     `;
         const result = await pool_1.db.query(query, qp);
-        const rows = result.rows;
+        const overdueRows = result.rows;
+        const consumerIds = Array.from(new Set(overdueRows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        const groups = new Map();
+        for (const row of overdueRows) {
+            const key = row.project_id;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    project_id: row.project_id, project_name: row.project_name,
+                    bucket_0_30: 0, consumers_0_30: new Set(),
+                    bucket_31_60: 0, consumers_31_60: new Set(),
+                    bucket_61_90: 0, consumers_61_90: new Set(),
+                    bucket_91_180: 0, consumers_91_180: new Set(),
+                    bucket_180_plus: 0, consumers_180_plus: new Set(),
+                    total_overdue: 0,
+                });
+            }
+            const g = groups.get(key);
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            const dueWithGst = parseFloat(row.amount_due_inr || 0) + parseFloat(row.cgst_amount || 0) + parseFloat(row.sgst_amount || 0);
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            const days = parseInt(row.days_overdue, 10);
+            g.total_overdue += overdueAmt;
+            if (days >= 1 && days <= 30) {
+                g.bucket_0_30 += overdueAmt;
+                g.consumers_0_30.add(row.consumer_id);
+            }
+            else if (days >= 31 && days <= 60) {
+                g.bucket_31_60 += overdueAmt;
+                g.consumers_31_60.add(row.consumer_id);
+            }
+            else if (days >= 61 && days <= 90) {
+                g.bucket_61_90 += overdueAmt;
+                g.consumers_61_90.add(row.consumer_id);
+            }
+            else if (days >= 91 && days <= 180) {
+                g.bucket_91_180 += overdueAmt;
+                g.consumers_91_180.add(row.consumer_id);
+            }
+            else if (days > 180) {
+                g.bucket_180_plus += overdueAmt;
+                g.consumers_180_plus.add(row.consumer_id);
+            }
+        }
+        const rows = Array.from(groups.values()).map(g => ({
+            project_id: g.project_id, project_name: g.project_name,
+            bucket_0_30: g.bucket_0_30, count_0_30: g.consumers_0_30.size,
+            bucket_31_60: g.bucket_31_60, count_31_60: g.consumers_31_60.size,
+            bucket_61_90: g.bucket_61_90, count_61_90: g.consumers_61_90.size,
+            bucket_91_180: g.bucket_91_180, count_91_180: g.consumers_91_180.size,
+            bucket_180_plus: g.bucket_180_plus, count_180_plus: g.consumers_180_plus.size,
+            total_overdue: g.total_overdue,
+        })).sort((a, b) => String(a.project_name).localeCompare(String(b.project_name)));
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
             bucket_31_60: a.bucket_31_60 + parseFloat(r.bucket_31_60 || 0),
@@ -2016,49 +2115,101 @@ router.get('/ageing-installment', async (req, res, next) => {
         const pidP = p(projectId || null);
         const aodP = p(asOnDate || null);
         const query = `
-      WITH overdue AS (
-        SELECT
-          d.installment_index, d.demand_type,
-          c.id AS consumer_id,
-          d.amount_due_inr, d.due_date,
-          GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue,
-          COALESCE((
-            SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-          ),0) AS paid
-        FROM demands d
-        JOIN consumers c ON c.id = d.consumer_id
-        JOIN (
-          SELECT DISTINCT ON (consumer_id)
-            consumer_id, unit_id
-          FROM booking_records
-          WHERE unit_id IS NOT NULL
-          ORDER BY consumer_id, created_at DESC
-        ) br ON br.consumer_id = c.id
-        JOIN units u    ON u.id  = br.unit_id
-        JOIN projects p ON p.id  = u.project_id
-        WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
-          AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
-      )
       SELECT
-        installment_index, demand_type,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 1  AND 30  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_0_30,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 1  AND 30  THEN consumer_id END) AS count_0_30,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 31 AND 60  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_31_60,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 31 AND 60  THEN consumer_id END) AS count_31_60,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 61 AND 90  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_61_90,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 61 AND 90  THEN consumer_id END) AS count_61_90,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 91 AND 180 THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_91_180,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 91 AND 180 THEN consumer_id END) AS count_91_180,
-        COALESCE(SUM(CASE WHEN days_overdue > 180             THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_180_plus,
-        COUNT(DISTINCT CASE WHEN days_overdue > 180             THEN consumer_id END) AS count_180_plus,
-        COALESCE(SUM(GREATEST(0,amount_due_inr-paid)),0) AS total_overdue
-      FROM overdue
-      GROUP BY installment_index, demand_type
-      ORDER BY installment_index
+        d.installment_index, d.demand_type,
+        c.id AS consumer_id,
+        d.id AS demand_id,
+        d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue
+      FROM demands d
+      JOIN consumers c ON c.id = d.consumer_id
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id  = br.unit_id
+      JOIN projects p ON p.id  = u.project_id
+      WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
+        AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
     `;
         const result = await pool_1.db.query(query, qp);
-        const rows = result.rows;
+        const overdueRows = result.rows;
+        const consumerIds = Array.from(new Set(overdueRows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        const groups = new Map();
+        for (const row of overdueRows) {
+            const key = `${row.installment_index}|${row.demand_type}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    installment_index: row.installment_index, demand_type: row.demand_type,
+                    bucket_0_30: 0, consumers_0_30: new Set(),
+                    bucket_31_60: 0, consumers_31_60: new Set(),
+                    bucket_61_90: 0, consumers_61_90: new Set(),
+                    bucket_91_180: 0, consumers_91_180: new Set(),
+                    bucket_180_plus: 0, consumers_180_plus: new Set(),
+                    total_overdue: 0,
+                });
+            }
+            const g = groups.get(key);
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            const dueWithGst = parseFloat(row.amount_due_inr || 0) + parseFloat(row.cgst_amount || 0) + parseFloat(row.sgst_amount || 0);
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            const days = parseInt(row.days_overdue, 10);
+            g.total_overdue += overdueAmt;
+            if (days >= 1 && days <= 30) {
+                g.bucket_0_30 += overdueAmt;
+                g.consumers_0_30.add(row.consumer_id);
+            }
+            else if (days >= 31 && days <= 60) {
+                g.bucket_31_60 += overdueAmt;
+                g.consumers_31_60.add(row.consumer_id);
+            }
+            else if (days >= 61 && days <= 90) {
+                g.bucket_61_90 += overdueAmt;
+                g.consumers_61_90.add(row.consumer_id);
+            }
+            else if (days >= 91 && days <= 180) {
+                g.bucket_91_180 += overdueAmt;
+                g.consumers_91_180.add(row.consumer_id);
+            }
+            else if (days > 180) {
+                g.bucket_180_plus += overdueAmt;
+                g.consumers_180_plus.add(row.consumer_id);
+            }
+        }
+        const rows = Array.from(groups.values()).map(g => ({
+            installment_index: g.installment_index, demand_type: g.demand_type,
+            bucket_0_30: g.bucket_0_30, count_0_30: g.consumers_0_30.size,
+            bucket_31_60: g.bucket_31_60, count_31_60: g.consumers_31_60.size,
+            bucket_61_90: g.bucket_61_90, count_61_90: g.consumers_61_90.size,
+            bucket_91_180: g.bucket_91_180, count_91_180: g.consumers_91_180.size,
+            bucket_180_plus: g.bucket_180_plus, count_180_plus: g.consumers_180_plus.size,
+            total_overdue: g.total_overdue,
+        })).sort((a, b) => (a.installment_index ?? 0) - (b.installment_index ?? 0));
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
             bucket_31_60: a.bucket_31_60 + parseFloat(r.bucket_31_60 || 0),
@@ -2082,51 +2233,103 @@ router.get('/ageing-tower', async (req, res, next) => {
         const pidP = p(projectId || null);
         const aodP = p(asOnDate || null);
         const query = `
-      WITH overdue AS (
-        SELECT
-          p.id AS project_id, p.name AS project_name,
-          COALESCE(t.tower_name, 'No Tower') AS tower_name,
-          c.id AS consumer_id,
-          d.amount_due_inr, d.due_date,
-          GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue,
-          COALESCE((
-            SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-          ),0) AS paid
-        FROM demands d
-        JOIN consumers c ON c.id = d.consumer_id
-        JOIN (
-          SELECT DISTINCT ON (consumer_id)
-            consumer_id, unit_id
-          FROM booking_records
-          WHERE unit_id IS NOT NULL
-          ORDER BY consumer_id, created_at DESC
-        ) br ON br.consumer_id = c.id
-        JOIN units u    ON u.id  = br.unit_id
-        LEFT JOIN towers t ON t.id  = u.tower_id
-        JOIN projects p ON p.id  = u.project_id
-        WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
-          AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
-      )
       SELECT
-        project_name, tower_name,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 1  AND 30  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_0_30,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 1  AND 30  THEN consumer_id END) AS count_0_30,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 31 AND 60  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_31_60,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 31 AND 60  THEN consumer_id END) AS count_31_60,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 61 AND 90  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_61_90,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 61 AND 90  THEN consumer_id END) AS count_61_90,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 91 AND 180 THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_91_180,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 91 AND 180 THEN consumer_id END) AS count_91_180,
-        COALESCE(SUM(CASE WHEN days_overdue > 180             THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_180_plus,
-        COUNT(DISTINCT CASE WHEN days_overdue > 180             THEN consumer_id END) AS count_180_plus,
-        COALESCE(SUM(GREATEST(0,amount_due_inr-paid)),0) AS total_overdue
-      FROM overdue
-      GROUP BY project_name, tower_name
-      ORDER BY project_name, tower_name
+        p.id AS project_id, p.name AS project_name,
+        COALESCE(t.tower_name, 'No Tower') AS tower_name,
+        c.id AS consumer_id,
+        d.id AS demand_id,
+        d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue
+      FROM demands d
+      JOIN consumers c ON c.id = d.consumer_id
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id  = br.unit_id
+      LEFT JOIN towers t ON t.id  = u.tower_id
+      JOIN projects p ON p.id  = u.project_id
+      WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
+        AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
     `;
         const result = await pool_1.db.query(query, qp);
-        const rows = result.rows;
+        const overdueRows = result.rows;
+        const consumerIds = Array.from(new Set(overdueRows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        const groups = new Map();
+        for (const row of overdueRows) {
+            const key = `${row.project_name}|${row.tower_name}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    project_name: row.project_name, tower_name: row.tower_name,
+                    bucket_0_30: 0, consumers_0_30: new Set(),
+                    bucket_31_60: 0, consumers_31_60: new Set(),
+                    bucket_61_90: 0, consumers_61_90: new Set(),
+                    bucket_91_180: 0, consumers_91_180: new Set(),
+                    bucket_180_plus: 0, consumers_180_plus: new Set(),
+                    total_overdue: 0,
+                });
+            }
+            const g = groups.get(key);
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            const dueWithGst = parseFloat(row.amount_due_inr || 0) + parseFloat(row.cgst_amount || 0) + parseFloat(row.sgst_amount || 0);
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            const days = parseInt(row.days_overdue, 10);
+            g.total_overdue += overdueAmt;
+            if (days >= 1 && days <= 30) {
+                g.bucket_0_30 += overdueAmt;
+                g.consumers_0_30.add(row.consumer_id);
+            }
+            else if (days >= 31 && days <= 60) {
+                g.bucket_31_60 += overdueAmt;
+                g.consumers_31_60.add(row.consumer_id);
+            }
+            else if (days >= 61 && days <= 90) {
+                g.bucket_61_90 += overdueAmt;
+                g.consumers_61_90.add(row.consumer_id);
+            }
+            else if (days >= 91 && days <= 180) {
+                g.bucket_91_180 += overdueAmt;
+                g.consumers_91_180.add(row.consumer_id);
+            }
+            else if (days > 180) {
+                g.bucket_180_plus += overdueAmt;
+                g.consumers_180_plus.add(row.consumer_id);
+            }
+        }
+        const rows = Array.from(groups.values()).map(g => ({
+            project_name: g.project_name, tower_name: g.tower_name,
+            bucket_0_30: g.bucket_0_30, count_0_30: g.consumers_0_30.size,
+            bucket_31_60: g.bucket_31_60, count_31_60: g.consumers_31_60.size,
+            bucket_61_90: g.bucket_61_90, count_61_90: g.consumers_61_90.size,
+            bucket_91_180: g.bucket_91_180, count_91_180: g.consumers_91_180.size,
+            bucket_180_plus: g.bucket_180_plus, count_180_plus: g.consumers_180_plus.size,
+            total_overdue: g.total_overdue,
+        })).sort((a, b) => String(a.project_name).localeCompare(String(b.project_name)) || String(a.tower_name).localeCompare(String(b.tower_name)));
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
             bucket_31_60: a.bucket_31_60 + parseFloat(r.bucket_31_60 || 0),
@@ -2150,50 +2353,102 @@ router.get('/ageing-plan', async (req, res, next) => {
         const pidP = p(projectId || null);
         const aodP = p(asOnDate || null);
         const query = `
-      WITH overdue AS (
-        SELECT
-          p.id AS project_id, p.name AS project_name,
-          COALESCE(br.selected_plan_name, 'No Plan') AS plan_name,
-          c.id AS consumer_id,
-          d.amount_due_inr, d.due_date,
-          GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue,
-          COALESCE((
-            SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-          ),0) AS paid
-        FROM demands d
-        JOIN consumers c ON c.id = d.consumer_id
-        JOIN (
-          SELECT DISTINCT ON (consumer_id)
-            consumer_id, unit_id, selected_plan_name
-          FROM booking_records
-          WHERE unit_id IS NOT NULL
-          ORDER BY consumer_id, created_at DESC
-        ) br ON br.consumer_id = c.id
-        JOIN units u    ON u.id  = br.unit_id
-        JOIN projects p ON p.id  = u.project_id
-        WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
-          AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
-      )
       SELECT
-        project_name, plan_name,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 1  AND 30  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_0_30,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 1  AND 30  THEN consumer_id END) AS count_0_30,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 31 AND 60  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_31_60,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 31 AND 60  THEN consumer_id END) AS count_31_60,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 61 AND 90  THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_61_90,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 61 AND 90  THEN consumer_id END) AS count_61_90,
-        COALESCE(SUM(CASE WHEN days_overdue BETWEEN 91 AND 180 THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_91_180,
-        COUNT(DISTINCT CASE WHEN days_overdue BETWEEN 91 AND 180 THEN consumer_id END) AS count_91_180,
-        COALESCE(SUM(CASE WHEN days_overdue > 180             THEN GREATEST(0,amount_due_inr-paid) END),0) AS bucket_180_plus,
-        COUNT(DISTINCT CASE WHEN days_overdue > 180             THEN consumer_id END) AS count_180_plus,
-        COALESCE(SUM(GREATEST(0,amount_due_inr-paid)),0) AS total_overdue
-      FROM overdue
-      GROUP BY project_name, plan_name
-      ORDER BY project_name, plan_name
+        p.id AS project_id, p.name AS project_name,
+        COALESCE(br.selected_plan_name, 'No Plan') AS plan_name,
+        c.id AS consumer_id,
+        d.id AS demand_id,
+        d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        GREATEST(0, COALESCE(${aodP}::date, CURRENT_DATE) - d.due_date) AS days_overdue
+      FROM demands d
+      JOIN consumers c ON c.id = d.consumer_id
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id, selected_plan_name
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id  = br.unit_id
+      JOIN projects p ON p.id  = u.project_id
+      WHERE d.due_date < COALESCE(${aodP}::date, CURRENT_DATE)
+        AND (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
     `;
         const result = await pool_1.db.query(query, qp);
-        const rows = result.rows;
+        const overdueRows = result.rows;
+        const consumerIds = Array.from(new Set(overdueRows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        const groups = new Map();
+        for (const row of overdueRows) {
+            const key = `${row.project_name}|${row.plan_name}`;
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    project_name: row.project_name, plan_name: row.plan_name,
+                    bucket_0_30: 0, consumers_0_30: new Set(),
+                    bucket_31_60: 0, consumers_31_60: new Set(),
+                    bucket_61_90: 0, consumers_61_90: new Set(),
+                    bucket_91_180: 0, consumers_91_180: new Set(),
+                    bucket_180_plus: 0, consumers_180_plus: new Set(),
+                    total_overdue: 0,
+                });
+            }
+            const g = groups.get(key);
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            const dueWithGst = parseFloat(row.amount_due_inr || 0) + parseFloat(row.cgst_amount || 0) + parseFloat(row.sgst_amount || 0);
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            const days = parseInt(row.days_overdue, 10);
+            g.total_overdue += overdueAmt;
+            if (days >= 1 && days <= 30) {
+                g.bucket_0_30 += overdueAmt;
+                g.consumers_0_30.add(row.consumer_id);
+            }
+            else if (days >= 31 && days <= 60) {
+                g.bucket_31_60 += overdueAmt;
+                g.consumers_31_60.add(row.consumer_id);
+            }
+            else if (days >= 61 && days <= 90) {
+                g.bucket_61_90 += overdueAmt;
+                g.consumers_61_90.add(row.consumer_id);
+            }
+            else if (days >= 91 && days <= 180) {
+                g.bucket_91_180 += overdueAmt;
+                g.consumers_91_180.add(row.consumer_id);
+            }
+            else if (days > 180) {
+                g.bucket_180_plus += overdueAmt;
+                g.consumers_180_plus.add(row.consumer_id);
+            }
+        }
+        const rows = Array.from(groups.values()).map(g => ({
+            project_name: g.project_name, plan_name: g.plan_name,
+            bucket_0_30: g.bucket_0_30, count_0_30: g.consumers_0_30.size,
+            bucket_31_60: g.bucket_31_60, count_31_60: g.consumers_31_60.size,
+            bucket_61_90: g.bucket_61_90, count_61_90: g.consumers_61_90.size,
+            bucket_91_180: g.bucket_91_180, count_91_180: g.consumers_91_180.size,
+            bucket_180_plus: g.bucket_180_plus, count_180_plus: g.consumers_180_plus.size,
+            total_overdue: g.total_overdue,
+        })).sort((a, b) => String(a.project_name).localeCompare(String(b.project_name)) || String(a.plan_name).localeCompare(String(b.plan_name)));
         const totals = rows.reduce((a, r) => ({
             bucket_0_30: a.bucket_0_30 + parseFloat(r.bucket_0_30 || 0),
             bucket_31_60: a.bucket_31_60 + parseFloat(r.bucket_31_60 || 0),
@@ -2339,22 +2594,15 @@ router.get('/customer-dues-detail', async (req, res, next) => {
         u.unit_number,
         t.tower_name,
         p.name AS project_name,
+        d.id AS demand_id,
         d.installment_index,
         d.demand_type AS installment_name,
         d.due_date,
         d.amount_due_inr,
         COALESCE(d.cgst_amount,0) AS cgst,
         COALESCE(d.sgst_amount,0) AS sgst,
-        d.amount_due_inr AS total_due,
+        d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) AS total_due,
         d.status AS demand_status,
-        COALESCE((
-          SELECT SUM(r.amount_received_inr) FROM receipts r
-          WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-        ),0) AS paid,
-        d.amount_due_inr - COALESCE((
-          SELECT SUM(r.amount_received_inr) FROM receipts r
-          WHERE r.consumer_id = c.id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-        ),0) AS balance,
         CASE WHEN d.due_date < CURRENT_DATE THEN CURRENT_DATE - d.due_date ELSE 0 END AS days_overdue
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
@@ -2376,7 +2624,38 @@ router.get('/customer-dues-detail', async (req, res, next) => {
       ORDER BY t.tower_name NULLS LAST, u.unit_number, d.installment_index
     `;
         const result = await pool_1.db.query(query, qp);
-        res.json({ success: true, data: result.rows, total: result.rows.length });
+        const rows = result.rows;
+        // Waterfall post-processing: mirror stage-wise-dues/month-wise-dues — plain
+        // r.installment_index = d.installment_index matching (removed above) drops
+        // advance-pool receipts (both sides NULL). paid/balance now computed via
+        // applyWaterfall() against the GST-inclusive total_due.
+        const consumerIds = Array.from(new Set(rows.map((r) => r.consumer_id)));
+        const demandPaidMap = new Map();
+        await Promise.all(consumerIds.map(async (consumerId) => {
+            const [rcptsRes, demandsRes] = await Promise.all([
+                pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+                pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`, [consumerId]),
+            ]);
+            if (demandsRes.rows.length === 0)
+                return;
+            const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+            for (const w of wfResult) {
+                demandPaidMap.set(String(w.demand_id), w.paid);
+            }
+        }));
+        for (const row of rows) {
+            const paid = demandPaidMap.get(String(row.demand_id)) || 0;
+            row.paid = paid;
+            row.balance = parseFloat(row.total_due || 0) - paid;
+        }
+        res.json({ success: true, data: rows, total: rows.length });
     }
     catch (err) {
         next(err);
