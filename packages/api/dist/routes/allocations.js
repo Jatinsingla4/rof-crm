@@ -46,6 +46,10 @@ router.post('/', async (req, res, next) => {
                updated_at = NOW()
            WHERE consumer_id = $3 AND unit_id = $4 AND status = 'booked'
            RETURNING id, allocated_date, allotment_date, remarks`, [allotmentDate || null, remarks || null, consumerId, unitId]);
+                if (allocationResult.rowCount === 0) {
+                    await client.query('ROLLBACK');
+                    return res.status(409).json({ error: 'No matching booked allocation found for this consumer and unit' });
+                }
             }
             else {
                 allocationResult = await client.query(`INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks)

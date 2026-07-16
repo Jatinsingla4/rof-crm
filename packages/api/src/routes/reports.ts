@@ -2334,11 +2334,11 @@ router.get('/ageing-project', async (req: AuthRequest, res: Response, next: Next
       const overdueAmt = Math.max(0, dueWithGst - paid);
       const days = parseInt(row.days_overdue, 10);
       g.total_overdue += overdueAmt;
-      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; g.consumers_0_30.add(row.consumer_id); }
-      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; g.consumers_31_60.add(row.consumer_id); }
-      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; g.consumers_61_90.add(row.consumer_id); }
-      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; g.consumers_91_180.add(row.consumer_id); }
-      else if (days > 180) { g.bucket_180_plus += overdueAmt; g.consumers_180_plus.add(row.consumer_id); }
+      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; if (overdueAmt > 0) g.consumers_0_30.add(row.consumer_id); }
+      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; if (overdueAmt > 0) g.consumers_31_60.add(row.consumer_id); }
+      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; if (overdueAmt > 0) g.consumers_61_90.add(row.consumer_id); }
+      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; if (overdueAmt > 0) g.consumers_91_180.add(row.consumer_id); }
+      else if (days > 180) { g.bucket_180_plus += overdueAmt; if (overdueAmt > 0) g.consumers_180_plus.add(row.consumer_id); }
     }
 
     const rows = Array.from(groups.values()).map(g => ({
@@ -2447,11 +2447,11 @@ router.get('/ageing-installment', async (req: AuthRequest, res: Response, next: 
       const overdueAmt = Math.max(0, dueWithGst - paid);
       const days = parseInt(row.days_overdue, 10);
       g.total_overdue += overdueAmt;
-      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; g.consumers_0_30.add(row.consumer_id); }
-      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; g.consumers_31_60.add(row.consumer_id); }
-      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; g.consumers_61_90.add(row.consumer_id); }
-      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; g.consumers_91_180.add(row.consumer_id); }
-      else if (days > 180) { g.bucket_180_plus += overdueAmt; g.consumers_180_plus.add(row.consumer_id); }
+      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; if (overdueAmt > 0) g.consumers_0_30.add(row.consumer_id); }
+      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; if (overdueAmt > 0) g.consumers_31_60.add(row.consumer_id); }
+      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; if (overdueAmt > 0) g.consumers_61_90.add(row.consumer_id); }
+      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; if (overdueAmt > 0) g.consumers_91_180.add(row.consumer_id); }
+      else if (days > 180) { g.bucket_180_plus += overdueAmt; if (overdueAmt > 0) g.consumers_180_plus.add(row.consumer_id); }
     }
 
     const rows = Array.from(groups.values()).map(g => ({
@@ -2562,11 +2562,11 @@ router.get('/ageing-tower', async (req: AuthRequest, res: Response, next: NextFu
       const overdueAmt = Math.max(0, dueWithGst - paid);
       const days = parseInt(row.days_overdue, 10);
       g.total_overdue += overdueAmt;
-      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; g.consumers_0_30.add(row.consumer_id); }
-      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; g.consumers_31_60.add(row.consumer_id); }
-      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; g.consumers_61_90.add(row.consumer_id); }
-      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; g.consumers_91_180.add(row.consumer_id); }
-      else if (days > 180) { g.bucket_180_plus += overdueAmt; g.consumers_180_plus.add(row.consumer_id); }
+      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; if (overdueAmt > 0) g.consumers_0_30.add(row.consumer_id); }
+      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; if (overdueAmt > 0) g.consumers_31_60.add(row.consumer_id); }
+      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; if (overdueAmt > 0) g.consumers_61_90.add(row.consumer_id); }
+      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; if (overdueAmt > 0) g.consumers_91_180.add(row.consumer_id); }
+      else if (days > 180) { g.bucket_180_plus += overdueAmt; if (overdueAmt > 0) g.consumers_180_plus.add(row.consumer_id); }
     }
 
     const rows = Array.from(groups.values()).map(g => ({
@@ -2676,11 +2676,11 @@ router.get('/ageing-plan', async (req: AuthRequest, res: Response, next: NextFun
       const overdueAmt = Math.max(0, dueWithGst - paid);
       const days = parseInt(row.days_overdue, 10);
       g.total_overdue += overdueAmt;
-      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; g.consumers_0_30.add(row.consumer_id); }
-      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; g.consumers_31_60.add(row.consumer_id); }
-      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; g.consumers_61_90.add(row.consumer_id); }
-      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; g.consumers_91_180.add(row.consumer_id); }
-      else if (days > 180) { g.bucket_180_plus += overdueAmt; g.consumers_180_plus.add(row.consumer_id); }
+      if (days >= 1 && days <= 30) { g.bucket_0_30 += overdueAmt; if (overdueAmt > 0) g.consumers_0_30.add(row.consumer_id); }
+      else if (days >= 31 && days <= 60) { g.bucket_31_60 += overdueAmt; if (overdueAmt > 0) g.consumers_31_60.add(row.consumer_id); }
+      else if (days >= 61 && days <= 90) { g.bucket_61_90 += overdueAmt; if (overdueAmt > 0) g.consumers_61_90.add(row.consumer_id); }
+      else if (days >= 91 && days <= 180) { g.bucket_91_180 += overdueAmt; if (overdueAmt > 0) g.consumers_91_180.add(row.consumer_id); }
+      else if (days > 180) { g.bucket_180_plus += overdueAmt; if (overdueAmt > 0) g.consumers_180_plus.add(row.consumer_id); }
     }
 
     const rows = Array.from(groups.values()).map(g => ({
