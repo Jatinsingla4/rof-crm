@@ -1699,7 +1699,7 @@ router.get('/stage-wise-dues', async (req, res, next) => {
         SUM(d.amount_due_inr)                   AS total_demanded,
         SUM(COALESCE(d.cgst_amount,0))          AS total_cgst,
         SUM(COALESCE(d.sgst_amount,0))          AS total_sgst,
-        SUM(d.amount_due_inr) AS total_due
+        SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0)) AS total_due
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
       JOIN (
@@ -1784,7 +1784,7 @@ router.get('/stage-wise-dues', async (req, res, next) => {
             const key = `${row.installment_index}:${row.installment_name}`;
             const agg = stageAgg.get(key) || { received: 0, paidCount: 0, unpaidCount: 0 };
             row.total_received = agg.received;
-            row.total_outstanding = parseFloat(row.total_due || 0) + parseFloat(row.total_cgst || 0) + parseFloat(row.total_sgst || 0) - agg.received;
+            row.total_outstanding = parseFloat(row.total_due || 0) - agg.received;
             row.paid_count = agg.paidCount;
             row.unpaid_count = agg.unpaidCount;
         }
