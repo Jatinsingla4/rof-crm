@@ -1809,37 +1809,7 @@ router.get('/stage-wise-dues', async (req: AuthRequest, res: Response, next: Nex
         SUM(d.amount_due_inr)                   AS total_demanded,
         SUM(COALESCE(d.cgst_amount,0))          AS total_cgst,
         SUM(COALESCE(d.sgst_amount,0))          AS total_sgst,
-        SUM(d.amount_due_inr) AS total_due,
-        COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr)
-          FROM receipts r
-          WHERE r.consumer_id = d.consumer_id
-            AND r.installment_index = d.installment_index
-            AND r.status != 'cancelled'
-        )),0) AS total_received,
-        SUM(d.amount_due_inr) - COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr)
-          FROM receipts r
-          WHERE r.consumer_id = d.consumer_id
-            AND r.installment_index = d.installment_index
-            AND r.status != 'cancelled'
-        )),0) AS total_outstanding,
-        COUNT(DISTINCT CASE WHEN
-          COALESCE((
-            SELECT SUM(r.amount_received_inr)
-            FROM receipts r
-            WHERE r.consumer_id = d.consumer_id
-              AND r.installment_index = d.installment_index
-              AND r.status != 'cancelled'
-          ),0) >= d.amount_due_inr THEN d.consumer_id END) AS paid_count,
-        COUNT(DISTINCT CASE WHEN
-          COALESCE((
-            SELECT SUM(r.amount_received_inr)
-            FROM receipts r
-            WHERE r.consumer_id = d.consumer_id
-              AND r.installment_index = d.installment_index
-              AND r.status != 'cancelled'
-          ),0) < d.amount_due_inr THEN d.consumer_id END) AS unpaid_count
+        SUM(d.amount_due_inr) AS total_due
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
       JOIN (
@@ -1861,6 +1831,81 @@ router.get('/stage-wise-dues', async (req: AuthRequest, res: Response, next: Nex
 
     const result = await db.query(query, qp);
     const rows = result.rows;
+
+    // Waterfall post-processing: plain r.installment_index = d.installment_index
+    // matching (removed above) silently drops advance-pool receipts (demand_id
+    // AND installment_index both NULL) since NULL never equals anything in SQL.
+    // Recompute total_received/paid_count/unpaid_count per (installment_index,
+    // demand_type) stage via applyWaterfall(), same pattern as customer-dues.
+    const consumerUnitsQuery = `
+      SELECT DISTINCT c.id AS consumer_id, br.unit_id
+      FROM consumers c
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id  = br.unit_id
+      JOIN projects p ON p.id  = u.project_id
+      LEFT JOIN towers t ON t.id  = u.tower_id
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+        AND (${tidP}::uuid IS NULL OR t.id = ${tidP}::uuid)
+    `;
+    const consumerUnitsRes = await db.query(consumerUnitsQuery, [qp[0], qp[1]]);
+
+    const stageAgg = new Map<string, { received: number; paidCount: number; unpaidCount: number }>();
+    await Promise.all(
+      consumerUnitsRes.rows.map(async ({ consumer_id: consumerId }: { consumer_id: string }) => {
+        const [rcptsRes, demandsRes] = await Promise.all([
+          db.query(
+            `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`,
+            [consumerId]
+          ),
+          db.query(
+            `SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+             FROM demands
+             WHERE consumer_id = $1`,
+            [consumerId]
+          ),
+        ]);
+        if (demandsRes.rows.length === 0) return;
+
+        const wfResult = applyWaterfall(rcptsRes.rows, demandsRes.rows);
+        const demandById = new Map<string, { installment_index: number; demand_type: string; amount_due_inr: number }>();
+        for (const d of demandsRes.rows) {
+          demandById.set(String(d.id), {
+            installment_index: Number(d.installment_index),
+            demand_type: d.demand_type,
+            amount_due_inr: parseFloat(d.amount_due_inr || 0),
+          });
+        }
+        for (const w of wfResult) {
+          const d = demandById.get(String(w.demand_id));
+          if (!d) continue;
+          const key = `${d.installment_index}:${d.demand_type}`;
+          if (!stageAgg.has(key)) stageAgg.set(key, { received: 0, paidCount: 0, unpaidCount: 0 });
+          const agg = stageAgg.get(key)!;
+          agg.received += w.paid;
+          if (w.paid >= d.amount_due_inr) agg.paidCount++;
+          else agg.unpaidCount++;
+        }
+      })
+    );
+
+    for (const row of rows) {
+      const key = `${row.installment_index}:${row.installment_name}`;
+      const agg = stageAgg.get(key) || { received: 0, paidCount: 0, unpaidCount: 0 };
+      row.total_received    = agg.received;
+      row.total_outstanding = parseFloat(row.total_due || 0) - agg.received;
+      row.paid_count        = agg.paidCount;
+      row.unpaid_count      = agg.unpaidCount;
+    }
 
     const totals = rows.reduce((acc: any, r: any) => ({
       consumer_count:    Math.max(acc.consumer_count,    parseInt(r.consumer_count    || 0)),
