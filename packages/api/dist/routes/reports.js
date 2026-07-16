@@ -73,6 +73,7 @@ router.get('/financial-dashboard', async (req, res, next) => {
         COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2
                   JOIN payment_plans pp2 ON r2.payment_plan_id = pp2.id
                   WHERE r2.status = 'cleared'
+                  AND r2.is_advance IS NOT TRUE
                   AND (${collectedProjectFilter})
                   AND r2.consumer_id NOT IN (
                     SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
@@ -80,6 +81,7 @@ router.get('/financial-dashboard', async (req, res, next) => {
         COALESCE(SUM(pp.total_amount_inr) + SUM(COALESCE((SELECT SUM(d.cgst_amount) + SUM(d.sgst_amount) FROM demands d WHERE d.payment_plan_id = pp.id), 0)), 0) - COALESCE((SELECT SUM(r3.amount_received_inr) FROM receipts r3
                   JOIN payment_plans pp3 ON r3.payment_plan_id = pp3.id
                   WHERE r3.status = 'cleared'
+                  AND r3.is_advance IS NOT TRUE
                   AND (${outstandingProjectFilter})
                   AND r3.consumer_id NOT IN (
                     SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
@@ -129,6 +131,7 @@ router.get('/project-dashboard', async (req, res, next) => {
                   JOIN payment_plans pp2 ON r.payment_plan_id = pp2.id
                   WHERE ($1::uuid IS NULL OR pp2.project_id = $1::uuid)
                   AND r.status = 'cleared'
+                  AND r.is_advance IS NOT TRUE
                   AND r.consumer_id NOT IN (
                     SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
                   )), 0) as total_collected
@@ -953,7 +956,7 @@ router.get('/collection-pivot', async (req, res, next) => {
       JOIN units u ON u.id = br.unit_id
       JOIN projects p ON p.id = u.project_id
       WHERE ($1::uuid IS NULL OR p.id = $1::uuid)
-      AND u.status IN ('booked', 'allotted')
+      AND u.status != 'available'
     `;
         const params = [projectId || null];
         if (towerId) {
@@ -1313,11 +1316,11 @@ router.get('/customer-balance', async (req, res, next) => {
         ${btP} = 'all'
         OR (${btP} = 'outstanding' AND (
           COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
-          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
         ) > 0)
         OR (${btP} = 'overpaid' AND (
           COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
-          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
         ) < 0)
       )
     `;
@@ -1376,15 +1379,15 @@ router.get('/customer-balance', async (req, res, next) => {
         COALESCE(bpt.cgst_amount,0) + COALESCE(bpt.sgst_amount,0) AS total_gst,
         ${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0) AS total_cost,
         COALESCE((SELECT SUM(amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) AS total_demanded,
-        COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS total_received,
+        COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0) AS total_received,
         (SELECT MAX(received_date) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS last_payment_date,
         (SELECT amount_received_inr FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' ORDER BY received_date DESC LIMIT 1) AS last_payment_amount,
         COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
-          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS balance,
+          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0) AS balance,
         (SELECT COUNT(*) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS receipt_count,
         CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0
           THEN ROUND(
-            COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+            COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
             * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)), 2)
           ELSE 0 END AS received_pct
       ${baseFrom}
@@ -1398,10 +1401,10 @@ router.get('/customer-balance', async (req, res, next) => {
       SELECT
         COUNT(*)  AS total_consumers,
         SUM(${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) AS total_unit_cost,
-        SUM(COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)) AS total_received,
+        SUM(COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)) AS total_received,
         SUM(
           COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
-          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+          COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
         ) AS total_balance
       ${baseFrom}
     `;
@@ -1497,7 +1500,7 @@ router.get('/customer-dues', async (req, res, next) => {
         AND (${ccP}::text  IS NULL OR c.customer_classification = ${ccP}::text)
         AND (${ipP}::numeric IS NULL OR
           CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0)) > 0
-            THEN COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2 WHERE r2.consumer_id = c.id AND r2.status != 'cancelled'),0)
+            THEN COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2 WHERE r2.consumer_id = c.id AND r2.status != 'cancelled' AND r2.is_advance IS NOT TRUE),0)
               * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0))
             ELSE 0 END <= ${ipP}::numeric)
     `;
@@ -1540,7 +1543,7 @@ router.get('/customer-dues', async (req, res, next) => {
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
           AND (${dcP}::text IS NULL OR d.status = ${dcP}::text)
         ),0) AS dues_sgst,
-        COALESCE((SELECT SUM(d.amount_due_inr)
+        COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0))
           FROM demands d WHERE d.consumer_id = c.id
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
           AND (${dcP}::text IS NULL OR d.status = ${dcP}::text)
@@ -1548,10 +1551,10 @@ router.get('/customer-dues', async (req, res, next) => {
 
         -- RECEIVED
         0 AS received_pending,
-        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_clear,
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0) AS received_clear,
         0 AS received_cgst,
         0 AS received_sgst,
-        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS received_total,
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0) AS received_total,
 
         -- CREDIT
         0 AS credit_amount,
@@ -1560,12 +1563,12 @@ router.get('/customer-dues', async (req, res, next) => {
         GREATEST(0,
           COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
             AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)),0) -
-          COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+          COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
         ) AS outstanding_amount,
         CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
           ROUND(GREATEST(0,
             COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
           ) * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)), 2)
           ELSE 0 END AS outstanding_pct,
 
@@ -1575,7 +1578,7 @@ router.get('/customer-dues', async (req, res, next) => {
         -- RECEIVED %
         CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
           ROUND(
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
+            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0)
             * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)), 2)
           ELSE 0 END AS received_pct
       ${baseFrom}
@@ -1835,7 +1838,7 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
           ${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0) AS total_cost,
           COALESCE((
             SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+            WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
           ),0) AS total_received,
           COALESCE((
             SELECT SUM(d.amount_due_inr)+SUM(COALESCE(d.cgst_amount,0))+SUM(COALESCE(d.sgst_amount,0)) FROM demands d
@@ -1844,13 +1847,13 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
           ),0) -
           COALESCE((
             SELECT SUM(r.amount_received_inr) FROM receipts r
-            WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+            WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
           ),0) AS outstanding,
           CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
             ROUND(
               COALESCE((
                 SELECT SUM(r.amount_received_inr) FROM receipts r
-                WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+                WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
               ),0) * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0))
             , 2)
           ELSE 0 END AS received_pct
@@ -1976,14 +1979,14 @@ router.get('/project-wise-dues', async (req, res, next) => {
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
         )),0) AS total_demanded,
         COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
         )),0) AS total_received,
         COALESCE(SUM((
           SELECT SUM(d.amount_due_inr)+SUM(COALESCE(d.cgst_amount,0))+SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
         )),0) -
         COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
         )),0) AS outstanding
       FROM projects p
       LEFT JOIN units u ON u.project_id = p.id
