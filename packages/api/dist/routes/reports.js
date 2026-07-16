@@ -891,14 +891,24 @@ router.get('/collection-pivot', async (req, res, next) => {
         const { projectId, towerId, dateFrom, dateTo } = req.query;
         let query = `
       SELECT
-        c.registration_no, c.name, u.unit_number,
+        c.registration_no,
+        TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS name,
+        u.unit_number,
         d.due_date, d.amount_due_inr, d.status,
         COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE demand_id = d.id), 0) as paid
       FROM demands d
       JOIN consumers c ON d.consumer_id = c.id
-      JOIN units u ON c.allocated_unit_id = u.id
-      WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)
-      AND c.status IN ('booked', 'allotted')
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      WHERE ($1::uuid IS NULL OR p.id = $1::uuid)
+      AND u.status IN ('booked', 'allotted')
     `;
         const params = [projectId || null];
         if (towerId) {
