@@ -84,7 +84,7 @@ router.get('/financial-dashboard', async (req: AuthRequest, res: Response, next:
     // Get financial metrics
     const result = await db.query(
       `SELECT
-        COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
+        COALESCE(SUM(pp.total_amount_inr) + SUM(COALESCE((SELECT SUM(d.cgst_amount) + SUM(d.sgst_amount) FROM demands d WHERE d.payment_plan_id = pp.id), 0)), 0) as total_receivables,
         COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2
                   JOIN payment_plans pp2 ON r2.payment_plan_id = pp2.id
                   WHERE r2.status = 'cleared'
@@ -92,7 +92,7 @@ router.get('/financial-dashboard', async (req: AuthRequest, res: Response, next:
                   AND r2.consumer_id NOT IN (
                     SELECT brc.consumer_id FROM booking_records brc WHERE brc.status = 'cancelled'
                   )), 0) as total_collected,
-        COALESCE(SUM(pp.total_amount_inr), 0) - COALESCE((SELECT SUM(r3.amount_received_inr) FROM receipts r3
+        COALESCE(SUM(pp.total_amount_inr) + SUM(COALESCE((SELECT SUM(d.cgst_amount) + SUM(d.sgst_amount) FROM demands d WHERE d.payment_plan_id = pp.id), 0)), 0) - COALESCE((SELECT SUM(r3.amount_received_inr) FROM receipts r3
                   JOIN payment_plans pp3 ON r3.payment_plan_id = pp3.id
                   WHERE r3.status = 'cleared'
                   AND (${outstandingProjectFilter})
@@ -151,7 +151,7 @@ router.get('/project-dashboard', async (req: AuthRequest, res: Response, next: N
     // Get payment collection stats for project
     const paymentResult = await db.query(
       `SELECT
-        COALESCE(SUM(pp.total_amount_inr), 0) as total_receivables,
+        COALESCE(SUM(pp.total_amount_inr) + SUM(COALESCE((SELECT SUM(d.cgst_amount) + SUM(d.sgst_amount) FROM demands d WHERE d.payment_plan_id = pp.id), 0)), 0) as total_receivables,
         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r
                   JOIN payment_plans pp2 ON r.payment_plan_id = pp2.id
                   WHERE ($1::uuid IS NULL OR pp2.project_id = $1::uuid)
@@ -385,7 +385,7 @@ router.get('/monthly-collection', async (req: AuthRequest, res: Response, next: 
                   SUM(r.amount_received_inr) as amount_collected_inr
                  FROM receipts r
                  JOIN payment_plans pp ON r.payment_plan_id = pp.id
-                 WHERE 1=1`;
+                 WHERE r.status = 'cleared'`;
     const params: any[] = [];
 
     if (projectId) {
@@ -1830,7 +1830,7 @@ router.get('/customer-dues', async (req: AuthRequest, res: Response, next: NextF
       const receivedSgst  = parseFloat(row.received_sgst  || 0);
       row.outstanding_cgst  = Math.max(0, duesCgst - receivedCgst);
       row.outstanding_sgst  = Math.max(0, duesSgst - receivedSgst);
-      row.outstanding_total = (duesAmount + duesCgst + duesSgst) - (receivedTotal + receivedCgst + receivedSgst);
+      row.outstanding_total = (duesAmount + duesCgst + duesSgst) - receivedTotal;
     }
 
     const sumClrAmt  = rows.reduce((a: number, r: any) => a + parseFloat(r.received_clear || 0), 0);
@@ -3050,7 +3050,7 @@ router.get('/tds-status', async (req: AuthRequest, res: Response, next: NextFunc
         ROUND(br.booking_amount * 0.01, 2)  AS tds_applicable,
         tc.challan_number,
         tc.challan_date,
-        tc.amount       AS tds_paid,
+        ta.amount_assigned AS tds_paid,
         tc.financial_year,
         tc.quarter,
         tc.status,
@@ -3100,9 +3100,9 @@ router.get('/customer-forecasting', async (req: AuthRequest, res: Response, next
         DATE_TRUNC('month', d.due_date) AS month_date,
         COUNT(DISTINCT d.consumer_id)::int AS consumer_count,
         COUNT(d.id)::int AS installment_count,
-        COALESCE(SUM(d.amount_due_inr), 0) AS projected_amount,
-        COALESCE(SUM(CASE WHEN d.status = 'demanded' THEN d.amount_due_inr ELSE 0 END), 0) AS demanded_amount,
-        COALESCE(SUM(CASE WHEN d.status = 'pending'  THEN d.amount_due_inr ELSE 0 END), 0) AS pending_amount
+        COALESCE(SUM(d.amount_due_inr + COALESCE(d.cgst_amount, 0) + COALESCE(d.sgst_amount, 0)), 0) AS projected_amount,
+        COALESCE(SUM(CASE WHEN d.status = 'demanded' THEN d.amount_due_inr + COALESCE(d.cgst_amount, 0) + COALESCE(d.sgst_amount, 0) ELSE 0 END), 0) AS demanded_amount,
+        COALESCE(SUM(CASE WHEN d.status = 'pending'  THEN d.amount_due_inr + COALESCE(d.cgst_amount, 0) + COALESCE(d.sgst_amount, 0) ELSE 0 END), 0) AS pending_amount
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
       JOIN ${brSubquery} br ON br.consumer_id = c.id
