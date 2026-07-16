@@ -1077,8 +1077,11 @@ router.get('/collection-pivot', async (req: AuthRequest, res: Response, next: Ne
         c.registration_no,
         TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS name,
         u.unit_number,
-        d.due_date, d.amount_due_inr, d.status,
-        COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE demand_id = d.id), 0) as paid
+        d.id AS demand_id, d.consumer_id,
+        d.due_date, d.amount_due_inr,
+        COALESCE(d.cgst_amount,0) AS cgst_amount,
+        COALESCE(d.sgst_amount,0) AS sgst_amount,
+        d.status
       FROM demands d
       JOIN consumers c ON d.consumer_id = c.id
       JOIN (
@@ -1102,12 +1105,43 @@ router.get('/collection-pivot', async (req: AuthRequest, res: Response, next: Ne
     query += ` ORDER BY c.registration_no, d.due_date`;
 
     const result = await db.query(query, params);
-    
+    const rows = result.rows;
+
+    // Recompute paid via applyWaterfall() per consumer (same pattern as
+    // ageing-project/stage-wise-dues) so advance-pool receipts (demand_id AND
+    // installment_index both NULL) are credited, not just directly-linked ones.
+    const consumerIds = Array.from(new Set(rows.map((r: any) => r.consumer_id)));
+    const paidByDemand = new Map<string, number>();
+    await Promise.all(
+      consumerIds.map(async (consumerId: string) => {
+        const [rcptsRes, demandsRes] = await Promise.all([
+          db.query(
+            `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`,
+            [consumerId]
+          ),
+          db.query(
+            `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+             FROM demands
+             WHERE consumer_id = $1`,
+            [consumerId]
+          ),
+        ]);
+        if (demandsRes.rows.length === 0) return;
+
+        const wfResult = applyWaterfall(rcptsRes.rows, demandsRes.rows);
+        for (const w of wfResult) paidByDemand.set(String(w.demand_id), w.paid);
+      })
+    );
+
     // Group by Consumer and Pivot by Month
     const consumers: any = {};
     const monthsSet = new Set<string>();
 
-    result.rows.forEach(row => {
+    rows.forEach((row: any) => {
       const key = row.registration_no || 'NA';
       if (!consumers[key]) {
         consumers[key] = {
@@ -1118,21 +1152,25 @@ router.get('/collection-pivot', async (req: AuthRequest, res: Response, next: Ne
         };
       }
 
-      const d = new Date(row.due_date);
-      const mLabel = `${d.toLocaleString('default', { month: 'short' })}-${d.getFullYear()}`.toUpperCase();
+      const mLabel = row.due_date
+        ? `${new Date(row.due_date).toLocaleString('default', { month: 'short' })}-${new Date(row.due_date).getFullYear()}`.toUpperCase()
+        : 'NO DUE DATE';
       monthsSet.add(mLabel);
 
       if (!consumers[key].months[mLabel]) {
         consumers[key].months[mLabel] = { due: 0, os: 0 };
       }
 
-      const due = parseFloat(row.amount_due_inr);
-      const os = Math.max(0, due - parseFloat(row.paid));
+      const due = parseFloat(row.amount_due_inr) + parseFloat(row.cgst_amount) + parseFloat(row.sgst_amount);
+      const paid = paidByDemand.get(String(row.demand_id)) || 0;
+      const os = Math.max(0, due - paid);
       consumers[key].months[mLabel].due += due;
       consumers[key].months[mLabel].os += os;
     });
 
     const sortedMonths = Array.from(monthsSet).sort((a,b) => {
+      if (a === 'NO DUE DATE') return 1;
+      if (b === 'NO DUE DATE') return -1;
       const parse = (s:string) => new Date(parseInt(s.split('-')[1]), ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'].indexOf(s.split('-')[0]));
       // @ts-ignore
       return parse(a) - parse(b);
