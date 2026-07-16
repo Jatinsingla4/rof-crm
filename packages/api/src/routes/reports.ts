@@ -1395,11 +1395,11 @@ router.get('/customer-balance', async (req: AuthRequest, res: Response, next: Ne
       AND (
         ${btP} = 'all'
         OR (${btP} = 'outstanding' AND (
-          COALESCE((SELECT SUM(amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) -
+          COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
           COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
         ) > 0)
         OR (${btP} = 'overpaid' AND (
-          COALESCE((SELECT SUM(amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) -
+          COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
           COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
         ) < 0)
       )
@@ -1466,7 +1466,7 @@ router.get('/customer-balance', async (req: AuthRequest, res: Response, next: Ne
         COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS total_received,
         (SELECT MAX(received_date) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS last_payment_date,
         (SELECT amount_received_inr FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' ORDER BY received_date DESC LIMIT 1) AS last_payment_amount,
-        COALESCE((SELECT SUM(amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) -
+        COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
           COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0) AS balance,
         (SELECT COUNT(*) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS receipt_count,
         CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0
@@ -1489,7 +1489,7 @@ router.get('/customer-balance', async (req: AuthRequest, res: Response, next: Ne
         SUM(${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) AS total_unit_cost,
         SUM(COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)) AS total_received,
         SUM(
-          COALESCE((SELECT SUM(amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) -
+          COALESCE((SELECT SUM(amount_due_inr)+SUM(COALESCE(cgst_amount,0))+SUM(COALESCE(sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
           COALESCE((SELECT SUM(amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
         ) AS total_balance
       ${baseFrom}
@@ -1659,13 +1659,13 @@ router.get('/customer-dues', async (req: AuthRequest, res: Response, next: NextF
 
         -- OUTSTANDING
         GREATEST(0,
-          COALESCE((SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+          COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
             AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)),0) -
           COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
         ) AS outstanding_amount,
         CASE WHEN (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)) > 0 THEN
           ROUND(GREATEST(0,
-            COALESCE((SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id),0) -
+            COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id),0) -
             COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'),0)
           ) * 100.0 / (${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)), 2)
           ELSE 0 END AS outstanding_pct,
@@ -1902,7 +1902,7 @@ router.get('/stage-wise-dues', async (req: AuthRequest, res: Response, next: Nex
       const key = `${row.installment_index}:${row.installment_name}`;
       const agg = stageAgg.get(key) || { received: 0, paidCount: 0, unpaidCount: 0 };
       row.total_received    = agg.received;
-      row.total_outstanding = parseFloat(row.total_due || 0) - agg.received;
+      row.total_outstanding = parseFloat(row.total_due || 0) + parseFloat(row.total_cgst || 0) + parseFloat(row.total_sgst || 0) - agg.received;
       row.paid_count        = agg.paidCount;
       row.unpaid_count      = agg.unpaidCount;
     }
@@ -1963,7 +1963,7 @@ router.get('/percentage-wise-dues', async (req: AuthRequest, res: Response, next
             WHERE r.consumer_id = c.id AND r.status != 'cancelled'
           ),0) AS total_received,
           COALESCE((
-            SELECT SUM(d.amount_due_inr) FROM demands d
+            SELECT SUM(d.amount_due_inr)+SUM(COALESCE(d.cgst_amount,0))+SUM(COALESCE(d.sgst_amount,0)) FROM demands d
             WHERE d.consumer_id = c.id
               AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
           ),0) -
@@ -2108,7 +2108,7 @@ router.get('/project-wise-dues', async (req: AuthRequest, res: Response, next: N
           SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled'
         )),0) AS total_received,
         COALESCE(SUM((
-          SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+          SELECT SUM(d.amount_due_inr)+SUM(COALESCE(d.cgst_amount,0))+SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
         )),0) -
         COALESCE(SUM((
@@ -2413,6 +2413,7 @@ router.get('/month-wise-dues', async (req: AuthRequest, res: Response, next: Nex
     const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
     const pidP  = p((projectId as string) || null);
     const yearP = p(year ? parseInt(year) : null);
+    const yearNum = year ? parseInt(year, 10) : null;
 
     const query = `
       SELECT
@@ -2422,15 +2423,7 @@ router.get('/month-wise-dues', async (req: AuthRequest, res: Response, next: Nex
         COUNT(d.id) AS demand_count,
         SUM(d.amount_due_inr) AS total_due,
         COALESCE(SUM(COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)),0) AS total_gst,
-        SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)) AS total_due_with_gst,
-        COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr) FROM receipts r
-          WHERE r.consumer_id = d.consumer_id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-        )),0) AS total_received,
-        SUM(d.amount_due_inr) - COALESCE(SUM((
-          SELECT SUM(r.amount_received_inr) FROM receipts r
-          WHERE r.consumer_id = d.consumer_id AND r.installment_index = d.installment_index AND r.status != 'cancelled'
-        )),0) AS total_outstanding
+        SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)) AS total_due_with_gst
       FROM demands d
       JOIN consumers c ON c.id = d.consumer_id
       JOIN (
@@ -2451,6 +2444,74 @@ router.get('/month-wise-dues', async (req: AuthRequest, res: Response, next: Nex
     `;
     const result = await db.query(query, qp);
     const rows = result.rows;
+
+    // Waterfall post-processing: mirror stage-wise-dues (commit 69eb3bb) — plain
+    // r.installment_index = d.installment_index matching (removed above) drops
+    // advance-pool receipts (demand_id AND installment_index both NULL). Recompute
+    // total_received/total_outstanding per month via applyWaterfall(), and use
+    // total_due_with_gst (not the GST-exclusive total_due) for outstanding.
+    const consumerUnitsQuery = `
+      SELECT DISTINCT c.id AS consumer_id
+      FROM consumers c
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u   ON u.id  = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+    `;
+    const consumerUnitsRes = await db.query(consumerUnitsQuery, [qp[0]]);
+
+    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthAgg = new Map<string, number>();
+    await Promise.all(
+      consumerUnitsRes.rows.map(async ({ consumer_id: consumerId }: { consumer_id: string }) => {
+        const [rcptsRes, demandsRes] = await Promise.all([
+          db.query(
+            `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+             FROM receipts
+             WHERE consumer_id = $1 AND status = 'cleared'
+             ORDER BY received_date ASC, created_at ASC`,
+            [consumerId]
+          ),
+          db.query(
+            `SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                    addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                    status, due_date::text AS due_date
+             FROM demands
+             WHERE consumer_id = $1`,
+            [consumerId]
+          ),
+        ]);
+        if (demandsRes.rows.length === 0) return;
+
+        const wfResult = applyWaterfall(rcptsRes.rows, demandsRes.rows);
+        const demandById = new Map<string, { status: string; due_date: string | null }>();
+        for (const d of demandsRes.rows) {
+          demandById.set(String(d.id), { status: d.status, due_date: d.due_date });
+        }
+        for (const w of wfResult) {
+          const d = demandById.get(String(w.demand_id));
+          if (!d || d.status !== 'demanded' || !d.due_date) continue;
+          const yr  = d.due_date.slice(0, 4);
+          const mon = parseInt(d.due_date.slice(5, 7), 10);
+          if (yearNum !== null && parseInt(yr, 10) !== yearNum) continue;
+          const label = `${MONTH_ABBR[mon - 1]} ${yr}`;
+          monthAgg.set(label, (monthAgg.get(label) || 0) + w.paid);
+        }
+      })
+    );
+
+    for (const row of rows) {
+      const received = monthAgg.get(row.month_label) || 0;
+      row.total_received    = received;
+      row.total_outstanding = parseFloat(row.total_due_with_gst || 0) - received;
+    }
+
     const totals = rows.reduce((a: any, r: any) => ({
       consumer_count:    Math.max(a.consumer_count, parseInt(String(r.consumer_count||0))),
       demand_count:      a.demand_count       + parseInt(String(r.demand_count||0)),
