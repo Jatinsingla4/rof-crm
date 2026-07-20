@@ -657,6 +657,26 @@ async function handleIndexedField(fieldKey, value, ctx, client) {
                 return { written: false, error: `invalid date: ${value}` };
             await client.query(`UPDATE demands SET due_date = $1, updated_at = NOW()
          WHERE consumer_id = $2 AND installment_index = $3`, [iso, ctx.consumerId, index]);
+            // The due_date move invalidates any previously calculated penal_interests
+            // row for this installment (it was computed against the OLD due date).
+            // Only delete when unwaived — a waived row represents real, admin-approved
+            // forgiven money (interest_waivers table) that must never be silently
+            // discarded. Waived rows are left in place and flagged for manual review.
+            const deletedStale = await client.query(`DELETE FROM penal_interests
+         WHERE consumer_id = $1 AND installment_index = $2 AND status = 'calculated'
+           AND COALESCE(interest_waived_inr, 0) = 0
+         RETURNING id`, [ctx.consumerId, index]);
+            if (deletedStale.rows.length === 0) {
+                const waivedRow = await client.query(`SELECT id, amount_inr, interest_waived_inr FROM penal_interests
+           WHERE consumer_id = $1 AND installment_index = $2 AND status = 'calculated'
+             AND COALESCE(interest_waived_inr, 0) > 0`, [ctx.consumerId, index]);
+                if (waivedRow.rows.length > 0) {
+                    console.warn(`[writeback] due_date changed for consumer=${ctx.consumerId} installment=${index} ` +
+                        `but penal_interests row ${waivedRow.rows[0].id} has a waiver ` +
+                        `(interest_waived_inr=${waivedRow.rows[0].interest_waived_inr}) and was NOT deleted — ` +
+                        `flagging for manual finance review.`);
+                }
+            }
             return { written: true, table: 'demands', column: 'due_date' };
         }
         const COL_MAP = {
