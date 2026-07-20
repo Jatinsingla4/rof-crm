@@ -175,24 +175,22 @@ function getDemandLetterShell(): string {
       <div class="col-title">Allottee Details</div>
       <div class="info-row"><span class="info-lbl">Name</span><span class="info-val">{{consumerName}}</span></div>
       <div class="info-row"><span class="info-lbl">S/o, D/o, W/o</span><span class="info-val">{{fatherName}}</span></div>
-      <div class="info-row"><span class="info-lbl">Co-Applicant(s)</span><span class="info-val">{{coApplicants}}</span></div>
+      {{coApplicantRow}}
       <div class="info-row"><span class="info-lbl">Mobile</span><span class="info-val">{{mobile}}</span></div>
       <div class="info-row"><span class="info-lbl">Address</span><span class="info-val">{{address}}</span></div>
-      <div class="info-row"><span class="info-lbl">Allotment Date</span><span class="info-val">{{allotmentDate}}</span></div>
       <div class="info-row"><span class="info-lbl">Booking Date</span><span class="info-val">{{bookingDate}}</span></div>
-      <div class="info-row"><span class="info-lbl">Income Category</span><span class="info-val">{{incomeCategory}}</span></div>
-      <div class="info-row"><span class="info-lbl">RERA Regd. No.</span><span class="info-val">{{reraNo}}</span></div>
     </div>
     <div class="info-col">
       <div class="col-title">Unit Details</div>
       <div class="info-row"><span class="info-lbl">Project</span><span class="info-val">{{projectName}}</span></div>
-      <div class="info-row"><span class="info-lbl">Location</span><span class="info-val">{{projectLocation}}</span></div>
       <div class="info-row"><span class="info-lbl">Tower</span><span class="info-val">{{towerName}}</span></div>
       <div class="info-row"><span class="info-lbl">Floor</span><span class="info-val">{{floorNo}}</span></div>
       <div class="info-row"><span class="info-lbl">Unit No.</span><span class="info-val">{{unitNumber}}</span></div>
       <div class="info-row"><span class="info-lbl">Carpet Area (sq.ft.)</span><span class="info-val">{{carpetArea}}</span></div>
       <div class="info-row"><span class="info-lbl">Balcony Area (sq.ft.)</span><span class="info-val">{{balconyArea}}</span></div>
       <div class="info-row"><span class="info-lbl">Type</span><span class="info-val">{{unitCategory}}</span></div>
+      <div class="info-row"><span class="info-lbl">RERA Regd. No.</span><span class="info-val">{{reraNo}}</span></div>
+      <div class="info-row"><span class="info-lbl">Rate (&#8377;/sq.ft.)</span><span class="info-val">{{ratePerSqft}}</span></div>
       <div class="info-row"><span class="info-lbl">Payment Plan</span><span class="info-val">{{planName}}</span></div>
       <div class="info-row"><span class="info-lbl">Total Agreement Value</span><span class="info-val">&#8377;{{totalAmount}}</span></div>
     </div>
@@ -1178,6 +1176,9 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             consumerName: plan.consumer_name || d?.name || '—',
             fatherName: plan.father_name || d?.father_name || '—',
             coApplicants: coApplicants || '—',
+            coApplicantRow: coRes.rows.length > 0
+              ? `<div class="info-row"><span class="info-lbl">Co-Applicant(s)</span><span class="info-val">${coApplicants}</span></div>`
+              : '',
             mobile: plan.mobile || d?.mobile || '—',
             email: plan.email || d?.email || '—',
             customerId: plan.registration_no || d?.registration_no || '—',
