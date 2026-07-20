@@ -851,9 +851,10 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
 
           // Build interest map via buildInterestRows (same logic as applicant file).
           // Uses actual receipt dates for paid demands; asOfDate for still-unpaid ones.
-          const letterAsOfDate = dueDate
-            ? new Date(dueDate + 'T00:00:00')
-            : new Date();
+          const letterAsOfDate = new Date(); // interest always
+          // uses real today -- dueDate (entered by staff) only
+          // filters which installments appear on the letter,
+          // never affects how much interest has accrued
           const demandsForIR = demandsRes.rows
             .filter((d: any) => !!d.demand_id)
             .map((d: any) => ({
