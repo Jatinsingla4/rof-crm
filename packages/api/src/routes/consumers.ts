@@ -354,9 +354,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     let query = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
                         COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
-                        b.name as broker_name,
+                        b.name as broker_name, b.firm_name as broker_company_name,
                         co.name as second_applicant_name,
-                        p.name as project_name
+                        p.name as project_name,
+                        al.allotment_date
                  FROM consumers c
                  LEFT JOIN units u ON c.allocated_unit_id = u.id
                  LEFT JOIN towers t ON u.tower_id = t.id
@@ -370,6 +371,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
                    SELECT name FROM co_applicants WHERE consumer_id = c.id LIMIT 1
                  ) co ON true
                  LEFT JOIN projects p ON c.project_id = p.id
+                 LEFT JOIN allocations al ON al.consumer_id = c.id AND al.unit_id = c.allocated_unit_id
                  WHERE 1=1`;
     const params: any[] = [];
 

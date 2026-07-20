@@ -85,6 +85,37 @@ Pages.documents = async function(params = {}) {
       <div id="ats-results-body"></div>
     </div>
 
+    <!-- APPLICANT LEDGER -->
+    <div data-panel-group="docs" data-panel="applicant-ledger" style="display:none">
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">SEARCH APPLICANT (Applicant Ledger)</div></div>
+        <div class="sp-body">
+          <div style="margin-bottom:12px;display:flex;gap:0">
+            <button type="button" class="btn btn-teal" style="border-radius:4px 0 0 4px">All</button>
+            <button type="button" class="btn btn-ghost" style="border-radius:0 4px 4px 0">Registry</button>
+          </div>
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Project</label>
+              <select class="fc" id="al-project-sel">
+                <option value="">— Select —</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl">Registration No.:</label>
+              <input class="fc" id="al-reg-no" placeholder="Registration No">
+            </div>
+            <div class="fg"><label class="fl">First Name:</label>
+              <input class="fc" id="al-first-name" placeholder="First Name">
+            </div>
+            <div class="fg"><label class="fl">Unit Address:</label>
+              <input class="fc" id="al-address" placeholder="Unit Address">
+            </div>
+          </div>
+          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchApplicantLedger()">FETCH</button>
+        </div>
+      </div>
+      <div id="al-results-body"></div>
+    </div>
+
     <!-- DEMAND LETTER -->
     <div data-panel-group="docs" data-panel="demand" style="display:none">
       <div class="sp" style="margin-bottom:12px">
@@ -127,33 +158,6 @@ Pages.documents = async function(params = {}) {
     <!-- TPA -->
     <div data-panel-group="docs" data-panel="tpa" style="display:none">
       ${DocsPage._printPanel({ title: 'Transfer of Property Agreement (TPA)', docType: 'tpa', prefix: 'tpa' })}
-    </div>
-
-    <!-- APPLICANT LEDGER -->
-    <div data-panel-group="docs" data-panel="applicant-ledger" style="display:none">
-      <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">Applicant Payment Ledger</div></div>
-        <div class="sp-body">
-          <div class="sp-grid">
-            <div class="fg"><label class="fl"><span class="r">*</span>Consumer</label>
-              <select class="fc" id="ledger-consumer" onchange="DocsPage.loadLedger()">
-                <option value="">— Select Consumer —</option>
-              </select>
-            </div>
-            <div class="fg"><label class="fl">From Date</label>
-              <input type="date" class="fc" id="ledger-from" value="${Utils.monthStart()}">
-            </div>
-            <div class="fg"><label class="fl">To Date</label>
-              <input type="date" class="fc" id="ledger-to" value="${Utils.today()}">
-            </div>
-          </div>
-          <div style="margin-top:10px;display:flex;gap:8px">
-            <button class="btn btn-fetch" onclick="DocsPage.loadLedger()">FETCH LEDGER</button>
-            <button class="btn btn-ghost" onclick="DocsPage.printLedger()">Print / PDF</button>
-          </div>
-        </div>
-      </div>
-      <div id="ledger-body"></div>
     </div>
 
     <!-- USER DEFINE LETTERS -->
@@ -402,10 +406,6 @@ const DocsPage = {
         const el = document.getElementById(`${prefix}-consumer`);
         if (el) el.innerHTML = prefix === 'lbl' ? allOpts : opts;
       });
-      ['ledger-consumer'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.innerHTML = opts;
-      });
       const vault = document.getElementById('vault-consumer');
       if (vault) vault.innerHTML = allOpts;
     } catch {}
@@ -425,7 +425,10 @@ const DocsPage = {
       if (atsSel) atsSel.innerHTML = '<option value="">— Select —</option>' + 
         this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
       const demSel = document.getElementById('dem-project-sel');
-      if (demSel) demSel.innerHTML = '<option value="">— Select —</option>' + 
+      if (demSel) demSel.innerHTML = '<option value="">— Select —</option>' +
+        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      const alsSel = document.getElementById('al-project-sel');
+      if (alsSel) alsSel.innerHTML = '<option value="">— Select —</option>' +
         this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
     } catch {}
   },
@@ -463,88 +466,6 @@ const DocsPage = {
     const docType = document.getElementById(`${prefix}-doc-type`)?.value;
     if (!docType) { Utils.warn('Select a document type first'); return; }
     Utils.info(`PDF preview for ${docType.replace(/_/g,' ')} — coming soon`);
-  },
-
-  async loadLedger() {
-    const el = document.getElementById('ledger-body');
-    if (!el) return;
-    const consumerId = document.getElementById('ledger-consumer')?.value;
-    if (!consumerId) { el.innerHTML = ''; return; }
-
-    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Loading ledger…</div>';
-    try {
-      const [consRes, receiptsRes, demandsRes] = await Promise.allSettled([
-        Api.get(`/consumers/${consumerId}`),
-        Api.get('/payments/receipts', { params: { consumerId, pageSize: 200 } }),
-        Api.get('/payments/demands',  { params: { consumerId, pageSize: 200 } }),
-      ]);
-
-      const consumer = consRes.status === 'fulfilled' ? (consRes.value.data || consRes.value) : {};
-      const receipts = receiptsRes.status === 'fulfilled' ? (receiptsRes.value.data || receiptsRes.value || []) : [];
-      const demands  = demandsRes.status === 'fulfilled'  ? (demandsRes.value.data  || demandsRes.value  || []) : [];
-
-      const name = consumer.name || `${consumer.first_name||''} ${consumer.last_name||''}`.trim() || '—';
-      const totalPaid = receipts.reduce((s,r) => s + parseFloat(r.amount||0), 0);
-      const totalDue  = demands.reduce((s,d)  => s + parseFloat(d.amount_due_inr||d.amount||0), 0);
-      const balance   = Math.max(0, totalDue - totalPaid);
-
-      el.innerHTML = `
-        <div class="sp" style="margin-bottom:12px">
-          <div class="sp-hdr"><div class="sp-title">Payment Ledger — ${name}</div></div>
-          <div class="sp-body">
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-              <div class="kpi c-accent" style="padding:10px"><div class="kpi-lbl">Total Due</div><div class="kpi-val" style="font-size:16px">${Utils.currency(totalDue)}</div></div>
-              <div class="kpi c-teal" style="padding:10px"><div class="kpi-lbl">Total Paid</div><div class="kpi-val" style="font-size:16px">${Utils.currency(totalPaid)}</div></div>
-              <div class="kpi c-warn" style="padding:10px"><div class="kpi-lbl">Balance</div><div class="kpi-val" style="font-size:16px">${Utils.currency(balance)}</div></div>
-              <div class="kpi c-blue" style="padding:10px"><div class="kpi-lbl">Unit</div><div class="kpi-val" style="font-size:14px">${consumer.unit_number||consumer.unit_no||'TBD'}</div></div>
-            </div>
-
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal);margin-bottom:6px">Demands Raised</div>
-            <table style="margin-bottom:14px">
-              <thead><tr><th>Instalment</th><th>Due Date</th><th>Amount (₹)</th><th>Type</th><th>Status</th></tr></thead>
-              <tbody>
-                ${demands.length === 0 ? '<tr><td colspan="5" style="text-align:center;color:var(--text3)">No demands raised</td></tr>' :
-                  demands.map(d => `<tr>
-                    <td>${d.instalment_name||d.instalmentName||'—'}</td>
-                    <td>${Utils.date(d.due_date||d.dueDate)}</td>
-                    <td style="font-weight:600">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
-                    <td><span class="chip ch-blue" style="font-size:9px">${(d.demand_type||'main').replace(/_/g,' ')}</span></td>
-                    <td><span class="chip ${(d.sent_at)?'ch-green':'ch-gray'}" style="font-size:9px">${d.sent_at?'Sent':'Unsent'}</span></td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-
-            <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal);margin-bottom:6px">Receipts</div>
-            <table>
-              <thead><tr><th>Receipt No.</th><th>Date</th><th>Amount (₹)</th><th>Mode</th><th>Reference</th><th>Status</th></tr></thead>
-              <tbody>
-                ${receipts.length === 0 ? '<tr><td colspan="6" style="text-align:center;color:var(--text3)">No receipts recorded</td></tr>' :
-                  receipts.map(r => `<tr>
-                    <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
-                    <td>${Utils.date(r.payment_date||r.created_at)}</td>
-                    <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount||0)}</td>
-                    <td>${r.payment_mode||r.paymentMode||'—'}</td>
-                    <td class="td-mono">${r.reference_number||r.referenceNumber||'—'}</td>
-                    <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
-                  </tr>`).join('')}
-              </tbody>
-              <tfoot>
-                <tr class="tfoot-total">
-                  <td colspan="2"><strong>Total Paid</strong></td>
-                  <td style="font-weight:700;color:var(--teal)">${Utils.currency(totalPaid)}</td>
-                  <td colspan="3">${receipts.length} receipts</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>`;
-    } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
-  },
-
-  printLedger() {
-    const consumerId = document.getElementById('ledger-consumer')?.value;
-    if (!consumerId) { Utils.warn('Please select a consumer first'); return; }
-    window.open(`/api/documents/ledger/${consumerId}/pdf`, '_blank');
   },
 
   async generateUserLetter() {
@@ -872,6 +793,59 @@ const DocsPage = {
                   <td><a href="javascript:void(0)" class="doc-action-link" data-consumer-id="${c.id}" data-doc-type="conveyance_deed" onclick="DocsPage.generateAndOpen(this)">Conveyance Deed</a></td>
                 </tr>`;
               }).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
+  },
+
+  async fetchApplicantLedger() {
+    const el = document.getElementById('al-results-body');
+    if (!el) return;
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Searching…</div>';
+
+    try {
+      const pid = document.getElementById('al-project-sel')?.value;
+      const params = {
+        projectId: pid,
+        regNo: document.getElementById('al-reg-no')?.value,
+        firstName: document.getElementById('al-first-name')?.value,
+        address: document.getElementById('al-address')?.value,
+        pageSize: 100
+      };
+
+      const res = await Api.get('/consumers', { params });
+      const list = res.data || res || [];
+
+      if (list.length === 0) {
+        el.innerHTML = '<div class="empty-state"><h3>No applicants found matching criteria</h3></div>';
+        return;
+      }
+
+      el.innerHTML = `
+        <div class="tbl-wrap" style="overflow-x:auto; margin-top:0;">
+          <table class="tbl-legacy">
+            <thead>
+              <tr>
+                <th>REGISTRATION NO.</th>
+                <th>NAME</th>
+                <th>UNIT ADDRESS</th>
+                <th>BROKER COMPANY NAME</th>
+                <th>REGISTRATION DATE</th>
+                <th>ALLOTMENT DATE</th>
+                <th>CHECK LIST</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((c) => `<tr>
+                  <td class="td-mono">${c.registration_no || '—'}</td>
+                  <td class="td-bold" style="color:var(--teal)">${c.name}</td>
+                  <td>${c.unit_number || '—'}</td>
+                  <td>${c.broker_company_name || '—'}</td>
+                  <td>${Utils.date(c.registration_date)}</td>
+                  <td>${Utils.date(c.allotment_date)}</td>
+                  <td><a href="javascript:void(0)" class="doc-action-link">Check List</a></td>
+                </tr>`).join('')}
             </tbody>
           </table>
         </div>`;
