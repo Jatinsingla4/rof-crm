@@ -313,6 +313,156 @@ function getDemandLetterShell() {
 </body>
 </html>`;
 }
+// Get the Check List HTML shell (bypasses template DB lookup)
+function getCheckListShell() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Check List</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 10.5pt; color: #000; background: #fff; }
+  .page { max-width: 820px; margin: 0 auto; padding: 20px 28px; }
+  .print-bar { display: flex; gap: 8px; justify-content: flex-end; margin-bottom: 14px; }
+  @media print { .print-bar { display: none; } .page-break { page-break-before: always; } }
+  .btn-print { background: #333; color: #fff; border: none; padding: 7px 18px; border-radius: 3px; cursor: pointer; font-size: 10pt; }
+  .btn-close  { background: #ddd; color: #333; border: none; padding: 7px 14px; border-radius: 3px; cursor: pointer; font-size: 10pt; }
+  .co-header { border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 8px; }
+  .co-name { font-size: 14pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; }
+  .co-cin  { font-size: 8.5pt; text-align: center; color: #333; margin-top: 1px; }
+  .co-addr { font-size: 8.5pt; text-align: center; color: #333; margin-top: 3px; line-height: 1.5; }
+  .doc-title { text-align: center; border: 2px solid #000; font-size: 12pt; font-weight: 700; letter-spacing: 3px; padding: 5px 0; margin: 8px 0; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid #000; margin-bottom: 8px; }
+  .info-col { padding: 7px 10px; }
+  .info-col:first-child { border-right: 1px solid #000; }
+  .info-row { display: flex; margin-bottom: 2px; font-size: 9pt; }
+  .info-lbl { color: #444; width: 120px; flex-shrink: 0; }
+  .info-val { font-weight: 600; }
+  .section-title { font-weight: 700; font-size: 10.5pt; margin: 10px 0 4px; text-decoration: underline; }
+  .chk-table, .fin-table, .svc-table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 8.5pt; }
+  .chk-table th, .fin-table th, .svc-table th { background: #000; color: #fff; padding: 5px 3px; border: 1px solid #555; text-align: center; font-size: 8pt; font-weight: 700; }
+  .chk-table td, .fin-table td, .svc-table td { border: 1px solid #999; padding: 4px 5px; }
+  .fin-table tfoot td { font-weight: 700; background: #e8e8e8; border: 1px solid #666; }
+  .dept-row td { background: #f0f0f0; font-weight: 700; }
+  .tc { text-align: center; }
+  .tr { text-align: right; }
+  .bold { font-weight: 700; }
+  .amt-words { border: 1px solid #999; padding: 7px 12px; margin: 8px 0; font-size: 10pt; }
+  .op-para { font-size: 10pt; line-height: 1.7; margin: 10px 0; text-align: justify; }
+  .blank-line { display: inline-block; min-width: 160px; border-bottom: 1px solid #000; }
+  .sign-grid { display: grid; grid-template-columns: repeat(4, 1fr); margin-top: 30px; border: 1px solid #000; border-bottom: none; }
+  .sign-block { border-right: 1px solid #000; border-bottom: 1px solid #000; padding: 10px 8px 26px; font-size: 9.5pt; font-weight: 600; text-align: center; }
+  .sign-block:nth-child(4n) { border-right: none; }
+  .sign-block.empty { border-right: none; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="print-bar">
+    <button class="btn-close" onclick="window.close()">Close</button>
+    <button class="btn-print" onclick="window.print()">&#128438; Print / Save PDF</button>
+  </div>
+  <div class="co-header">
+    <div class="co-name">NANI RESORTS AND FLORICULTURE PVT. LTD.</div>
+    <div class="co-addr">Building No. 80, 1st Floor, Sector-44, Gurugram, Haryana-122003</div>
+  </div>
+  <div class="doc-title">FINAL STATEMENT OF ACCOUNT CHECK LIST</div>
+  <div class="info-grid">
+    <div class="info-col">
+      <div class="info-row"><span class="info-lbl">Customer Code</span><span class="info-val">{{customerId}}</span></div>
+      <div class="info-row"><span class="info-lbl">First Applicant</span><span class="info-val">{{consumerName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Co Applicants</span><span class="info-val">{{coApplicants}}</span></div>
+      <div class="info-row"><span class="info-lbl">Payment Mode</span><span class="info-val">{{paymentMode}}</span></div>
+      <div class="info-row"><span class="info-lbl">Carpet Area (sq.ft.)</span><span class="info-val">{{carpetArea}}</span></div>
+    </div>
+    <div class="info-col">
+      <div class="info-row"><span class="info-lbl">Print Date</span><span class="info-val">{{printDate}}</span></div>
+      <div class="info-row"><span class="info-lbl">Booking Date</span><span class="info-val">{{bookingDate}}</span></div>
+      <div class="info-row"><span class="info-lbl">Project</span><span class="info-val">{{projectName}}</span></div>
+      <div class="info-row"><span class="info-lbl">Unit No</span><span class="info-val">{{unitNumber}}</span></div>
+      <div class="info-row"><span class="info-lbl">Balcony Area (sq.ft.)</span><span class="info-val">{{balconyArea}}</span></div>
+    </div>
+  </div>
+
+  <table class="chk-table">
+    <thead>
+      <tr><th style="width:28px">S.No.</th><th>Particular</th><th style="width:110px">Status</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="tc">1</td><td>Applicant ledger</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">2</td><td>Interest ledger</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">3</td><td>IFUD confirmation</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">4</td><td>Operational charges received (if applicable)</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr class="dept-row"><td colspan="3">Account dept.</td></tr>
+      <tr><td class="tc">1</td><td>Tally Ledger By Account's</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr class="dept-row"><td colspan="3">Loan Dept.</td></tr>
+      <tr><td class="tc">1</td><td>Bank Loan</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">2</td><td>Bank Loan NOC (If applicable)</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">3</td><td>Bank Statement (With Customer Name)</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr class="dept-row"><td colspan="3">CRM Dept.</td></tr>
+      <tr><td class="tc">1</td><td>Demand Letter</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">2</td><td>Manual Ledger</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">3</td><td>Interest waiver checklist (if applicable)</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">4</td><td>Operational Charges Start Date Email Received</td><td class="tc">Yes ( ) / No ( )</td></tr>
+      <tr><td class="tc">5</td><td>Client Undertaking</td><td class="tc">Yes ( ) / No ( )</td></tr>
+    </tbody>
+  </table>
+
+  <table class="fin-table">
+    <thead>
+      <tr>
+        <th>Particular</th>
+        <th>Due (Rs.) With Tax</th>
+        <th>Receive A (Rs.)</th>
+        <th>Due Int. With Tax (Rs.)</th>
+        <th>Receive Int. B (Rs.) With Tax</th>
+        <th>Waiver Int. (Rs.)</th>
+        <th>Balance Int. (Rs.)</th>
+        <th>Balance</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{financeRows}}
+    </tbody>
+  </table>
+  <div class="amt-words">
+    <strong>Total Amount Received (A+B):-</strong> Rs. {{totalAmountReceivedAB}}/-
+  </div>
+
+  <div class="page-break"></div>
+  <div class="section-title">Services Dues Received</div>
+  <table class="svc-table">
+    <thead>
+      <tr><th>Services</th><th>Dues</th><th>Received</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>IFUD Charge</td><td></td><td></td></tr>
+      <tr><td>Operational Charges</td><td></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="op-para">
+    Operational Charges received from <span class="blank-line">&nbsp;</span> to <span class="blank-line">&nbsp;</span> @3.93 Per SQFT. + 18% GST
+  </p>
+  <p class="op-para">
+    Operational Charges start from 1st February 2025.
+  </p>
+
+  <div class="sign-grid">
+    <div class="sign-block">Prepared by (CRM)</div>
+    <div class="sign-block">Verified by (ERP)</div>
+    <div class="sign-block">Checked by (TL)</div>
+    <div class="sign-block">DGM</div>
+    <div class="sign-block">Legal</div>
+    <div class="sign-block">Finance</div>
+    <div class="sign-block">M.D.</div>
+    <div class="sign-block empty"></div>
+  </div>
+</div>
+</body>
+</html>`;
+}
 // POST /api/documents/templates - Create document template
 router.post('/templates', async (req, res, next) => {
     try {
@@ -463,6 +613,17 @@ router.post('/generate', async (req, res, next) => {
                     body_html: getDemandLetterShell(),
                     project_id: null,
                     name: 'Demand Letter (Dynamic)'
+                };
+            }
+            else if (documentType === 'check_list') {
+                // check_list is built entirely dynamically — no template DB lookup needed
+                console.log(`[GENERATE] check_list uses inline shell (no DB lookup)`);
+                template = {
+                    id: null,
+                    document_type: 'check_list',
+                    body_html: getCheckListShell(),
+                    project_id: null,
+                    name: 'Check List (Dynamic)'
                 };
             }
             else if (['allotment_letter', 'payment_receipt'].includes(documentType)) {
@@ -1226,6 +1387,241 @@ router.post('/generate', async (req, res, next) => {
                     }
                     // Advance Payment Adjustment section removed — not shown in letter
                 }
+                // ── CHECK LIST ───────────────────────────────────────────────────────
+                else if (template.document_type === 'check_list') {
+                    const settingsResCL = await index_js_1.db.query(`SELECT key, value FROM global_settings`);
+                    const settingsCL = {};
+                    settingsResCL.rows.forEach((r) => { settingsCL[r.key] = r.value; });
+                    // Fetch per-project company details (overrides global_settings if found) —
+                    // same query as Demand Letter's per-project company resolution
+                    const projCompanyResCL = await index_js_1.db.query(`
+            SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
+                   c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
+                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
+                   c.bank_name, c.bank_branch
+            FROM companies c
+            JOIN projects p ON p.company_id = c.id
+            JOIN units u ON u.project_id = p.id
+            LEFT JOIN allocations al ON al.unit_id = u.id AND al.consumer_id = $1
+            LEFT JOIN payment_plans pp ON pp.consumer_id = $1
+            LEFT JOIN booking_records br ON br.consumer_id = $1
+            WHERE al.consumer_id = $1 OR pp.consumer_id = $1 OR br.consumer_id = $1
+            LIMIT 1`, [consumerId]);
+                    const projCompanyCL = projCompanyResCL.rows[0] || null;
+                    // Consumer + unit + tower + project + payment_plan — same
+                    // three-level fallback (allocation → payment_plan → booking_record)
+                    // as Demand Letter's planRes query
+                    const planResCL = await index_js_1.db.query(`
+            SELECT
+              c.name AS consumer_name, c.father_name, c.mobile, c.email,
+              c.registration_no, c.present_address, c.nationality,
+              c.interest_start_date, c.grace_period_days,
+              COALESCE(u_al.unit_number, u_pp.unit_number, u_br.unit_number) AS unit_number,
+              COALESCE(u_al.carpet_area_sqft, u_pp.carpet_area_sqft, u_br.carpet_area_sqft) AS carpet_area_sqft,
+              COALESCE(u_al.balcony_area_sqft, u_pp.balcony_area_sqft, u_br.balcony_area_sqft) AS balcony_area_sqft,
+              COALESCE(p_al.name, p_pp.name, p_br.name) AS project_name,
+              COALESCE(p_al.id, p_pp.id, p_br.id) AS project_id,
+              COALESCE(
+                NULLIF(br.selected_plan_name, ''),
+                (SELECT DISTINCT plan_name FROM plan_schedule_templates
+                 WHERE project_id = COALESCE(p_al.id, p_pp.id, p_br.id) ORDER BY plan_name ASC LIMIT 1),
+                'CLP'
+              ) AS plan_name,
+              br.booking_date,
+              COALESCE(br.basic_rate_inr_sqft, 0) AS booking_basic_rate_inr_sqft,
+              COALESCE(br.carpet_area_sqft, 0) AS booking_carpet_area_sqft,
+              COALESCE(br.payment_mode, '') AS booking_payment_mode,
+              br.balcony_charge_amount,
+              br.balcony_cgst_amount,
+              br.balcony_sgst_amount
+            FROM consumers c
+            LEFT JOIN LATERAL (
+              SELECT * FROM allocations WHERE consumer_id = c.id ORDER BY created_at DESC LIMIT 1
+            ) al ON true
+            LEFT JOIN units u_al ON u_al.id = al.unit_id
+            LEFT JOIN projects p_al ON p_al.id = u_al.project_id
+            LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+            LEFT JOIN units u_pp ON u_pp.id = pp.unit_id
+            LEFT JOIN projects p_pp ON p_pp.id = pp.project_id
+            LEFT JOIN LATERAL (
+              SELECT * FROM booking_records WHERE consumer_id = c.id ORDER BY created_at DESC LIMIT 1
+            ) br ON true
+            LEFT JOIN units u_br ON u_br.id = br.unit_id
+            LEFT JOIN projects p_br ON p_br.id = br.project_id
+            WHERE c.id = $1
+            ORDER BY pp.created_at DESC
+            LIMIT 1
+          `, [consumerId]);
+                    const planCL = planResCL.rows[0] || {};
+                    const projectIdCL = planCL.project_id;
+                    const coResCL = await index_js_1.db.query(`SELECT name, relationship FROM co_applicants WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 3`, [consumerId]);
+                    const coApplicantsCL = coResCL.rows
+                        .map((r) => r.name + (r.relationship ? ` (${r.relationship})` : ''))
+                        .join(', ');
+                    // Basic Price — sourced directly from rate × carpet area (real,
+                    // standalone), NOT from Demand Letter's per-installment split,
+                    // which folds addon charges into the Basic row. Sourcing
+                    // independently here avoids double-counting addon amounts that
+                    // are listed as their own rows below.
+                    const isNriCL = ['nri', 'oci', 'pio'].includes((planCL.nationality || '').toLowerCase());
+                    const gstPctCL = isNriCL ? 0 : 0.5;
+                    const bspRateCL = parseFloat(planCL.booking_basic_rate_inr_sqft || 0);
+                    const bspCarpetCL = parseFloat(planCL.booking_carpet_area_sqft || 0);
+                    const basicAmtCL = bspRateCL > 0 && bspCarpetCL > 0 ? Math.round(bspRateCL * bspCarpetCL) : 0;
+                    const basicCgstCL = Math.round(basicAmtCL * gstPctCL / 100);
+                    const basicSgstCL = Math.round(basicAmtCL * gstPctCL / 100);
+                    const basicDueCL = basicAmtCL + basicCgstCL + basicSgstCL;
+                    // Balcony Charge — direct from booking_records (real, standalone)
+                    const balconyAmtCL = parseFloat(planCL.balcony_charge_amount || 0);
+                    const balconyCgstCL = parseFloat(planCL.balcony_cgst_amount || 0);
+                    const balconySgstCL = parseFloat(planCL.balcony_sgst_amount || 0);
+                    const balconyDueCL = balconyAmtCL + balconyCgstCL + balconySgstCL;
+                    // Addon charges — one row per real, active consumer_addon_charges entry
+                    const addonResCL = await index_js_1.db.query(`SELECT charge_name, total_amount FROM consumer_addon_charges
+             WHERE consumer_id = $1 AND status = 'active'
+             ORDER BY effective_date ASC, created_at ASC`, [consumerId]);
+                    const addonRowsCL = addonResCL.rows.map((r) => ({
+                        label: r.charge_name || 'Addon Charge',
+                        due: parseFloat(r.total_amount || 0),
+                    }));
+                    const totalDueCL = basicDueCL + balconyDueCL + addonRowsCL.reduce((s, r) => s + r.due, 0);
+                    // Real total amount actually received (waterfall-allocated) —
+                    // same pattern as Demand Letter's totalPaid (documents.ts amtPaid
+                    // via wfMap). Used to prorate Receive across rows below, since
+                    // receipts are never tagged to a specific component in this schema.
+                    const [wfRcptsResCL, wfDemandsResCL] = await Promise.all([
+                        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
+                      received_date, payment_method
+               FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
+                        index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
+                      addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+               FROM demands WHERE consumer_id = $1`, [consumerId]),
+                    ]);
+                    const allWfResultsCL = (0, payment_waterfall_js_1.applyWaterfall)(wfRcptsResCL.rows, wfDemandsResCL.rows);
+                    const totalPaidCL = allWfResultsCL.reduce((sum, w) => sum + (w.paid || 0), 0);
+                    // Interest — reuse buildInterestRows() with the same call signature
+                    // as Demand Letter (documents.ts:873-884), fed by ALL demands
+                    // (final statement, not date-cutoff based)
+                    let penalRateCL = parseFloat(settingsCL['penal_interest_rate_percent'] || '11.10');
+                    if (projectIdCL) {
+                        try {
+                            const projRateResCL = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates
+                 WHERE project_id = $1 AND effective_from <= CURRENT_DATE
+                 ORDER BY effective_from DESC LIMIT 1`, [projectIdCL]);
+                            if (projRateResCL.rows.length > 0)
+                                penalRateCL = parseFloat(projRateResCL.rows[0].rate_percent);
+                        }
+                        catch {
+                            // fall through to global rate
+                        }
+                    }
+                    const allInstallmentsResCL = await index_js_1.db.query(`SELECT DISTINCT ON (d.installment_index)
+               COALESCE(pst.installment_index, d.installment_index) AS installment_index,
+               COALESCE(pst.installment_name, d.demand_type, 'Installment') AS installment_name,
+               pst.interest_rate_percent,
+               d.id AS demand_id,
+               d.amount_due_inr, d.cgst_amount, d.sgst_amount,
+               d.addon_charge_amount, d.addon_cgst_amount, d.addon_sgst_amount,
+               d.due_date
+             FROM demands d
+             LEFT JOIN plan_schedule_templates pst
+               ON pst.project_id = $1 AND pst.plan_name = $2 AND pst.installment_index = d.installment_index
+             WHERE d.consumer_id = $3
+             ORDER BY d.installment_index ASC, d.created_at DESC`, [projectIdCL || null, planCL.plan_name || '', consumerId]);
+                    const demandsForIRCL = allInstallmentsResCL.rows.map((d) => ({
+                        id: String(d.demand_id),
+                        installment_index: Number(d.installment_index),
+                        installment_name: String(d.installment_name || '—'),
+                        due_date: d.due_date || null,
+                        amount_due_inr: d.amount_due_inr,
+                        interest_rate_percent: d.interest_rate_percent ? parseFloat(d.interest_rate_percent) : null,
+                        cgst_amount: d.cgst_amount,
+                        sgst_amount: d.sgst_amount,
+                        addon_charge_amount: d.addon_charge_amount,
+                        addon_cgst_amount: d.addon_cgst_amount,
+                        addon_sgst_amount: d.addon_sgst_amount,
+                    }));
+                    const irRowsCL = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsResCL.rows, demandsForIRCL, parseFloat(String(penalRateCL)) || 15, {
+                        interestStartDate: planCL.interest_start_date ? new Date(String(planCL.interest_start_date)) : null,
+                        gracePeriodDays: parseInt(String(planCL.grace_period_days || 0)),
+                        asOfDate: new Date(),
+                    });
+                    const totalInterestCalcCL = irRowsCL.reduce((sum, ir) => sum + ir.interest_amount, 0);
+                    // Admin-approved interest amounts (respects waivers) take precedence, same as Demand Letter
+                    const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0))), 0) AS net_interest_inr
+             FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
+                    const totalInterestFromDBCL = Number(piResCL.rows[0]?.net_interest_inr || 0);
+                    const dueIntCL = Math.round(totalInterestFromDBCL > 0 ? totalInterestFromDBCL : totalInterestCalcCL);
+                    const waiverResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(interest_waived_inr), 0) AS total_waived FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
+                    const waiverIntCL = Math.round(Number(waiverResCL.rows[0]?.total_waived || 0));
+                    // No mechanism in this schema splits a receipt into principal vs.
+                    // interest portions, so "interest received" cannot be honestly
+                    // derived from real payment data. Reported as 0 rather than fabricated.
+                    const receiveIntCL = 0;
+                    const balanceIntCL = Math.max(0, dueIntCL - receiveIntCL - waiverIntCL);
+                    // Build financial rows — Receive per row is prorated from the one
+                    // real, exact figure (totalPaidCL) by each row's Due share, since
+                    // receipts are never tagged to a specific component in this schema.
+                    const buildRowCL = (label, due) => {
+                        const receive = totalDueCL > 0 ? Math.round(totalPaidCL * (due / totalDueCL)) : 0;
+                        const balance = Math.max(0, Math.round(due - receive));
+                        return `<tr>
+              <td>${label}</td>
+              <td class="tr">${fmtIndianNumber(due)}</td>
+              <td class="tr">${fmtIndianNumber(receive)}</td>
+              <td class="tr">0</td>
+              <td class="tr">0</td>
+              <td class="tr">0</td>
+              <td class="tr">0</td>
+              <td class="tr bold">${fmtIndianNumber(balance)}</td>
+            </tr>`;
+                    };
+                    let financeRowsCL = buildRowCL('Basic Price', basicDueCL);
+                    financeRowsCL += buildRowCL('Balcony Charge', balconyDueCL);
+                    for (const r of addonRowsCL) {
+                        financeRowsCL += buildRowCL(r.label, r.due);
+                    }
+                    const totalReceiveCL = Math.round(totalPaidCL);
+                    const totalBalanceCL = Math.max(0, Math.round(totalDueCL - totalReceiveCL));
+                    financeRowsCL += `<tr>
+            <td class="bold">Total</td>
+            <td class="tr bold">${fmtIndianNumber(totalDueCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(totalReceiveCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(dueIntCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(receiveIntCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(waiverIntCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(balanceIntCL)}</td>
+            <td class="tr bold">${fmtIndianNumber(totalBalanceCL)}</td>
+          </tr>`;
+                    const totalAmountReceivedABCL = fmtIndianNumber(totalReceiveCL + receiveIntCL);
+                    mergeData = {
+                        consumerName: planCL.consumer_name || d?.name || '—',
+                        coApplicants: coApplicantsCL || '—',
+                        customerId: planCL.registration_no || d?.registration_no || '—',
+                        printDate: fmtDateIndia(new Date()),
+                        bookingDate: fmtDateIndia(planCL.booking_date),
+                        paymentMode: planCL.booking_payment_mode || '—',
+                        projectName: planCL.project_name || d?.project_name || '—',
+                        unitNumber: planCL.unit_number || d?.unit_number || '—',
+                        carpetArea: planCL.carpet_area_sqft ? fmtIndianNumber(parseFloat(planCL.carpet_area_sqft)) : '—',
+                        balconyArea: planCL.balcony_area_sqft ? fmtIndianNumber(parseFloat(planCL.balcony_area_sqft)) : '0',
+                        currentDate: fmtDateIndia(new Date()),
+                        companyName: settingsCL['company_name'] || 'ROF INFRATECH & HOUSING PVT. LTD.',
+                        companyCin: settingsCL['company_cin'] || '—',
+                        companyAddress: settingsCL['company_address'] || '—',
+                        financeRows: financeRowsCL,
+                        totalAmountReceivedAB: totalAmountReceivedABCL,
+                    };
+                    // Override with per-project company if available (same precedence as Demand Letter)
+                    if (projCompanyCL) {
+                        if (projCompanyCL.name)
+                            mergeData.companyName = projCompanyCL.name;
+                        if (projCompanyCL.cin)
+                            mergeData.companyCin = projCompanyCL.cin;
+                        if (projCompanyCL.address1)
+                            mergeData.companyAddress = projCompanyCL.address1;
+                    }
+                }
                 // ── ALLOTMENT LETTER ─────────────────────────────────────────────────
                 else if (template.document_type === 'allotment_letter') {
                     // Fetch global settings
@@ -1796,7 +2192,7 @@ router.post('/generate', async (req, res, next) => {
             ['deed_month', 'text'], ['deed_year', 'text'],
         ]);
         if (mergeData) {
-            const NO_WRAP_FIELDS = ['payment_plan_rows'];
+            const NO_WRAP_FIELDS = ['payment_plan_rows', 'financeRows'];
             for (const [key, value] of Object.entries(mergeData)) {
                 const strVal = String(value ?? '');
                 if (NO_WRAP_FIELDS.includes(key)) {

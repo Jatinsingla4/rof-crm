@@ -844,7 +844,7 @@ const DocsPage = {
                   <td>${c.broker_company_name || '—'}</td>
                   <td>${Utils.date(c.registration_date)}</td>
                   <td>${Utils.date(c.allotment_date)}</td>
-                  <td><a href="javascript:void(0)" class="doc-action-link">Check List</a></td>
+                  <td><a href="javascript:void(0)" class="doc-action-link" data-consumer-id="${c.id}" data-doc-type="check_list" onclick="DocsPage.generateAndOpen(this)">Check List</a></td>
                 </tr>`).join('')}
             </tbody>
           </table>
