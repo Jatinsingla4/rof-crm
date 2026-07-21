@@ -210,51 +210,13 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                     if (totalPaid >= amountDue) {
                         // Fully paid (or excess)
                         await matchClient.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
-                        // Cascade any excess forward, hopping across as many successive
-                        // unpaid demands as needed until it's fully absorbed or no
-                        // further demand remains (each hop repeats the same fully-paid/
-                        // excess check as the original demand, so overpayments spanning
-                        // more than one installment no longer get stuck on the first hop).
-                        let excess = totalPaid - amountDue;
-                        let sourceDemandId = demand.id;
-                        let cascadeFromIdx = demand.installment_index;
-                        while (excess > 0) {
-                            const nextDemand = await matchClient.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount FROM demands
-                 WHERE payment_plan_id = $1
-                   AND consumer_id = $2
-                   AND installment_index > $3
-                   AND status != 'paid'
-                 ORDER BY installment_index ASC
-                 LIMIT 1`, [resolvedPlanId, demand.consumer_id, cascadeFromIdx]);
-                            if (!nextDemand.rows[0])
-                                break;
-                            const nextId = nextDemand.rows[0].id;
-                            const nextIdx = nextDemand.rows[0].installment_index;
-                            const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
-                            await matchClient.query(`INSERT INTO receipts
-                   (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
-                    payment_method, received_date, received_by_user_id, receipt_number,
-                    plc_amount, status, approval_status, print_status,
-                    is_advance, advance_from_demand_id)
-                 VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)`, [demand.consumer_id, resolvedPlanId, nextId, nextIdx, excess,
-                                method, req.userId, advanceNum, sourceDemandId]);
-                            await matchClient.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, resolvedPlanId]);
-                            const nextPaidResult = await matchClient.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
-                 FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [nextId]);
-                            const nextTotalPaid = parseFloat(nextPaidResult.rows[0].total_paid);
-                            const nextAmountDue = parseFloat(nextDemand.rows[0].amount_due_inr)
-                                + parseFloat(nextDemand.rows[0].cgst_amount || 0)
-                                + parseFloat(nextDemand.rows[0].sgst_amount || 0);
-                            if (nextTotalPaid >= nextAmountDue) {
-                                await matchClient.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [nextId]);
-                                excess = nextTotalPaid - nextAmountDue;
-                                sourceDemandId = nextId;
-                                cascadeFromIdx = nextIdx;
-                            }
-                            else {
-                                await matchClient.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [nextId]);
-                                excess = 0;
-                            }
+                        // Cascade any excess forward via the shared cascade function
+                        // (also used by booking.ts's Step-G receipts) -- hops across as
+                        // many successive unpaid demands as needed until it's fully
+                        // absorbed or no further demand remains.
+                        const excess = totalPaid - amountDue;
+                        if (excess > 0) {
+                            await (0, payment_waterfall_js_1.cascadeOverpaymentExcess)(matchClient, demand.consumer_id, resolvedPlanId, demand.id, excess, method, req.userId || null);
                         }
                     }
                     else {
@@ -1460,8 +1422,12 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
             await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, consumer_id, bounceScope.unitId, bounceScope.projectId, bounceScope.paymentPlanId);
             await (0, payment_waterfall_js_1.recomputeBookingPaymentTaxes)(client, consumer_id, bounceScope.unitId, bounceScope.projectId);
         }
-        // 3c. Reverse installment-1 auto-raise if no valid idx1 receipt remains
-        if (installment_index === 1 && payment_plan_id) {
+        // 3c. Reverse installment-1 auto-raise if no valid idx1 receipt remains.
+        // Also covers Step-G receipts (installment_index NULL, so the check above
+        // never matches them directly) by checking whether THIS receipt is the one
+        // recorded as having triggered the original auto-raise.
+        const bounceWasTrigger = await client.query(`SELECT 1 FROM audit_logs WHERE action = 'DEMAND_RAISE' AND new_values->>'trigger_receipt_id' = $1 LIMIT 1`, [id]);
+        if ((installment_index === 1 || bounceWasTrigger.rows.length > 0) && payment_plan_id) {
             await (0, payment_waterfall_js_1.reverseInstallment1IfNoValidReceipt)(client, payment_plan_id);
         }
         // 4. Log the bounce
@@ -1561,8 +1527,11 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
             await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId, cancelScope.paymentPlanId);
             await (0, payment_waterfall_js_1.recomputeBookingPaymentTaxes)(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId);
         }
-        // Step 2d: Reverse installment-1 auto-raise if no valid idx1 receipt remains
-        if (receipt.installment_index === 1 && receipt.payment_plan_id) {
+        // Step 2d: Reverse installment-1 auto-raise if no valid idx1 receipt remains.
+        // Also covers Step-G receipts (installment_index NULL) by checking whether
+        // THIS receipt is the one recorded as having triggered the original raise.
+        const cancelWasTrigger = await client.query(`SELECT 1 FROM audit_logs WHERE action = 'DEMAND_RAISE' AND new_values->>'trigger_receipt_id' = $1 LIMIT 1`, [id]);
+        if ((receipt.installment_index === 1 || cancelWasTrigger.rows.length > 0) && receipt.payment_plan_id) {
             await (0, payment_waterfall_js_1.reverseInstallment1IfNoValidReceipt)(client, receipt.payment_plan_id);
         }
         // Step 3: Write audit log (non-fatal)

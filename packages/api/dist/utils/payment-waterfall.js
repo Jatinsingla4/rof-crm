@@ -17,6 +17,7 @@ exports.recomputeBookingAmount = recomputeBookingAmount;
 exports.recomputeBookingPaymentTaxes = recomputeBookingPaymentTaxes;
 exports.checkAndAutoRaiseInstallment1 = checkAndAutoRaiseInstallment1;
 exports.reverseInstallment1IfNoValidReceipt = reverseInstallment1IfNoValidReceipt;
+exports.cascadeOverpaymentExcess = cascadeOverpaymentExcess;
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
 function buildInterestRows(receipts, demands, penalRate, options) {
@@ -325,6 +326,11 @@ async function checkAndAutoRaiseInstallment1(client, paymentPlanId, receiptId, r
             consumer_id: demand.consumer_id, installment_index: 1,
             auto_raised: true, trigger_receipt_id: receiptId,
         })]);
+    // Directly link the triggering receipt itself -- Step-G receipts always
+    // carry installment_index = NULL, so the installment_index=1 query below
+    // never matches them on its own.
+    await client.query(`UPDATE receipts SET demand_id = $1, updated_at = NOW()
+     WHERE id = $2 AND demand_id IS NULL`, [demand.id, receiptId]);
     const retroResult = await client.query(`UPDATE receipts
      SET demand_id = $1, updated_at = NOW()
      WHERE consumer_id = $2 AND installment_index = 1
@@ -387,5 +393,61 @@ async function reverseInstallment1IfNoValidReceipt(client, paymentPlanId) {
      WHERE payment_plan_id = $1 AND installment_index = 1
        AND demand_type = 'installment'
        AND (due_date IS NOT NULL OR status <> 'pending')`, [paymentPlanId]);
+}
+// ── overpayment cascade (shared by POST /payments/receipts and booking.ts's Step-G) ──
+/**
+ * Hops any excess beyond a just-fully-paid demand forward across as many
+ * successive unpaid demands as needed, creating a synthetic is_advance
+ * receipt at each hop, until the excess is fully absorbed or no further
+ * demand remains. Extracted byte-for-byte from payments.ts POST /receipts'
+ * inline cascade loop so booking.ts's Step-G receipt can trigger the same
+ * behavior a manual receipt's overpayment already does. Transaction-agnostic:
+ * takes whatever client/transaction the caller already has open.
+ */
+async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourceDemandId, excessAmount, method, userId) {
+    const sourceRes = await client.query(`SELECT installment_index FROM demands WHERE id = $1`, [sourceDemandId]);
+    if (sourceRes.rows.length === 0)
+        return;
+    let excess = excessAmount;
+    let sourceId = sourceDemandId;
+    let cascadeFromIdx = sourceRes.rows[0].installment_index;
+    while (excess > 0) {
+        const nextDemand = await client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount FROM demands
+       WHERE payment_plan_id = $1
+         AND consumer_id = $2
+         AND installment_index > $3
+         AND status != 'paid'
+       ORDER BY installment_index ASC
+       LIMIT 1`, [paymentPlanId, consumerId, cascadeFromIdx]);
+        if (!nextDemand.rows[0])
+            break;
+        const nextId = nextDemand.rows[0].id;
+        const nextIdx = nextDemand.rows[0].installment_index;
+        const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
+        await client.query(`INSERT INTO receipts
+         (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
+          payment_method, received_date, received_by_user_id, receipt_number,
+          plc_amount, status, approval_status, print_status,
+          is_advance, advance_from_demand_id)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
+            method, userId, advanceNum, sourceId]);
+        await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);
+        const nextPaidResult = await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
+       FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [nextId]);
+        const nextTotalPaid = parseFloat(nextPaidResult.rows[0].total_paid);
+        const nextAmountDue = parseFloat(nextDemand.rows[0].amount_due_inr)
+            + parseFloat(nextDemand.rows[0].cgst_amount || 0)
+            + parseFloat(nextDemand.rows[0].sgst_amount || 0);
+        if (nextTotalPaid >= nextAmountDue) {
+            await client.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [nextId]);
+            excess = nextTotalPaid - nextAmountDue;
+            sourceId = nextId;
+            cascadeFromIdx = nextIdx;
+        }
+        else {
+            await client.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [nextId]);
+            excess = 0;
+        }
+    }
 }
 //# sourceMappingURL=payment-waterfall.js.map

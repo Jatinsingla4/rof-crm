@@ -10,6 +10,7 @@ import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { recomputeAddonDemands } from './addon-charges.js';
+import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 
 const router = Router();
 
@@ -1049,14 +1050,15 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               ? safeLocalDate(booking.booking_date)
               : safeLocalDate(new Date());
             const receiptNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
-            await client.query(
+            const stepGReceiptRes = await client.query(
               `INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
                   payment_method, transaction_ref, received_date, received_by_user_id,
                   receipt_number, bank_name, branch, cheque_no, cheque_date, plc_amount,
                   status, approval_status, print_status)
                VALUES ($1, $2, NULL, $3, $4::payment_method, $5, $6::date, $7, $8,
-                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed')`,
+                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed')
+               RETURNING id`,
               [
                 booking.consumer_id,
                 paymentPlanId,
@@ -1072,6 +1074,34 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                 booking.cheque_date || null,
               ]
             );
+            const stepGReceiptId = stepGReceiptRes.rows[0].id;
+
+            // Auto-raise installment 1 from this Step-G receipt, same as a
+            // manual receipt would via POST /payments/receipts.
+            await checkAndAutoRaiseInstallment1(client, paymentPlanId, stepGReceiptId, bookingDateStr, req.userId || null);
+
+            // If the Step-G amount exceeds installment 1's net due, cascade
+            // the excess forward the same way a manual receipt's overpayment
+            // already does.
+            const inst1Res = await client.query(
+              `SELECT id, amount_due_inr, cgst_amount, sgst_amount FROM demands
+               WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type = 'installment'
+               ORDER BY created_at ASC LIMIT 1`,
+              [paymentPlanId]
+            );
+            if (inst1Res.rows.length > 0) {
+              const inst1 = inst1Res.rows[0];
+              const inst1NetDue = parseFloat(inst1.amount_due_inr)
+                + parseFloat(inst1.cgst_amount || 0)
+                + parseFloat(inst1.sgst_amount || 0);
+              const stepGExcess = bookingAmt - inst1NetDue;
+              if (stepGExcess > 0) {
+                await cascadeOverpaymentExcess(
+                  client, booking.consumer_id, paymentPlanId, inst1.id,
+                  stepGExcess, payMethod, req.userId || null
+                );
+              }
+            }
           }
 
           // Step H: Auto-apply plan-level addon
