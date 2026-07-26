@@ -10,6 +10,7 @@ const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
+const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -187,6 +188,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
         const matchClient = await index_js_1.db.connect();
         try {
             await matchClient.query('BEGIN');
+            let gstDemandId = null;
             if (resolvedPlanId && resolvedIdx != null) {
                 const matchedDemand = await matchClient.query(`SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
                   d.installment_index, d.consumer_id
@@ -199,6 +201,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                 if (matchedDemand.rows[0]) {
                     const demand = matchedDemand.rows[0];
                     await matchClient.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
+                    gstDemandId = demand.id;
                     // Sum all non-cancelled receipts linked to this demand
                     const paidResult = await matchClient.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
              FROM receipts
@@ -225,6 +228,16 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                     }
                 }
             }
+            // Resolve and persist cgst_amount/sgst_amount for this receipt
+            let gstProjectId = null;
+            let gstBookingDate = null;
+            if (!gstDemandId) {
+                const bookingInfo = await matchClient.query(`SELECT project_id, booking_date FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`, [consumerId]);
+                gstProjectId = bookingInfo.rows[0]?.project_id || null;
+                gstBookingDate = bookingInfo.rows[0]?.booking_date || null;
+            }
+            const gstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(matchClient, receiptId, parseFloat(amount), gstDemandId, gstProjectId, gstBookingDate);
+            await matchClient.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [gstSplit.cgstAmount, gstSplit.sgstAmount, receiptId]);
             await matchClient.query('COMMIT');
         }
         catch (matchErr) {

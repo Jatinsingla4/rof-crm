@@ -20,6 +20,7 @@ exports.reverseInstallment1IfNoValidReceipt = reverseInstallment1IfNoValidReceip
 exports.cascadeOverpaymentExcess = cascadeOverpaymentExcess;
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
+const gst_receipt_split_js_1 = require("./gst-receipt-split.js");
 function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
@@ -424,14 +425,18 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
         const nextId = nextDemand.rows[0].id;
         const nextIdx = nextDemand.rows[0].installment_index;
         const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
-        await client.query(`INSERT INTO receipts
+        const advanceReceiptRes = await client.query(`INSERT INTO receipts
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
           is_advance, advance_from_demand_id)
-       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)
+       RETURNING id`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
             method, userId, advanceNum, sourceId]);
+        const advanceReceiptId = advanceReceiptRes.rows[0].id;
         await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);
+        const advanceGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, advanceReceiptId, excess, nextId, null, null);
+        await client.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [advanceGstSplit.cgstAmount, advanceGstSplit.sgstAmount, advanceReceiptId]);
         const nextPaidResult = await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
        FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [nextId]);
         const nextTotalPaid = parseFloat(nextPaidResult.rows[0].total_paid);

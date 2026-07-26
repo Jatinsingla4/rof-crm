@@ -10,6 +10,7 @@ import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes, checkAndAutoRaiseInstallment1, reverseInstallment1IfNoValidReceipt, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
+import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 
 const router = Router();
 
@@ -248,6 +249,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     const matchClient = await db.connect();
     try {
       await matchClient.query('BEGIN');
+      let gstDemandId: string | null = null;
       if (resolvedPlanId && resolvedIdx != null) {
         const matchedDemand = await matchClient.query(
           `SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
@@ -263,6 +265,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         if (matchedDemand.rows[0]) {
           const demand = matchedDemand.rows[0];
           await matchClient.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
+          gstDemandId = demand.id;
 
           // Sum all non-cancelled receipts linked to this demand
           const paidResult = await matchClient.query(
@@ -303,6 +306,26 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
           }
         }
       }
+
+      // Resolve and persist cgst_amount/sgst_amount for this receipt
+      let gstProjectId: string | null = null;
+      let gstBookingDate: string | null = null;
+      if (!gstDemandId) {
+        const bookingInfo = await matchClient.query(
+          `SELECT project_id, booking_date FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`,
+          [consumerId]
+        );
+        gstProjectId = bookingInfo.rows[0]?.project_id || null;
+        gstBookingDate = bookingInfo.rows[0]?.booking_date || null;
+      }
+      const gstSplit = await computeReceiptGstSplit(
+        matchClient, receiptId, parseFloat(amount), gstDemandId, gstProjectId, gstBookingDate
+      );
+      await matchClient.query(
+        `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,
+        [gstSplit.cgstAmount, gstSplit.sgstAmount, receiptId]
+      );
+
       await matchClient.query('COMMIT');
     } catch (matchErr: any) {
       await matchClient.query('ROLLBACK');

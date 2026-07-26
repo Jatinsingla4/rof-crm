@@ -234,9 +234,9 @@ Pages.bookingPayment = async function(params = {}) {
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-d" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">CGST (%)</label>
-                <input type="number" class="fc" id="bkp-cgst-pct-d" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-cgst-pct-d" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">SGST (%)</label>
-                <input type="number" class="fc" id="bkp-sgst-pct-d" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-sgst-pct-d" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
             <div class="sp-grid">
               <div class="fg"><label class="fl">Draft No.</label>
@@ -261,9 +261,9 @@ Pages.bookingPayment = async function(params = {}) {
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-o" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">CGST (%)</label>
-                <input type="number" class="fc" id="bkp-cgst-pct-o" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-cgst-pct-o" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">SGST (%)</label>
-                <input type="number" class="fc" id="bkp-sgst-pct-o" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-sgst-pct-o" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
             <div class="sp-grid">
               <div class="fg"><label class="fl">Transaction Ref</label>
@@ -288,9 +288,9 @@ Pages.bookingPayment = async function(params = {}) {
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-c" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">CGST (%)</label>
-                <input type="number" class="fc" id="bkp-cgst-pct-c" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-cgst-pct-c" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">SGST (%)</label>
-                <input type="number" class="fc" id="bkp-sgst-pct-c" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
+                <input type="number" class="fc" id="bkp-sgst-pct-c" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
           </div>
 

@@ -11,6 +11,7 @@
 
 import { resolveRate } from './gst-resolver.js';
 import { computeInclusiveGstSplit } from './gst-backward-derive.js';
+import { computeReceiptGstSplit } from './gst-receipt-split.js';
 
 export interface WaterfallReceipt {
   id: string;
@@ -629,19 +630,27 @@ export async function cascadeOverpaymentExcess(
     const nextId = nextDemand.rows[0].id;
     const nextIdx = nextDemand.rows[0].installment_index;
     const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
-    await client.query(
+    const advanceReceiptRes = await client.query(
       `INSERT INTO receipts
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
           is_advance, advance_from_demand_id)
-       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)
+       RETURNING id`,
       [consumerId, paymentPlanId, nextId, nextIdx, excess,
        method, userId, advanceNum, sourceId]
     );
+    const advanceReceiptId = advanceReceiptRes.rows[0].id;
     await client.query(
       `UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`,
       [excess, paymentPlanId]
+    );
+
+    const advanceGstSplit = await computeReceiptGstSplit(client, advanceReceiptId, excess, nextId, null, null);
+    await client.query(
+      `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,
+      [advanceGstSplit.cgstAmount, advanceGstSplit.sgstAmount, advanceReceiptId]
     );
 
     const nextPaidResult = await client.query(
