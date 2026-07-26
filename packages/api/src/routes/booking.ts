@@ -1488,7 +1488,7 @@ function buildApplicantPage1(
 
   // ── shared styles ───────────────────────
   const baseFont  = 'font-family:Arial,sans-serif;font-size:11px;color:#000;';
-  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;text-align:center;"`;
   const cellLbl   = `style="${baseFont}padding:2px 8px 2px 0;vertical-align:top;white-space:nowrap;font-weight:600;"`;
   const cellVal   = `style="${baseFont}padding:2px 0;vertical-align:top;"`;
   const thStyle   = `style="${baseFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:3px 5px;text-align:center;"`;
@@ -2058,7 +2058,7 @@ function buildApplicantPage2(
   const tdR      = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:right;"`;
   const tdL      = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:left;"`;
   const tdBR     = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
-  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;text-align:center;"`;
 
   // ── demand due date map: installment_index → due_date ──
   const demandDueDateMap: Record<number, string> = {};
@@ -2488,7 +2488,7 @@ function buildApplicantPage3(
   const tdL       = `style="${baseFont}border:1px solid #999;padding:3px 6px;text-align:left;"`;
   const cellLbl   = `style="${baseFont}padding:2px 10px 2px 0;vertical-align:top;font-weight:600;white-space:nowrap;width:22%;"`;
   const cellVal   = `style="${baseFont}padding:2px 0;vertical-align:top;"`;
-  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;"`;
+  const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;text-align:center;"`;
 
   // ── PAGE HEADER ─────────────────────────
   const pageHeader = `
