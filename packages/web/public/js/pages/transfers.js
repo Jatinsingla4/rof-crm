@@ -523,7 +523,7 @@
         <input type="text" id="tr-b-mname" placeholder="Middle Name">
       </div>
       <div class="tr-field">
-        <span class="tr-lbl">* Last Name</span>
+        <span class="tr-lbl">Last Name</span>
         <input type="text" id="tr-b-lname" placeholder="Last Name">
       </div>
       <div class="tr-field">
@@ -629,7 +629,6 @@
     const mobile = document.getElementById('tr-b-mobile')?.value?.trim() || '';
 
     if (!fname) { _showMsg('tr-buyer-msg', 'First Name is required.', false); return; }
-    if (!lname) { _showMsg('tr-buyer-msg', 'Last Name is required.', false); return; }
     if (!mobile) { _showMsg('tr-buyer-msg', 'Mobile is required.', false); return; }
 
     // FIX 2: aadhaar_hash is NOT NULL in DB — require it before POST
