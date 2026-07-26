@@ -2222,6 +2222,7 @@ function buildApplicantPage2(
   const rtdC   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:center;"`;
   const rtdL   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:left;"`;
   const rtdR   = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;"`;
+  const rtdRN  = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;white-space:nowrap;"`;
   const rtdBR  = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
 
   const receiptTableRows = receiptRows.length > 0
@@ -2246,12 +2247,12 @@ function buildApplicantPage2(
           <td ${rtdC}>${fmtDate(r.deposit_date)}</td>
           <td ${rtdC}>${fmtDate(r.clearing_date)}</td>
           <td ${rtdC}>—</td>
-          <td ${rtdR}>${fmtIndianNumber(rNet)}</td>
-          <td ${rtdR}>${fmtIndianNumber(rCgst)}</td>
-          <td ${rtdR}>${fmtIndianNumber(rSgst)}</td>
-          <td ${rtdR}>${fmtIndianNumber(rInt)}</td>
+          <td ${rtdRN}>${fmtIndianNumber(rNet)}</td>
+          <td ${rtdRN}>${fmtIndianNumber(rCgst)}</td>
+          <td ${rtdRN}>${fmtIndianNumber(rSgst)}</td>
+          <td ${rtdRN}>${fmtIndianNumber(rInt)}</td>
           <td ${rtdR}>0.00</td>
-          <td ${rtdR}>${fmtIndianNumber(rGross)}</td>
+          <td ${rtdRN}>${fmtIndianNumber(rGross)}</td>
           <td ${rtdC}>${rStatus}</td>
           <td ${rtdL}>${esc(r.hold_remark || '—')}</td>
           <td ${rtdL}>N/A</td>
@@ -2297,26 +2298,26 @@ function buildApplicantPage2(
     <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
       <thead><tr>
         <th ${rthS} style="width:3%">S.NO.</th>
-        <th ${rthS} style="width:9%">RECEIPT NO.</th>
-        <th ${rthS} style="width:6%">RECEIPT DATE</th>
-        <th ${rthS} style="width:5%">MODE</th>
-        <th ${rthS} style="width:8%">INSTRUMENT NO.</th>
-        <th ${rthS} style="width:6%">INSTRUMENT DATE</th>
-        <th ${rthS} style="width:6%">DRAWN ON</th>
-        <th ${rthS} style="width:6%">CLEARING BANK</th>
-        <th ${rthS} style="width:6%">DEPOSIT DATE</th>
-        <th ${rthS} style="width:6%">CLEARING DATE</th>
-        <th ${rthS} style="width:6%">BOUNCE DATE</th>
-        <th ${rthS} style="width:5%">AMOUNT</th>
-        <th ${rthS} style="width:4%">CGST</th>
-        <th ${rthS} style="width:4%">SGST</th>
-        <th ${rthS} style="width:5%">INTEREST</th>
-        <th ${rthS} style="width:4%">EXTRA</th>
-        <th ${rthS} style="width:5%">NET AMOUNT</th>
-        <th ${rthS} style="width:6%">PAYMENT STATUS</th>
-        <th ${rthS} style="width:6%">HOLD REMARKS</th>
-        <th ${rthS} style="width:6%">REMARK</th>
-        <th ${rthS} style="width:6%">ON ACCOUNT OF</th>
+        <th ${rthS} style="width:7%">RECEIPT NO.</th>
+        <th ${rthS} style="width:5%">RECEIPT DATE</th>
+        <th ${rthS} style="width:3%">MODE</th>
+        <th ${rthS} style="width:4%">INSTRUMENT NO.</th>
+        <th ${rthS} style="width:5%">INSTRUMENT DATE</th>
+        <th ${rthS} style="width:10%">DRAWN ON</th>
+        <th ${rthS} style="width:4%">CLEARING BANK</th>
+        <th ${rthS} style="width:5%">DEPOSIT DATE</th>
+        <th ${rthS} style="width:5%">CLEARING DATE</th>
+        <th ${rthS} style="width:2%">BOUNCE DATE</th>
+        <th ${rthS} style="width:7%">AMOUNT</th>
+        <th ${rthS} style="width:6%">CGST</th>
+        <th ${rthS} style="width:6%">SGST</th>
+        <th ${rthS} style="width:4%">INTEREST</th>
+        <th ${rthS} style="width:2%">EXTRA</th>
+        <th ${rthS} style="width:7%">NET AMOUNT</th>
+        <th ${rthS} style="width:5%">PAYMENT STATUS</th>
+        <th ${rthS} style="width:4%">HOLD REMARKS</th>
+        <th ${rthS} style="width:2%">REMARK</th>
+        <th ${rthS} style="width:4%">ON ACCOUNT OF</th>
       </tr></thead>
       <tbody>${receiptTableRows}</tbody>
       <tfoot>
