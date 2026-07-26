@@ -1222,8 +1222,8 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
                 r.payment_method, r.cheque_no, r.transaction_ref, r.cheque_date,
                 r.bank_name, r.branch, r.interest_amount, r.status,
                 r.deposit_date, r.clearing_date, r.hold_remark,
-                COALESCE(d.cgst_amount, gtax.cgst_paise / 100.0) AS cgst_amount,
-                COALESCE(d.sgst_amount, (ttax.total_tax_paise - gtax.cgst_paise) / 100.0) AS sgst_amount,
+                r.cgst_amount AS cgst_amount,
+                r.sgst_amount AS sgst_amount,
                 COALESCE(d.demand_type, 'Booking') AS on_account_of
          FROM receipts r
          LEFT JOIN demands d ON d.id = r.demand_id
@@ -1254,7 +1254,6 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
          ) gtax ON true
          WHERE r.consumer_id = $1
            AND r.status != 'cancelled'
-           AND (r.is_advance IS NOT TRUE)
            AND r.payment_plan_id = (
              SELECT id FROM payment_plans
              WHERE consumer_id = $1

@@ -3509,8 +3509,8 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
         p.name  AS project_name,
         un.unit_number,
         t.tower_name,
-        COALESCE(d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
-        COALESCE(d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
+        r.cgst_amount AS cgst_amount,
+        r.sgst_amount AS sgst_amount
       FROM receipts r
       JOIN consumers c    ON c.id  = r.consumer_id
       JOIN payment_plans pp ON pp.id = r.payment_plan_id
@@ -3551,7 +3551,6 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
       ) gtax ON true
       WHERE r.consumer_id = $1
         AND r.status != 'cancelled'
-        AND (r.is_advance IS NOT TRUE)
       ORDER BY r.received_date ASC, r.created_at ASC
     `, [consumerId]);
 
