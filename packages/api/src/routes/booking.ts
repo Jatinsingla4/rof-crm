@@ -2469,12 +2469,13 @@ function buildApplicantPage2(
 
 // ── PAGE 3 BUILDER ───────────────────────
 
-function buildApplicantPage3(
+async function buildApplicantPage3(
   b: any,
   consumer: any,
   settings: Record<string, string>,
   documentDispatches: any[],
-): string {
+  consumerId: string,
+): Promise<string> {
 
   // ── derived values ──────────────────────
   const projectName = esc(b.project_name || '—');
@@ -2624,6 +2625,70 @@ function buildApplicantPage3(
     <div ${sectionHd}>REGISTRATION DETAILS</div>
     <table style="width:100%;border-collapse:collapse;">${regRows}</table>`;
 
+  // ── SECTION 6b — TRANSFER DETAILS ────────
+  const transferRowsRes = await db.query(
+    `SELECT t.id, t.transfer_date, t.transfer_no, t.transfer_type, t.transfer_amount_inr,
+            t.broker_company, t.main_broker, t.sales_person_name, t.approval_status,
+            t.old_consumer_id, t.new_consumer_id, t.created_at,
+            oc.name AS old_owner_name, oc.first_name AS old_first_name, oc.last_name AS old_last_name,
+            nc.name AS new_owner_name, nc.first_name AS new_first_name, nc.last_name AS new_last_name
+     FROM ownership_transfers t
+     JOIN consumers oc ON oc.id = t.old_consumer_id
+     JOIN consumers nc ON nc.id = t.new_consumer_id
+     WHERE t.old_consumer_id = $1 OR t.new_consumer_id = $1
+     ORDER BY t.created_at ASC`,
+    [consumerId],
+  );
+
+  let transferSection = '';
+  if (transferRowsRes.rows.length > 0) {
+    const transferBlocks = await Promise.all(transferRowsRes.rows.map(async (t: any) => {
+      const oldName = t.old_owner_name || [t.old_first_name, t.old_last_name].filter(Boolean).join(' ').trim() || '—';
+      const newName = t.new_owner_name || [t.new_first_name, t.new_last_name].filter(Boolean).join(' ').trim() || '—';
+      const brokerSales = [t.broker_company, t.main_broker, t.sales_person_name].filter(Boolean).join(' / ');
+
+      let linkHtml = '';
+      if (t.old_consumer_id === consumerId) {
+        const snap = await db.query(
+          `SELECT id FROM documents
+           WHERE document_type = 'applicant_file' AND document_subtype = 'transfer_snapshot'
+             AND consumer_id = $1 AND reference_id = $2 LIMIT 1`,
+          [consumerId, t.id],
+        );
+        if (snap.rows.length > 0) {
+          linkHtml = `<div style="margin-top:2px;"><a href="/api/documents/${snap.rows[0].id}/html" target="_blank">View Old Applicant File</a></div>`;
+        } else {
+          const fallback = await db.query(
+            `SELECT id FROM documents
+             WHERE document_type = 'applicant_file' AND consumer_id = $1 AND created_at < $2
+             ORDER BY created_at DESC LIMIT 1`,
+            [consumerId, t.created_at],
+          );
+          if (fallback.rows.length > 0) {
+            linkHtml = `<div style="margin-top:2px;"><a href="/api/documents/${fallback.rows[0].id}/html" target="_blank">View Old Applicant File (recovered, pre-transfer)</a></div>`;
+          }
+        }
+      }
+
+      const tRows = [
+        ['Transfer Date', fmtDate(t.transfer_date)],
+        ['Transfer No.', esc(t.transfer_no || '—')],
+        ['Old Owner', esc(oldName)],
+        ['New Owner', esc(newName)],
+        ['Transfer Type', capitalize(t.transfer_type || '—')],
+        ['Transfer Amount', fmtIndianCurrency(t.transfer_amount_inr || 0)],
+        ...(brokerSales ? [['Broker / Sales Person', esc(brokerSales)]] : []),
+        ['Approval Status', capitalize(t.approval_status || '—')],
+      ].map(([l, v]) => `<tr><td ${cellLbl}>${l}:</td><td ${cellVal}>${v}</td></tr>`).join('');
+
+      return `<table style="width:100%;border-collapse:collapse;margin-bottom:6px;">${tRows}</table>${linkHtml}`;
+    }));
+
+    transferSection = `
+      <div ${sectionHd}>TRANSFER DETAILS</div>
+      ${transferBlocks.join('<div style="margin:8px 0;border-top:1px dashed #999;"></div>')}`;
+  }
+
   // ── PAGE FOOTER ──────────────────────────
   const footer = `
     <div style="margin-top:20px;${baseFont}">
@@ -2647,13 +2712,14 @@ function buildApplicantPage3(
       ${bookingDocsSection}
       ${nomineeSection}
       ${regSection}
+      ${transferSection}
       ${footer}
     </div>`;
 }
 
 // ── APPLICANT FILE HTML WRAPPER ───────────
 
-export function buildApplicantFileHtml(
+export async function buildApplicantFileHtml(
   b: any,
   consumer: any,
   coApplicants: any[],
@@ -2669,10 +2735,11 @@ export function buildApplicantFileHtml(
   totalWaivedInr: number = 0,
   otherChargeCgstPct: number = 0,
   otherChargeSgstPct: number = 0,
-): string {
+  consumerId: string = '',
+): Promise<string> {
   const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
-  const page3 = buildApplicantPage3(b, consumer, settings, documentDispatches);
+  const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);
 
   const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');
 

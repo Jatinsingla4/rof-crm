@@ -1432,7 +1432,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       }
     }
 
-    const html = buildApplicantFileHtml(
+    const html = await buildApplicantFileHtml(
       row,
       consumer,
       coApplicantsRes.rows,
@@ -1448,6 +1448,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
       totalWaivedInr,
       otherChargeCgstPct,
       otherChargeSgstPct,
+      consumerId,
     );
 
     // Persist to documents table on first view so it can be edited later

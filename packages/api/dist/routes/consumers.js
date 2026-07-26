@@ -1195,7 +1195,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
                 console.warn(`[GST] No OTHER CHARGE mapping for project ${projectId} — using BASIC rate for APF display.`);
             }
         }
-        const html = (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
+        const html = await (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, consumerId);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {
