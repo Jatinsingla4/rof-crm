@@ -1648,7 +1648,7 @@ function buildApplicantPage1(
     ${taxSubRow(`SGST @ ${otherChargeSgstPct}%`,
       `<span data-field-key="taxBreakupOtherChargeSgst" data-field-label="Other Charges SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeSgstAmt)}</span>`)}` : ''}
     ${b.balcony_charge_amount != null ? `
-    ${taxSubHeaderRow(`Balcony Charge (Rs. ${fmtIndianNumber(balconyChargeAmount)}) — GST already included in Rs. ${fmtIndianNumber(balconyChargeTotal)}`)}
+    ${taxSubHeaderRow(`Balcony Charge (Rs. ${fmtIndianNumber(balconyChargeAmount)}) + GST — Total Rs. ${fmtIndianNumber(balconyChargeTotal)}`)}
     ${taxSubRow(`CGST @ ${cgstPct}%`,
       `<span data-field-key="taxBreakupBalconyCgst" data-field-label="Balcony CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyCgstAmount)}</span>`)}
     ${taxSubRow(`SGST @ ${sgstPct}%`,

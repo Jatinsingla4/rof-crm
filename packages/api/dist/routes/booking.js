@@ -1340,7 +1340,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     ${taxSubRow(`CGST @ ${otherChargeCgstPct}%`, `<span data-field-key="taxBreakupOtherChargeCgst" data-field-label="Other Charges CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeCgstAmt)}</span>`)}
     ${taxSubRow(`SGST @ ${otherChargeSgstPct}%`, `<span data-field-key="taxBreakupOtherChargeSgst" data-field-label="Other Charges SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeSgstAmt)}</span>`)}` : ''}
     ${b.balcony_charge_amount != null ? `
-    ${taxSubHeaderRow(`Balcony Charge (Rs. ${fmtIndianNumber(balconyChargeAmount)}) — GST already included in Rs. ${fmtIndianNumber(balconyChargeTotal)}`)}
+    ${taxSubHeaderRow(`Balcony Charge (Rs. ${fmtIndianNumber(balconyChargeAmount)}) + GST — Total Rs. ${fmtIndianNumber(balconyChargeTotal)}`)}
     ${taxSubRow(`CGST @ ${cgstPct}%`, `<span data-field-key="taxBreakupBalconyCgst" data-field-label="Balcony CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyCgstAmount)}</span>`)}
     ${taxSubRow(`SGST @ ${sgstPct}%`, `<span data-field-key="taxBreakupBalconySgst" data-field-label="Balcony SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconySgstAmount)}</span>`)}` : ''}
     ${addonTotal > 0 ? `
