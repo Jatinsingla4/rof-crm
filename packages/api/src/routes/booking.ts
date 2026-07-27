@@ -1001,6 +1001,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               const otherPortion = tmpl.flat_amount_inr
                 ? 0
                 : Math.round(parseFloat(booking.other_charge_amount || 0) * pct);
+              const balconyPortion = tmpl.flat_amount_inr
+                ? 0
+                : Math.round(balconyChargeAmount * pct);
               const { cgstAmount, sgstAmount } = await resolveGstForComponents(
                 client,
                 booking.project_id,
@@ -1011,6 +1014,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                   { chargeType: 'BASIC', amount: basicPortion },
                   { chargeType: 'PLC', amount: plcPortion },
                   { chargeType: 'OTHER CHARGE', amount: otherPortion },
+                  { chargeType: 'BALCONY', amount: balconyPortion },
                 ]
               );
               const offsetDays = parseInt(tmpl.due_date_offset_days || 0);

@@ -55,9 +55,9 @@ router.patch('/config/:chargeKey', async (req: AuthRequest, res: Response, next:
 
 // GET /api/charge-master/balcony-preview?projectId=X&balconyAreaSqft=Y&bookingDate=Z
 // Read-only estimate for the booking-form preview -- computes the same
-// GST-inclusive paise-reconciliation figure as booking.ts's write-point,
-// via the shared computeBalconyCharge() function, so the preview can
-// never drift from what actually gets stored at booking creation.
+// GST-exclusive/additive figure as booking.ts's write-point, via the
+// shared computeBalconyCharge() function, so the preview can never drift
+// from what actually gets stored at booking creation.
 router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId, balconyAreaSqft, bookingDate } = req.query as {

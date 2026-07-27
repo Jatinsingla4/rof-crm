@@ -414,7 +414,7 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
       SELECT pp.id as payment_plan_id, pp.consumer_id, pp.unit_id, pp.project_id,
              pp.total_amount_inr, c.name as consumer_name,
              COALESCE(c.nationality, 'indian') as nationality,
-             br.booking_date, br.plc_amount, br.other_charge_amount
+             br.booking_date, br.plc_amount, br.other_charge_amount, br.balcony_charge_amount
       FROM payment_plans pp
       JOIN consumers c ON c.id = pp.consumer_id
       LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id IS NOT NULL
@@ -489,10 +489,12 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
         const isNri = plan.nationality === 'nri' || plan.nationality === 'NRI';
         const plcAmt = parseFloat(plan.plc_amount || 0);
         const otherAmt = parseFloat(plan.other_charge_amount || 0);
-        const basicAmt = plan.total_amount_inr - plcAmt - otherAmt;
+        const balconyAmt = parseFloat(plan.balcony_charge_amount || 0);
+        const basicAmt = plan.total_amount_inr - plcAmt - otherAmt - balconyAmt;
         const basicPortion = Math.round(basicAmt * pct);
         const plcPortion = Math.round(plcAmt * pct);
         const otherPortion = Math.round(otherAmt * pct);
+        const balconyPortion = Math.round(balconyAmt * pct);
         const { cgstAmount, sgstAmount } = await resolveGstForComponents(
           db,
           plan.project_id,
@@ -503,6 +505,7 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
             { chargeType: 'BASIC', amount: basicPortion },
             { chargeType: 'PLC', amount: plcPortion },
             { chargeType: 'OTHER CHARGE', amount: otherPortion },
+            { chargeType: 'BALCONY', amount: balconyPortion },
           ]
         );
         const offsetDays = tmpl.due_date_offset_days || 0;

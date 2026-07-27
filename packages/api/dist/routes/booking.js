@@ -758,10 +758,14 @@ router.patch('/:id', async (req, res, next) => {
                             const otherPortion = tmpl.flat_amount_inr
                                 ? 0
                                 : Math.round(parseFloat(booking.other_charge_amount || 0) * pct);
+                            const balconyPortion = tmpl.flat_amount_inr
+                                ? 0
+                                : Math.round(balconyChargeAmount * pct);
                             const { cgstAmount, sgstAmount } = await (0, gst_resolver_js_1.resolveGstForComponents)(client, booking.project_id, projectName, bookingDateStr, isNri, [
                                 { chargeType: 'BASIC', amount: basicPortion },
                                 { chargeType: 'PLC', amount: plcPortion },
                                 { chargeType: 'OTHER CHARGE', amount: otherPortion },
+                                { chargeType: 'BALCONY', amount: balconyPortion },
                             ]);
                             const offsetDays = parseInt(tmpl.due_date_offset_days || 0);
                             // Two separate queries to avoid unreferenced $4/$5 params when due_date is NULL
