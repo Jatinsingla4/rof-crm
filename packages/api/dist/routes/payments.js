@@ -1764,16 +1764,8 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
         cheque_date: r.cheque_date,
     });
     // ── BALCONY SETUP ──────────────────────────────────────────────────────
-    const balconyAreaSqft = parseFloat(r.balcony_area_sqft || 0);
-    const balconyRateInrSqft = parseFloat(r.balcony_rate_inr_sqft || 0);
-    const balconyCapInr = parseFloat(r.balcony_rate_cap_inr || 0);
-    const hasBalcony = balconyAreaSqft > 0 && balconyRateInrSqft > 0;
-    let totalBalconyCharge = 0;
-    if (hasBalcony) {
-        totalBalconyCharge = balconyAreaSqft * balconyRateInrSqft;
-        if (balconyCapInr > 0 && totalBalconyCharge > balconyCapInr)
-            totalBalconyCharge = balconyCapInr;
-    }
+    const hasBalcony = r.balcony_charge_amount != null;
+    const totalBalconyCharge = parseFloat(r.balcony_charge_amount || 0);
     // ── TABLE CELL HELPERS ─────────────────────────────────────────────────
     const TH = (s, w) => `<th style="${w ? `width:${w};` : ''}background:#f0f0f0;border:1px solid #999;padding:4px 6px;font-size:10px;text-align:center">${s}</th>`;
     const TDx = (s, extra = '') => `<td style="border:1px solid #999;padding:4px 6px;font-size:10px;${extra}">${s}</td>`;
@@ -1827,11 +1819,13 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
         const pct = parseFloat(currentInst.percentage || 0);
         if (hasBalcony && pct > 0) {
             const balconyInstGross = Math.round(totalBalconyCharge * pct / 100);
-            const basicInstGross = Math.max(0, basicGross - balconyInstGross);
+            const balcCgst = Math.round(parseFloat(r.balcony_cgst_amount || 0) * pct / 100);
+            const balcSgst = Math.round(parseFloat(r.balcony_sgst_amount || 0) * pct / 100);
+            const basicInstGross = Math.max(0, basicGross - balconyInstGross - balcCgst - balcSgst);
             if (basicInstGross > 0) {
                 sNo++;
-                const instCgst = Math.round(basicInstGross * cgstFrac);
-                const instSgst = Math.round(basicInstGross * sgstFrac);
+                const instCgst = demandCgst - balcCgst;
+                const instSgst = demandSgst - balcSgst;
                 const instNet = basicInstGross - instCgst - instSgst;
                 sumNet += instNet;
                 sumCgst += instCgst;
@@ -1851,10 +1845,6 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
             }
             if (balconyInstGross > 0) {
                 sNo++;
-                const effectiveCgstRate = currentInst ? parseFloat(String(currentInst.cgst_amount || 0)) / (parseFloat(String(currentInst.amount_due_inr || 1)) || 1) : basicCgstPct / 100;
-                const effectiveSgstRate = currentInst ? parseFloat(String(currentInst.sgst_amount || 0)) / (parseFloat(String(currentInst.amount_due_inr || 1)) || 1) : basicSgstPct / 100;
-                const balcCgst = isNri ? 0 : Math.round(balconyInstGross * effectiveCgstRate);
-                const balcSgst = isNri ? 0 : Math.round(balconyInstGross * effectiveSgstRate);
                 const balcTotal = balconyInstGross + balcCgst + balcSgst;
                 sumNet += balconyInstGross;
                 sumCgst += balcCgst;
@@ -2217,6 +2207,7 @@ router.get('/receipts/:id/html', async (req, res, next) => {
           u.unit_number, u.floor, u.bhk_type,
           u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr, u.total_price_inr,
           u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
+          br.balcony_charge_amount, br.balcony_cgst_amount, br.balcony_sgst_amount,
           pp.total_amount_inr AS plan_total_inr,
           COALESCE(d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
           COALESCE(d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
@@ -2225,6 +2216,7 @@ router.get('/receipts/:id/html', async (req, res, next) => {
         LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
         LEFT JOIN projects p ON p.id = pp.project_id
         LEFT JOIN units u ON u.id = pp.unit_id
+        LEFT JOIN booking_records br ON br.consumer_id = r.consumer_id AND br.unit_id IS NOT NULL
         LEFT JOIN demands d ON d.id = r.demand_id
         LEFT JOIN LATERAL (
           SELECT gts.cgst_pct, gts.sgst_pct
