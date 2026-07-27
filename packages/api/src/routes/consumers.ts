@@ -1265,9 +1265,10 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
         [consumerId, row.unit_id],
       ),
       db.query(
-        `SELECT installment_index, due_date, status, amount_due_inr, addon_charge_amount, addon_cgst_amount, addon_sgst_amount, cgst_amount, sgst_amount
+        `SELECT id, installment_index, due_date, status, amount_due_inr, addon_charge_amount, addon_cgst_amount, addon_sgst_amount, cgst_amount, sgst_amount
          FROM demands
          WHERE consumer_id = $1
+           AND status != 'cancelled'
            AND payment_plan_id = (
              SELECT id FROM payment_plans
              WHERE consumer_id = $1
@@ -1311,6 +1312,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
         `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
                 addon_charge_amount, addon_cgst_amount, addon_sgst_amount
          FROM demands WHERE consumer_id = $1
+           AND status != 'cancelled'
            AND payment_plan_id = (
              SELECT id FROM payment_plans
              WHERE consumer_id = $1
