@@ -664,7 +664,7 @@ const DocsPage = {
                 <td style="font-size:10.5px">${(d.document_type||d.documentType||'—').replace(/_/g,' ')}</td>
                 <td>${Utils.chip(d.status||'generated')}</td>
                 <td>${Utils.chip(d.delivery_status||d.deliveryStatus||'pending')}</td>
-                <td style="font-size:10.5px">${Utils.date(d.created_at)}</td>
+                <td style="font-size:10.5px">${d.created_at ? `Generated on ${Utils.date(d.created_at)}` : '—'}</td>
                 <td><div style="display:flex;gap:4px">
                   <button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/${d.id}/pdf','_blank')">PDF</button>
                   ${d.delivery_status !== 'delivered' ? `<button class="btn btn-teal btn-sm" onclick="DocsPage.sendDoc('${d.id}',this)">Send</button>` : ''}
