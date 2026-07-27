@@ -1470,12 +1470,12 @@ function buildApplicantPage1(
 
   const netBasicPrice      = basePrice;
   const addonTotal         = addonCharges.reduce((sum: number, c: any) => sum + parseFloat(c.total_amount || 0), 0);
-  const agreementValue     = netBasicPrice + plcAmount + otherCharge + addonTotal + balconyChargeTotal;
+  const agreementValue     = netBasicPrice + plcAmount + otherCharge + addonTotal + balconyChargeAmount;
   const totalConsideration = agreementValue;
   // Split GST: basic+PLC at booking rate, other charges at their own GST rate
   const basicPlusPLC  = basePrice + plcAmount;
-  const cgst          = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) : 0;
-  const sgst          = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) : 0;
+  const cgst          = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
+  const sgst          = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
   const totalTax           = cgst + sgst;
   const totalWithTax       = totalConsideration + totalTax;
   const totalReceivables   = totalWithTax + interest;
@@ -1675,7 +1675,7 @@ function buildApplicantPage1(
       ${pRow('Add on Charges (Rs.)',
         `<span data-field-key="addonTotal" data-field-label="Add on Charges" data-value-type="currency" data-section="pricing" style="display:block;text-align:right;">${fmtIndianCurrency(addonTotal)}</span>`)}
       ${b.balcony_charge_amount != null ? pRow('Add: Balcony Charge (Rs.)',
-        `<span data-field-key="balconyChargeDisplay" data-field-label="Balcony Charge" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyChargeTotal)}</span>`
+        `<span data-field-key="balconyChargeDisplay" data-field-label="Balcony Charge" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyChargeAmount)}</span>`
       ) : ''}
       ${pRow('Agreement Value',
         `<span data-field-key="agreementValue" data-field-label="Agreement Value" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(agreementValue)}</span>`, true)}
