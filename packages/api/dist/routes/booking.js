@@ -1759,10 +1759,10 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         paidMap[Number(p.installment_index)] = parseFloat(p.total_paid || 0);
     });
     let schedRows = '';
-    let totPct = 0, totNetBsp = 0, totOther = 0, totAddon = 0, totInstAmt = 0;
+    let totPct = 0, totNetBsp = 0, totOther = 0, totAddon = 0, totBalcony = 0, totInstAmt = 0;
     let totCgst = 0, totSgst = 0, totNetDue = 0, totPaid = 0;
     if (filteredTemplates.length === 0) {
-        schedRows = `<tr><td colspan="13" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
+        schedRows = `<tr><td colspan="14" style="${baseFont}border:1px solid #999;padding:6px;text-align:center;">No payment plan selected</td></tr>`;
     }
     else {
         filteredTemplates.forEach((t, idx) => {
@@ -1773,6 +1773,23 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             // Use DB-stored amounts when available — avoids JS float rounding gap (e.g. 626.45 vs 626.00)
             const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst);
             const addonInst = dbAmt ? dbAmt.addon : 0;
+            // Remainder-derived so netBsp + balconyInst + otherInst + addonInst
+            // reconciles to instAmt exactly -- but some already-paid legacy demand
+            // rows carry a stale instAmt from before the current pricing model,
+            // unrelated to balcony, which would make the remainder wildly overstate
+            // balcony's share. Fall back to the independent pct-of-balcony estimate
+            // whenever the two diverge by more than Rs. 1000 (normal reconciliation
+            // drift seen across every verified row stays under Rs. 500; the stale
+            // legacy rows are off by Rs. 20,000+).
+            const independentBalcony = t.flat_amount_inr
+                ? 0
+                : Math.round(balconyChargeAmount * pct / 100);
+            const remainderBalcony = t.flat_amount_inr
+                ? 0
+                : Math.max(0, instAmt - netBsp - otherInst - addonInst);
+            const balconyInst = Math.abs(remainderBalcony - independentBalcony) > 1000
+                ? independentBalcony
+                : remainderBalcony;
             const instCgst = dbAmt ? dbAmt.cgst : Math.round((netBsp + otherInst) * cgstPct) / 100;
             const instSgst = dbAmt ? dbAmt.sgst : Math.round((netBsp + otherInst) * sgstPct) / 100;
             const addonCgstInst = dbAmt ? dbAmt.addonCgst : 0;
@@ -1787,6 +1804,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             totNetBsp += netBsp;
             totOther += otherInst;
             totAddon += addonInst;
+            totBalcony += balconyInst;
             totInstAmt += instAmt;
             totCgst += instCgst;
             totSgst += instSgst;
@@ -1798,6 +1816,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <td ${tdC}><span data-field-key="schedDueDate_${idx}" data-field-label="Due Date (Row ${idx})" data-value-type="date" data-section="payment_schedule">${dueDate}</span></td>
         <td ${tdR}><span data-field-key="schedPercentage_${idx}" data-field-label="Schedule % (Row ${idx})" data-value-type="percentage" data-section="payment_schedule">${pct.toFixed(2)}</span></td>
         <td ${tdR}>${fmtIndianNumber(netBsp)}</td>
+        <td ${tdR}>${fmtIndianNumber(balconyInst)}</td>
         <td ${tdR}>${fmtIndianNumber(otherInst)}</td>
         <td ${tdR}>${fmtIndianNumber(addonInst)}</td>
         <td ${tdR}><span data-field-key="schedAmount_${idx}" data-field-label="Amount (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianNumber(instAmt)}</span></td>
@@ -1814,6 +1833,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       <td ${tdBR} colspan="3">* Total:</td>
       <td ${tdBR}>${totPct.toFixed(2)}</td>
       <td ${tdBR}>${fmtIndianNumber(totNetBsp)}</td>
+      <td ${tdBR}>${fmtIndianNumber(totBalcony)}</td>
       <td ${tdBR}>${fmtIndianNumber(totOther)}</td>
       <td ${tdBR}>${fmtIndianNumber(totAddon)}</td>
       <td ${tdBR}>${fmtIndianNumber(totInstAmt)}</td>
@@ -1832,6 +1852,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         <th ${thStyle}>DUE DATE</th>
         <th ${thStyle}>%</th>
         <th ${thStyle}>NET BSP</th>
+        <th ${thStyle}>BALCONY CHARGE</th>
         <th ${thStyle}>OTHER CHARGES</th>
         <th ${thStyle}>ADDON CHARGES</th>
         <th ${thStyle}>INST. AMT. DUE</th>
