@@ -201,6 +201,7 @@ const UnitStatusPage = {
     under_construction:     'Allotted',
     oc_received:            'Allotted',
     possession_handed_over: 'Registry',
+    temp_surrender:         'Temp. Surrender',
   },
 
   // Row background colors matching legacy exactly
@@ -216,6 +217,7 @@ const UnitStatusPage = {
     under_construction:     '#a5d6a7',
     oc_received:            '#a5d6a7',
     possession_handed_over: '#e1bee7',
+    temp_surrender:         '#ef9a9a',
   },
 
   // Status filter button → set of DB status values
@@ -231,7 +233,7 @@ const UnitStatusPage = {
     allotted:       ['allotted','under_construction','oc_received'],
     rera_registered:['agreement_signed'],
     registry:       ['possession_handed_over'],
-    temp_surrender: [],
+    temp_surrender: ['temp_surrender'],
   },
 
   toggleFilters() {
@@ -417,6 +419,7 @@ const UnitStatusPage = {
     const allot   = units.filter(u => ['allotted','under_construction','oc_received'].includes(u.status||'')).length;
     const rera    = units.filter(u => u.status === 'agreement_signed').length;
     const reg     = units.filter(u => u.status === 'possession_handed_over').length;
+    const tempSur = units.filter(u => u.status === 'temp_surrender').length;
     const sold    = total - av;
     const totalArea = units.reduce((s,u) => s + parseFloat(u.carpet_area_sqft||0), 0);
 
@@ -438,7 +441,7 @@ const UnitStatusPage = {
         <span>Alloted Unit : <b>${allot}</b></span>
         <span>Rera Registered : <b>${rera}</b></span>
         <span>Registry Unit : <b>${reg}</b></span>
-        <span>Temp.Surrender Unit : <b>0</b></span>
+        <span>Temp.Surrender Unit : <b>${tempSur}</b></span>
         <span>Total Area : <b>${totalArea.toFixed(3)}</b></span>
         <span></span>
       </div>
