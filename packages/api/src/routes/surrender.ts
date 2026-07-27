@@ -306,6 +306,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     try {
       let surrenderId: string;
 
+      let preSurrenderUnitStatus: string | null = null;
+      if (type !== 'cancellation' && unitId) {
+        const unitRes = await db.query(`SELECT status FROM units WHERE id = $1`, [unitId]);
+        preSurrenderUnitStatus = unitRes.rows[0]?.status ?? null;
+      }
+
       if (type === 'cancellation') {
         const ins = await db.query(
           `INSERT INTO cancellations
@@ -347,8 +353,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
               penalty_base_amount, penalty_gst_amount, penalty_total_amount,
               extra_addon_charges, total_amount,
               gst_included, service_tax_included, vat_included, interest_included,
-              premium_amount, bank_noc, broker_noc, remark, created_by_user_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
+              premium_amount, bank_noc, broker_noc, remark, created_by_user_id,
+              pre_surrender_unit_status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
            RETURNING id`,
           [
             consumerId, allocationId, bookingId || null,
@@ -373,6 +380,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
             brokerNoc === true,
             remark || null,
             req.userId || null,
+            preSurrenderUnitStatus,
           ],
         );
         surrenderId = ins.rows[0].id;
@@ -384,7 +392,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         await db.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [bookingId]);
       }
       if (unitId) {
-        await db.query(`UPDATE units SET status = 'available' WHERE id = $1`, [unitId]);
+        const newUnitStatus = type === 'cancellation' ? 'available' : 'temp_surrender';
+        await db.query(`UPDATE units SET status = $2 WHERE id = $1`, [unitId, newUnitStatus]);
       }
 
       await db.query(
@@ -481,16 +490,20 @@ router.post('/restore', async (req: AuthRequest, res: Response, next: NextFuncti
 
     await db.query('BEGIN');
     try {
+      let preSurrenderUnitStatus: string | null = null;
+
       if (type === 'cancellation') {
         await db.query(
           `UPDATE cancellations SET refund_status = 'restored', updated_at = now() WHERE id = $1`,
           [surrenderId],
         );
       } else {
-        await db.query(
-          `UPDATE surrender_applications SET status = 'restored', updated_at = now() WHERE id = $1`,
+        const saRes = await db.query(
+          `UPDATE surrender_applications SET status = 'restored', updated_at = now() WHERE id = $1
+           RETURNING pre_surrender_unit_status`,
           [surrenderId],
         );
+        preSurrenderUnitStatus = saRes.rows[0]?.pre_surrender_unit_status ?? null;
       }
 
       await db.query(`UPDATE allocations SET status = 'allotted', updated_at = now() WHERE id = $1`, [allocationId]);
@@ -499,7 +512,11 @@ router.post('/restore', async (req: AuthRequest, res: Response, next: NextFuncti
         await db.query(`UPDATE booking_records SET status = 'complete' WHERE id = $1`, [bookingId]);
       }
       if (unitId) {
-        await db.query(`UPDATE units SET status = 'locked' WHERE id = $1`, [unitId]);
+        if (!preSurrenderUnitStatus) {
+          console.warn(`[surrender/restore] surrenderId=${surrenderId} unitId=${unitId} has no pre_surrender_unit_status snapshot (legacy row) -- falling back to 'locked'`);
+        }
+        const restoredUnitStatus = preSurrenderUnitStatus || 'locked';
+        await db.query(`UPDATE units SET status = $2 WHERE id = $1`, [unitId, restoredUnitStatus]);
       }
 
       await db.query('COMMIT');
