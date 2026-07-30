@@ -97,7 +97,7 @@ const CustomerFoldersPage = {
       list.map(c => {
         const name = Utils.formatName(c.first_name, c.last_name, c.name);
         const stage = c.lead_stage || c.leadStage || 'enquiry';
-        const docCount = c.document_count || c.documentCount || Math.floor(Math.random() * 8);
+        const docCount = Number(c.document_count ?? c.documentCount ?? 0);
         return `
           <div class="sp" style="cursor:pointer" onclick="CustomerFoldersPage.openFolder('${c.id}','${name.replace(/'/g,'\\x27')}')">
             <div class="sp-hdr" style="padding:10px 12px">

@@ -357,7 +357,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
                         b.name as broker_name, b.firm_name as broker_company_name,
                         co.name as second_applicant_name,
                         p.name as project_name,
-                        al.allotment_date
+                        al.allotment_date,
+                        (SELECT COUNT(*) FROM documents WHERE consumer_id = c.id) as document_count
                  FROM consumers c
                  LEFT JOIN units u ON c.allocated_unit_id = u.id
                  LEFT JOIN towers t ON u.tower_id = t.id
@@ -371,7 +372,11 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
                    SELECT name FROM co_applicants WHERE consumer_id = c.id LIMIT 1
                  ) co ON true
                  LEFT JOIN projects p ON c.project_id = p.id
-                 LEFT JOIN allocations al ON al.consumer_id = c.id AND al.unit_id = c.allocated_unit_id
+                 LEFT JOIN LATERAL (
+                   SELECT allotment_date FROM allocations
+                   WHERE consumer_id = c.id AND unit_id = c.allocated_unit_id
+                   ORDER BY (status = 'allotted') DESC, created_at DESC LIMIT 1
+                 ) al ON true
                  WHERE 1=1`;
     const params: any[] = [];
 
