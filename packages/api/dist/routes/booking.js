@@ -1878,11 +1878,11 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     const netBookingBase = bookingAmt - cgstAmt - sgstAmt;
     // Receipt-table-specific styles (9px font, tighter padding, no nowrap)
     const rFont = 'font-family:Arial,sans-serif;font-size:9px;color:#000;';
-    const rthS = `style="${rFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:2px 3px;text-align:center;overflow-wrap:break-word;"`;
-    const rtdC = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:center;"`;
-    const rtdL = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:left;"`;
-    const rtdR = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;"`;
-    const rtdRN = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;white-space:nowrap;"`;
+    const rthS = (widthPct) => `style="${rFont}font-weight:700;background:#e8e8e8;border:1px solid #999;padding:2px 3px;text-align:center;overflow-wrap:break-word;box-sizing:border-box;width:${widthPct}%;"`;
+    const rtdC = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:center;box-sizing:border-box;overflow-wrap:break-word;"`;
+    const rtdL = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:left;box-sizing:border-box;overflow-wrap:break-word;"`;
+    const rtdR = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;box-sizing:border-box;overflow-wrap:break-word;"`;
+    const rtdRN = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;white-space:nowrap;box-sizing:border-box;overflow-wrap:break-word;"`;
     const rtdBR = `style="${rFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
     const receiptTableRows = receiptRows.length > 0
         ? receiptRows.map((r, i) => {
@@ -1951,30 +1951,30 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         Deposited
       </span>
     </div>
-    <div style="overflow-x:auto;">
-    <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+    <div style="overflow-x:visible;">
+    <table style="width:100%;border-collapse:collapse;table-layout:fixed;box-sizing:border-box;">
       <thead><tr>
-        <th ${rthS} style="width:3%">S.NO.</th>
-        <th ${rthS} style="width:7%">RECEIPT NO.</th>
-        <th ${rthS} style="width:5%">RECEIPT DATE</th>
-        <th ${rthS} style="width:3%">MODE</th>
-        <th ${rthS} style="width:4%">INSTRUMENT NO.</th>
-        <th ${rthS} style="width:5%">INSTRUMENT DATE</th>
-        <th ${rthS} style="width:10%">DRAWN ON</th>
-        <th ${rthS} style="width:4%">CLEARING BANK</th>
-        <th ${rthS} style="width:5%">DEPOSIT DATE</th>
-        <th ${rthS} style="width:5%">CLEARING DATE</th>
-        <th ${rthS} style="width:2%">BOUNCE DATE</th>
-        <th ${rthS} style="width:7%">AMOUNT</th>
-        <th ${rthS} style="width:6%">CGST</th>
-        <th ${rthS} style="width:6%">SGST</th>
-        <th ${rthS} style="width:4%">INTEREST</th>
-        <th ${rthS} style="width:2%">EXTRA</th>
-        <th ${rthS} style="width:7%">NET AMOUNT</th>
-        <th ${rthS} style="width:5%">PAYMENT STATUS</th>
-        <th ${rthS} style="width:4%">HOLD REMARKS</th>
-        <th ${rthS} style="width:2%">REMARK</th>
-        <th ${rthS} style="width:4%">ON ACCOUNT OF</th>
+        <th ${rthS(2)}>S.NO.</th>
+        <th ${rthS(5)}>RECEIPT NO.</th>
+        <th ${rthS(3)}>RECEIPT DATE</th>
+        <th ${rthS(6)}>MODE</th>
+        <th ${rthS(3)}>INSTRUMENT NO.</th>
+        <th ${rthS(3)}>INSTRUMENT DATE</th>
+        <th ${rthS(8)}>DRAWN ON</th>
+        <th ${rthS(3)}>CLEARING BANK</th>
+        <th ${rthS(3)}>DEPOSIT DATE</th>
+        <th ${rthS(3)}>CLEARING DATE</th>
+        <th ${rthS(2)}>BOUNCE DATE</th>
+        <th ${rthS(9)}>AMOUNT</th>
+        <th ${rthS(7)}>CGST</th>
+        <th ${rthS(7)}>SGST</th>
+        <th ${rthS(5)}>INTEREST</th>
+        <th ${rthS(4)}>EXTRA</th>
+        <th ${rthS(9)}>NET AMOUNT</th>
+        <th ${rthS(4)}>PAYMENT STATUS</th>
+        <th ${rthS(3)}>HOLD REMARKS</th>
+        <th ${rthS(3)}>REMARK</th>
+        <th ${rthS(8)}>ON ACCOUNT OF</th>
       </tr></thead>
       <tbody>${receiptTableRows}</tbody>
       <tfoot>
