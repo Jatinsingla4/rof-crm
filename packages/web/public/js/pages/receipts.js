@@ -928,8 +928,8 @@ const ReceiptsPage = {
             <tbody>
               ${list.map(r => {
                 const amt = parseFloat(r.amount || 0);
-                const cgst = amt * 0.005;
-                const sgst = amt * 0.005;
+                const cgst = parseFloat(r.cgst_amount || 0);
+                const sgst = parseFloat(r.sgst_amount || 0);
                 const total = amt;
                 return `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>

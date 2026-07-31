@@ -435,7 +435,10 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
             method, userId, advanceNum, sourceId]);
         const advanceReceiptId = advanceReceiptRes.rows[0].id;
         await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);
-        const advanceGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, advanceReceiptId, excess, nextId, null, null);
+        const planProjectRes = await client.query(`SELECT project_id FROM payment_plans WHERE id = $1`, [paymentPlanId]);
+        const advanceProjectId = planProjectRes.rows[0]?.project_id || null;
+        const advanceReceivedDate = new Date().toISOString().split('T')[0];
+        const advanceGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, excess, advanceProjectId, advanceReceivedDate);
         await client.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [advanceGstSplit.cgstAmount, advanceGstSplit.sgstAmount, advanceReceiptId]);
         const nextPaidResult = await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
        FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [nextId]);

@@ -307,19 +307,16 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         }
       }
 
-      // Resolve and persist cgst_amount/sgst_amount for this receipt
-      let gstProjectId: string | null = null;
-      let gstBookingDate: string | null = null;
-      if (!gstDemandId) {
-        const bookingInfo = await matchClient.query(
-          `SELECT project_id, booking_date FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`,
-          [consumerId]
-        );
-        gstProjectId = bookingInfo.rows[0]?.project_id || null;
-        gstBookingDate = bookingInfo.rows[0]?.booking_date || null;
-      }
+      // Resolve and persist cgst_amount/sgst_amount for this receipt --
+      // always independent of demand linkage, using the receipt's own
+      // project + received_date.
+      const bookingInfo = await matchClient.query(
+        `SELECT project_id FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [consumerId]
+      );
+      const gstProjectId: string | null = bookingInfo.rows[0]?.project_id || null;
       const gstSplit = await computeReceiptGstSplit(
-        matchClient, receiptId, parseFloat(amount), gstDemandId, gstProjectId, gstBookingDate
+        matchClient, parseFloat(amount), gstProjectId, receiptDate
       );
       await matchClient.query(
         `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,
@@ -1074,6 +1071,7 @@ router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFuncti
 
     let query = `SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index,
                         r.consumer_id, r.amount_received_inr, r.payment_method,
+                        r.cgst_amount, r.sgst_amount,
                         r.transaction_ref, r.received_date, r.created_at,
                         r.status, r.approval_status, r.bank_name,
                         r.print_status, r.printed_at,
