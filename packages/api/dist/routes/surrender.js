@@ -270,6 +270,13 @@ router.post('/', async (req, res, next) => {
                 const unitRes = await index_js_1.db.query(`SELECT status FROM units WHERE id = $1`, [unitId]);
                 preSurrenderUnitStatus = unitRes.rows[0]?.status ?? null;
             }
+            let cancelledDemandSnapshot = null;
+            if (type !== 'cancellation') {
+                const demandsRes = await index_js_1.db.query(`SELECT id, status FROM demands
+           WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded')
+           AND demand_type IN ('installment', 'bounce_penalty')`, [consumerId]);
+                cancelledDemandSnapshot = JSON.stringify(demandsRes.rows.map((r) => ({ demand_id: r.id, previous_status: r.status })));
+            }
             if (type === 'cancellation') {
                 const ins = await index_js_1.db.query(`INSERT INTO cancellations
              (consumer_id, allocation_id, booking_record_id, cancellation_date,
@@ -309,8 +316,8 @@ router.post('/', async (req, res, next) => {
               extra_addon_charges, total_amount,
               gst_included, service_tax_included, vat_included, interest_included,
               premium_amount, bank_noc, broker_noc, remark, created_by_user_id,
-              pre_surrender_unit_status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
+              pre_surrender_unit_status, cancelled_demand_snapshot)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)
            RETURNING id`, [
                     consumerId, allocationId, bookingId || null,
                     projectId || null, unitId || null,
@@ -335,6 +342,7 @@ router.post('/', async (req, res, next) => {
                     remark || null,
                     req.userId || null,
                     preSurrenderUnitStatus,
+                    cancelledDemandSnapshot,
                 ]);
                 surrenderId = ins.rows[0].id;
             }
@@ -434,8 +442,17 @@ router.post('/restore', async (req, res, next) => {
             }
             else {
                 const saRes = await index_js_1.db.query(`UPDATE surrender_applications SET status = 'restored', updated_at = now() WHERE id = $1
-           RETURNING pre_surrender_unit_status`, [surrenderId]);
+           RETURNING pre_surrender_unit_status, cancelled_demand_snapshot`, [surrenderId]);
                 preSurrenderUnitStatus = saRes.rows[0]?.pre_surrender_unit_status ?? null;
+                const cancelledDemandSnapshot = saRes.rows[0]?.cancelled_demand_snapshot ?? null;
+                if (cancelledDemandSnapshot) {
+                    for (const entry of cancelledDemandSnapshot) {
+                        await index_js_1.db.query(`UPDATE demands SET status = $2 WHERE id = $1 AND status = 'cancelled'`, [entry.demand_id, entry.previous_status]);
+                    }
+                }
+                else {
+                    console.warn(`[surrender/restore] surrenderId=${surrenderId} has no cancelled_demand_snapshot (legacy row) -- demands not reversed`);
+                }
             }
             await index_js_1.db.query(`UPDATE allocations SET status = 'allotted', updated_at = now() WHERE id = $1`, [allocationId]);
             await index_js_1.db.query(`UPDATE consumers SET lead_stage = 'allotted' WHERE id = $1`, [consumerId]);
