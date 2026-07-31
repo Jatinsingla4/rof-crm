@@ -1140,7 +1140,7 @@ function amtWords(amount) {
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
 // ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, demands = []) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -1184,8 +1184,13 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const totalConsideration = agreementValue;
     // Split GST: basic+PLC at booking rate, other charges at their own GST rate
     const basicPlusPLC = basePrice + plcAmount;
-    const cgst = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
-    const sgst = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+    const activeDemands = demands.filter((d) => d.status !== 'cancelled');
+    const demandCgstSum = activeDemands.reduce((s, d) => s + Number(d.cgst_amount || 0), 0);
+    const demandSgstSum = activeDemands.reduce((s, d) => s + Number(d.sgst_amount || 0), 0);
+    const holisticCgst = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
+    const holisticSgst = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+    const cgst = (activeDemands.length > 0 && Math.abs(demandCgstSum - holisticCgst) <= 1000) ? demandCgstSum : holisticCgst;
+    const sgst = (activeDemands.length > 0 && Math.abs(demandSgstSum - holisticSgst) <= 1000) ? demandSgstSum : holisticSgst;
     const totalTax = cgst + sgst;
     const totalWithTax = totalConsideration + totalTax;
     const totalReceivables = totalWithTax + interest;
@@ -2328,7 +2333,7 @@ async function buildApplicantPage3(b, consumer, settings, documentDispatches, co
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
 async function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, consumerId = '') {
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
     const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

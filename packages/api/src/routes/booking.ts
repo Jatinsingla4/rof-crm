@@ -1427,6 +1427,7 @@ function buildApplicantPage1(
   totalWaivedInr: number = 0,
   otherChargeCgstPct: number = 0,
   otherChargeSgstPct: number = 0,
+  demands: any[] = [],
 ): string {
 
   // ── derived values ──────────────────────
@@ -1474,8 +1475,13 @@ function buildApplicantPage1(
   const totalConsideration = agreementValue;
   // Split GST: basic+PLC at booking rate, other charges at their own GST rate
   const basicPlusPLC  = basePrice + plcAmount;
-  const cgst          = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
-  const sgst          = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+  const activeDemands = demands.filter((d: any) => d.status !== 'cancelled');
+  const demandCgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.cgst_amount || 0), 0);
+  const demandSgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.sgst_amount || 0), 0);
+  const holisticCgst  = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
+  const holisticSgst  = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+  const cgst          = (activeDemands.length > 0 && Math.abs(demandCgstSum - holisticCgst) <= 1000) ? demandCgstSum : holisticCgst;
+  const sgst          = (activeDemands.length > 0 && Math.abs(demandSgstSum - holisticSgst) <= 1000) ? demandSgstSum : holisticSgst;
   const totalTax           = cgst + sgst;
   const totalWithTax       = totalConsideration + totalTax;
   const totalReceivables   = totalWithTax + interest;
@@ -2762,7 +2768,7 @@ export async function buildApplicantFileHtml(
   otherChargeSgstPct: number = 0,
   consumerId: string = '',
 ): Promise<string> {
-  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct);
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
   const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);
 
