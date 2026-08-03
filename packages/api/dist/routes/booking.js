@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
+const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const router = (0, express_1.Router)();
@@ -820,6 +821,8 @@ router.patch('/:id', async (req, res, next) => {
                             booking.cheque_date || null,
                         ]);
                         const stepGReceiptId = stepGReceiptRes.rows[0].id;
+                        const stepGGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, bookingAmt, booking.project_id, bookingDateStr);
+                        await client.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [stepGGstSplit.cgstAmount, stepGGstSplit.sgstAmount, stepGReceiptId]);
                         // Auto-raise installment 1 from this Step-G receipt, same as a
                         // manual receipt would via POST /payments/receipts.
                         await (0, payment_waterfall_js_1.checkAndAutoRaiseInstallment1)(client, paymentPlanId, stepGReceiptId, bookingDateStr, req.userId || null);

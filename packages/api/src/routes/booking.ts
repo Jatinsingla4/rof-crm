@@ -9,6 +9,7 @@ import { AuthRequest } from '../index.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
+import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { recomputeAddonDemands } from './addon-charges.js';
 import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 
@@ -1079,6 +1080,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               ]
             );
             const stepGReceiptId = stepGReceiptRes.rows[0].id;
+
+            const stepGGstSplit = await computeReceiptGstSplit(client, bookingAmt, booking.project_id, bookingDateStr);
+            await client.query(
+              `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,
+              [stepGGstSplit.cgstAmount, stepGGstSplit.sgstAmount, stepGReceiptId]
+            );
 
             // Auto-raise installment 1 from this Step-G receipt, same as a
             // manual receipt would via POST /payments/receipts.
