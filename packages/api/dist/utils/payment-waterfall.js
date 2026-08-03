@@ -99,7 +99,7 @@ function buildInterestRows(receipts, demands, penalRate, options) {
                 due_amount: dueAmt,
                 amount_received: applied,
                 date_received: rcvdDate,
-                delay_amount: delayAmt,
+                delay_amount: Math.max(0, balance),
                 delay_days: delayDays,
                 grace_period: graceDays,
                 interest_period: intPeriod,
