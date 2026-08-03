@@ -141,6 +141,7 @@ export function buildInterestRows(
     let balance   = dueAmt;
     let isFirst   = true;
     let anyApplied = false;
+    let lastEventDate = dueDate;
 
     const effectiveRate = (demand.interest_rate_percent != null && demand.interest_rate_percent > 0)
       ? Number(demand.interest_rate_percent)
@@ -150,8 +151,8 @@ export function buildInterestRows(
       const balanceBeforePayment = balance;
       balance -= applied;
       let delayDays = 0;
-      if (dueDate && rcvdDate) {
-        const diff = Math.floor((rcvdDate.getTime() - dueDate.getTime()) / 86400000);
+      if (lastEventDate && rcvdDate) {
+        const diff = Math.floor((rcvdDate.getTime() - lastEventDate.getTime()) / 86400000);
         delayDays  = Math.max(0, diff);
       }
       const delayAmt  = Math.max(0, balanceBeforePayment);
@@ -177,6 +178,7 @@ export function buildInterestRows(
       });
       isFirst    = false;
       anyApplied = true;
+      lastEventDate = rcvdDate;
     };
 
     // Pre-allocated credits first
@@ -192,6 +194,35 @@ export function buildInterestRows(
       const applied = Math.min(entry.remaining, balance);
       entry.remaining -= applied;
       applyCredit(applied, entry.received_date);
+    }
+
+    if (anyApplied && balance > 0) {
+      const asOf = options?.asOfDate ?? null;
+      const anchorDate = (lastEventDate && dueDate)
+        ? new Date(Math.max(lastEventDate.getTime(), dueDate.getTime()))
+        : (lastEventDate ?? dueDate);
+      const delayDays = asOf && anchorDate
+        ? Math.max(0, Math.floor((asOf.getTime() - anchorDate.getTime()) / 86400000))
+        : 0;
+      const intPeriod = Math.max(0, delayDays - graceDays);
+      const intAmt = balance > 0 && intPeriod > 0
+        ? Math.round(balance * effectiveRate / 100 / 365 * intPeriod * 100) / 100
+        : 0;
+      rows.push({
+        installment_name:  demand.installment_name,
+        installment_index: demand.installment_index,
+        installment_date:  dueDate,
+        due_amount:        dueAmt,
+        amount_received:   0,
+        date_received:     null,
+        delay_amount:      balance,
+        delay_days:        delayDays,
+        grace_period:      graceDays,
+        interest_period:   intPeriod,
+        roi:               effectiveRate,
+        interest_amount:   intAmt,
+        is_first_receipt:  false,
+      });
     }
 
     if (!anyApplied) {

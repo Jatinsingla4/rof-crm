@@ -3819,6 +3819,7 @@ router.post('/consumer-interest-detail/:consumerId', async (req, res, next) => {
         const allRows = (0, payment_waterfall_js_1.buildInterestRows)(receiptsRes.rows, demands, penalRate, {
             interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
             gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
+            asOfDate: new Date(),
         });
         const interestRows = allRows.filter((r) => r.interest_amount > 0);
         // Snapshot existing waived amounts before DELETE so they survive the re-insert

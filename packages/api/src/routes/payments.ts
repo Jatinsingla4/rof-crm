@@ -4364,6 +4364,7 @@ router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, re
     const allRows = buildInterestRows(receiptsRes.rows, demands, penalRate, {
       interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
       gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
+      asOfDate:          new Date(),
     });
     const interestRows = allRows.filter((r: any) => r.interest_amount > 0);
 

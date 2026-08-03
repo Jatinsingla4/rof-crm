@@ -899,6 +899,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
           c.comm_address_line1, c.comm_city, c.comm_state, c.comm_pin, c.comm_country,
           c.form_no AS consumer_form_no, c.registration_no AS consumer_reg_no,
           c.income_category, c.lead_stage, c.annual_income,
+          c.grace_period_days, c.interest_start_date,
           u.unit_number, u.floor, u.bhk_type,
           u.carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
           u.base_price_inr, u.total_price_inr, u.facing,
@@ -1162,6 +1163,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         const interestCalcRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForInterest, penalRate, {
             interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
             gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
+            asOfDate: new Date(),
         });
         // ─────────────────────────────────────────
         const waiverRes = await index_js_1.db.query(`SELECT COALESCE(SUM(waiver_amount_inr), 0) AS total_waived
