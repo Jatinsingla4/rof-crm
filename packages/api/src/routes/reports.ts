@@ -987,7 +987,7 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
       rows.map(async (row: any) => {
         const consumerId = row.consumer_id;
         const unitId     = row.unit_id;
-        const [rcptsRes, demandsRes, piRes, settingsRes] = await Promise.all([
+        const [rcptsRes, demandsRes, piRes, settingsRes, consumerRes] = await Promise.all([
           db.query(
             `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
              FROM receipts
@@ -1020,8 +1020,13 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
             [consumerId]
           ),
           db.query(`SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent' LIMIT 1`),
+          db.query(`SELECT grace_period_days, interest_start_date FROM consumers WHERE id = $1`, [consumerId]),
         ]);
         const penalRate = parseFloat(settingsRes.rows[0]?.value || '15');
+        const gracePeriodDays  = parseInt(String(consumerRes.rows[0]?.grace_period_days || 0));
+        const interestStartDate = consumerRes.rows[0]?.interest_start_date
+          ? new Date(String(consumerRes.rows[0].interest_start_date))
+          : null;
         const piMap = new Map<number, number>();
         for (const pi of piRes.rows) {
           if (parseFloat(pi.net_interest_inr) > 0) {
@@ -1032,7 +1037,7 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
           rcptsRes.rows,
           demandsRes.rows.map((d: any) => ({ ...d, installment_name: d.demand_type || String(d.installment_index) })),
           penalRate,
-          { asOfDate: new Date() }
+          { asOfDate: new Date(), gracePeriodDays, interestStartDate }
         );
         let totalInterest = 0;
         for (const ir of irRows) {
