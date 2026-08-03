@@ -2024,11 +2024,13 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const instDate = fmtDDMMYYYY(ir.installment_date);
             const rcvdDate = ir.date_received ? fmtDDMMYYYY(ir.date_received) : '—';
             const amtRecd = ir.amount_received > 0 ? fmtIndianNumber(ir.amount_received) : '—';
-            const delayAmt = ir.delay_amount > 0
-                ? fmtIndianNumber(ir.delay_amount)
-                : ir.delay_amount < 0
-                    ? fmtIndianNumber(Math.abs(ir.delay_amount)) + '(Adv)'
-                    : '0.00';
+            const delayAmt = (ir.amount_received === 0 && ir.is_first_receipt === true)
+                ? '--'
+                : ir.delay_amount > 0
+                    ? fmtIndianNumber(ir.delay_amount)
+                    : ir.delay_amount < 0
+                        ? fmtIndianNumber(Math.abs(ir.delay_amount)) + '(Adv)'
+                        : '0.00';
             const roiFmt = ir.roi > 0 ? ir.roi.toFixed(2) + '%' : '—';
             const intPrdFmt = ir.interest_period > 0 ? String(ir.interest_period) : '—';
             if (ir.is_first_receipt) {

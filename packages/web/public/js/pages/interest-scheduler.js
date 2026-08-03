@@ -331,7 +331,7 @@
         <td>${row.installment_name}</td>
         <td>${row.installment_date ? new Date(row.installment_date).toLocaleDateString('en-IN') : '—'}</td>
         <td>${row.delay_days}</td>
-        <td>&#8377;${Math.round(row.delay_amount).toLocaleString('en-IN')}</td>
+        <td>${(row.amount_received === 0 && row.is_first_receipt === true) ? '--' : '&#8377;' + Math.round(row.delay_amount).toLocaleString('en-IN')}</td>
         <td style="color:#c0392b;font-weight:600;">&#8377;${row.interest_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>`;
           });

@@ -253,7 +253,7 @@ const InterestWaiver = (() => {
         <td style="${tdS}">${fmtDate(r.installment_date)}</td>
         <td style="${tdR}">${fmt(r.amount_received)}</td>
         <td style="${tdS}">${fmtDate(r.date_received)}</td>
-        <td style="${tdR}">${fmt(r.delay_amount)}</td>
+        <td style="${tdR}">${(r.amount_received === 0 && r.is_first_receipt === true) ? '--' : fmt(r.delay_amount)}</td>
         <td style="${tdS}">${r.delay_days != null ? r.delay_days : ''}</td>
         <td style="${tdS}">${r.roi != null ? r.roi : ''}</td>
         <td style="${tdR}">${fmt(r.interest_amount)}</td>
