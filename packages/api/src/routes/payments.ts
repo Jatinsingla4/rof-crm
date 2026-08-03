@@ -1784,21 +1784,8 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']
     );
 
-    // 5. Create a "Penalty" demand (requires valid payment_plan_id — NOT NULL constraint)
-    if (!payment_plan_id) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Cannot raise penalty demand: receipt has no linked payment plan.' });
-    }
-    await client.query(
-      `INSERT INTO demands (
-         consumer_id, payment_plan_id, installment_index,
-         amount_due_inr, status, demand_type, due_date
-       ) VALUES ($1, $2, $3, $4, 'pending', 'bounce_penalty', CURRENT_DATE + INTERVAL '7 days')`,
-      [consumer_id, payment_plan_id, installment_index, penaltyAmount]
-    );
-
     await client.query('COMMIT');
-    res.json({ success: true, message: 'Receipt marked as bounced. Penalty raised.' });
+    res.json({ success: true, message: 'Receipt marked as bounced.' });
 
   } catch (error) {
     await client.query('ROLLBACK');

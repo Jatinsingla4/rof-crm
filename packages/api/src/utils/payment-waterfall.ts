@@ -151,7 +151,7 @@ export function buildInterestRows(
       const balanceBeforePayment = balance;
       balance -= applied;
       let delayDays = 0;
-      if (lastEventDate && rcvdDate) {
+      if (dueDate && lastEventDate && rcvdDate) {
         const diff = Math.floor((rcvdDate.getTime() - lastEventDate.getTime()) / 86400000);
         delayDays  = Math.max(0, diff);
       }
@@ -198,16 +198,21 @@ export function buildInterestRows(
 
     if (anyApplied && balance > 0) {
       const asOf = options?.asOfDate ?? null;
-      const anchorDate = (lastEventDate && dueDate)
-        ? new Date(Math.max(lastEventDate.getTime(), dueDate.getTime()))
-        : (lastEventDate ?? dueDate);
-      const delayDays = asOf && anchorDate
-        ? Math.max(0, Math.floor((asOf.getTime() - anchorDate.getTime()) / 86400000))
-        : 0;
-      const intPeriod = Math.max(0, delayDays - graceDays);
-      const intAmt = balance > 0 && intPeriod > 0
-        ? Math.round(balance * effectiveRate / 100 / 365 * intPeriod * 100) / 100
-        : 0;
+      let delayDays = 0;
+      let intPeriod = 0;
+      let intAmt = 0;
+      if (dueDate) {
+        const anchorDate = lastEventDate
+          ? new Date(Math.max(lastEventDate.getTime(), dueDate.getTime()))
+          : dueDate;
+        delayDays = asOf
+          ? Math.max(0, Math.floor((asOf.getTime() - anchorDate.getTime()) / 86400000))
+          : 0;
+        intPeriod = Math.max(0, delayDays - graceDays);
+        intAmt = balance > 0 && intPeriod > 0
+          ? Math.round(balance * effectiveRate / 100 / 365 * intPeriod * 100) / 100
+          : 0;
+      }
       rows.push({
         installment_name:  demand.installment_name,
         installment_index: demand.installment_index,
