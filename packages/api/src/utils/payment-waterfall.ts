@@ -168,7 +168,7 @@ export function buildInterestRows(
         due_amount:        dueAmt,
         amount_received:   applied,
         date_received:     rcvdDate,
-        delay_amount:      Math.max(0, balance),
+        delay_amount:      intAmt > 0 ? Math.max(0, delayAmt) : Math.max(0, balance),
         delay_days:        delayDays,
         grace_period:      graceDays,
         interest_period:   intPeriod,
