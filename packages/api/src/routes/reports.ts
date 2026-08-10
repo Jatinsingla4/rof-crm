@@ -1262,10 +1262,12 @@ router.get('/project-collection', async (req: AuthRequest, res: Response, next: 
         p.name AS project_name,
         COALESCE(SUM(CASE WHEN r.payment_method = 'cheque'
           AND r.status != 'cancelled'${rdw} THEN r.amount_received_inr END), 0)  AS cheque_amount,
-        0::numeric                                                               AS draft_amount,
+        COALESCE(SUM(CASE WHEN r.payment_method = 'demand_draft'
+          AND r.status != 'cancelled'${rdw} THEN r.amount_received_inr END), 0)  AS draft_amount,
         COALESCE(SUM(CASE WHEN r.payment_method IN ('neft','rtgs','upi','bank_transfer')
           AND r.status != 'cancelled'${rdw} THEN r.amount_received_inr END), 0)  AS online_amount,
-        0::numeric                                                               AS cash_amount,
+        COALESCE(SUM(CASE WHEN r.payment_method = 'cash'
+          AND r.status != 'cancelled'${rdw} THEN r.amount_received_inr END), 0)  AS cash_amount,
         COALESCE(SUM(CASE WHEN r.status != 'cancelled'${rdw}
           THEN r.amount_received_inr END), 0)                                    AS total_amount,
         COUNT(CASE WHEN r.status != 'cancelled'${rdw} THEN 1 END)               AS normal_count,
