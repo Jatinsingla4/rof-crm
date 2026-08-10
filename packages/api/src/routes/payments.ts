@@ -153,7 +153,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       referenceNumber, bankName, branch, remarks,
       baseAmount, plcAmount, edcAmount, idcAmount,
       otherChargeAmount, otherChargeDesc, interestAmount,
-      isOtherPayment,
+      isOtherPayment, isAdjustment,
       // legacy fields
       paymentPlanId: legacyPlanId, installmentIndex: legacyIdx,
       paymentMethod, transactionRef, receivedDate,
@@ -234,13 +234,13 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,
           payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,
           plc_amount, edc_amount, idc_amount, other_charge_amount, other_charge_desc, interest_amount,
-          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed')
+          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status, is_adjustment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed', $20)
        RETURNING id, receipt_number, amount_received_inr, plc_amount, edc_amount, idc_amount, other_charge_amount, interest_amount, status`,
       [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber,
        parseFloat(plcAmount||0), parseFloat(edcAmount||0), parseFloat(idcAmount||0),
        parseFloat(otherChargeAmount||0), otherChargeDesc||null, parseFloat(interestAmount||0),
-       bankNameVal, branchVal, chequeNoVal, chequeDateVal]
+       bankNameVal, branchVal, chequeNoVal, chequeDateVal, !!isAdjustment]
     );
 
     const receiptId = result.rows[0].id;
@@ -3094,10 +3094,11 @@ async function saveReceipt() {
   const totalAmount = amount + interest + gstInterest;
 
   const modeMap = {
-    'Cheque':'cheque','Draft':'cheque','Online':'neft_rtgs',
-    'Cash':'cash','Card':'card','Adjust':'cash',
-    'Dealer Adjustment':'cash','TDS Challan':'cash'
+    'Cheque':'cheque','Draft':'demand_draft','Online':'bank_transfer',
+    'Cash':'cash','Card':'card','Adjust':'cheque',
+    'Dealer Adjustment':'cheque','TDS Challan':'tds_challan'
   };
+  const adjustmentTabs = { 'Adjust':true, 'Dealer Adjustment':true };
 
   const bankName = getFieldVal('rf-bank') || getFieldVal('rf-bank-online') || getFieldVal('rf-bank-draft') || '';
   const branch = getFieldVal('rf-branch') || getFieldVal('rf-branch-online') || getFieldVal('rf-branch-draft') || '';
@@ -3111,6 +3112,7 @@ async function saveReceipt() {
     interestAmount: interest || undefined,
     paymentDate: receiptDate,
     paymentMode: modeMap[currentTab] || 'cash',
+    isAdjustment: adjustmentTabs[currentTab] || undefined,
     bankName: bankName || undefined,
     branch: branch || undefined,
     chequeNo: chequeNo || undefined,
