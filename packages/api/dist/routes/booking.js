@@ -1558,6 +1558,13 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <tbody>${parkingRows}</tbody>
     </table>`;
     // ── SECTION 9 — TAX DETAILS ───────────────
+    // Compute cleared receipt totals (also used by Payment Contribution below)
+    const clearedReceipts = (receiptRows || []).filter((r) => r.status === 'cleared');
+    // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
+    const clearedBase = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
+    const clearedCgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.cgst_amount || 0), 0);
+    const clearedSgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.sgst_amount || 0), 0);
+    const clearedInterest = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.interest_amount || 0), 0);
     const taxSection = `
     <div ${sectionHd}>Tax Details</div>
     <table style="width:100%;border-collapse:collapse;">
@@ -1569,31 +1576,24 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
         <tr>
           <td ${tdStyle}>1</td><td ${tdL}>CGST</td>
           <td ${tdR}>${fmtIndianNumber(cgst)}</td>
-          <td ${tdR}>${fmtIndianNumber(cgst)}</td>
-          <td ${tdR}>0.00</td>
+          <td ${tdR}>${fmtIndianNumber(clearedCgst)}</td>
+          <td ${tdR}>${fmtIndianNumber(cgst - clearedCgst)}</td>
         </tr>
         <tr>
           <td ${tdStyle}>2</td><td ${tdL}>SGST</td>
           <td ${tdR}>${fmtIndianNumber(sgst)}</td>
-          <td ${tdR}>${fmtIndianNumber(sgst)}</td>
-          <td ${tdR}>0.00</td>
+          <td ${tdR}>${fmtIndianNumber(clearedSgst)}</td>
+          <td ${tdR}>${fmtIndianNumber(sgst - clearedSgst)}</td>
         </tr>
       </tbody>
       <tfoot><tr>
         <td colspan="2" style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
         <td ${tdR}><strong>${fmtIndianNumber(totalTax)}</strong></td>
-        <td ${tdR}><strong>${fmtIndianNumber(totalTax)}</strong></td>
-        <td ${tdR}><strong>0.00</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(clearedCgst + clearedSgst)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber((cgst - clearedCgst) + (sgst - clearedSgst))}</strong></td>
       </tr></tfoot>
     </table>`;
     // ── SECTION 10 — PAYMENT CONTRIBUTION ────
-    // Compute cleared receipt totals for Payment Contribution table
-    const clearedReceipts = (receiptRows || []).filter((r) => r.status === 'cleared');
-    // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
-    const clearedBase = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
-    const clearedCgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.cgst_amount || 0), 0);
-    const clearedSgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.sgst_amount || 0), 0);
-    const clearedInterest = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.interest_amount || 0), 0);
     const contribAmt = clearedBase;
     const contribCgst = clearedCgst;
     const contribSgst = clearedSgst;
