@@ -2814,11 +2814,10 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
     </div>`;
 
   const onlineInstrRow = `
-    <div style="display:grid;grid-template-columns:1fr 150px 1fr 1fr 1fr;gap:8px;align-items:end;">
+    <div style="display:grid;grid-template-columns:1fr 150px 1fr 1fr;gap:8px;align-items:end;">
       <div><label class="lbl">Transaction Ref.</label><input type="text" id="rf-txn-ref" style="${inp}"></div>
       <div><label class="lbl">Transaction Date</label><input type="date" id="rf-txn-date" value="${today}" style="${inp}"></div>
       <div><label class="lbl">Bank Name</label><select id="rf-bank-online" style="${inp}">${bankOpts}</select></div>
-      <div><label class="lbl">Branch Name</label><input type="text" id="rf-branch-online" style="${inp}"></div>
       <div><label class="lbl">Employee</label><select id="rf-employee-online" style="${inp}">${userOpts}</select></div>
     </div>`;
 
