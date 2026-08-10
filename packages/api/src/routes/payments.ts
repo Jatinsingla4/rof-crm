@@ -2756,7 +2756,7 @@ router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: N
 
 // ── RECEIPT ENTRY FORM (standalone HTML page) ─────────────────────────────────
 
-function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], users: any[], token: string): string {
+function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], users: any[], token: string, cgstPct: number, sgstPct: number): string {
   const fmtN = (v: any) => {
     const n = parseFloat(String(v || 0));
     return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -2789,17 +2789,20 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
 
   const tabs = ['Cheque','Draft','Online','Cash','Adjust','Dealer Adjustment','TDS Challan','Card'];
 
-  const amountRow = (prefix: string) => `
+  const amountRow = (prefix: string, tabName: string) => {
+    const sfx = tabName.replace(/\s/g, '');
+    return `
     <div style="display:grid;grid-template-columns:repeat(7,1fr) auto;gap:8px;margin-bottom:10px;align-items:end;">
-      <div><label class="lbl">${prefix} Amount*</label><input type="number" id="rf-amount" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
-      <div><label class="lbl">Interest</label><input type="number" id="rf-interest" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
-      <div><label class="lbl">GST Interest (1.000%)</label><input type="number" id="rf-gst-interest" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
-      <div><label class="lbl">Paid</label><input type="number" id="rf-paid" placeholder="0.00" readonly style="${inp}background:#f8f9fa;font-weight:700;"></div>
-      <div><label class="lbl">S.Tax (0.000%)</label><input type="number" id="rf-stax" value="0" readonly style="${inp}background:#f8f9fa;"></div>
-      <div><label class="lbl">CGST (0.500%)</label><input type="number" id="rf-cgst" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
-      <div><label class="lbl">SGST (0.500%)</label><input type="number" id="rf-sgst" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">${prefix} Amount*</label><input type="number" id="rf-amount-${sfx}" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
+      <div><label class="lbl">Interest</label><input type="number" id="rf-interest-${sfx}" placeholder="0.00" oninput="calcTotals()" style="${inp}"></div>
+      <div><label class="lbl">GST Interest (1.000%)</label><input type="number" id="rf-gst-interest-${sfx}" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">Paid</label><input type="number" id="rf-paid-${sfx}" placeholder="0.00" readonly style="${inp}background:#f8f9fa;font-weight:700;"></div>
+      <div><label class="lbl">S.Tax (0.000%)</label><input type="number" id="rf-stax-${sfx}" value="0" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">CGST (0.500%)</label><input type="number" id="rf-cgst-${sfx}" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
+      <div><label class="lbl">SGST (0.500%)</label><input type="number" id="rf-sgst-${sfx}" placeholder="0.00" readonly style="${inp}background:#f8f9fa;"></div>
       <button onclick="addExtraAddOn()" style="background:#1db5a0;color:#fff;border:none;padding:5px 10px;border-radius:3px;cursor:pointer;font-size:11px;font-weight:700;white-space:nowrap;height:30px;">+ Extra Add On</button>
     </div>`;
+  };
 
   const chequeInstrRow = `
     <div style="display:grid;grid-template-columns:130px 150px 1fr 1fr 1fr;gap:8px;align-items:end;">
@@ -2825,14 +2828,14 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
     </div>`;
 
   const tabContents: Record<string, string> = {
-    'Cheque': amountRow('Cheque') + chequeInstrRow,
-    'Draft': amountRow('Draft') + chequeInstrRow.replace(/rf-cheque-no/g,'rf-draft-no').replace(/rf-cheque-date/g,'rf-draft-date').replace(/rf-bank/g,'rf-bank-draft').replace(/rf-branch/g,'rf-branch-draft').replace(/rf-employee/g,'rf-employee-draft').replace('Cheque No.','Draft No.').replace('Cheque Date','Draft Date'),
-    'Online': amountRow('Online') + onlineInstrRow,
-    'Cash': amountRow('Cash') + cashOnlyRow,
-    'Adjust': amountRow('Adjust') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-adjust-remarks" style="${inp}"></div>`,
-    'Dealer Adjustment': amountRow('Dealer Adj.') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-dealer-remarks" style="${inp}"></div>`,
-    'TDS Challan': amountRow('TDS') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Challan No.</label><input type="text" id="rf-challan-no" style="${inp}"></div><div><label class="lbl">BSR Code</label><input type="text" id="rf-bsr-code" style="${inp}"></div><div><label class="lbl">Deposit Date</label><input type="date" id="rf-deposit-date" style="${inp}"></div></div>`,
-    'Card': amountRow('Card') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Terminal ID</label><input type="text" id="rf-terminal-id" style="${inp}"></div><div><label class="lbl">Approval Code</label><input type="text" id="rf-approval-code" style="${inp}"></div><div><label class="lbl">Employee</label><select id="rf-employee-card" style="${inp}">${userOpts}</select></div></div>`,
+    'Cheque': amountRow('Cheque', 'Cheque') + chequeInstrRow,
+    'Draft': amountRow('Draft', 'Draft') + chequeInstrRow.replace(/rf-cheque-no/g,'rf-draft-no').replace(/rf-cheque-date/g,'rf-draft-date').replace(/rf-bank/g,'rf-bank-draft').replace(/rf-branch/g,'rf-branch-draft').replace(/rf-employee/g,'rf-employee-draft').replace('Cheque No.','Draft No.').replace('Cheque Date','Draft Date'),
+    'Online': amountRow('Online', 'Online') + onlineInstrRow,
+    'Cash': amountRow('Cash', 'Cash') + cashOnlyRow,
+    'Adjust': amountRow('Adjust', 'Adjust') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-adjust-remarks" style="${inp}"></div>`,
+    'Dealer Adjustment': amountRow('Dealer Adj.', 'Dealer Adjustment') + `<div><label class="lbl">Remarks</label><input type="text" id="rf-dealer-remarks" style="${inp}"></div>`,
+    'TDS Challan': amountRow('TDS', 'TDS Challan') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Challan No.</label><input type="text" id="rf-challan-no" style="${inp}"></div><div><label class="lbl">BSR Code</label><input type="text" id="rf-bsr-code" style="${inp}"></div><div><label class="lbl">Deposit Date</label><input type="date" id="rf-deposit-date" style="${inp}"></div></div>`,
+    'Card': amountRow('Card', 'Card') + `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;"><div><label class="lbl">Terminal ID</label><input type="text" id="rf-terminal-id" style="${inp}"></div><div><label class="lbl">Approval Code</label><input type="text" id="rf-approval-code" style="${inp}"></div><div><label class="lbl">Employee</label><select id="rf-employee-card" style="${inp}">${userOpts}</select></div></div>`,
   };
 
   const tabBtns = tabs.map((t, i) =>
@@ -2840,7 +2843,7 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
   ).join(' ');
 
   const tabPanels = tabs.map((t, i) =>
-    `<div id="tab-panel-${t.replace(/\s/g,'')}" class="tab-panel" style="display:${i===0?'block':'none'};padding:14px;">${tabContents[t] || amountRow(t)}</div>`
+    `<div id="tab-panel-${t.replace(/\s/g,'')}" class="tab-panel" style="display:${i===0?'block':'none'};padding:14px;">${tabContents[t] || amountRow(t, t)}</div>`
   ).join('');
 
   return `<!DOCTYPE html>
@@ -2971,6 +2974,8 @@ const CONSUMER_ID = '${consumer.consumer_id}';
 const PAYMENT_PLAN_ID = '${consumer.payment_plan_id || ''}';
 const TOKEN = '${token}';
 const API_BASE = window.location.origin + '/api';
+const GST_CGST_PCT = ${cgstPct};
+const GST_SGST_PCT = ${sgstPct};
 let currentTab = 'Cheque';
 let selfOrLoan = '${consumer.self_or_loan || 'self'}';
 let invoiceDateBy = 'receipt';
@@ -3014,19 +3019,39 @@ function onAccountOfChange() {
   if (other) other.style.display = sel.value === '-1' ? 'inline-block' : 'none';
 }
 
+function inclusiveGstSplit(grossAmount, cgstPct, sgstPct) {
+  const grossPaise = Math.round((grossAmount || 0) * 100);
+  const combinedRate = cgstPct + sgstPct;
+  let basePaise, cgstPaise, sgstPaise;
+  if (combinedRate > 0) {
+    basePaise = Math.floor(grossPaise / (1 + combinedRate / 100));
+    const totalTaxPaise = grossPaise - basePaise;
+    if (cgstPct === sgstPct) {
+      cgstPaise = Math.floor(totalTaxPaise / 2);
+      sgstPaise = totalTaxPaise - cgstPaise;
+    } else {
+      cgstPaise = Math.round(totalTaxPaise * (cgstPct / combinedRate));
+      sgstPaise = totalTaxPaise - cgstPaise;
+    }
+  } else {
+    basePaise = grossPaise; cgstPaise = 0; sgstPaise = 0;
+  }
+  return { baseAmount: basePaise / 100, cgstAmount: cgstPaise / 100, sgstAmount: sgstPaise / 100 };
+}
+
 function calcTotals() {
-  const amount = parseFloat(document.getElementById('rf-amount')?.value || 0);
-  const interest = parseFloat(document.getElementById('rf-interest')?.value || 0);
+  const sfx = currentTab.replace(/\\s/g,'');
+  const amount = parseFloat(document.getElementById('rf-amount-' + sfx)?.value || 0);
+  const interest = parseFloat(document.getElementById('rf-interest-' + sfx)?.value || 0);
   const gstInterest = parseFloat((interest * 0.01).toFixed(2));
-  const cgst = parseFloat((amount * 0.005).toFixed(2));
-  const sgst = parseFloat((amount * 0.005).toFixed(2));
+  const split = inclusiveGstSplit(amount, GST_CGST_PCT, GST_SGST_PCT);
   const paid = amount + interest + gstInterest;
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val.toFixed(2); };
-  set('rf-gst-interest', gstInterest);
-  set('rf-cgst', cgst);
-  set('rf-sgst', sgst);
-  set('rf-paid', paid);
+  set('rf-gst-interest-' + sfx, gstInterest);
+  set('rf-cgst-' + sfx, split.cgstAmount);
+  set('rf-sgst-' + sfx, split.sgstAmount);
+  set('rf-paid-' + sfx, paid);
 }
 
 function switchTab(tabName) {
@@ -3051,7 +3076,8 @@ function getFieldVal(id) {
 }
 
 async function saveReceipt() {
-  const amount = parseFloat(getFieldVal('rf-amount') || 0);
+  const sfx = currentTab.replace(/\\s/g,'');
+  const amount = parseFloat(getFieldVal('rf-amount-' + sfx) || 0);
   if (!amount || amount <= 0) { showMsg('Please enter an amount', true); return; }
 
   const receiptDate = getFieldVal('rf-date');
@@ -3063,8 +3089,8 @@ async function saveReceipt() {
     ? parseInt(accountOfSel.value)
     : null;
 
-  const interest = parseFloat(getFieldVal('rf-interest') || 0);
-  const gstInterest = parseFloat(getFieldVal('rf-gst-interest') || 0);
+  const interest = parseFloat(getFieldVal('rf-interest-' + sfx) || 0);
+  const gstInterest = parseFloat(getFieldVal('rf-gst-interest-' + sfx) || 0);
   const totalAmount = amount + interest + gstInterest;
 
   const modeMap = {
@@ -3233,7 +3259,13 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
     // 4. Users
     const usersResult = await db.query(`SELECT id, name, email FROM users ORDER BY name LIMIT 50`);
 
-    const html = buildReceiptFormHtml(consumer, instResult.rows, banksResult.rows, usersResult.rows, token);
+    // 5. Resolve real project GST rate (percentage points) for CGST/SGST display calc
+    const today = new Date().toISOString().split('T')[0];
+    const rate = await resolveRate(db, consumer.project_id, consumer.project_name, 'BASIC', today);
+    const cgstPct = rate.cgstPct * 100;
+    const sgstPct = rate.sgstPct * 100;
+
+    const html = buildReceiptFormHtml(consumer, instResult.rows, banksResult.rows, usersResult.rows, token, cgstPct, sgstPct);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
   } catch (err) {
