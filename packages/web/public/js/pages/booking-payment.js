@@ -233,9 +233,9 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-gst-int-pct-d" placeholder="1.0" step="0.01" value="1"></div>
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-d" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">CGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-cgst-d">CGST (%)</label>
                 <input type="number" class="fc" id="bkp-cgst-pct-d" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">SGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-sgst-d">SGST (%)</label>
                 <input type="number" class="fc" id="bkp-sgst-pct-d" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
             <div class="sp-grid">
@@ -260,9 +260,9 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-amt-online" placeholder="0" oninput="BkPayPage._syncAmountFromOnline(this.value);BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-o" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">CGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-cgst-o">CGST (%)</label>
                 <input type="number" class="fc" id="bkp-cgst-pct-o" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">SGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-sgst-o">SGST (%)</label>
                 <input type="number" class="fc" id="bkp-sgst-pct-o" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
             <div class="sp-grid">
@@ -287,9 +287,9 @@ Pages.bookingPayment = async function(params = {}) {
                 <input type="number" class="fc" id="bkp-amt-cash" placeholder="0" oninput="BkPayPage._syncAmountFromCash(this.value);BkPayPage.calculatePaymentTaxes()"></div>
               <div class="fg"><label class="fl">S.Tax (%)</label>
                 <input type="number" class="fc" id="bkp-stax-pct-c" placeholder="1.0" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">CGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-cgst-c">CGST (%)</label>
                 <input type="number" class="fc" id="bkp-cgst-pct-c" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
-              <div class="fg"><label class="fl">SGST (%)</label>
+              <div class="fg"><label class="fl" id="bkp-lbl-sgst-c">SGST (%)</label>
                 <input type="number" class="fc" id="bkp-sgst-pct-c" value="0.5" placeholder="0.5" step="0.01" oninput="BkPayPage.calculatePaymentTaxes()"></div>
             </div>
           </div>
@@ -389,6 +389,14 @@ Pages.bookingPayment = async function(params = {}) {
     });
   }
 
+  // Cheque's CGST/SGST boxes get repurposed below to display the computed rupee
+  // amount instead of the rate -- stash the real rate in data-rate first so
+  // updateTaxLabels() has a stable source for the label text across repeated calls.
+  const _chqCgstEl = document.getElementById('bkp-cgst-pct');
+  if (_chqCgstEl) _chqCgstEl.dataset.rate = _chqCgstEl.value;
+  const _chqSgstEl = document.getElementById('bkp-sgst-pct');
+  if (_chqSgstEl) _chqSgstEl.dataset.rate = _chqSgstEl.value;
+
   // Default receipt date to today
   const rdEl = document.getElementById('bkp-receipt-date');
   if (rdEl && !rdEl.value) rdEl.value = new Date().toISOString().split('T')[0];
@@ -473,8 +481,15 @@ const BkPayPage = {
     const base  = amt + intr;
     const sfxMap = { cheque:'', draft:'-d', online:'-o', cash:'-c', card:'' };
     const sfx   = sfxMap[tab] || '';
-    const cgstPct = parseFloat(document.getElementById('bkp-cgst-pct' + sfx)?.value || 0);
-    const sgstPct = parseFloat(document.getElementById('bkp-sgst-pct' + sfx)?.value || 0);
+    // Cheque's bkp-cgst-pct/bkp-sgst-pct boxes are repurposed to display the
+    // computed amount (see updateTaxLabels()), so their live .value is no longer
+    // the rate -- read the rate from the persistent data-rate stash instead.
+    const cgstPct = sfx === ''
+      ? parseFloat(document.getElementById('bkp-cgst-pct')?.dataset.rate || 0)
+      : parseFloat(document.getElementById('bkp-cgst-pct' + sfx)?.value || 0);
+    const sgstPct = sfx === ''
+      ? parseFloat(document.getElementById('bkp-sgst-pct')?.dataset.rate || 0)
+      : parseFloat(document.getElementById('bkp-sgst-pct' + sfx)?.value || 0);
     // GST-inclusive backward derivation (mirrors server-side
     // computeInclusiveGstSplit() in gst-backward-derive.ts) -- base+cgst+sgst
     // sums exactly to `base` (the gross figure), not base*(1+rate). This is a
@@ -506,8 +521,27 @@ const BkPayPage = {
     const fmt = (id, fallback) => parseFloat(g(id)?.value ?? fallback).toFixed(3);
     if (g('bkp-lbl-gst-int')) g('bkp-lbl-gst-int').textContent = `GST Interest(${fmt('bkp-gst-int-pct', 1)}%)`;
     if (g('bkp-lbl-stax'))    g('bkp-lbl-stax').textContent    = `S.Tax(${fmt('bkp-stax-pct', 0)}%)`;
-    if (g('bkp-lbl-cgst'))    g('bkp-lbl-cgst').textContent    = `CGST(${fmt('bkp-cgst-pct', 0.5)}%)`;
-    if (g('bkp-lbl-sgst'))    g('bkp-lbl-sgst').textContent    = `SGST(${fmt('bkp-sgst-pct', 0.5)}%)`;
+
+    const cgstAmt = parseFloat(g('bkp-cgst-amount')?.value || 0).toFixed(2);
+    const sgstAmt = parseFloat(g('bkp-sgst-amount')?.value || 0).toFixed(2);
+
+    // Cheque: the box itself now shows the amount, so the rate for the label
+    // comes from data-rate (stashed at seed time), not the box's own .value.
+    const chqCgstRate = parseFloat(g('bkp-cgst-pct')?.dataset.rate ?? 0.5).toFixed(3);
+    const chqSgstRate = parseFloat(g('bkp-sgst-pct')?.dataset.rate ?? 0.5).toFixed(3);
+    if (g('bkp-lbl-cgst')) g('bkp-lbl-cgst').textContent = `CGST(${chqCgstRate}%)`;
+    if (g('bkp-lbl-sgst')) g('bkp-lbl-sgst').textContent = `SGST(${chqSgstRate}%)`;
+    if (g('bkp-cgst-pct')) g('bkp-cgst-pct').value = cgstAmt;
+    if (g('bkp-sgst-pct')) g('bkp-sgst-pct').value = sgstAmt;
+
+    // Draft/Online/Cash: rate inputs are the real rate SOURCE for calculatePaymentTaxes() --
+    // must stay untouched; show the amount in the label instead.
+    ['d','o','c'].forEach(sfx => {
+      const cgstPct = g(`bkp-cgst-pct-${sfx}`)?.value ?? 0.5;
+      const sgstPct = g(`bkp-sgst-pct-${sfx}`)?.value ?? 0.5;
+      if (g(`bkp-lbl-cgst-${sfx}`)) g(`bkp-lbl-cgst-${sfx}`).textContent = `CGST (${parseFloat(cgstPct).toFixed(3)}%) — ₹${cgstAmt}`;
+      if (g(`bkp-lbl-sgst-${sfx}`)) g(`bkp-lbl-sgst-${sfx}`).textContent = `SGST (${parseFloat(sgstPct).toFixed(3)}%) — ₹${sgstAmt}`;
+    });
   },
 
   _clearRefErr(errId) {
@@ -597,6 +631,12 @@ const BkPayPage = {
       setVal('bkp-cgst-pct', 0);
       setVal('bkp-sgst-pct', 0);
     }
+    // Re-stash the rate for the Cheque label (bkp-cgst-pct/sgst-pct's own .value
+    // is about to be repointed to the amount by updateTaxLabels() below).
+    const _pfCgstEl = document.getElementById('bkp-cgst-pct');
+    if (_pfCgstEl) _pfCgstEl.dataset.rate = _pfCgstEl.value;
+    const _pfSgstEl = document.getElementById('bkp-sgst-pct');
+    if (_pfSgstEl) _pfSgstEl.dataset.rate = _pfSgstEl.value;
     this.calculatePaymentTaxes();
     this.updateTaxLabels();
   },
