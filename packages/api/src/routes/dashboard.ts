@@ -17,11 +17,11 @@ router.get('/pending-cheques', async (req: AuthRequest, res: Response, next: Nex
       SELECT
         p.id as project_id,
         p.name as project,
-        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
-        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
-        COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque') as total,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer') AND r.status::text = 'pending') as pending,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer') AND r.status::text = 'deposited') as deposite,
+        COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer')) as total,
         COUNT(r.id) FILTER (WHERE r.payment_method::text = 'demand_draft') as pdc,
-        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'cheque'), 0) as amount,
+        COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer')), 0) as amount,
         COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'demand_draft'), 0) as pdc_amount
       FROM projects p
       LEFT JOIN payment_plans pp ON pp.project_id = p.id
@@ -234,11 +234,11 @@ router.get('/summary', async (req: AuthRequest, res: Response, next: NextFunctio
     const [cheques, demandStatus, pendingApproval, forthcomingDue] = await Promise.all([
       db.query(`
         SELECT p.id as project_id, p.name as project,
-          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'pending') as pending,
-          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque' AND r.status::text = 'deposited') as deposite,
-          COUNT(r.id) FILTER (WHERE r.payment_method::text = 'cheque') as total,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer') AND r.status::text = 'pending') as pending,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer') AND r.status::text = 'deposited') as deposite,
+          COUNT(r.id) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer')) as total,
           COUNT(r.id) FILTER (WHERE r.payment_method::text = 'demand_draft') as pdc,
-          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'cheque'), 0) as amount,
+          COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text IN ('cheque', 'bank_transfer')), 0) as amount,
           COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'demand_draft'), 0) as pdc_amount
         FROM projects p
         LEFT JOIN payment_plans pp ON pp.project_id = p.id
