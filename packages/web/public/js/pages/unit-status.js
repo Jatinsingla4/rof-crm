@@ -488,7 +488,7 @@ const UnitStatusPage = {
       const group      = u.unit_group  || 'N/A';
       const bhk        = u.bhk_type    || '—';
       const carpet     = u.carpet_area_sqft != null ? parseFloat(u.carpet_area_sqft).toFixed(3) : '—';
-      const superArea  = u.super_area_sqft  != null ? parseFloat(u.super_area_sqft).toFixed(4)  : '—';
+      const balconyArea  = u.balcony_area_sqft  != null ? parseFloat(u.balcony_area_sqft).toFixed(4)  : '—';
       const unitNo     = u.unit_number  || '—';
       const broker     = u.broker_name  || 'Direct';
 
@@ -509,7 +509,7 @@ const UnitStatusPage = {
         <td>${group}</td>
         <td>${bhk}</td>
         <td>${carpet}</td>
-        <td>${superArea}</td>
+        <td>${balconyArea}</td>
         <td class="td-unitno">${unitNo}</td>
         <td>N/A</td>
         <td>${broker}</td>
@@ -533,7 +533,7 @@ const UnitStatusPage = {
             <th>GROUP</th>
             <th>UNIT TYPE</th>
             <th>AREA (SQ.FT.)</th>
-            <th>SUPER AREA (SQ.FT.)</th>
+            <th>BALCONY AREA (SQ.FT.)</th>
             <th>UNIT NO.</th>
             <th>LOCATION</th>
             <th>BROKER</th>
@@ -559,7 +559,7 @@ const UnitStatusPage = {
     const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB') : '';
     const rows = [
       ['S.NO','Registration No','Name','Tower','Floor','Group','Unit Type',
-       'Area (SQ.FT.)','Super Area (SQ.FT.)','Unit No','Location','Broker','Status','Hold'],
+       'Area (SQ.FT.)','Balcony Area (SQ.FT.)','Unit No','Location','Broker','Status','Hold'],
       ...filtered.map((u, i) => [
         i + 1,
         u.registration_no || '',
@@ -569,7 +569,7 @@ const UnitStatusPage = {
         u.unit_group || 'N/A',
         u.bhk_type || '',
         u.carpet_area_sqft != null ? parseFloat(u.carpet_area_sqft).toFixed(3) : '',
-        u.super_area_sqft  != null ? parseFloat(u.super_area_sqft).toFixed(4)  : '',
+        u.balcony_area_sqft  != null ? parseFloat(u.balcony_area_sqft).toFixed(4)  : '',
         u.unit_number || '',
         'N/A',
         u.broker_name || 'Direct',
@@ -854,7 +854,7 @@ const UnitStatusPage = {
         if (isAvailable) {
           rowsHtml += `<tr style="background:${bg}">
             ${td(i + 1)} ${td(u.unit_number)} ${td(u.unit_type)} ${td(parseFloat(u.area||0).toFixed(4),'right')}
-            ${td(fmtFloor(u.floor))} ${td(parseFloat(u.super_area_sqft||0).toFixed(4),'right')} ${td(u.status)}
+            ${td(fmtFloor(u.floor))} ${td(parseFloat(u.balcony_area_sqft||0).toFixed(4),'right')} ${td(u.status)}
           </tr>`;
         } else {
           rowsHtml += `<tr style="background:${bg}">
@@ -868,7 +868,7 @@ const UnitStatusPage = {
     }
 
     const headers = isAvailable
-      ? ['S.NO.','UNIT ADDRESS','UNIT TYPE','AREA (SQ.FT.)','FLOOR','SUPER AREA (SQ.FT.)','STATUS']
+      ? ['S.NO.','UNIT ADDRESS','UNIT TYPE','AREA (SQ.FT.)','FLOOR','BALCONY AREA (SQ.FT.)','STATUS']
       : ['S.NO.','REGISTRATION NO','NAME','BOOKING DATE','BROKER','TYPE','PAYMENT PLAN','UNIT ADDRESS','UNIT TYPE','AREA (SQ.FT.)'];
 
     return `<!DOCTYPE html><html><head><meta charset="UTF-8">

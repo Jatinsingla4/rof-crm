@@ -263,6 +263,7 @@ router.get('/tower-detail', async (req, res, next) => {
         u.bhk_type as unit_type,
         ROUND(u.carpet_area_sqft::numeric, 4) as area,
         ROUND(u.super_area_sqft::numeric, 4) as super_area_sqft,
+        ROUND(u.balcony_area_sqft::numeric, 4) as balcony_area_sqft,
         u.floor,
         u.facing,
         u.base_price_inr,
