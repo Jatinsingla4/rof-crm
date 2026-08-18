@@ -88,9 +88,24 @@
             <span class="acm-lbl">* Charge Name</span>
             <input type="text" id="acm-charge-name" placeholder="e.g. Club Membership, IFMS, etc.">
           </div>
-          <div class="acm-field">
+          <div class="acm-field" style="grid-column: span 2">
+            <span class="acm-lbl">Rate Type</span>
+            <div style="display:flex;gap:16px;align-items:center;height:29px;">
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;">
+                <input type="radio" name="acm-rate-type" id="acm-rate-type-flat" value="flat" checked onchange="AddonChargeMaster.onRateTypeChange()"> Flat Amount
+              </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;">
+                <input type="radio" name="acm-rate-type" id="acm-rate-type-persqft" value="per_sqft" onchange="AddonChargeMaster.onRateTypeChange()"> Per Sq.Ft.
+              </label>
+            </div>
+          </div>
+          <div class="acm-field" id="acm-default-amount-field">
             <span class="acm-lbl">Default Amount (Rs.)</span>
             <input type="number" id="acm-default-amount" min="0" step="0.01" value="0">
+          </div>
+          <div class="acm-field" id="acm-rate-per-sqft-field" style="display:none">
+            <span class="acm-lbl">Rate per Sq.Ft. (Rs.)</span>
+            <input type="number" id="acm-rate-per-sqft" min="0" step="0.01" value="0">
           </div>
           <div class="acm-field">
             <span class="acm-lbl">CGST (%)</span>
@@ -176,17 +191,20 @@
       return;
     }
     let html = '<table class="acm-table"><thead><tr>' +
-      '<th>S.NO</th><th>CHARGE NAME</th><th>DEFAULT AMOUNT</th>' +
+      '<th>S.NO</th><th>CHARGE NAME</th><th>RATE</th>' +
       '<th>CGST %</th><th>SGST %</th><th>STATUS</th><th>ACTION</th>' +
       '</tr></thead><tbody>';
     rows.forEach(function(r, i) {
       const statusBadge = r.is_active
         ? '<span class="acm-badge-active">Active</span>'
         : '<span class="acm-badge-inactive">Inactive</span>';
+      const rateLabel = r.rate_type === 'per_sqft'
+        ? 'Per Sq.Ft. @ Rs.' + _fmtNum(r.rate_per_sqft_inr) + '/sqft'
+        : 'Flat @ Rs.' + _fmtNum(r.default_amount);
       html += '<tr>' +
         '<td>' + (i + 1) + '</td>' +
         '<td>' + _esc(r.charge_name) + '</td>' +
-        '<td style="text-align:right">' + _fmtNum(r.default_amount) + '</td>' +
+        '<td style="text-align:right">' + rateLabel + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.cgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.sgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + statusBadge + '</td>' +
@@ -206,6 +224,13 @@
     _editingId = row.id;
     _setVal('acm-charge-name', row.charge_name);
     _setVal('acm-default-amount', row.default_amount);
+    _setVal('acm-rate-per-sqft', row.rate_per_sqft_inr || 0);
+    const isPerSqft = row.rate_type === 'per_sqft';
+    const flatRadio = document.getElementById('acm-rate-type-flat');
+    const sqftRadio = document.getElementById('acm-rate-type-persqft');
+    if (flatRadio) flatRadio.checked = !isPerSqft;
+    if (sqftRadio) sqftRadio.checked = isPerSqft;
+    _applyRateTypeVisibility(isPerSqft);
     _setVal('acm-cgst', parseFloat(row.cgst_pct));
     _setVal('acm-sgst', parseFloat(row.sgst_pct));
     const titleEl = document.getElementById('acm-form-title');
@@ -222,6 +247,18 @@
   function cancelEdit() {
     _editingId = null;
     _resetForm();
+  }
+
+  function _applyRateTypeVisibility(isPerSqft) {
+    const flatField = document.getElementById('acm-default-amount-field');
+    const sqftField = document.getElementById('acm-rate-per-sqft-field');
+    if (flatField) flatField.style.display = isPerSqft ? 'none' : '';
+    if (sqftField) sqftField.style.display = isPerSqft ? '' : 'none';
+  }
+
+  function onRateTypeChange() {
+    const sqftRadio = document.getElementById('acm-rate-type-persqft');
+    _applyRateTypeVisibility(!!(sqftRadio && sqftRadio.checked));
   }
 
   async function _save() {
@@ -242,10 +279,14 @@
 
     const token = localStorage.getItem('rof-jwt') || '';
     try {
+      const sqftRadio = document.getElementById('acm-rate-type-persqft');
+      const isPerSqft = !!(sqftRadio && sqftRadio.checked);
       const body = {
         projectId,
         chargeName,
-        defaultAmount: parseFloat(_gv('acm-default-amount') || '0'),
+        rateType:       isPerSqft ? 'per_sqft' : 'flat',
+        defaultAmount:  parseFloat(_gv('acm-default-amount') || '0'),
+        ratePerSqftInr: parseFloat(_gv('acm-rate-per-sqft') || '0'),
         cgstPct:       parseFloat(_gv('acm-cgst') || '9'),
         sgstPct:       parseFloat(_gv('acm-sgst') || '9'),
       };
@@ -255,7 +296,11 @@
         res = await fetch('/api/addon-charges/master/' + _editingId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ chargeName: body.chargeName, defaultAmount: body.defaultAmount, cgstPct: body.cgstPct, sgstPct: body.sgstPct })
+          body: JSON.stringify({
+            chargeName: body.chargeName, rateType: body.rateType,
+            defaultAmount: body.defaultAmount, ratePerSqftInr: body.ratePerSqftInr,
+            cgstPct: body.cgstPct, sgstPct: body.sgstPct
+          })
         });
       } else {
         res = await fetch('/api/addon-charges/master', {
@@ -307,6 +352,12 @@
   function _resetForm() {
     _setVal('acm-charge-name', '');
     _setVal('acm-default-amount', '0');
+    _setVal('acm-rate-per-sqft', '0');
+    const flatRadio = document.getElementById('acm-rate-type-flat');
+    const sqftRadio = document.getElementById('acm-rate-type-persqft');
+    if (flatRadio) flatRadio.checked = true;
+    if (sqftRadio) sqftRadio.checked = false;
+    _applyRateTypeVisibility(false);
     _setVal('acm-cgst', '9');
     _setVal('acm-sgst', '9');
     const titleEl = document.getElementById('acm-form-title');
@@ -357,6 +408,7 @@
     deactivate:    _deactivate,
     cancelEdit:    cancelEdit,
     onProjectChange: onProjectChange,
+    onRateTypeChange: onRateTypeChange,
   };
 
   Pages.addonChargeMaster = function(params) {

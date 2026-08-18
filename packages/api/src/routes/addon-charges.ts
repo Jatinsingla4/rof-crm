@@ -124,23 +124,27 @@ router.get('/master', async (req: AuthRequest, res: Response, next: NextFunction
 // ── B: POST /api/addon-charges/master ────────────────────────────────────────
 router.post('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, chargeName, defaultAmount, cgstPct, sgstPct } = req.body;
+    const { projectId, chargeName, defaultAmount, cgstPct, sgstPct, rateType, ratePerSqftInr } = req.body;
     if (!projectId || !chargeName) {
       return res.status(400).json({ error: 'projectId and chargeName are required' });
     }
 
+    const isPerSqft = rateType === 'per_sqft';
+
     const result = await db.query(
       `INSERT INTO addon_charge_master
-         (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         projectId,
         chargeName,
-        parseFloat(defaultAmount || 0),
+        isPerSqft ? 0 : parseFloat(defaultAmount || 0),
         parseFloat(cgstPct ?? 9),
         parseFloat(sgstPct ?? 9),
         req.userId || null,
+        isPerSqft ? 'per_sqft' : 'flat',
+        isPerSqft ? parseFloat(ratePerSqftInr || 0) : null,
       ],
     );
     return res.status(201).json({ success: true, data: result.rows[0] });
@@ -156,25 +160,34 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
     await client.query('BEGIN');
 
     const { id } = req.params;
-    const { chargeName, defaultAmount, cgstPct, sgstPct, isActive } = req.body;
+    const { chargeName, defaultAmount, cgstPct, sgstPct, isActive, rateType, ratePerSqftInr } = req.body;
+    const isPerSqft = rateType === 'per_sqft';
 
     const masterRes = await client.query(
       `UPDATE addon_charge_master SET
-         charge_name    = COALESCE($2, charge_name),
-         default_amount = COALESCE($3, default_amount),
-         cgst_pct       = COALESCE($4, cgst_pct),
-         sgst_pct       = COALESCE($5, sgst_pct),
-         is_active      = COALESCE($6, is_active),
-         updated_at     = now()
+         charge_name       = COALESCE($2, charge_name),
+         default_amount    = COALESCE($3, default_amount),
+         cgst_pct          = COALESCE($4, cgst_pct),
+         sgst_pct          = COALESCE($5, sgst_pct),
+         is_active         = COALESCE($6, is_active),
+         rate_type         = COALESCE($7, rate_type),
+         rate_per_sqft_inr = CASE
+                                WHEN $7::varchar IS NULL THEN rate_per_sqft_inr
+                                WHEN $7 = 'per_sqft' THEN $8
+                                ELSE NULL
+                              END,
+         updated_at        = now()
        WHERE id = $1
        RETURNING *`,
       [
         id,
         chargeName || null,
-        defaultAmount != null ? parseFloat(defaultAmount) : null,
+        defaultAmount != null ? (isPerSqft ? 0 : parseFloat(defaultAmount)) : null,
         cgstPct != null ? parseFloat(cgstPct) : null,
         sgstPct != null ? parseFloat(sgstPct) : null,
         isActive != null ? isActive : null,
+        rateType || null,
+        isPerSqft ? parseFloat(ratePerSqftInr || 0) : null,
       ],
     );
 
@@ -571,6 +584,7 @@ router.get('/consumers', async (req: AuthRequest, res: Response, next: NextFunct
          u.unit_number,
          u.bhk_type AS unit_type,
          u.super_area_sqft,
+         u.carpet_area_sqft,
          t.tower_name,
          p.name AS project_name,
          COALESCE(

@@ -1131,17 +1131,22 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                pac.charge_master_id,
                acm.charge_name,
                acm.default_amount,
+               acm.rate_type,
+               acm.rate_per_sqft_inr,
                acm.cgst_pct,
-               acm.sgst_pct
+               acm.sgst_pct,
+               u.carpet_area_sqft
              FROM plan_addon_charge_pct pac
              JOIN plan_schedule_templates pst
                ON pst.id = pac.plan_schedule_template_id
              JOIN addon_charge_master acm
                ON acm.id = pac.charge_master_id
+             CROSS JOIN units u
              WHERE pst.project_id = $1
                AND pst.plan_name = $2
-               AND acm.is_active = true`,
-            [booking.project_id, booking.selected_plan_name]
+               AND acm.is_active = true
+               AND u.id = $3`,
+            [booking.project_id, booking.selected_plan_name, booking.unit_id]
           );
 
           for (const row of addonPctRows.rows) {
@@ -1156,7 +1161,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             if (existing.rows.length > 0) continue;
 
             // Compute GST amounts from master
-            const amt = parseFloat(row.default_amount);
+            const amt = row.rate_type === 'per_sqft'
+              ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.carpet_area_sqft) * 100) / 100
+              : parseFloat(row.default_amount);
             const cPct = parseFloat(row.cgst_pct);
             const sPct = parseFloat(row.sgst_pct);
             const cgstAmt = Math.round(amt * cPct / 100 * 100) / 100;
