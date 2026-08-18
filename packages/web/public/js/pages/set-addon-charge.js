@@ -443,6 +443,8 @@
         o.value = m.id;
         o.dataset.name = m.charge_name;
         o.dataset.amount = m.default_amount;
+        o.dataset.rateType = m.rate_type;
+        o.dataset.ratePerSqft = m.rate_per_sqft_inr;
         o.dataset.cgst = m.cgst_pct;
         o.dataset.sgst = m.sgst_pct;
         o.textContent = m.charge_name;
@@ -458,6 +460,12 @@
     if (!sel) return;
     const opt = sel.selectedOptions[0];
     if (!opt || !opt.dataset.amount) return;
+    if (opt.dataset.rateType === 'per_sqft' && _selectedConsumer) {
+      const rate = parseFloat(opt.dataset.ratePerSqft || 0);
+      const carpetArea = parseFloat(_selectedConsumer.carpet_area_sqft || 0);
+      _setVal('sac-amount', Math.round(rate * carpetArea * 100) / 100);
+      return;
+    }
     _setVal('sac-amount', parseFloat(opt.dataset.amount || 0));
   }
 

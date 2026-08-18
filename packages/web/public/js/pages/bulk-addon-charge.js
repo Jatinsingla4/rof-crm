@@ -351,6 +351,8 @@
         o.value = m.id;
         o.dataset.name = m.charge_name;
         o.dataset.amount = m.default_amount;
+        o.dataset.rateType = m.rate_type;
+        o.dataset.ratePerSqft = m.rate_per_sqft_inr;
         o.dataset.cgst = m.cgst_pct;
         o.dataset.sgst = m.sgst_pct;
         o.textContent = m.charge_name;
@@ -376,6 +378,8 @@
     const opt = sel && sel.selectedOptions[0];
     const chargeName = opt && opt.dataset.name ? opt.dataset.name : '';
     const chargeMasterId = opt ? opt.value : null;
+    const isPerSqft = !!(opt && opt.dataset.rateType === 'per_sqft');
+    const ratePerSqft = isPerSqft ? parseFloat(opt.dataset.ratePerSqft || 0) : 0;
     const amount = parseFloat(_gv('bac-amount') || '0');
     const remark = _gv('bac-remark');
     const cgstPct = opt && opt.dataset.cgst ? parseFloat(opt.dataset.cgst) : 9;
@@ -387,7 +391,8 @@
 
     if (selectedIndices.length === 0) { _showFormMsg('Please select at least one customer.', false); return; }
     if (!chargeName) { _showFormMsg('Please select a charge type.', false); return; }
-    if (amount <= 0) { _showFormMsg('Amount must be greater than 0.', false); return; }
+    if (!isPerSqft && amount <= 0) { _showFormMsg('Amount must be greater than 0.', false); return; }
+    if (isPerSqft && ratePerSqft <= 0) { _showFormMsg('This charge has no rate per sq.ft. configured.', false); return; }
 
     const applyBtn = document.getElementById('bac-apply-btn');
     const progressEl = document.getElementById('bac-progress');
@@ -399,6 +404,9 @@
     const promises = selectedIndices.map(function(idx) {
       const consumer = _consumers[idx];
       if (!consumer) return Promise.resolve(null);
+      const consumerAmount = isPerSqft
+        ? Math.round(ratePerSqft * parseFloat(consumer.carpet_area_sqft || 0) * 100) / 100
+        : amount;
       return fetch('/api/addon-charges/consumer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
@@ -407,7 +415,7 @@
           projectId:      projectId,
           chargeMasterId: chargeMasterId || null,
           chargeName:     chargeName,
-          amount:         amount,
+          amount:         consumerAmount,
           cgstPct:        cgstPct,
           sgstPct:        sgstPct,
           remark:         remark || null,

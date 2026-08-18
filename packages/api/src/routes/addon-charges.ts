@@ -200,26 +200,55 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
     const newAmount = parseFloat(master.default_amount || 0);
     const newCgstPct = parseFloat(master.cgst_pct || 0);
     const newSgstPct = parseFloat(master.sgst_pct || 0);
+    const newRatePerSqft = parseFloat(master.rate_per_sqft_inr || 0);
 
     // Cascade to all active consumer charges of this type.
     // GST computed on (amount + increase_amount) to preserve
     // per-consumer escalations (Option A).
-    const cascadeRes = await client.query(
-      `UPDATE consumer_addon_charges
-       SET amount       = $2,
-           cgst_pct     = $3,
-           sgst_pct     = $4,
-           cgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2),
-           sgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
-           total_amount = ($2 + COALESCE(increase_amount, 0))
-             + ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2)
-             + ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
-           updated_at   = NOW()
-       WHERE charge_master_id = $1
-         AND status = 'active'
-       RETURNING consumer_id, project_id`,
-      [id, newAmount, newCgstPct, newSgstPct],
-    );
+    // per_sqft charges recompute each consumer's own amount from
+    // their own unit's carpet_area_sqft (via their most recent
+    // non-cancelled booking record); flat charges keep the single
+    // shared-amount path unchanged.
+    const cascadeRes = master.rate_type === 'per_sqft'
+      ? await client.query(
+          `UPDATE consumer_addon_charges cac
+           SET amount       = computed.new_amount,
+               cgst_pct     = $2, sgst_pct = $3,
+               cgst_amount  = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2),
+               sgst_amount  = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
+               total_amount = (computed.new_amount + COALESCE(cac.increase_amount,0))
+                 + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2)
+                 + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
+               updated_at   = NOW()
+           FROM (
+             SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id,
+                    ROUND($4::numeric * u.carpet_area_sqft, 2) AS new_amount
+             FROM consumer_addon_charges cac2
+             JOIN booking_records br ON br.consumer_id = cac2.consumer_id AND br.project_id = cac2.project_id AND br.status != 'cancelled'
+             JOIN units u ON u.id = br.unit_id
+             WHERE cac2.charge_master_id = $1 AND cac2.status = 'active'
+             ORDER BY cac2.id, br.created_at DESC
+           ) computed
+           WHERE cac.id = computed.charge_id
+           RETURNING cac.consumer_id, cac.project_id`,
+          [id, newCgstPct, newSgstPct, newRatePerSqft],
+        )
+      : await client.query(
+          `UPDATE consumer_addon_charges
+           SET amount       = $2,
+               cgst_pct     = $3,
+               sgst_pct     = $4,
+               cgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2),
+               sgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+               total_amount = ($2 + COALESCE(increase_amount, 0))
+                 + ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2)
+                 + ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+               updated_at   = NOW()
+           WHERE charge_master_id = $1
+             AND status = 'active'
+           RETURNING consumer_id, project_id`,
+          [id, newAmount, newCgstPct, newSgstPct],
+        );
 
     // Dedupe by consumer_id (multiple booking_records per consumer
     // can otherwise cause the same consumer to be recomputed twice).
