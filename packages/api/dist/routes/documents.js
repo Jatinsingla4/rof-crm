@@ -1872,7 +1872,7 @@ router.post('/generate', async (req, res, next) => {
                     // Main data fetch
                     const atsRes = await index_js_1.db.query(`
             SELECT
-              c.first_name, c.last_name, c.father_name, c.age, c.pan_no, c.aadhaar_number,
+              c.first_name, c.last_name, c.father_name, c.age, c.pan_no, c.aadhaar_no,
               c.present_address, c.mobile, c.email,
               a.id AS allotment_id, a.agreement_date,
               u.unit_number, u.bhk_type, u.floor, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr, u.total_price_inr,
@@ -1954,7 +1954,7 @@ router.post('/generate', async (req, res, next) => {
                         allottee_relative_name: ats.father_name || '—',
                         allottee_address: ats.present_address || '—',
                         allottee_age: ats.age ? String(ats.age) : '—',
-                        allottee_aadhaar: ats.aadhaar_number || '—',
+                        allottee_aadhaar: ats.aadhaar_no || '—',
                         allottee_pan: ats.pan_no || '—',
                         promoter_name: ats.company_name || '—',
                         promoter_cin: ats.cin || '—',
@@ -1996,7 +1996,7 @@ router.post('/generate', async (req, res, next) => {
                         balcony_price: fmtIndianNumberDecimal(balconyPrice3),
                         balcony_price_words: numberToWordsIndian(balconyPrice3),
                         rate_per_sqft: fmtIndianMoneyDecimal(basicRate3),
-                        balcony_rate: fmtIndianNumberDecimal(balconyRate3),
+                        balcony_rate: balconyRate3.toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 }),
                         booking_amount: fmtIndianMoneyDecimal(parseFloat(ats.booking_amount || 0)),
                         booking_amount_words: numberToWordsIndian(parseFloat(ats.booking_amount || 0)),
                         booking_amount_pct: bookingPct3,
@@ -2029,7 +2029,7 @@ router.post('/generate', async (req, res, next) => {
                     // Main data fetch
                     const cdRes = await index_js_1.db.query(`
             SELECT
-              c.first_name, c.last_name, c.father_name, c.pan_no, c.aadhaar_number,
+              c.first_name, c.last_name, c.father_name, c.pan_no, c.aadhaar_no,
               c.present_address,
               a.id AS allotment_id, a.allotment_date, a.conveyance_deed_date,
               u.unit_number, u.floor, u.carpet_area_sqft, u.balcony_area_sqft, u.total_price_inr,
@@ -2067,7 +2067,7 @@ router.post('/generate', async (req, res, next) => {
                         vendee_relation: 'S/o',
                         vendee_relative_name: cd.father_name || '—',
                         vendee_address: cd.present_address || '—',
-                        vendee_aadhaar: cd.aadhaar_number || '—',
+                        vendee_aadhaar: cd.aadhaar_no || '—',
                         vendee_pan: cd.pan_no || '—',
                         property_no: cd.unit_number || '—',
                         tower_name: cd.tower_name || '—',
