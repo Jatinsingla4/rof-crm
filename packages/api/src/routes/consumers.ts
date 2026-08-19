@@ -395,6 +395,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     lastName,
     secondApplicant,
     secondApplicantPan,
+    hasConfirmedBooking,
     page = 1,
     pageSize = 20,
     sortBy = 'created_at',
@@ -517,6 +518,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
+    if (String(hasConfirmedBooking) === 'true') {
+      query += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
+    }
+
     // Sorting
     query += ` ORDER BY ${sortBy} ${sortOrder === 'desc' ? 'DESC' : 'ASC'}`;
 
@@ -559,6 +564,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (search) {
       countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_number ILIKE $${countParams.length + 4})`;
       countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (String(hasConfirmedBooking) === 'true') {
+      countQuery += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
     }
 
     const [dataResult, countResult] = await Promise.all([

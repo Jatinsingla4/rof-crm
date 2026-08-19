@@ -395,7 +395,7 @@ const DocsPage = {
 
   async loadConsumers() {
     try {
-      const res = await Api.get('/consumers', { params: { pageSize: 300 } });
+      const res = await Api.get('/consumers', { params: { pageSize: 300, hasConfirmedBooking: true } });
       this._consumers = res.data || res || [];
       const opts = '<option value="">— Select Consumer —</option>' +
         this._consumers.map(c => `<option value="${c.id}">${c.name||`${c.first_name||''} ${c.last_name||''}`} · ${c.mobile||''}</option>`).join('');

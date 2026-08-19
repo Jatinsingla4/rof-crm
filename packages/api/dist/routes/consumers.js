@@ -333,7 +333,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
 });
 // GET /api/consumers - List all consumers (with search & filter)
 router.get('/', async (req, res, next) => {
-    const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, firstName, middleName, lastName, secondApplicant, secondApplicantPan, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
+    const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, firstName, middleName, lastName, secondApplicant, secondApplicantPan, hasConfirmedBooking, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
     try {
         let query = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
                         u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
@@ -431,6 +431,9 @@ router.get('/', async (req, res, next) => {
             query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_number ILIKE $${params.length + 4})`;
             params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
         }
+        if (String(hasConfirmedBooking) === 'true') {
+            query += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
+        }
         // Sorting
         query += ` ORDER BY ${sortBy} ${sortOrder === 'desc' ? 'DESC' : 'ASC'}`;
         // Pagination
@@ -470,6 +473,9 @@ router.get('/', async (req, res, next) => {
         if (search) {
             countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_number ILIKE $${countParams.length + 4})`;
             countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
+        }
+        if (String(hasConfirmedBooking) === 'true') {
+            countQuery += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
         }
         const [dataResult, countResult] = await Promise.all([
             index_js_1.db.query(query, params),
