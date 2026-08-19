@@ -1079,7 +1079,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
                 r.deposit_date, r.clearing_date, r.hold_remark,
                 r.cgst_amount AS cgst_amount,
                 r.sgst_amount AS sgst_amount,
-                COALESCE(d.demand_type, 'Booking') AS on_account_of
+                COALESCE(d.demand_type, NULLIF(TRIM(r.other_charge_desc), ''), 'Booking') AS on_account_of
          FROM receipts r
          LEFT JOIN demands d ON d.id = r.demand_id
          LEFT JOIN payment_plans pp2 ON pp2.id = r.payment_plan_id
