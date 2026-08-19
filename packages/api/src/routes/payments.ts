@@ -1246,7 +1246,7 @@ router.get('/receipts/pending-cheques', async (req: AuthRequest, res: Response, 
       LEFT JOIN banks ba ON ba.id = r.clearing_bank_id
       LEFT JOIN projects p ON p.id = al.project_id
       LEFT JOIN companies comp ON comp.id = p.company_id
-      WHERE r.payment_method::text IN ('cheque', 'bank_transfer')
+      WHERE r.payment_method::text IN ('cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan')
         AND r.status IN ('pending', 'deposited', 'on_hold')
         ${whereExtra}
       ORDER BY r.created_at DESC
@@ -3745,8 +3745,8 @@ router.patch('/receipts/:id/deposit', async (req: AuthRequest, res: Response, ne
       return res.status(404).json({ error: 'Receipt not found' });
     }
     const receipt = receiptRes.rows[0];
-    if (!['cheque', 'bank_transfer'].includes(receipt.payment_method)) {
-      return res.status(400).json({ error: 'Only cheque or online receipts can be deposited' });
+    if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
+      return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be deposited' });
     }
     if (receipt.status !== 'pending') {
       return res.status(400).json({ error: `Cannot deposit: receipt is '${receipt.status}', must be 'pending'` });
@@ -3784,8 +3784,8 @@ router.patch('/receipts/:id/clear', async (req: AuthRequest, res: Response, next
       return res.status(404).json({ error: 'Receipt not found' });
     }
     const receipt = receiptRes.rows[0];
-    if (!['cheque', 'bank_transfer'].includes(receipt.payment_method)) {
-      return res.status(400).json({ error: 'Only cheque or online receipts can be cleared' });
+    if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
+      return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be cleared' });
     }
     if (!['pending', 'deposited', 'on_hold'].includes(receipt.status)) {
       return res.status(400).json({ error: `Cannot clear: receipt is '${receipt.status}', must be 'pending', 'deposited', or 'on_hold'` });
@@ -3821,8 +3821,8 @@ router.patch('/receipts/:id/release-hold', async (req: AuthRequest, res: Respons
       return res.status(404).json({ error: 'Receipt not found' });
     }
     const receipt = receiptRes.rows[0];
-    if (!['cheque', 'bank_transfer'].includes(receipt.payment_method)) {
-      return res.status(400).json({ error: 'Only cheque or online receipts can be released from hold' });
+    if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
+      return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be released from hold' });
     }
     if (receipt.status !== 'on_hold') {
       return res.status(400).json({ error: 'Cannot release: receipt is not on hold' });
@@ -3860,8 +3860,8 @@ router.patch('/receipts/:id/hold', async (req: AuthRequest, res: Response, next:
       return res.status(404).json({ error: 'Receipt not found' });
     }
     const receipt = receiptRes.rows[0];
-    if (!['cheque', 'bank_transfer'].includes(receipt.payment_method)) {
-      return res.status(400).json({ error: 'Only cheque or online receipts can be put on hold' });
+    if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
+      return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be put on hold' });
     }
     if (['cleared', 'bounced', 'cancelled'].includes(receipt.status)) {
       return res.status(400).json({ error: `Cannot hold: receipt is '${receipt.status}'` });
