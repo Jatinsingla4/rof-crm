@@ -22,8 +22,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       carpetAreaSqft,
       superAreaSqft,
       balconyAreaSqft,
-      balconyRateInrSqft,
-      balconyRateCapInr,
       basePriceInr,
       totalPriceInr,
       facing,
@@ -40,13 +38,13 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const result = await db.query(
       `INSERT INTO units (
         project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft,
-        super_area_sqft, balcony_area_sqft, balcony_rate_inr_sqft, balcony_rate_cap_inr,
+        super_area_sqft, balcony_area_sqft,
         base_price_inr, total_price_inr, facing, floor_plan_url,
         status, created_by_user_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'available', $15)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'available', $13)
        RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`,
       [projectId, towerId, floor, unitNumber, bhkType, carpetAreaSqft, superAreaSqft,
-       balconyAreaSqft || null, balconyRateInrSqft || null, balconyRateCapInr || null,
+       balconyAreaSqft || null,
        basePriceInr, totalPriceInr, facing, floorPlanUrl, req.userId]
     );
 
@@ -427,7 +425,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
   try {
     const { id } = req.params;
     const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
-            balconyAreaSqft, balconyRateInrSqft, balconyRateCapInr } = req.body;
+            balconyAreaSqft } = req.body;
 
     const result = await db.query(
       `UPDATE units
@@ -437,13 +435,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
            base_price_inr = COALESCE($4, base_price_inr),
            total_price_inr = COALESCE($5, total_price_inr),
            balcony_area_sqft = COALESCE($6, balcony_area_sqft),
-           balcony_rate_inr_sqft = COALESCE($7, balcony_rate_inr_sqft),
-           balcony_rate_cap_inr = COALESCE($8, balcony_rate_cap_inr),
            updated_at = NOW()
-       WHERE id = $9
+       WHERE id = $7
        RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`,
       [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
-       balconyAreaSqft ?? null, balconyRateInrSqft ?? null, balconyRateCapInr ?? null, id]
+       balconyAreaSqft ?? null, id]
     );
 
     if (result.rows.length === 0) {
