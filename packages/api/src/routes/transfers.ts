@@ -16,6 +16,10 @@ function fmtIndianNumber(n: number): string {
   return Math.round(n).toLocaleString('en-IN');
 }
 
+function fmtIndianMoneyDecimal(n: number): string {
+  return (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 const router = Router();
 
 /**
@@ -707,9 +711,9 @@ router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunc
   </tr>
   <tr>
     <td class="lbl">Sale Amount:</td>
-    <td>${t.transfer_amount_inr ? fmtIndianNumber(Number(t.transfer_amount_inr)) : ''}</td>
+    <td>${t.transfer_amount_inr ? fmtIndianMoneyDecimal(Number(t.transfer_amount_inr)) : ''}</td>
     <td class="lbl">Rate Per Sq.Ft.:</td>
-    <td>${t.base_price_inr ? fmtIndianNumber(Number(t.base_price_inr)) + '/-' : ''}</td>
+    <td>${t.base_price_inr ? fmtIndianMoneyDecimal(Number(t.base_price_inr)) + '/-' : ''}</td>
   </tr>
   <tr>
     <td class="lbl">Booking Date:</td>
@@ -783,9 +787,9 @@ router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunc
   <tbody>
     <tr>
       <td>Total Amount/Received</td>
-      <td>${fmtIndianNumber(sellerDue)}</td>
-      <td>${fmtIndianNumber(sellerReceived)}</td>
-      <td>${fmtIndianNumber(sellerBalance)}</td>
+      <td>${fmtIndianMoneyDecimal(sellerDue)}</td>
+      <td>${fmtIndianMoneyDecimal(sellerReceived)}</td>
+      <td>${fmtIndianMoneyDecimal(sellerBalance)}</td>
       <td></td>
     </tr>
     <tr>
@@ -794,9 +798,9 @@ router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunc
     </tr>
     <tr>
       <td>Transfer Charge</td>
-      <td>${fmtIndianNumber(transferFee)}</td>
+      <td>${fmtIndianMoneyDecimal(transferFee)}</td>
       <td>0</td>
-      <td>${fmtIndianNumber(transferFee)}</td>
+      <td>${fmtIndianMoneyDecimal(transferFee)}</td>
       <td></td>
     </tr>
     <tr>
@@ -805,9 +809,9 @@ router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunc
     </tr>
     <tr>
       <td>Service Tax on Transfer Charge @${staxPct}%</td>
-      <td>${fmtIndianNumber(staxAmt)}</td>
+      <td>${fmtIndianMoneyDecimal(staxAmt)}</td>
       <td>0</td>
-      <td>${fmtIndianNumber(staxAmt)}</td>
+      <td>${fmtIndianMoneyDecimal(staxAmt)}</td>
       <td></td>
     </tr>
   </tbody>

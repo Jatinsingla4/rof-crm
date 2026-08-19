@@ -131,6 +131,12 @@ function fmtIndianNumber(n) {
 function fmtIndianNumberDecimal(n) {
     return (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+function fmtIndianMoneyDecimal(n) {
+    return (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtIndianAreaDecimal(n) {
+    return (n || 0).toLocaleString('en-IN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+}
 // Get the professional demand letter HTML shell (bypasses template DB lookup)
 function getDemandLetterShell() {
     return `<!DOCTYPE html>
@@ -1025,7 +1031,7 @@ router.post('/generate', async (req, res, next) => {
                     let rowsNoInterest = '';
                     let rowsWithInterest = '';
                     // DS: tagged span helper for demand letter table cells
-                    const DS = (key, label, val, extra = '') => `<span data-field-key="${key}" data-field-label="${label}" data-value-type="currency" data-section="payment_table"${extra}>${fmtIndianNumber(val)}</span>`;
+                    const DS = (key, label, val, extra = '') => `<span data-field-key="${key}" data-field-label="${label}" data-value-type="currency" data-section="payment_table"${extra}>${fmtIndianMoneyDecimal(val)}</span>`;
                     demandsRes.rows.forEach((dm, idx) => {
                         // If demand exists, use its amounts; otherwise calculate from template percentage
                         const hasDemand = !!dm.demand_id;
@@ -1176,7 +1182,7 @@ router.post('/generate', async (req, res, next) => {
               <td class="tr">${DS(`basicCgst_${idx}`, `CGST Amount (Row ${idx})`, basicCgst)}</td>
               <td class="tc">${sgstPct}%</td>
               <td class="tr">${DS(`basicSgst_${idx}`, `SGST Amount (Row ${idx})`, basicSgst)}</td>
-              <td class="tr" style="color:#c00"><span data-field-key="basicInterest_${idx}" data-field-label="Penal Interest (Row ${idx})" data-value-type="currency" data-section="interest_table">${fmtIndianNumber(basicInterest)}</span></td>
+              <td class="tr" style="color:#c00"><span data-field-key="basicInterest_${idx}" data-field-label="Penal Interest (Row ${idx})" data-value-type="currency" data-section="interest_table">${fmtIndianMoneyDecimal(basicInterest)}</span></td>
               <td class="tr">${DS(`basicTotal_${idx}`, `Row Total (Row ${idx})`, basicDueWI)}</td>
               <td class="tr">${DS(`basicPaid_${idx}`, `Amount Paid (Row ${idx})`, basicPaid)}</td>
               <td class="tr bold">${DS(`basicPayable_${idx}`, `Net Payable (Row ${idx})`, basicPayableWI)}</td>
@@ -1189,7 +1195,7 @@ router.post('/generate', async (req, res, next) => {
               <td class="tr">${DS(`balconyCgst_${idx}`, `Balcony CGST (Row ${idx})`, balconyCgst)}</td>
               <td class="tc">${sgstPct}%</td>
               <td class="tr">${DS(`balconySgst_${idx}`, `Balcony SGST (Row ${idx})`, balconySgst)}</td>
-              <td class="tr" style="color:#c00"><span data-field-key="balconyInterest_${idx}" data-field-label="Balcony Interest (Row ${idx})" data-value-type="currency" data-section="interest_table">${fmtIndianNumber(balconyInterest)}</span></td>
+              <td class="tr" style="color:#c00"><span data-field-key="balconyInterest_${idx}" data-field-label="Balcony Interest (Row ${idx})" data-value-type="currency" data-section="interest_table">${fmtIndianMoneyDecimal(balconyInterest)}</span></td>
               <td class="tr">${DS(`balconyTotal_${idx}`, `Balcony Total (Row ${idx})`, balconyDueWI)}</td>
               <td class="tr">${DS(`balconyPaid_${idx}`, `Balcony Paid (Row ${idx})`, balconyPaid)}</td>
               <td class="tr bold">${DS(`balconyPayable_${idx}`, `Balcony Payable (Row ${idx})`, balconyPayableWI)}</td>
@@ -1223,39 +1229,39 @@ router.post('/generate', async (req, res, next) => {
               <td class="tc">—</td>
               <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
               <td class="tc">—</td>
-              <td class="tr">${fmtIndianNumber(planOtherCharge)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOtherCharge)}</td>
               <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
-              <td class="tr">${fmtIndianNumber(planOcCgst)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcCgst)}</td>
               <td class="tc">${defaultSgstPct.toFixed(2)}%</td>
-              <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
-              <td class="tr">${fmtIndianNumber(planOcDue)}</td>
-              <td class="tr">${fmtIndianNumber(ocPaid)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcSgst)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcDue)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(ocPaid)}</td>
               <td class="tr bold">${ocPayable === 0 ? '0' : '—'}</td>
             </tr>`;
                         rowsWithInterest += `<tr style="background:#f9f9f9">
               <td class="tc">—</td>
               <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
               <td class="tc">—</td>
-              <td class="tr">${fmtIndianNumber(planOtherCharge)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOtherCharge)}</td>
               <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
-              <td class="tr">${fmtIndianNumber(planOcCgst)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcCgst)}</td>
               <td class="tc">${defaultSgstPct.toFixed(2)}%</td>
-              <td class="tr">${fmtIndianNumber(planOcSgst)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcSgst)}</td>
               <td class="tr" style="color:#c00">0.00</td>
-              <td class="tr">${fmtIndianNumber(planOcDue)}</td>
-              <td class="tr">${fmtIndianNumber(ocPaid)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(planOcDue)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(ocPaid)}</td>
               <td class="tr bold">${ocPayable === 0 ? '0' : '—'}</td>
             </tr>`;
                     }
                     // Guard against slight overpayment (advance receipt covers base+GST, totalDue tracks base only)
-                    const totalPayable = Math.max(0, Math.round(totalDue - totalPaid));
+                    const totalPayable = Math.max(0, totalDue - totalPaid);
                     // Use DB-sourced interest when available (respects waivers)
                     const effectiveInterest = totalInterestFromDB > 0 ? totalInterestFromDB : totalInterestCalc;
-                    const totalPayableWithInterest = Math.max(0, Math.round(totalDue - totalPaid + effectiveInterest));
+                    const totalPayableWithInterest = Math.max(0, totalDue - totalPaid + effectiveInterest);
                     const ratePerSqft = parseFloat(plan.booking_basic_rate_inr_sqft || 0) > 0
-                        ? Math.round(parseFloat(plan.booking_basic_rate_inr_sqft))
+                        ? parseFloat(plan.booking_basic_rate_inr_sqft)
                         : (plan.carpet_area_sqft > 0
-                            ? Math.round((plan.base_price_inr || 0) / plan.carpet_area_sqft)
+                            ? (plan.base_price_inr || 0) / plan.carpet_area_sqft
                             : 0);
                     const lastDemand = demandsRes.rows[demandsRes.rows.length - 1];
                     // Compute last due date across all rows
@@ -1284,11 +1290,11 @@ router.post('/generate', async (req, res, next) => {
                         unitCategory: plan.bhk_type || d?.bhk_type || '—',
                         towerName: plan.tower_name || '—',
                         floorNo: ordinalFloor(plan.floor),
-                        carpetArea: plan.carpet_area_sqft ? fmtIndianNumber(parseFloat(plan.carpet_area_sqft)) : '—',
-                        balconyArea: plan.balcony_area_sqft ? fmtIndianNumber(parseFloat(plan.balcony_area_sqft)) : '0',
-                        superArea: plan.super_area_sqft ? fmtIndianNumber(parseFloat(plan.super_area_sqft)) : '—',
+                        carpetArea: plan.carpet_area_sqft ? fmtIndianAreaDecimal(parseFloat(plan.carpet_area_sqft)) : '—',
+                        balconyArea: plan.balcony_area_sqft ? fmtIndianAreaDecimal(parseFloat(plan.balcony_area_sqft)) : '0',
+                        superArea: plan.super_area_sqft ? fmtIndianAreaDecimal(parseFloat(plan.super_area_sqft)) : '—',
                         facing: plan.facing || '—',
-                        ratePerSqft: fmtIndianNumber(ratePerSqft),
+                        ratePerSqft: fmtIndianMoneyDecimal(ratePerSqft),
                         // Project
                         projectName: plan.project_name || d?.project_name || '—',
                         projectSector: plan.project_location || d?.project_sector || '—',
@@ -1305,22 +1311,22 @@ router.post('/generate', async (req, res, next) => {
                         year: String(new Date().getFullYear()),
                         // Payment plan
                         planName: plan.plan_name || '—',
-                        totalAmount: plan.total_amount_inr ? fmtIndianNumber(parseFloat(plan.total_amount_inr)) : '—',
+                        totalAmount: plan.total_amount_inr ? fmtIndianMoneyDecimal(parseFloat(plan.total_amount_inr)) : '—',
                         // Company identity
                         companyName: settings['company_name'] || 'ROF INFRATECH & HOUSING PVT. LTD.',
                         // Demand rows & totals
                         demandRows: rowsNoInterest,
                         demandRowsWithInterest: rowsWithInterest,
-                        totalDue: fmtIndianNumber(totalDue),
-                        totalPaid: fmtIndianNumber(totalPaid),
+                        totalDue: fmtIndianMoneyDecimal(totalDue),
+                        totalPaid: fmtIndianMoneyDecimal(totalPaid),
                         // Use DB total if available, fallback to live computed value
-                        totalInterest: fmtIndianNumber(Math.round(totalInterestFromDB > 0 ? totalInterestFromDB : totalInterestCalc)),
-                        totalInterestCalc: fmtIndianNumber(Math.round(totalInterestCalc)),
-                        totalPayable: fmtIndianNumber(totalPayable),
-                        totalPayableWithInterest: fmtIndianNumber(totalPayableWithInterest),
-                        totalCgst: fmtIndianNumber(totalCgst),
-                        totalSgst: fmtIndianNumber(totalSgst),
-                        totalGstAmount: fmtIndianNumber(totalCgst + totalSgst),
+                        totalInterest: fmtIndianMoneyDecimal(totalInterestFromDB > 0 ? totalInterestFromDB : totalInterestCalc),
+                        totalInterestCalc: fmtIndianMoneyDecimal(totalInterestCalc),
+                        totalPayable: fmtIndianMoneyDecimal(totalPayable),
+                        totalPayableWithInterest: fmtIndianMoneyDecimal(totalPayableWithInterest),
+                        totalCgst: fmtIndianMoneyDecimal(totalCgst),
+                        totalSgst: fmtIndianMoneyDecimal(totalSgst),
+                        totalGstAmount: fmtIndianMoneyDecimal(totalCgst + totalSgst),
                         amountInWords: numberToWordsIndian(totalPayable),
                         amountInWordsWithInterest: numberToWordsIndian(totalPayableWithInterest),
                         totalPayableWords: numberToWordsIndian(totalPayable),
@@ -1551,9 +1557,9 @@ router.post('/generate', async (req, res, next) => {
                     const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0))), 0) AS net_interest_inr
              FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
                     const totalInterestFromDBCL = Number(piResCL.rows[0]?.net_interest_inr || 0);
-                    const dueIntCL = Math.round(totalInterestFromDBCL > 0 ? totalInterestFromDBCL : totalInterestCalcCL);
+                    const dueIntCL = totalInterestFromDBCL > 0 ? totalInterestFromDBCL : totalInterestCalcCL;
                     const waiverResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(interest_waived_inr), 0) AS total_waived FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
-                    const waiverIntCL = Math.round(Number(waiverResCL.rows[0]?.total_waived || 0));
+                    const waiverIntCL = Number(waiverResCL.rows[0]?.total_waived || 0);
                     // No mechanism in this schema splits a receipt into principal vs.
                     // interest portions, so "interest received" cannot be honestly
                     // derived from real payment data. Reported as 0 rather than fabricated.
@@ -1563,17 +1569,17 @@ router.post('/generate', async (req, res, next) => {
                     // real, exact figure (totalPaidCL) by each row's Due share, since
                     // receipts are never tagged to a specific component in this schema.
                     const buildRowCL = (label, due) => {
-                        const receive = totalDueCL > 0 ? Math.round(totalPaidCL * (due / totalDueCL)) : 0;
-                        const balance = Math.max(0, Math.round(due - receive));
+                        const receive = totalDueCL > 0 ? totalPaidCL * (due / totalDueCL) : 0;
+                        const balance = Math.max(0, due - receive);
                         return `<tr>
               <td>${label}</td>
-              <td class="tr">${fmtIndianNumber(due)}</td>
-              <td class="tr">${fmtIndianNumber(receive)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(due)}</td>
+              <td class="tr">${fmtIndianMoneyDecimal(receive)}</td>
               <td class="tr">0</td>
               <td class="tr">0</td>
               <td class="tr">0</td>
               <td class="tr">0</td>
-              <td class="tr bold">${fmtIndianNumber(balance)}</td>
+              <td class="tr bold">${fmtIndianMoneyDecimal(balance)}</td>
             </tr>`;
                     };
                     let financeRowsCL = buildRowCL('Basic Price', basicDueCL);
@@ -1581,19 +1587,19 @@ router.post('/generate', async (req, res, next) => {
                     for (const r of addonRowsCL) {
                         financeRowsCL += buildRowCL(r.label, r.due);
                     }
-                    const totalReceiveCL = Math.round(totalPaidCL);
-                    const totalBalanceCL = Math.max(0, Math.round(totalDueCL - totalReceiveCL));
+                    const totalReceiveCL = totalPaidCL;
+                    const totalBalanceCL = Math.max(0, totalDueCL - totalReceiveCL);
                     financeRowsCL += `<tr>
             <td class="bold">Total</td>
-            <td class="tr bold">${fmtIndianNumber(totalDueCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(totalReceiveCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(dueIntCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(receiveIntCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(waiverIntCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(balanceIntCL)}</td>
-            <td class="tr bold">${fmtIndianNumber(totalBalanceCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(totalDueCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(totalReceiveCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(dueIntCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(receiveIntCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(waiverIntCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(balanceIntCL)}</td>
+            <td class="tr bold">${fmtIndianMoneyDecimal(totalBalanceCL)}</td>
           </tr>`;
-                    const totalAmountReceivedABCL = fmtIndianNumber(totalReceiveCL + receiveIntCL);
+                    const totalAmountReceivedABCL = fmtIndianMoneyDecimal(totalReceiveCL + receiveIntCL);
                     mergeData = {
                         consumerName: planCL.consumer_name || d?.name || '—',
                         coApplicants: coApplicantsCL || '—',
@@ -1603,8 +1609,8 @@ router.post('/generate', async (req, res, next) => {
                         paymentMode: planCL.booking_payment_mode || '—',
                         projectName: planCL.project_name || d?.project_name || '—',
                         unitNumber: planCL.unit_number || d?.unit_number || '—',
-                        carpetArea: planCL.carpet_area_sqft ? fmtIndianNumber(parseFloat(planCL.carpet_area_sqft)) : '—',
-                        balconyArea: planCL.balcony_area_sqft ? fmtIndianNumber(parseFloat(planCL.balcony_area_sqft)) : '0',
+                        carpetArea: planCL.carpet_area_sqft ? fmtIndianAreaDecimal(parseFloat(planCL.carpet_area_sqft)) : '—',
+                        balconyArea: planCL.balcony_area_sqft ? fmtIndianAreaDecimal(parseFloat(planCL.balcony_area_sqft)) : '0',
                         currentDate: fmtDateIndia(new Date()),
                         companyName: settingsCL['company_name'] || 'ROF INFRATECH & HOUSING PVT. LTD.',
                         companyCin: settingsCL['company_cin'] || '—',
@@ -1727,7 +1733,7 @@ router.post('/generate', async (req, res, next) => {
               <td class="tc">${idx + 1}</td>
               <td><span data-field-key="scheduleInstallmentName_${idx}" data-field-label="Schedule Installment (Row ${idx})" data-value-type="text" data-section="payment_schedule">${row.installment_name || 'Installment'}</span></td>
               <td class="tc"><span data-field-key="schedulePercentage_${idx}" data-field-label="Schedule Percentage (Row ${idx})" data-value-type="percentage" data-section="payment_schedule">${pct.toFixed(2)}</span>%</td>
-              <td class="tr">&#8377; <span data-field-key="scheduleAmount_${idx}" data-field-label="Schedule Amount (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianNumber(amt)}</span></td>
+              <td class="tr">&#8377; <span data-field-key="scheduleAmount_${idx}" data-field-label="Schedule Amount (Row ${idx})" data-value-type="currency" data-section="payment_schedule">${fmtIndianMoneyDecimal(amt)}</span></td>
             </tr>`;
                     });
                     // Address string
@@ -1737,7 +1743,7 @@ router.post('/generate', async (req, res, next) => {
                     // Rate per sqft
                     const carpetSqft2 = parseFloat(al.carpet_area_sqft || 0);
                     const ratePerSqft2 = carpetSqft2 > 0
-                        ? fmtIndianNumber(Math.round(totalPriceInr / carpetSqft2))
+                        ? fmtIndianMoneyDecimal(totalPriceInr / carpetSqft2)
                         : 'N/A';
                     mergeData = {
                         // Company
@@ -1793,9 +1799,9 @@ router.post('/generate', async (req, res, next) => {
                         towerName: al.tower_name || 'N/A',
                         floorNo: ordinalFloor(al.floor),
                         ratePerSqft: ratePerSqft2,
-                        totalConsideration: fmtIndianNumber(totalPriceInr),
+                        totalConsideration: fmtIndianMoneyDecimal(totalPriceInr),
                         // Booking / Earnest money
-                        earnestAmount: fmtIndianNumber(parseFloat(al.earnest_amount || 0)),
+                        earnestAmount: fmtIndianMoneyDecimal(parseFloat(al.earnest_amount || 0)),
                         paymentRef: al.payment_ref || 'N/A',
                         chequeDate: al.cheque_date ? fmtDateIndia(al.cheque_date) : 'N/A',
                         bookingBankName: al.booking_bank_name || 'N/A',
@@ -1922,7 +1928,7 @@ router.post('/generate', async (req, res, next) => {
               <td>${idx + 1}</td>
               <td>${row.installment_name || 'Installment'}</td>
               <td>${pct.toFixed(2)}%</td>
-              <td>₹ ${fmtIndianNumber(amt)}</td>
+              <td>₹ ${fmtIndianMoneyDecimal(amt)}</td>
             </tr>`;
                     });
                     const carpetSqft3 = parseFloat(ats.carpet_area_sqft || 0);
@@ -1939,8 +1945,8 @@ router.post('/generate', async (req, res, next) => {
                         basicPrice3 = parseFloat(ats.base_price_inr || 0);
                         balconyPrice3 = totalPrice3 - basicPrice3;
                     }
-                    const basicRate3 = carpetSqft3 > 0 ? Math.round(basicPrice3 / carpetSqft3) : 0;
-                    const balconyRate3 = balconySqft3 > 0 ? Math.round(balconyPrice3 / balconySqft3) : 0;
+                    const basicRate3 = carpetSqft3 > 0 ? basicPrice3 / carpetSqft3 : 0;
+                    const balconyRate3 = balconySqft3 > 0 ? balconyPrice3 / balconySqft3 : 0;
                     const bookingPct3 = (parseFloat(ats.booking_amount || 0) / totalPrice3 * 100).toFixed(2);
                     mergeData = {
                         allottee_name: `${ats.first_name || ''} ${ats.last_name || ''}`.trim() || '—',
@@ -1985,13 +1991,13 @@ router.post('/generate', async (req, res, next) => {
                         parking_no: '—',
                         total_price: fmtIndianNumberDecimal(totalPrice3),
                         total_price_words: numberToWordsIndian(totalPrice3),
-                        basic_price: fmtIndianNumber(basicPrice3),
+                        basic_price: fmtIndianMoneyDecimal(basicPrice3),
                         basic_price_words: numberToWordsIndian(basicPrice3),
                         balcony_price: fmtIndianNumberDecimal(balconyPrice3),
                         balcony_price_words: numberToWordsIndian(balconyPrice3),
-                        rate_per_sqft: fmtIndianNumber(basicRate3),
+                        rate_per_sqft: fmtIndianMoneyDecimal(basicRate3),
                         balcony_rate: fmtIndianNumberDecimal(balconyRate3),
-                        booking_amount: fmtIndianNumber(parseFloat(ats.booking_amount || 0)),
+                        booking_amount: fmtIndianMoneyDecimal(parseFloat(ats.booking_amount || 0)),
                         booking_amount_words: numberToWordsIndian(parseFloat(ats.booking_amount || 0)),
                         booking_amount_pct: bookingPct3,
                         application_no: ats.consumer_id?.slice(0, 8).toUpperCase() || '—',
@@ -2072,7 +2078,7 @@ router.post('/generate', async (req, res, next) => {
                         balcony_area_raw: (() => { const val = parseFloat(cd.balcony_area_sqft || '0'); return val > 0 ? val.toFixed(3) : '0'; })(),
                         parking_no: '—',
                         allotment_letter_date: fmtDateIndia(cd.allotment_date),
-                        consideration: fmtIndianNumber(consideration),
+                        consideration: fmtIndianMoneyDecimal(consideration),
                         consideration_words: numberToWordsIndian(consideration),
                         stamp_duty: '—',
                         e_stamp_no: '—',
