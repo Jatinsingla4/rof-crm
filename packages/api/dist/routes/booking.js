@@ -1437,7 +1437,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <td ${tdStyle}>${ocRowNum}</td>
       <td ${tdL}>Balcony Charge</td>
       <td ${tdStyle}>—</td><td ${tdStyle}>—</td><td ${tdStyle}>—</td>
-      <td ${tdR}>${fmtIndianNumber(balconyChargeTotal)}</td>
+      <td ${tdR}>${fmtIndianNumber(balconyChargeAmount)}</td>
       <td ${tdL}>—</td>
     </tr>`;
     }
@@ -1460,7 +1460,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <tbody>${otherChargeRows}</tbody>
       <tfoot><tr>
         <td colspan="5" ${tdR} style="${baseFont}border:1px solid #999;padding:3px 5px;font-weight:700;text-align:right;">Total:</td>
-        <td ${tdR}><strong>${fmtIndianNumber(plcAmount + otherCharge + balconyChargeTotal)}</strong></td>
+        <td ${tdR}><strong>${fmtIndianNumber(plcAmount + otherCharge + balconyChargeAmount)}</strong></td>
         <td ${tdL}></td>
       </tr></tfoot>
     </table>`;
