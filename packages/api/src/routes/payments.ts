@@ -1284,7 +1284,8 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
             edcAmount, idcAmount, interestAmount, otherChargeAmount, otherChargeDesc } = req.body;
 
     const existing = await db.query(
-      `SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref
+      `SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref,
+              received_date, amount_received_inr
        FROM receipts WHERE id = $1`,
       [id]
     );
@@ -1310,6 +1311,28 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
 
     const isPending = receipt.approval_status === 'pending';
 
+    // received_date drives GST-rate resolution (computeReceiptGstSplit is
+    // otherwise only ever called once, at receipt creation) -- if the date
+    // is actually changing, re-resolve the rate for the new date so
+    // cgst_amount/sgst_amount don't go stale.
+    let newCgstAmount: number | null = null;
+    let newSgstAmount: number | null = null;
+    const existingDateStr = receipt.received_date
+      ? new Date(receipt.received_date).toISOString().split('T')[0]
+      : null;
+    if (receivedDate && receivedDate !== existingDateStr) {
+      const bookingInfo = await db.query(
+        `SELECT project_id FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [receipt.consumer_id]
+      );
+      const gstProjectId: string | null = bookingInfo.rows[0]?.project_id || null;
+      const gstSplit = await computeReceiptGstSplit(
+        db, parseFloat(receipt.amount_received_inr), gstProjectId, receivedDate
+      );
+      newCgstAmount = gstSplit.cgstAmount;
+      newSgstAmount = gstSplit.sgstAmount;
+    }
+
     const result = await db.query(
       `UPDATE receipts SET
          payment_method  = COALESCE($1, payment_method),
@@ -1319,29 +1342,28 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
          cheque_no       = COALESCE($5, cheque_no),
          cheque_date     = COALESCE($6::date, cheque_date),
          received_date   = COALESCE($7::date, received_date),
-         amount_received_inr = CASE WHEN $8::boolean
-           THEN COALESCE($9::bigint, amount_received_inr)
-           ELSE amount_received_inr END,
+         cgst_amount = COALESCE($9::numeric, cgst_amount),
+         sgst_amount = COALESCE($10::numeric, sgst_amount),
          plc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($10::numeric, plc_amount)
+           THEN COALESCE($11::numeric, plc_amount)
            ELSE plc_amount END,
          edc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($11::numeric, edc_amount)
+           THEN COALESCE($12::numeric, edc_amount)
            ELSE edc_amount END,
          idc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($12::numeric, idc_amount)
+           THEN COALESCE($13::numeric, idc_amount)
            ELSE idc_amount END,
          interest_amount = CASE WHEN $8::boolean
-           THEN COALESCE($13::numeric, interest_amount)
+           THEN COALESCE($14::numeric, interest_amount)
            ELSE interest_amount END,
          other_charge_amount = CASE WHEN $8::boolean
-           THEN COALESCE($14::numeric, other_charge_amount)
+           THEN COALESCE($15::numeric, other_charge_amount)
            ELSE other_charge_amount END,
          other_charge_desc = CASE WHEN $8::boolean
-           THEN COALESCE($15, other_charge_desc)
+           THEN COALESCE($16, other_charge_desc)
            ELSE other_charge_desc END,
          updated_at = NOW()
-       WHERE id = $16
+       WHERE id = $17
        RETURNING *`,
       [
         paymentMethod   || null,
@@ -1352,7 +1374,8 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
         chequeDate      || null,
         receivedDate    || null,
         isPending,
-        amountReceivedInr != null ? amountReceivedInr : null,
+        newCgstAmount,
+        newSgstAmount,
         plcAmount         != null ? plcAmount         : null,
         edcAmount         != null ? edcAmount         : null,
         idcAmount         != null ? idcAmount         : null,

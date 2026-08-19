@@ -1056,7 +1056,8 @@ router.patch('/receipts/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const { paymentMethod, transactionRef, bankName, branch, chequeNo, chequeDate, receivedDate, amountReceivedInr, plcAmount, edcAmount, idcAmount, interestAmount, otherChargeAmount, otherChargeDesc } = req.body;
-        const existing = await index_js_1.db.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref
+        const existing = await index_js_1.db.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref,
+              received_date, amount_received_inr
        FROM receipts WHERE id = $1`, [id]);
         if (existing.rows.length === 0)
             return res.status(404).json({ error: 'Receipt not found' });
@@ -1074,6 +1075,22 @@ router.patch('/receipts/:id', async (req, res, next) => {
             }
         }
         const isPending = receipt.approval_status === 'pending';
+        // received_date drives GST-rate resolution (computeReceiptGstSplit is
+        // otherwise only ever called once, at receipt creation) -- if the date
+        // is actually changing, re-resolve the rate for the new date so
+        // cgst_amount/sgst_amount don't go stale.
+        let newCgstAmount = null;
+        let newSgstAmount = null;
+        const existingDateStr = receipt.received_date
+            ? new Date(receipt.received_date).toISOString().split('T')[0]
+            : null;
+        if (receivedDate && receivedDate !== existingDateStr) {
+            const bookingInfo = await index_js_1.db.query(`SELECT project_id FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`, [receipt.consumer_id]);
+            const gstProjectId = bookingInfo.rows[0]?.project_id || null;
+            const gstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(index_js_1.db, parseFloat(receipt.amount_received_inr), gstProjectId, receivedDate);
+            newCgstAmount = gstSplit.cgstAmount;
+            newSgstAmount = gstSplit.sgstAmount;
+        }
         const result = await index_js_1.db.query(`UPDATE receipts SET
          payment_method  = COALESCE($1, payment_method),
          transaction_ref = COALESCE($2, transaction_ref),
@@ -1082,29 +1099,28 @@ router.patch('/receipts/:id', async (req, res, next) => {
          cheque_no       = COALESCE($5, cheque_no),
          cheque_date     = COALESCE($6::date, cheque_date),
          received_date   = COALESCE($7::date, received_date),
-         amount_received_inr = CASE WHEN $8::boolean
-           THEN COALESCE($9::bigint, amount_received_inr)
-           ELSE amount_received_inr END,
+         cgst_amount = COALESCE($9::numeric, cgst_amount),
+         sgst_amount = COALESCE($10::numeric, sgst_amount),
          plc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($10::numeric, plc_amount)
+           THEN COALESCE($11::numeric, plc_amount)
            ELSE plc_amount END,
          edc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($11::numeric, edc_amount)
+           THEN COALESCE($12::numeric, edc_amount)
            ELSE edc_amount END,
          idc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($12::numeric, idc_amount)
+           THEN COALESCE($13::numeric, idc_amount)
            ELSE idc_amount END,
          interest_amount = CASE WHEN $8::boolean
-           THEN COALESCE($13::numeric, interest_amount)
+           THEN COALESCE($14::numeric, interest_amount)
            ELSE interest_amount END,
          other_charge_amount = CASE WHEN $8::boolean
-           THEN COALESCE($14::numeric, other_charge_amount)
+           THEN COALESCE($15::numeric, other_charge_amount)
            ELSE other_charge_amount END,
          other_charge_desc = CASE WHEN $8::boolean
-           THEN COALESCE($15, other_charge_desc)
+           THEN COALESCE($16, other_charge_desc)
            ELSE other_charge_desc END,
          updated_at = NOW()
-       WHERE id = $16
+       WHERE id = $17
        RETURNING *`, [
             paymentMethod || null,
             transactionRef || null,
@@ -1114,7 +1130,8 @@ router.patch('/receipts/:id', async (req, res, next) => {
             chequeDate || null,
             receivedDate || null,
             isPending,
-            amountReceivedInr != null ? amountReceivedInr : null,
+            newCgstAmount,
+            newSgstAmount,
             plcAmount != null ? plcAmount : null,
             edcAmount != null ? edcAmount : null,
             idcAmount != null ? idcAmount : null,

@@ -9,7 +9,7 @@ Pages.receipts = async function(params = {}) {
       <div class="breadcrumb">Application / Receipt Process / <b>Receipt Entry</b></div>
     </div>
     <div class="tabs-line">
-      <button class="tab-line active" data-group="rec" data-tab="entry" data-action="receipt-entry-tab" onclick="switchTab('rec','entry')">Receipt Generation</button>
+      <button class="tab-line active" data-group="rec" data-tab="entry" data-action="receipt-entry-tab" onclick="switchTab('rec','entry');ReceiptsPage.setFormMode('create')">Receipt Generation</button>
       <button class="tab-line" data-group="rec" data-tab="print" onclick="switchTab('rec','print');ReceiptsPage.initPrintTab()">Receipt Print</button>
       <button class="tab-line" data-group="rec" data-tab="list" onclick="switchTab('rec','list');ReceiptsPage.loadList()">Receipt List</button>
       <button class="tab-line" data-group="rec" data-tab="journal" data-action="journal-entry-tab" onclick="switchTab('rec','journal');ReceiptsPage.jeInit()">Journal Entry</button>
@@ -22,7 +22,7 @@ Pages.receipts = async function(params = {}) {
 
     <!-- RECEIPT ENTRY TAB -->
     <div data-panel-group="rec" data-panel="entry">
-      <div class="sp" style="margin-bottom:12px">
+      <div class="sp" id="rec-search-block" style="margin-bottom:12px">
         <div class="sp-hdr"><div class="sp-title">Search Consumer</div></div>
         <div class="sp-body">
           <div class="sp-grid">
@@ -1748,10 +1748,18 @@ const ReceiptsPage = {
 
   setFormMode(mode) {
     const btn = document.getElementById('rec-submit-btn');
+    const amtInput = document.getElementById('rec-amount');
+    const searchBlock = document.getElementById('rec-search-block');
+    const entryTabBtn = document.querySelector('[data-group="rec"][data-tab="entry"]');
+    const editTabBtn  = document.querySelector('[data-group="rec"][data-tab="edit"]');
     let banner = document.getElementById('rec-edit-banner');
 
     if (mode === 'edit') {
       if (btn) { btn.textContent = 'Update Receipt'; btn.style.background = '#e67e22'; }
+      if (amtInput) amtInput.disabled = true;
+      if (searchBlock) searchBlock.style.display = 'none';
+      if (entryTabBtn) entryTabBtn.classList.remove('active');
+      if (editTabBtn) editTabBtn.classList.add('active');
       if (!banner) {
         banner = document.createElement('div');
         banner.id = 'rec-edit-banner';
@@ -1764,7 +1772,12 @@ const ReceiptsPage = {
       this.showCancelEditButton();
     } else {
       if (btn) { btn.textContent = 'Save Receipt'; btn.style.background = ''; }
+      if (amtInput) amtInput.disabled = false;
+      if (searchBlock) searchBlock.style.display = '';
+      if (editTabBtn) editTabBtn.classList.remove('active');
+      if (entryTabBtn) entryTabBtn.classList.add('active');
       if (banner) banner.style.display = 'none';
+      this._selectedReceiptId = null;
       this.hideCancelEditButton();
     }
   },
