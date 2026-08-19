@@ -51,8 +51,8 @@ const PC = {
       } catch (_) {}
     }
 
-    // Load clearing banks — only when we have a real project_id
-    if (projectId) await this._loadBanks(projectId);
+    // Load clearing banks from Bank Master — always, independent of project_id
+    await this._loadBanks();
 
     // Auto-fetch on page load
     this.fetchCheques();
@@ -66,11 +66,10 @@ const PC = {
     });
   },
 
-  async _loadBanks(projectId) {
-    if (!projectId) return;
+  async _loadBanks() {
     try {
       const token = pcGetToken();
-      const res   = await fetch('/api/payments/clearing-banks/' + projectId, {
+      const res   = await fetch('/api/master/banks', {
         headers: { Authorization: 'Bearer ' + token }
       });
       if (res.ok) {
@@ -97,7 +96,7 @@ const PC = {
     document.getElementById('pc-results').style.display = 'block';
 
     // Load banks lazily on first fetch
-    if (this._banks.length === 0 && projectId) await this._loadBanks(projectId);
+    if (this._banks.length === 0) await this._loadBanks();
 
     try {
       const token = pcGetToken();

@@ -1236,14 +1236,14 @@ router.get('/receipts/pending-cheques', async (req: AuthRequest, res: Response, 
         c.registration_no AS registration_number,
         u.unit_number AS unit_address,
         t.tower_name,
-        ba.bank_name AS clearing_bank_name,
+        ba.name AS clearing_bank_name,
         comp.name AS company_name
       FROM receipts r
       JOIN consumers c ON c.id = r.consumer_id
       LEFT JOIN allocations al ON al.consumer_id = c.id
       LEFT JOIN units u ON u.id = al.unit_id
       LEFT JOIN towers t ON t.id = u.tower_id
-      LEFT JOIN bank_accounts ba ON ba.id = r.clearing_bank_id
+      LEFT JOIN banks ba ON ba.id = r.clearing_bank_id
       LEFT JOIN projects p ON p.id = al.project_id
       LEFT JOIN companies comp ON comp.id = p.company_id
       WHERE r.payment_method::text IN ('cheque', 'bank_transfer')
