@@ -214,7 +214,8 @@ function getDemandLetterShell(): string {
     <thead>
       <tr>
         <th style="width:28px">S.No.</th>
-        <th>Installment Description</th>
+        <th>Particulars</th>
+        <th>Charge Type</th>
         <th style="width:68px">Due Date</th>
         <th style="width:72px">Basic Amt (&#8377;)</th>
         <th style="width:42px">CGST %</th>
@@ -231,7 +232,7 @@ function getDemandLetterShell(): string {
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="3" class="tr bold">TOTAL</td>
+        <td colspan="4" class="tr bold">TOTAL</td>
         <td class="tr bold">—</td>
         <td class="tc bold">—</td>
         <td class="tr bold">{{totalCgst}}</td>
@@ -1211,10 +1212,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             const label = dm.installment_name || dm.installment_label || dm.demand_type || 'Installment';
             const dueDt = dueDateVal ? fmtDateIndia(dueDateVal) : '—';
 
-            // 11-column row (without interest)
+            // 12-column row (without interest) — Particulars (timing, spanned) + Charge Type (not spanned)
             rowsNoInterest += `<tr>
               <td class="tc" rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${idx + 1}</td>
-              <td>${label} — Basic Price</td>
+              <td rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${label}</td>
+              <td>Basic Price</td>
               <td class="tc" data-field-key="dueDate_${idx}" data-field-label="Due Date (Row ${idx})" data-value-type="date" data-section="payment_table">${dueDt}</td>
               <td class="tr">${DS(`basicAmt_${idx}`, `Basic Amount (Row ${idx})`, basicAmt, ` data-cgst-pct="${cgstPct}" data-gst-type="basic"`)}</td>
               <td class="tc">${cgstPct}%</td>
@@ -1226,7 +1228,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr bold">${DS(`basicPayable_${idx}`, `Net Payable (Row ${idx})`, basicPayable)}</td>
             </tr>
             ${trueBalcony > 0 ? `<tr>
-              <td>${label} — Balcony Charges</td>
+              <td>Balcony Charges</td>
               <td class="tc">${dueDt}</td>
               <td class="tr">${DS(`balconyAmt_${idx}`, `Balcony Amount (Row ${idx})`, balconyAmt, ' data-gst-type="basic"')}</td>
               <td class="tc">${cgstPct}%</td>
@@ -1238,10 +1240,11 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr bold">${DS(`balconyPayable_${idx}`, `Balcony Payable (Row ${idx})`, balconyPayable)}</td>
             </tr>` : ''}`;
 
-            // 12-column row (with interest — adds Interest col after SGST)
+            // 13-column row (with interest — adds Interest col after SGST)
             rowsWithInterest += `<tr>
               <td class="tc" rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${idx + 1}</td>
-              <td>${label} — Basic Price</td>
+              <td rowspan="${trueBalcony > 0 ? 2 : 1}" style="vertical-align:middle">${label}</td>
+              <td>Basic Price</td>
               <td class="tc" data-field-key="dueDate_${idx}" data-field-label="Due Date (Row ${idx})" data-value-type="date" data-section="interest_table">${dueDt}</td>
               <td class="tr">${DS(`basicAmt_${idx}`, `Basic Amount (Row ${idx})`, basicAmt, ` data-cgst-pct="${cgstPct}" data-gst-type="basic"`)}</td>
               <td class="tc">${cgstPct}%</td>
@@ -1254,7 +1257,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
               <td class="tr bold">${DS(`basicPayable_${idx}`, `Net Payable (Row ${idx})`, basicPayableWI)}</td>
             </tr>
             ${trueBalcony > 0 ? `<tr>
-              <td>${label} — Balcony Charges</td>
+              <td>Balcony Charges</td>
               <td class="tc">${dueDt}</td>
               <td class="tr">${DS(`balconyAmt_${idx}`, `Balcony Amount (Row ${idx})`, balconyAmt, ' data-gst-type="basic"')}</td>
               <td class="tc">${cgstPct}%</td>
@@ -1294,7 +1297,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           if (showOtherCharges) {
             rowsNoInterest += `<tr style="background:#f9f9f9">
               <td class="tc">—</td>
-              <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
+              <td><strong>Other Charges</strong></td>
+              <td>${planOtherDesc}</td>
               <td class="tc">—</td>
               <td class="tr">${fmtIndianMoneyDecimal(planOtherCharge)}</td>
               <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
@@ -1307,7 +1311,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
             </tr>`;
             rowsWithInterest += `<tr style="background:#f9f9f9">
               <td class="tc">—</td>
-              <td><strong>Other Charges</strong><br/><span style="padding-left:12px">— ${planOtherDesc}</span></td>
+              <td><strong>Other Charges</strong></td>
+              <td>${planOtherDesc}</td>
               <td class="tc">—</td>
               <td class="tr">${fmtIndianMoneyDecimal(planOtherCharge)}</td>
               <td class="tc">${defaultCgstPct.toFixed(2)}%</td>
@@ -2369,7 +2374,8 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     <thead>
       <tr>
         <th style="width:28px">S.No.</th>
-        <th>Installment Description</th>
+        <th>Particulars</th>
+        <th>Charge Type</th>
         <th style="width:68px">Due Date</th>
         <th style="width:72px">Basic Amt (&#8377;)</th>
         <th style="width:42px">CGST %</th>
@@ -2387,7 +2393,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="3" class="tr bold">TOTAL</td>
+        <td colspan="4" class="tr bold">TOTAL</td>
         <td class="tr bold">&#8212;</td>
         <td class="tc bold">&#8212;</td>
         <td class="tr bold"><span data-field-key="totalCgst" data-field-label="Total CGST" data-value-type="currency" data-section="summary">${md.totalCgst}</span></td>

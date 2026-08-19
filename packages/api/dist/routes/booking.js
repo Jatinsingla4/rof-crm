@@ -2028,6 +2028,13 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     else {
         let rowNum = 0;
         let totalInterest = 0;
+        // Pre-compute row count (N) per installment so the first row of each
+        // group can carry rowspan="N" on Name/Date/Due Amount (contiguous by
+        // construction — see buildInterestRows()).
+        const groupCounts = new Map();
+        interestCalcRows.forEach((ir) => {
+            groupCounts.set(ir.installment_index, (groupCounts.get(ir.installment_index) || 0) + 1);
+        });
         interestCalcRows.forEach((ir) => {
             rowNum++;
             totalInterest += parseFloat(ir.interest_amount || 0);
@@ -2044,11 +2051,12 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const roiFmt = ir.roi > 0 ? ir.roi.toFixed(2) + '%' : '—';
             const intPrdFmt = ir.interest_period > 0 ? String(ir.interest_period) : '—';
             if (ir.is_first_receipt) {
+                const rs = groupCounts.get(ir.installment_index) || 1;
                 interestRows += `<tr>
           <td ${tdC}>${rowNum}</td>
-          <td ${tdL}>${esc(ir.installment_name)}</td>
-          <td ${tdC}>${instDate}</td>
-          <td ${tdR}>${fmtIndianNumber(ir.due_amount)}</td>
+          <td ${tdL.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${esc(ir.installment_name)}</td>
+          <td ${tdC.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${instDate}</td>
+          <td ${tdR.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${fmtIndianNumber(ir.due_amount)}</td>
           <td ${tdR}>${amtRecd}</td>
           <td ${tdC}>${rcvdDate}</td>
           <td ${tdR}>${delayAmt}</td>
@@ -2062,9 +2070,6 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             else {
                 interestRows += `<tr>
           <td ${tdC}>${rowNum}</td>
-          <td ${tdL}>—</td>
-          <td ${tdC}>—</td>
-          <td ${tdR}>—</td>
           <td ${tdR}>${amtRecd}</td>
           <td ${tdC}>${rcvdDate}</td>
           <td ${tdR}>${delayAmt}</td>
