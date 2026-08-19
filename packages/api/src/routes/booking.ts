@@ -2413,7 +2413,7 @@ function buildApplicantPage2(
       groupCounts.set(ir.installment_index, (groupCounts.get(ir.installment_index) || 0) + 1);
     });
     interestCalcRows.forEach((ir: any) => {
-      rowNum++;
+      if (ir.is_first_receipt) rowNum++;
       totalInterest += parseFloat(ir.interest_amount || 0);
       const instDate  = fmtDDMMYYYY(ir.installment_date);
       const rcvdDate  = ir.date_received ? fmtDDMMYYYY(ir.date_received) : '—';
@@ -2431,7 +2431,7 @@ function buildApplicantPage2(
       if (ir.is_first_receipt) {
         const rs = groupCounts.get(ir.installment_index) || 1;
         interestRows += `<tr>
-          <td ${tdC}>${rowNum}</td>
+          <td ${tdC.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${rowNum}</td>
           <td ${tdL.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${esc(ir.installment_name)}</td>
           <td ${tdC.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${instDate}</td>
           <td ${tdR.replace(/"$/, ';vertical-align:middle;"')} rowspan="${rs}">${fmtIndianNumber(ir.due_amount)}</td>
@@ -2446,7 +2446,6 @@ function buildApplicantPage2(
         </tr>`;
       } else {
         interestRows += `<tr>
-          <td ${tdC}>${rowNum}</td>
           <td ${tdR}>${amtRecd}</td>
           <td ${tdC}>${rcvdDate}</td>
           <td ${tdR}>${delayAmt}</td>
