@@ -618,14 +618,21 @@ router.get('/inventory-full', async (req: AuthRequest, res: Response, next: Next
       `SELECT
         COUNT(*) as total_units,
         COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
-        COUNT(CASE WHEN status::text = 'booked' THEN 1 END) as booked,
+        COUNT(CASE WHEN status::text IN ('application_received','draw_pending','booked') THEN 1 END) as booked,
         COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
         COUNT(CASE WHEN registry_status = true THEN 1 END) as registry,
         COUNT(CASE WHEN mortgage_status = true THEN 1 END) as mortgage,
         COUNT(CASE WHEN status::text = 'held' OR hold_status = true THEN 1 END) as hold,
+        COUNT(CASE WHEN status::text = 'temp_surrender' THEN 1 END) as temp_surrender,
         SUM(super_area_sqft) as total_area
        FROM units WHERE ($1::uuid IS NULL OR project_id = $1::uuid)`,
       [pid]
+    );
+
+    const s = summary.rows[0];
+    s.unmapped_count = parseInt(s.total_units) - (
+      parseInt(s.available) + parseInt(s.booked) + parseInt(s.allotted) +
+      parseInt(s.hold) + parseInt(s.temp_surrender)
     );
 
     const units = await db.query(

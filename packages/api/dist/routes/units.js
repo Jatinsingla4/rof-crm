@@ -143,6 +143,8 @@ router.get('/tower/:projectId', async (req, res, next) => {
         ROUND(SUM(CASE WHEN u.status IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over') THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as allotted_area,
         COUNT(CASE WHEN u.status IN ('locked','held') THEN 1 END) as hold_count,
         ROUND(SUM(CASE WHEN u.status IN ('locked','held') THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as hold_area,
+        COUNT(CASE WHEN u.status = 'temp_surrender' THEN 1 END) as temp_surrender_count,
+        ROUND(SUM(CASE WHEN u.status = 'temp_surrender' THEN u.carpet_area_sqft ELSE 0 END)::numeric, 4) as temp_surrender_area,
         COALESCE(SUM(r_total.received), 0) as received_amount
        FROM units u
        JOIN towers t ON u.tower_id = t.id
@@ -167,11 +169,16 @@ router.get('/tower/:projectId', async (req, res, next) => {
             acc.allotted_area += parseFloat(t.allotted_area) || 0;
             acc.hold_count += parseInt(t.hold_count) || 0;
             acc.hold_area += parseFloat(t.hold_area) || 0;
+            acc.temp_surrender_count += parseInt(t.temp_surrender_count) || 0;
+            acc.temp_surrender_area += parseFloat(t.temp_surrender_area) || 0;
             acc.received_amount += parseFloat(t.received_amount) || 0;
             return acc;
         }, { total_units: 0, total_area: 0, available_count: 0, available_area: 0,
             booked_count: 0, booked_area: 0, allotted_count: 0, allotted_area: 0,
-            hold_count: 0, hold_area: 0, received_amount: 0 });
+            hold_count: 0, hold_area: 0, temp_surrender_count: 0, temp_surrender_area: 0,
+            received_amount: 0 });
+        totals.unmapped_count = totals.total_units - (totals.available_count + totals.booked_count + totals.allotted_count +
+            totals.hold_count + totals.temp_surrender_count);
         res.json({ success: true, towers, totals });
     }
     catch (error) {
@@ -187,12 +194,25 @@ router.get('/inventory-summary/:projectId', async (req, res, next) => {
         COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available,
         COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) as allotted,
         COUNT(CASE WHEN status::text = 'possession_handed_over' THEN 1 END) as possession_handed_over,
+        COUNT(CASE WHEN status::text = 'available' THEN 1 END) as available_count,
+        COUNT(CASE WHEN status::text IN ('application_received','draw_pending','booked') THEN 1 END) as booked_count,
+        COUNT(CASE WHEN status::text IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over') THEN 1 END) as allotted_count,
+        COUNT(CASE WHEN status::text IN ('locked','held') THEN 1 END) as hold_count,
+        COUNT(CASE WHEN status::text = 'temp_surrender' THEN 1 END) as temp_surrender_count,
         COUNT(DISTINCT tower_id) as total_towers,
         SUM(total_price_inr) as total_project_value_inr,
         ROUND(100.0 * COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as fill_percentage
        FROM units
        WHERE project_id = $1`, [projectId]);
-        res.json({ success: true, data: result.rows[0] });
+        const row = result.rows[0];
+        row.unmapped_count = parseInt(row.total_units) - (parseInt(row.available_count) + parseInt(row.booked_count) +
+            parseInt(row.allotted_count) + parseInt(row.hold_count) +
+            parseInt(row.temp_surrender_count));
+        delete row.available_count;
+        delete row.booked_count;
+        delete row.allotted_count;
+        delete row.hold_count;
+        res.json({ success: true, data: row });
     }
     catch (error) {
         next(error);
@@ -249,6 +269,7 @@ router.get('/tower-detail', async (req, res, next) => {
             booked: ['application_received', 'draw_pending', 'booked'],
             hold: ['locked', 'held'],
             available: ['available'],
+            temp_surrender: ['temp_surrender'],
             all: [],
         };
         const statuses = STATUS_MAP[statusGroup] ?? [];
