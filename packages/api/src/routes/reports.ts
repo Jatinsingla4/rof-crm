@@ -762,6 +762,109 @@ router.get('/unit-cost', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (error) { next(error); }
 });
 
+// GET /api/reports/inventory-details - Inventory Details report (Project/Tower/Unit Type/Matrix)
+// SOLD = status != 'available'. UNSOLD = status = 'available'.
+// Sold breakdown buckets reuse the canonical STATUS_MAP from units.ts (not modified here):
+//   booked: application_received, draw_pending, booked
+//   allotted: allotted, agreement_signed, under_construction, oc_received, possession_handed_over
+//   hold: locked, held
+//   temp_surrender: temp_surrender
+// Non-Salable is a literal 0 (no schema flag exists); Salable = Total. Both intentional.
+// Average Rate = AVG(booking_records.basic_rate_inr_sqft) over the sold subset, using the
+// most recent non-cancelled booking_records row per unit (existing codebase dedup convention).
+router.get('/inventory-details', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, groupBy, view } = req.query as Record<string, string>;
+    const gb = (groupBy === 'tower' || groupBy === 'bhk_type' || groupBy === 'matrix') ? groupBy : 'project';
+    const vw = view === 'details' ? 'details' : 'summary';
+    const pid = projectId || null;
+
+    const BOOKED = `u.status IN ('application_received','draw_pending','booked')`;
+    const ALLOTTED = `u.status IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over')`;
+    const HOLD = `u.status IN ('locked','held')`;
+    const TEMP_SURRENDER = `u.status = 'temp_surrender'`;
+
+    const brJoin = `
+      LEFT JOIN LATERAL (
+        SELECT b.basic_rate_inr_sqft
+        FROM booking_records b
+        WHERE b.unit_id = u.id AND b.status != 'cancelled'
+        ORDER BY b.created_at DESC
+        LIMIT 1
+      ) br ON true`;
+
+    const aggCols = `
+        COUNT(u.id) AS total_units,
+        COALESCE(SUM(u.carpet_area_sqft), 0) AS total_area,
+        COUNT(u.id) FILTER (WHERE u.status != 'available') AS sold_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status != 'available'), 0) AS sold_area,
+        COUNT(u.id) FILTER (WHERE u.status = 'available') AS unsold_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status = 'available'), 0) AS unsold_area,
+        COUNT(u.id) FILTER (WHERE ${BOOKED}) AS booked_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${BOOKED}), 0) AS booked_area,
+        COUNT(u.id) FILTER (WHERE ${ALLOTTED}) AS allotted_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${ALLOTTED}), 0) AS allotted_area,
+        COUNT(u.id) FILTER (WHERE ${HOLD}) AS hold_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${HOLD}), 0) AS hold_area,
+        COUNT(u.id) FILTER (WHERE ${TEMP_SURRENDER}) AS temp_surrender_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${TEMP_SURRENDER}), 0) AS temp_surrender_area,
+        ROUND(AVG(br.basic_rate_inr_sqft) FILTER (WHERE u.status != 'available')::numeric, 2) AS avg_rate`;
+
+    let sql = '';
+    if (gb === 'project') {
+      sql = `
+        SELECT p.id AS group_id, p.name AS group_name,
+          ${aggCols}
+        FROM projects p
+        LEFT JOIN units u ON u.project_id = p.id
+        ${brJoin}
+        WHERE ($1::uuid IS NULL OR p.id = $1::uuid)
+        GROUP BY p.id, p.name
+        ORDER BY p.name`;
+    } else if (gb === 'tower') {
+      sql = `
+        SELECT t.id AS group_id, t.tower_name AS group_name, p.name AS project_name,
+          ${aggCols}
+        FROM towers t
+        JOIN projects p ON p.id = t.project_id
+        LEFT JOIN units u ON u.tower_id = t.id
+        ${brJoin}
+        WHERE t.deleted_at IS NULL
+          AND ($1::uuid IS NULL OR t.project_id = $1::uuid)
+        GROUP BY t.id, t.tower_name, p.name
+        ORDER BY p.name, t.tower_name`;
+    } else if (gb === 'bhk_type') {
+      sql = `
+        SELECT u.bhk_type AS group_id, u.bhk_type AS group_name,
+          ${aggCols}
+        FROM units u
+        JOIN towers t ON t.id = u.tower_id
+        ${brJoin}
+        WHERE t.deleted_at IS NULL
+          AND ($1::uuid IS NULL OR u.project_id = $1::uuid)
+        GROUP BY u.bhk_type
+        ORDER BY u.bhk_type`;
+    } else {
+      // matrix: tower x unit type, fixed Total/Sold/Unsold shape (LEFT JOIN so empty towers don't vanish)
+      sql = `
+        SELECT t.id AS tower_id, t.tower_name, u.bhk_type,
+          ${aggCols}
+        FROM towers t
+        JOIN projects p ON p.id = t.project_id
+        LEFT JOIN units u ON u.tower_id = t.id
+        ${brJoin}
+        WHERE t.deleted_at IS NULL
+          AND ($1::uuid IS NULL OR t.project_id = $1::uuid)
+        GROUP BY t.id, t.tower_name, u.bhk_type
+        ORDER BY t.tower_name, u.bhk_type`;
+    }
+
+    const result = await db.query(sql, [pid]);
+
+    res.json({ success: true, data: result.rows, groupBy: gb, view: vw });
+  } catch (error) { next(error); }
+});
+
 // GET /api/reports/applicant-payment-file - Applicant financial ledger
 router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

@@ -43,6 +43,7 @@ const ReportsPage = {
       'unit-wise-plc':       () => this.loadUnitWisePLC(),
       'unit-sold-area':      () => this.loadUnitSoldArea(),
       'unit-cost':           () => this.loadUnitCost(),
+      'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
     };
     (map[tab] || (() => this._notFound(tab)))();
@@ -593,6 +594,183 @@ const ReportsPage = {
         </tr>`)
       );
     } catch (err) { Utils.error(err.message); }
+  },
+
+  _idGroupBy: 'project',
+  _idView:    'summary',
+
+  _setIdGroupBy(gb) {
+    this._idGroupBy = gb;
+    ['project','tower','bhk_type','matrix'].forEach(g => {
+      const b = document.getElementById('id-gb-' + g);
+      if (b) b.classList.toggle('btn-primary', g === gb);
+      if (b) b.classList.toggle('btn-ghost',   g !== gb);
+    });
+    const viewWrap = document.getElementById('id-view-wrap');
+    if (viewWrap) viewWrap.style.display = gb === 'matrix' ? 'none' : '';
+  },
+
+  _setIdView(v) {
+    this._idView = v;
+    ['summary','details'].forEach(vv => {
+      const b = document.getElementById('id-view-' + vv);
+      if (b) b.classList.toggle('btn-primary', vv === v);
+      if (b) b.classList.toggle('btn-ghost',   vv !== v);
+    });
+  },
+
+  loadInventoryDetails() {
+    this._idGroupBy = 'project';
+    this._idView    = 'summary';
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Inventory Details Report</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:160px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="min-width:280px">
+              <label class="fl">Group By</label>
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button id="id-gb-project"  class="btn btn-primary btn-sm" onclick="ReportsPage._setIdGroupBy('project')">Project</button>
+                <button id="id-gb-tower"    class="btn btn-ghost  btn-sm" onclick="ReportsPage._setIdGroupBy('tower')">Tower</button>
+                <button id="id-gb-bhk_type" class="btn btn-ghost  btn-sm" onclick="ReportsPage._setIdGroupBy('bhk_type')">Unit Type</button>
+                <button id="id-gb-matrix"   class="btn btn-ghost  btn-sm" onclick="ReportsPage._setIdGroupBy('matrix')">Tower vs Unit Type</button>
+              </div>
+            </div>
+            <div class="fg" id="id-view-wrap" style="min-width:160px">
+              <label class="fl">View</label>
+              <div style="display:flex;gap:6px">
+                <button id="id-view-summary" class="btn btn-primary btn-sm" onclick="ReportsPage._setIdView('summary')">Summary</button>
+                <button id="id-view-details" class="btn btn-ghost  btn-sm" onclick="ReportsPage._setIdView('details')">Details</button>
+              </div>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-primary" onclick="ReportsPage.fetchInventoryDetails()">FETCH</button>
+            <button class="btn btn-ghost"   onclick="ReportsPage.exportCsv('Inventory_Details.csv')">Export CSV</button>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+  },
+
+  async fetchInventoryDetails() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    const pId = document.getElementById('f-project')?.value || '';
+    const groupBy = this._idGroupBy;
+    const view = this._idView;
+
+    const n = v => parseInt(v || 0);
+    const f = v => parseFloat(v || 0);
+    const pct = (part, total) => total ? ((part / total) * 100).toFixed(1) : '0.0';
+
+    try {
+      const res = await Api.get('/reports/inventory-details', {
+        params: { projectId: pId || undefined, groupBy, view },
+      });
+      const data = res.data || [];
+      this._lastData = data;
+
+      const totalUnits = data.reduce((s, r) => s + n(r.total_units), 0);
+      const totalSold  = data.reduce((s, r) => s + n(r.sold_units), 0);
+      const totalUnsold = data.reduce((s, r) => s + n(r.unsold_units), 0);
+      this._kpis([
+        { label: 'Total Units',  value: totalUnits },
+        { label: 'Sold Units',   value: totalSold,   color: 'var(--accent)' },
+        { label: 'Unsold Units', value: totalUnsold, color: 'var(--green)'  },
+        { label: 'Sold %', value: pct(totalSold, totalUnits) + '%', color: 'var(--blue)' },
+      ]);
+
+      if (groupBy === 'matrix') {
+        this._renderInventoryMatrix(data);
+        return;
+      }
+
+      const showNonSalable = groupBy === 'project' || groupBy === 'tower';
+      const cols = ['#', 'Name'];
+      if (showNonSalable) cols.push('Non-Salable (Unit/Area)', 'Salable (Unit/Area)');
+      cols.push('Total (Unit/Area)', 'Sold (Unit/Area)', 'Sold %');
+      if (view === 'details') cols.push('Booked', 'Allotted', 'Hold', 'Temp Surrender');
+      cols.push('Unsold (Unit/Area)', 'Unsold %', 'Avg Rate (₹/sqft)');
+
+      const ua = (u, a) => `${u} / ${f(a).toFixed(1)}`;
+
+      const rows = data.map((r, i) => {
+        const label = groupBy === 'tower' && r.project_name ? `${r.group_name} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : (r.group_name || '—');
+        let cells = `<td style="color:var(--text3)">${i + 1}</td><td class="td-bold">${label}</td>`;
+        if (showNonSalable) {
+          cells += `<td style="text-align:center">${ua(0, 0)}</td>`;
+          cells += `<td style="text-align:center">${ua(n(r.total_units), r.total_area)}</td>`;
+        }
+        cells += `<td style="text-align:center;font-weight:600">${ua(n(r.total_units), r.total_area)}</td>`;
+        cells += `<td style="text-align:center;color:var(--accent);font-weight:600">${ua(n(r.sold_units), r.sold_area)}</td>`;
+        cells += `<td style="text-align:center">${pct(n(r.sold_units), n(r.total_units))}%</td>`;
+        if (view === 'details') {
+          cells += `<td style="text-align:center">${ua(n(r.booked_units), r.booked_area)}</td>`;
+          cells += `<td style="text-align:center">${ua(n(r.allotted_units), r.allotted_area)}</td>`;
+          cells += `<td style="text-align:center">${ua(n(r.hold_units), r.hold_area)}</td>`;
+          cells += `<td style="text-align:center">${ua(n(r.temp_surrender_units), r.temp_surrender_area)}</td>`;
+        }
+        cells += `<td style="text-align:center;color:var(--green);font-weight:600">${ua(n(r.unsold_units), r.unsold_area)}</td>`;
+        cells += `<td style="text-align:center">${pct(n(r.unsold_units), n(r.total_units))}%</td>`;
+        cells += `<td style="text-align:right">${r.avg_rate ? f(r.avg_rate).toFixed(2) : '—'}</td>`;
+        return `<tr>${cells}</tr>`;
+      });
+
+      this._table(cols, rows);
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  _renderInventoryMatrix(data) {
+    const el = document.getElementById('rpt-result');
+    if (!el) return;
+    const n = v => parseInt(v || 0);
+
+    const towerOrder = [];
+    const towerSeen = new Set();
+    const bhkOrder = [];
+    const bhkSeen = new Set();
+    const cellMap = {};
+
+    data.forEach(r => {
+      if (!r.bhk_type) return;
+      if (!towerSeen.has(r.tower_name)) { towerSeen.add(r.tower_name); towerOrder.push(r.tower_name); }
+      if (!bhkSeen.has(r.bhk_type)) { bhkSeen.add(r.bhk_type); bhkOrder.push(r.bhk_type); }
+      cellMap[`${r.tower_name}||${r.bhk_type}`] = r;
+    });
+
+    if (towerOrder.length === 0 || bhkOrder.length === 0) {
+      el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>';
+      return;
+    }
+
+    const thS = 'background:var(--accent,#1a56db);color:#fff;text-align:center;padding:7px 10px;white-space:nowrap;font-size:11px;font-weight:700;border:1px solid rgba(255,255,255,.2)';
+    const tdS = 'text-align:center;padding:6px 10px;border:1px solid var(--border,#e5e7eb);font-size:12px;white-space:nowrap';
+
+    const headHtml = `<th style="${thS}">Tower</th>` + bhkOrder.map(b => `<th style="${thS}">${b}</th>`).join('');
+    const bodyHtml = towerOrder.map(tw => {
+      const cells = bhkOrder.map(b => {
+        const r = cellMap[`${tw}||${b}`];
+        if (!r) return `<td style="${tdS};color:var(--text3)">—</td>`;
+        return `<td style="${tdS}">T:${n(r.total_units)} · S:${n(r.sold_units)} · U:${n(r.unsold_units)}</td>`;
+      }).join('');
+      return `<tr><td style="${tdS};font-weight:600;text-align:left">${tw}</td>${cells}</tr>`;
+    }).join('');
+
+    el.innerHTML = `
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr>${headHtml}</tr></thead>
+          <tbody>${bodyHtml}</tbody>
+        </table>
+      </div>
+    `;
   },
 
   _pwcDateType: 'receipt',
