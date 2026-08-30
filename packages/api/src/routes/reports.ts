@@ -984,6 +984,41 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
           - COALESCE(br.company_inaugural_disc, 0)
           + COALESCE(br.plc_amount, 0)
           + COALESCE(br.other_charge_amount, 0))                               AS total_unit_cost,
+        br.status                                                              AS booking_status,
+        CASE br.status
+          WHEN 'pending_payment' THEN 'Pending Payment'
+          WHEN 'active'          THEN 'Active'
+          WHEN 'complete'        THEN 'Complete'
+          ELSE br.status
+        END                                                                    AS booking_status_label,
+        COALESCE(u.unit_number,'')
+          || COALESCE(', Floor ' || u.floor::text, '')
+          || COALESCE(', ' || t.tower_name, '')                                AS unit_address,
+        COALESCE((
+          SELECT SUM(cac.amount)
+          FROM consumer_addon_charges cac
+          JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
+          WHERE cac.consumer_id = c.id AND cac.status = 'active'
+            AND acm.charge_name ILIKE 'IFMS%'
+        ), 0)                                                                   AS ifms_amount,
+        COALESCE((
+          SELECT SUM(cac.amount)
+          FROM consumer_addon_charges cac
+          JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
+          WHERE cac.consumer_id = c.id AND cac.status = 'active'
+            AND acm.charge_name NOT ILIKE 'IFMS%'
+        ), 0)                                                                   AS extra_addon_amount,
+        ((${unitCostBase}
+          - COALESCE(br.dealer_adjustment_amount, 0)
+          - COALESCE(br.company_inaugural_disc, 0)
+          + COALESCE(br.plc_amount, 0)
+          + COALESCE(br.other_charge_amount, 0))
+          - COALESCE((
+            SELECT SUM(cac.amount)
+            FROM consumer_addon_charges cac
+            JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
+            WHERE cac.consumer_id = c.id AND cac.status = 'active'
+          ), 0))                                                                AS unit_cost_less_addon,
         COALESCE(bpt.cgst_pct, 0)                                              AS cost_cgst_pct,
         COALESCE(bpt.sgst_pct, 0)                                              AS cost_sgst_pct,
         COALESCE(bpt.cgst_amount, 0)                                           AS cost_cgst_amount,
@@ -1077,6 +1112,7 @@ router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, ne
       'loan_amount','rate_per_sqft','dealer_discount','inaugural_discount','total_discount',
       'net_basic_price','base_price_inr','total_price_inr','carpet_area_sqft','super_area_sqft',
       'plc_amount','other_charge_amount','total_unit_cost',
+      'ifms_amount','extra_addon_amount','unit_cost_less_addon',
       'cost_cgst_pct','cost_sgst_pct','cost_cgst_amount','cost_sgst_amount','s_tax_pct',
       'total_cost_with_gst',
       'dues_amount','dues_cgst','dues_sgst','dues_total',
