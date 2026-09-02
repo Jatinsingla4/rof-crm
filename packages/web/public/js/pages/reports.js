@@ -45,6 +45,7 @@ const ReportsPage = {
       'unit-cost':           () => this.loadUnitCost(),
       'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
+      'all-applicants':      () => this.loadAllApplicants(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -771,6 +772,79 @@ const ReportsPage = {
         </table>
       </div>
     `;
+  },
+
+  loadAllApplicants() {
+    this._main(this._filters('All Applicants Report', [
+      { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
+      { id:'bhkType',        type:'text',   label:'Unit Type' },
+      { id:'towerName',      type:'text',   label:'Tower' },
+      { id:'registrationNo', type:'text',   label:'Registration No.' },
+      { id:'firstName',      type:'text',   label:'First Name' },
+      { id:'unitNumber',     type:'text',   label:'Unit Number' },
+    ], 'fetchAllApplicants'));
+  },
+
+  async fetchAllApplicants() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        projectId:      this._f('project')        || undefined,
+        bhkType:        this._f('bhkType')        || undefined,
+        towerName:      this._f('towerName')      || undefined,
+        registrationNo: this._f('registrationNo') || undefined,
+        firstName:      this._f('firstName')      || undefined,
+        unitNumber:     this._f('unitNumber')     || undefined,
+      };
+      const res  = await Api.get('/reports/all-applicants', { params });
+      const data = res.data || [];
+      this._lastData = data;
+
+      const maxCoApplicants = data.reduce((m, r) => Math.max(m, (r.co_applicants || []).length), 0);
+
+      const cols = ['S.No', 'Registration No', 'Unit Address', 'Unit Type', 'Project', '1st Applicant'];
+      for (let i = 0; i < maxCoApplicants; i++) {
+        const n = i + 2;
+        const suffix = n === 2 ? 'nd' : n === 3 ? 'rd' : 'th';
+        cols.push(`${n}${suffix} Applicant`);
+      }
+
+      const cell = (p) => {
+        if (!p) return '—';
+        return `
+          <div>${p.name || '—'}</div>
+          <div style="color:var(--text3);font-size:11px">S/o ${p.father_name || '—'}</div>
+          <div style="color:var(--text3);font-size:11px">${p.address || '—'}</div>
+          <div style="font-size:11px">PAN: ${p.pan_no || '—'}</div>
+          <div style="font-size:11px">${p.email || '—'} · ${p.mobile || '—'}</div>
+          <div style="font-size:11px">Aadhaar: ${p.aadhaar_no || '—'}</div>
+        `;
+      };
+
+      const rows = data.map((r, i) => {
+        const primary = {
+          name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          father_name: r.father_name,
+          address: r.present_address,
+          pan_no: r.pan_no,
+          email: r.email,
+          mobile: r.mobile,
+          aadhaar_no: r.aadhaar_no,
+        };
+        let cells = `<td>${i + 1}</td><td>${r.registration_no || '—'}</td><td>${r.unit_address || '—'}</td><td>${r.bhk_type || '—'}</td><td>${r.project_name || '—'}</td><td>${cell(primary)}</td>`;
+        const coApplicants = r.co_applicants || [];
+        for (let j = 0; j < maxCoApplicants; j++) {
+          cells += `<td>${cell(coApplicants[j])}</td>`;
+        }
+        return `<tr>${cells}</tr>`;
+      });
+
+      this._table(cols, rows);
+    } catch (err) {
+      const el = document.getElementById('rpt-result');
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
   },
 
   _pwcDateType: 'receipt',

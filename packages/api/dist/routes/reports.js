@@ -3182,5 +3182,75 @@ router.get('/conveyance-deed-date', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/all-applicants - All Applicants Report (per-booking, primary + co-applicants)
+router.get('/all-applicants', async (req, res, next) => {
+    try {
+        const { projectId, bhkType, towerName, registrationNo, firstName, unitNumber } = req.query;
+        const whereParams = [];
+        const wp = (val) => { whereParams.push(val); return `$${whereParams.length}`; };
+        let where = `WHERE br.status IN ('complete','pending_payment','active')`;
+        if (projectId)
+            where += ` AND p.id = ${wp(projectId)}::uuid`;
+        if (bhkType)
+            where += ` AND u.bhk_type ILIKE ${wp('%' + bhkType + '%')}`;
+        if (towerName)
+            where += ` AND t.tower_name ILIKE ${wp('%' + towerName + '%')}`;
+        if (registrationNo)
+            where += ` AND c.registration_no ILIKE ${wp('%' + registrationNo + '%')}`;
+        if (firstName)
+            where += ` AND c.first_name ILIKE ${wp('%' + firstName + '%')}`;
+        if (unitNumber)
+            where += ` AND u.unit_number ILIKE ${wp('%' + unitNumber + '%')}`;
+        const query = `
+      SELECT
+        c.id,
+        c.registration_no,
+        c.first_name,
+        c.last_name,
+        c.father_name,
+        c.present_address,
+        c.pan_no,
+        c.email,
+        c.aadhaar_no,
+        c.mobile,
+        u.unit_number,
+        u.bhk_type,
+        t.tower_name,
+        p.name AS project_name,
+        COALESCE(u.unit_number,'')
+          || COALESCE(', Floor ' || u.floor::text, '')
+          || COALESCE(', ' || t.tower_name, '')                                AS unit_address,
+        COALESCE(ca.applicants, '[]'::json)                                    AS co_applicants
+      FROM consumers c
+      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+          json_build_object(
+            'applicant_number', co.applicant_number,
+            'name',             co.name,
+            'father_name',      co.father_name,
+            'address',          co.present_address,
+            'pan_no',           co.pan_no,
+            'email',            co.email,
+            'mobile',           co.mobile,
+            'aadhaar_no',       co.aadhaar_no
+          ) ORDER BY co.applicant_number
+        ) AS applicants
+        FROM co_applicants co
+        WHERE co.consumer_id = c.id
+      ) ca ON true
+      ${where}
+      ORDER BY c.registration_no ASC
+    `;
+        const result = await pool_1.db.query(query, whereParams);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map
