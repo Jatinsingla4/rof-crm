@@ -3207,6 +3207,7 @@ router.get('/all-applicants', async (req, res, next) => {
         c.registration_no,
         c.first_name,
         c.last_name,
+        c.salutation,
         c.father_name,
         c.present_address,
         c.pan_no,
@@ -3231,6 +3232,7 @@ router.get('/all-applicants', async (req, res, next) => {
           json_build_object(
             'applicant_number', co.applicant_number,
             'name',             co.name,
+            'salutation',       co.salutation,
             'father_name',      co.father_name,
             'address',          co.present_address,
             'pan_no',           co.pan_no,
@@ -3243,7 +3245,7 @@ router.get('/all-applicants', async (req, res, next) => {
         WHERE co.consumer_id = c.id
       ) ca ON true
       ${where}
-      ORDER BY c.registration_no ASC
+      ORDER BY p.name ASC, c.registration_no ASC
     `;
         const result = await pool_1.db.query(query, whereParams);
         res.json({ success: true, data: result.rows });

@@ -813,7 +813,7 @@ const ReportsPage = {
       const cell = (p) => {
         if (!p) return '—';
         return `
-          <div>${p.name || '—'}</div>
+          <div>${p.salutation ? p.salutation + ' ' : ''}${p.name || '—'}</div>
           <div style="color:var(--text3);font-size:11px">S/o ${p.father_name || '—'}</div>
           <div style="color:var(--text3);font-size:11px">${p.address || '—'}</div>
           <div style="font-size:11px">PAN: ${p.pan_no || '—'}</div>
@@ -825,6 +825,7 @@ const ReportsPage = {
       const rows = data.map((r, i) => {
         const primary = {
           name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          salutation: r.salutation,
           father_name: r.father_name,
           address: r.present_address,
           pan_no: r.pan_no,
@@ -832,7 +833,7 @@ const ReportsPage = {
           mobile: r.mobile,
           aadhaar_no: r.aadhaar_no,
         };
-        let cells = `<td>${i + 1}</td><td>${r.registration_no || '—'}</td><td>${r.unit_address || '—'}</td><td>${r.bhk_type || '—'}</td><td>${r.project_name || '—'}</td><td>${cell(primary)}</td>`;
+        let cells = `<td>${i + 1}</td><td>${r.registration_no || '—'}</td><td>${r.unit_number || '—'}</td><td>${r.bhk_type || '—'}</td><td>${r.project_name || '—'}</td><td>${cell(primary)}</td>`;
         const coApplicants = r.co_applicants || [];
         for (let j = 0; j < maxCoApplicants; j++) {
           cells += `<td>${cell(coApplicants[j])}</td>`;
@@ -840,7 +841,17 @@ const ReportsPage = {
         return `<tr>${cells}</tr>`;
       });
 
-      this._table(cols, rows);
+      const rowsWithBands = [];
+      let lastProject = null;
+      data.forEach((r, i) => {
+        if (r.project_name !== lastProject) {
+          rowsWithBands.push(`<tr><td colspan="${cols.length}" style="font-weight:700;background:var(--bg2)">PROJECT: ${r.project_name || '—'}</td></tr>`);
+          lastProject = r.project_name;
+        }
+        rowsWithBands.push(rows[i]);
+      });
+
+      this._table(cols, rowsWithBands);
     } catch (err) {
       const el = document.getElementById('rpt-result');
       if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
