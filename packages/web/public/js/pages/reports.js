@@ -40,6 +40,8 @@ const ReportsPage = {
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'project-wise-dues':   () => this.loadProjectWiseDues(),
       'tower-wise-dues':     () => this.loadTowerWiseDues(),
+      'plan-wise-dues':      () => this.loadPlanWiseDues(),
+      'broker-wise-dues':    () => this.loadBrokerWiseDues(),
       'unit-type-wise-dues': () => this.loadUnitTypeWiseDues(),
       'conveyance-deed-date':() => this.loadConveyanceDeedDate(),
       'unit-wise-plc':       () => this.loadUnitWisePLC(),
@@ -2707,10 +2709,24 @@ const ReportsPage = {
     return this._fetchDuesByGroup({ groupBy: 'bhk_type', headerLabel: 'UNIT TYPE', detailsParamName: 'bhkType' });
   },
 
+  loadPlanWiseDues() {
+    this._loadDuesByGroup({ groupBy: 'plan', headerLabel: 'PLAN', detailsParamName: 'plan', title: 'Plan Wise Dues Report', csvName: 'Plan_Wise_Dues.csv' });
+  },
+  fetchPlanWiseDues() {
+    return this._fetchDuesByGroup({ groupBy: 'plan', headerLabel: 'PLAN', detailsParamName: 'plan' });
+  },
+
+  loadBrokerWiseDues() {
+    this._loadDuesByGroup({ groupBy: 'broker', headerLabel: 'BROKER', detailsParamName: 'broker', title: 'Broker Wise Dues Report', csvName: 'Broker_Wise_Dues.csv' });
+  },
+  fetchBrokerWiseDues() {
+    return this._fetchDuesByGroup({ groupBy: 'broker', headerLabel: 'BROKER', detailsParamName: 'broker' });
+  },
+
   _loadDuesByGroup(cfg) {
     this._pwdWithTax = false;
     this._pwdCfg = cfg;
-    const fetchFn = { project: 'fetchProjectWiseDues', tower: 'fetchTowerWiseDues', bhk_type: 'fetchUnitTypeWiseDues' }[cfg.groupBy];
+    const fetchFn = { project: 'fetchProjectWiseDues', tower: 'fetchTowerWiseDues', bhk_type: 'fetchUnitTypeWiseDues', plan: 'fetchPlanWiseDues', broker: 'fetchBrokerWiseDues' }[cfg.groupBy];
     this._main(`
       <div class="sp" style="margin-bottom:12px">
         <div class="sp-hdr" style="display:flex;justify-content:space-between;align-items:center">
@@ -2806,7 +2822,7 @@ const ReportsPage = {
           <td style="${aC}">${parseFloat(r.received_pct||0)}%</td>
           <td style="${osStyle}">${fmtA(osV)}</td>
           <td style="${osStyle}">${osPct(r)}%</td>
-          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(r.group_label).replace(/'/g,"\\'")}'})">DETAILS</button></td>
+          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(cfg.groupBy === 'plan' ? r.plan_name : r.group_label).replace(/'/g,"\\'")}'})">DETAILS</button></td>
         </tr>`;
       });
       const demT = wt ? parseFloat(tot.total_demanded_with_tax||0) : parseFloat(tot.total_demanded||0);
@@ -3847,6 +3863,8 @@ Pages.reports = async function(params = {}) {
         { id: 'project-wise-dues',    label: 'Project Wise Dues' },
         { id: 'tower-wise-dues',      label: 'Tower Wise Dues' },
         { id: 'unit-type-wise-dues',  label: 'Unit Type Wise Dues' },
+        { id: 'plan-wise-dues',       label: 'Plan Wise Dues' },
+        { id: 'broker-wise-dues',     label: 'Broker Wise Dues' },
         { id: 'conveyance-deed-date', label: 'Conveyance Deed Date' },
       ],
     },

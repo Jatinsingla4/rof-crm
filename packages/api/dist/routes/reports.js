@@ -2101,7 +2101,7 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
 router.get('/project-wise-dues', async (req, res, next) => {
     try {
         const { projectId, dueDate, groupBy } = req.query;
-        const gb = (groupBy === 'tower' || groupBy === 'bhk_type') ? groupBy : 'project';
+        const gb = (groupBy === 'tower' || groupBy === 'bhk_type' || groupBy === 'plan' || groupBy === 'broker') ? groupBy : 'project';
         const qp = [];
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
@@ -2120,7 +2120,7 @@ router.get('/project-wise-dues', async (req, res, next) => {
         const brJoin = `
       LEFT JOIN (
         SELECT DISTINCT ON (unit_id)
-          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount
+          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount, selected_plan_name, main_broker_id
         FROM booking_records
         WHERE unit_id IS NOT NULL
         ORDER BY unit_id, created_at DESC
@@ -2210,6 +2210,42 @@ router.get('/project-wise-dues', async (req, res, next) => {
           AND (${pidP}::uuid IS NULL OR t.project_id = ${pidP}::uuid)
         GROUP BY t.id, t.tower_name, p.name
         ORDER BY p.name, t.tower_name
+      `;
+        }
+        else if (gb === 'plan') {
+            query = `
+        SELECT
+          COALESCE(br.selected_plan_name,'(No Plan)') || '|' || p.id AS group_id,
+          COALESCE(br.selected_plan_name,'(No Plan)') || ' (' || p.name || ')' AS group_label,
+          COALESCE(br.selected_plan_name,'(No Plan)') AS plan_name,
+          p.name AS project_name,
+          COUNT(DISTINCT c.id) AS consumer_count,
+          COUNT(DISTINCT u.id) AS unit_count,
+          ${financialCols}
+        FROM units u
+        JOIN projects p ON p.id = u.project_id
+        ${brJoin}
+        WHERE (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid)
+        GROUP BY p.id, p.name, br.selected_plan_name
+        ORDER BY p.name, br.selected_plan_name
+      `;
+        }
+        else if (gb === 'broker') {
+            query = `
+        SELECT
+          COALESCE(br.main_broker_id::text,'direct-null') AS group_id,
+          COALESCE(bk.firm_name, bk.name, 'Direct') AS group_label,
+          NULL::text AS project_name,
+          COUNT(DISTINCT c.id) AS consumer_count,
+          COUNT(DISTINCT u.id) AS unit_count,
+          ${financialCols}
+        FROM units u
+        ${brJoin}
+        LEFT JOIN brokers bk ON bk.id = br.main_broker_id
+        WHERE (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid)
+          AND br.consumer_id IS NOT NULL
+        GROUP BY br.main_broker_id, bk.firm_name, bk.name
+        ORDER BY group_label
       `;
         }
         else {
