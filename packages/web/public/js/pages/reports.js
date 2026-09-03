@@ -39,6 +39,8 @@ const ReportsPage = {
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'project-wise-dues':   () => this.loadProjectWiseDues(),
+      'tower-wise-dues':     () => this.loadTowerWiseDues(),
+      'unit-type-wise-dues': () => this.loadUnitTypeWiseDues(),
       'conveyance-deed-date':() => this.loadConveyanceDeedDate(),
       'unit-wise-plc':       () => this.loadUnitWisePLC(),
       'unit-sold-area':      () => this.loadUnitSoldArea(),
@@ -2663,11 +2665,34 @@ const ReportsPage = {
   },
 
   loadProjectWiseDues() {
+    this._loadDuesByGroup({ groupBy: 'project', headerLabel: 'PROJECT', detailsParamName: 'projectId', title: 'Project Wise Dues Report', csvName: 'Project_Wise_Dues.csv' });
+  },
+  fetchProjectWiseDues() {
+    return this._fetchDuesByGroup({ groupBy: 'project', headerLabel: 'PROJECT', detailsParamName: 'projectId' });
+  },
+
+  loadTowerWiseDues() {
+    this._loadDuesByGroup({ groupBy: 'tower', headerLabel: 'TOWER', detailsParamName: 'towerName', title: 'Tower Wise Dues Report', csvName: 'Tower_Wise_Dues.csv' });
+  },
+  fetchTowerWiseDues() {
+    return this._fetchDuesByGroup({ groupBy: 'tower', headerLabel: 'TOWER', detailsParamName: 'towerName' });
+  },
+
+  loadUnitTypeWiseDues() {
+    this._loadDuesByGroup({ groupBy: 'bhk_type', headerLabel: 'UNIT TYPE', detailsParamName: 'bhkType', title: 'Unit Type Wise Dues Report', csvName: 'Unit_Type_Wise_Dues.csv' });
+  },
+  fetchUnitTypeWiseDues() {
+    return this._fetchDuesByGroup({ groupBy: 'bhk_type', headerLabel: 'UNIT TYPE', detailsParamName: 'bhkType' });
+  },
+
+  _loadDuesByGroup(cfg) {
     this._pwdWithTax = false;
+    this._pwdCfg = cfg;
+    const fetchFn = { project: 'fetchProjectWiseDues', tower: 'fetchTowerWiseDues', bhk_type: 'fetchUnitTypeWiseDues' }[cfg.groupBy];
     this._main(`
       <div class="sp" style="margin-bottom:12px">
         <div class="sp-hdr" style="display:flex;justify-content:space-between;align-items:center">
-          <div class="sp-title">Project Wise Dues Report</div>
+          <div class="sp-title">${cfg.title}</div>
           <div style="display:flex;gap:6px">
             <button id="pwd-tax-no"  class="btn btn-primary btn-sm" onclick="ReportsPage._pwdSetTax(false)">Without Tax</button>
             <button id="pwd-tax-yes" class="btn btn-ghost   btn-sm" onclick="ReportsPage._pwdSetTax(true)">With Tax</button>
@@ -2684,8 +2709,8 @@ const ReportsPage = {
               <input type="date" class="fc" id="f-duedate">
             </div>
             <div style="margin-bottom:2px;display:flex;gap:8px">
-              <button class="btn btn-primary" onclick="ReportsPage.fetchProjectWiseDues()">FETCH</button>
-              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Project_Wise_Dues.csv')">Export CSV</button>
+              <button class="btn btn-primary" onclick="ReportsPage.${fetchFn}()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('${cfg.csvName}')">Export CSV</button>
             </div>
           </div>
         </div>
@@ -2695,11 +2720,11 @@ const ReportsPage = {
     `);
   },
 
-  async fetchProjectWiseDues() {
+  async _fetchDuesByGroup(cfg) {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
     try {
-      const params = {};
+      const params = { groupBy: cfg.groupBy };
       const pid = document.getElementById('f-project')?.value;
       const dd  = document.getElementById('f-duedate')?.value;
       if (pid) params.projectId = pid;
@@ -2717,7 +2742,7 @@ const ReportsPage = {
       const osPct  = r => wt ? parseFloat(r.outstanding_pct_with_tax||0): parseFloat(r.outstanding_pct||0);
 
       this._lastData = rows.map(r => ({
-        'Project': r.project_name,
+        [cfg.headerLabel[0] + cfg.headerLabel.slice(1).toLowerCase()]: r.group_label,
         'Consumers': parseInt(r.consumer_count||0),
         'Units': parseInt(r.unit_count||0),
         'Total Cost': parseFloat(r.total_cost||0),
@@ -2733,7 +2758,7 @@ const ReportsPage = {
       const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
       const aR = 'text-align:right'; const aC = 'text-align:center';
       this._kpis([
-        { label:'TOTAL PROJECTS',    value: rows.length.toString(),     color:'var(--accent)' },
+        { label:`TOTAL ${cfg.headerLabel}S`, value: rows.length.toString(),     color:'var(--accent)' },
         { label:'TOTAL DEMANDED',    value: fmtA(wt ? tot.total_demanded_with_tax : tot.total_demanded), color:'var(--accent)' },
         { label:'TOTAL RECEIVED',    value: fmtA(tot.total_received),   color:'#198754' },
         { label:'TOTAL OUTSTANDING', value: fmtA(wt ? tot.outstanding_with_tax : tot.outstanding), color:'#dc3545' },
@@ -2744,9 +2769,10 @@ const ReportsPage = {
       const bodyRows = rows.map((r,i) => {
         const osV = os(r);
         const osStyle = osV > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
+        const label = (cfg.groupBy === 'tower' && r.project_name) ? `${r.group_label} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : r.group_label;
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
           <td style="${aC}">${i+1}</td>
-          <td style="font-weight:600">${r.project_name}</td>
+          <td style="font-weight:600">${label}</td>
           <td style="${aC}">${r.consumer_count}</td>
           <td style="${aC}">${r.unit_count}</td>
           <td style="${aR}">${fmtA(r.total_cost)}</td>
@@ -2758,7 +2784,7 @@ const ReportsPage = {
           <td style="${aC}">${parseFloat(r.received_pct||0)}%</td>
           <td style="${osStyle}">${fmtA(osV)}</td>
           <td style="${osStyle}">${osPct(r)}%</td>
-          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',projectId:'${r.project_id}'})">DETAILS</button></td>
+          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(r.group_label).replace(/'/g,"\\'")}'})">DETAILS</button></td>
         </tr>`;
       });
       const demT = wt ? parseFloat(tot.total_demanded_with_tax||0) : parseFloat(tot.total_demanded||0);
@@ -2777,7 +2803,7 @@ const ReportsPage = {
         <td style="${aR};font-weight:700;color:#dc3545">${fmtA(osT)}</td>
         <td style="${aR};font-weight:700;color:#dc3545">${osPctT}%</td>
         <td></td>`;
-      this._table(['S.NO.','PROJECT','CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','DUE %','RECEIVED (PENDING)','RECEIVED (CLEAR)','TOTAL RECEIVED','RECEIVED %','OUTSTANDING','OUTSTANDING %','DETAILS'], bodyRows, footRow);
+      this._table(['S.NO.',cfg.headerLabel,'CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','DUE %','RECEIVED (PENDING)','RECEIVED (CLEAR)','TOTAL RECEIVED','RECEIVED %','OUTSTANDING','OUTSTANDING %','DETAILS'], bodyRows, footRow);
 
       const sm = summ;
       const sfmt = v => parseFloat(v||0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
@@ -3797,6 +3823,8 @@ Pages.reports = async function(params = {}) {
         { id: 'customer-forecasting', label: 'Customer Forecasting' },
         { id: 'customer-dues-detail', label: 'Customer Dues Details' },
         { id: 'project-wise-dues',    label: 'Project Wise Dues' },
+        { id: 'tower-wise-dues',      label: 'Tower Wise Dues' },
+        { id: 'unit-type-wise-dues',  label: 'Unit Type Wise Dues' },
         { id: 'conveyance-deed-date', label: 'Conveyance Deed Date' },
       ],
     },

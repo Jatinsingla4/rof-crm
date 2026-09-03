@@ -2100,7 +2100,8 @@ router.get('/percentage-wise-dues', async (req, res, next) => {
 // ─── Endpoint 1: Project Wise Dues ───────────────────────────────────────────
 router.get('/project-wise-dues', async (req, res, next) => {
     try {
-        const { projectId, dueDate } = req.query;
+        const { projectId, dueDate, groupBy } = req.query;
+        const gb = (groupBy === 'tower' || groupBy === 'bhk_type') ? groupBy : 'project';
         const qp = [];
         const p = (v) => { qp.push(v); return `$${qp.length}`; };
         const pidP = p(projectId || null);
@@ -2116,12 +2117,19 @@ router.get('/project-wise-dues', async (req, res, next) => {
         COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
       END
     `;
-        const query = `
-      SELECT
-        p.id AS project_id,
-        p.name AS project_name,
-        COUNT(DISTINCT c.id) AS consumer_count,
-        COUNT(DISTINCT u.id) AS unit_count,
+        const brJoin = `
+      LEFT JOIN (
+        SELECT DISTINCT ON (unit_id)
+          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY unit_id, created_at DESC
+      ) br ON br.unit_id = u.id
+      LEFT JOIN consumers c ON c.id = br.consumer_id`;
+        // Shared financial-calc fragment — identical math across every groupBy branch.
+        // Copy-pasted verbatim per branch (not interpolated across a differing FROM/JOIN
+        // root) to avoid a single shared string silently drifting between branches.
+        const financialCols = `
         COALESCE(SUM(${unitCostBase} + COALESCE(br.plc_amount,0) + COALESCE(br.other_charge_amount,0)),0) AS total_cost,
         COALESCE(SUM((
           SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
@@ -2166,21 +2174,60 @@ router.get('/project-wise-dues', async (req, res, next) => {
         )),0) -
         COALESCE(SUM((
           SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
-        )),0) AS outstanding_with_tax
-      FROM projects p
-      LEFT JOIN units u ON u.project_id = p.id
-      LEFT JOIN (
-        SELECT DISTINCT ON (unit_id)
-          unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount
-        FROM booking_records
-        WHERE unit_id IS NOT NULL
-        ORDER BY unit_id, created_at DESC
-      ) br ON br.unit_id = u.id
-      LEFT JOIN consumers c ON c.id = br.consumer_id
-      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
-      GROUP BY p.id, p.name
-      ORDER BY p.name
-    `;
+        )),0) AS outstanding_with_tax`;
+        let query = '';
+        if (gb === 'project') {
+            query = `
+        SELECT
+          p.id AS group_id,
+          p.name AS group_label,
+          p.name AS project_name,
+          COUNT(DISTINCT c.id) AS consumer_count,
+          COUNT(DISTINCT u.id) AS unit_count,
+          ${financialCols}
+        FROM projects p
+        LEFT JOIN units u ON u.project_id = p.id
+        ${brJoin}
+        WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+        GROUP BY p.id, p.name
+        ORDER BY p.name
+      `;
+        }
+        else if (gb === 'tower') {
+            query = `
+        SELECT
+          t.id AS group_id,
+          t.tower_name AS group_label,
+          p.name AS project_name,
+          COUNT(DISTINCT c.id) AS consumer_count,
+          COUNT(DISTINCT u.id) AS unit_count,
+          ${financialCols}
+        FROM towers t
+        JOIN projects p ON p.id = t.project_id
+        LEFT JOIN units u ON u.tower_id = t.id
+        ${brJoin}
+        WHERE t.deleted_at IS NULL
+          AND (${pidP}::uuid IS NULL OR t.project_id = ${pidP}::uuid)
+        GROUP BY t.id, t.tower_name, p.name
+        ORDER BY p.name, t.tower_name
+      `;
+        }
+        else {
+            query = `
+        SELECT
+          u.bhk_type AS group_id,
+          u.bhk_type AS group_label,
+          NULL::text AS project_name,
+          COUNT(DISTINCT c.id) AS consumer_count,
+          COUNT(DISTINCT u.id) AS unit_count,
+          ${financialCols}
+        FROM units u
+        ${brJoin}
+        WHERE (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid)
+        GROUP BY u.bhk_type
+        ORDER BY u.bhk_type
+      `;
+        }
         const result = await pool_1.db.query(query, qp);
         const rows = result.rows.map((r) => {
             const totalCost = parseFloat(r.total_cost || 0);
@@ -2232,7 +2279,7 @@ router.get('/project-wise-dues', async (req, res, next) => {
             clear: { amount: totals.received_clear, cgst: totals.received_cgst, sgst: totals.received_sgst, interest: totals.received_interest, total: totals.received_clear + totals.received_cgst + totals.received_sgst + totals.received_interest },
             total: { amount: totals.total_received, cgst: totals.received_cgst, sgst: totals.received_sgst, interest: totals.received_interest, total: totals.total_received + totals.received_cgst + totals.received_sgst + totals.received_interest },
         };
-        res.json({ success: true, data: rows, totals, summary });
+        res.json({ success: true, data: rows, totals, summary, groupBy: gb });
     }
     catch (err) {
         next(err);
