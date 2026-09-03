@@ -2128,15 +2128,45 @@ router.get('/project-wise-dues', async (req, res, next) => {
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
         )),0) AS total_demanded,
         COALESCE(SUM((
+          SELECT SUM(COALESCE(d.cgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
+          AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
+        )),0) AS total_demanded_cgst,
+        COALESCE(SUM((
+          SELECT SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
+          AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
+        )),0) AS total_demanded_sgst,
+        COALESCE(SUM((
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'pending' AND r.is_advance IS NOT TRUE
+        )),0) AS received_pending,
+        COALESCE(SUM((
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
+        )),0) AS received_clear,
+        COALESCE(SUM((
           SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
         )),0) AS total_received,
+        COALESCE(SUM((
+          SELECT SUM(COALESCE(r.cgst_amount,0)) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS received_cgst,
+        COALESCE(SUM((
+          SELECT SUM(COALESCE(r.sgst_amount,0)) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS received_sgst,
+        COALESCE(SUM((
+          SELECT SUM(COALESCE(r.interest_amount,0)) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS received_interest,
+        COALESCE(SUM((
+          SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+          AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
+        )),0) -
+        COALESCE(SUM((
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS outstanding,
         COALESCE(SUM((
           SELECT SUM(d.amount_due_inr)+SUM(COALESCE(d.cgst_amount,0))+SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
           AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)
         )),0) -
         COALESCE(SUM((
           SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
-        )),0) AS outstanding
+        )),0) AS outstanding_with_tax
       FROM projects p
       LEFT JOIN units u ON u.project_id = p.id
       LEFT JOIN (
@@ -2152,16 +2182,57 @@ router.get('/project-wise-dues', async (req, res, next) => {
       ORDER BY p.name
     `;
         const result = await pool_1.db.query(query, qp);
-        const rows = result.rows;
+        const rows = result.rows.map((r) => {
+            const totalCost = parseFloat(r.total_cost || 0);
+            const totalDemanded = parseFloat(r.total_demanded || 0);
+            const demCgst = parseFloat(r.total_demanded_cgst || 0);
+            const demSgst = parseFloat(r.total_demanded_sgst || 0);
+            const totalDemandedWithTax = totalDemanded + demCgst + demSgst;
+            const totalReceived = parseFloat(r.total_received || 0);
+            const outstanding = parseFloat(r.outstanding || 0);
+            const outstandingWithTax = parseFloat(r.outstanding_with_tax || 0);
+            return {
+                ...r,
+                total_demanded_with_tax: totalDemandedWithTax,
+                due_pct: totalCost > 0 ? Math.round(totalDemanded * 10000 / totalCost) / 100 : 0,
+                due_pct_with_tax: totalCost > 0 ? Math.round(totalDemandedWithTax * 10000 / totalCost) / 100 : 0,
+                received_pct: totalCost > 0 ? Math.round(totalReceived * 10000 / totalCost) / 100 : 0,
+                outstanding_pct: totalDemanded > 0 ? Math.round(outstanding * 10000 / totalDemanded) / 100 : 0,
+                outstanding_pct_with_tax: totalDemandedWithTax > 0 ? Math.round(outstandingWithTax * 10000 / totalDemandedWithTax) / 100 : 0,
+                // CREDIT AMOUNT — placeholder, real source deferred, see advance_amount audit
+                credit_amount: 0,
+            };
+        });
         const totals = rows.reduce((a, r) => ({
             consumer_count: a.consumer_count + parseInt(String(r.consumer_count || 0)),
             unit_count: a.unit_count + parseInt(String(r.unit_count || 0)),
             total_cost: a.total_cost + parseFloat(r.total_cost || 0),
             total_demanded: a.total_demanded + parseFloat(r.total_demanded || 0),
+            total_demanded_with_tax: a.total_demanded_with_tax + parseFloat(r.total_demanded_with_tax || 0),
+            received_pending: a.received_pending + parseFloat(r.received_pending || 0),
+            received_clear: a.received_clear + parseFloat(r.received_clear || 0),
             total_received: a.total_received + parseFloat(r.total_received || 0),
+            received_cgst: a.received_cgst + parseFloat(r.received_cgst || 0),
+            received_sgst: a.received_sgst + parseFloat(r.received_sgst || 0),
+            received_interest: a.received_interest + parseFloat(r.received_interest || 0),
             outstanding: a.outstanding + parseFloat(r.outstanding || 0),
-        }), { consumer_count: 0, unit_count: 0, total_cost: 0, total_demanded: 0, total_received: 0, outstanding: 0 });
-        res.json({ success: true, data: rows, totals });
+            outstanding_with_tax: a.outstanding_with_tax + parseFloat(r.outstanding_with_tax || 0),
+        }), {
+            consumer_count: 0, unit_count: 0, total_cost: 0, total_demanded: 0, total_demanded_with_tax: 0,
+            received_pending: 0, received_clear: 0, total_received: 0, received_cgst: 0, received_sgst: 0, received_interest: 0,
+            outstanding: 0, outstanding_with_tax: 0,
+        });
+        totals.due_pct = totals.total_cost > 0 ? Math.round(totals.total_demanded * 10000 / totals.total_cost) / 100 : 0;
+        totals.due_pct_with_tax = totals.total_cost > 0 ? Math.round(totals.total_demanded_with_tax * 10000 / totals.total_cost) / 100 : 0;
+        totals.received_pct = totals.total_cost > 0 ? Math.round(totals.total_received * 10000 / totals.total_cost) / 100 : 0;
+        totals.outstanding_pct = totals.total_demanded > 0 ? Math.round(totals.outstanding * 10000 / totals.total_demanded) / 100 : 0;
+        totals.outstanding_pct_with_tax = totals.total_demanded_with_tax > 0 ? Math.round(totals.outstanding_with_tax * 10000 / totals.total_demanded_with_tax) / 100 : 0;
+        const summary = {
+            pending: { amount: totals.received_pending, cgst: 0, sgst: 0, interest: 0, total: totals.received_pending },
+            clear: { amount: totals.received_clear, cgst: totals.received_cgst, sgst: totals.received_sgst, interest: totals.received_interest, total: totals.received_clear + totals.received_cgst + totals.received_sgst + totals.received_interest },
+            total: { amount: totals.total_received, cgst: totals.received_cgst, sgst: totals.received_sgst, interest: totals.received_interest, total: totals.total_received + totals.received_cgst + totals.received_sgst + totals.received_interest },
+        };
+        res.json({ success: true, data: rows, totals, summary });
     }
     catch (err) {
         next(err);

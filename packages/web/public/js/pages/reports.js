@@ -7,12 +7,12 @@ const ReportsPage = {
   _consumers: [],
   _lastData: [],
 
-  async init(tab) {
+  async init(tab, params) {
     await this._loadLookups();
-    this.activate(tab);
+    this.activate(tab, params);
   },
 
-  activate(tab) {
+  activate(tab, params) {
     this._tab = tab;
     document.querySelectorAll('.rpt-nav-item').forEach(el => {
       el.classList.toggle('active', el.id === `rpt-nav-${tab}`);
@@ -45,7 +45,7 @@ const ReportsPage = {
       'unit-cost':           () => this.loadUnitCost(),
       'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
-      'all-applicants':      () => this.loadAllApplicants(),
+      'all-applicants':      () => this.loadAllApplicants(params),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -774,7 +774,7 @@ const ReportsPage = {
     `;
   },
 
-  loadAllApplicants() {
+  loadAllApplicants(params) {
     this._main(this._filters('All Applicants Report', [
       { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
       { id:'bhkType',        type:'text',   label:'Unit Type' },
@@ -783,6 +783,11 @@ const ReportsPage = {
       { id:'firstName',      type:'text',   label:'First Name' },
       { id:'unitNumber',     type:'text',   label:'Unit Number' },
     ], 'fetchAllApplicants'));
+    if (params && params.projectId) {
+      const sel = document.getElementById('f-project');
+      if (sel) sel.value = params.projectId;
+      this.fetchAllApplicants();
+    }
   },
 
   async fetchAllApplicants() {
@@ -2647,10 +2652,27 @@ const ReportsPage = {
     } catch(err) { Utils.error(err.message); }
   },
 
+  _pwdWithTax: false,
+
+  _pwdSetTax(v) {
+    this._pwdWithTax = v;
+    const btnNo  = document.getElementById('pwd-tax-no');
+    const btnYes = document.getElementById('pwd-tax-yes');
+    if (btnNo)  { btnNo.classList.toggle('btn-primary', !v); btnNo.classList.toggle('btn-ghost', v); }
+    if (btnYes) { btnYes.classList.toggle('btn-primary', v); btnYes.classList.toggle('btn-ghost', !v); }
+  },
+
   loadProjectWiseDues() {
+    this._pwdWithTax = false;
     this._main(`
       <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">Project Wise Dues Report</div></div>
+        <div class="sp-hdr" style="display:flex;justify-content:space-between;align-items:center">
+          <div class="sp-title">Project Wise Dues Report</div>
+          <div style="display:flex;gap:6px">
+            <button id="pwd-tax-no"  class="btn btn-primary btn-sm" onclick="ReportsPage._pwdSetTax(false)">Without Tax</button>
+            <button id="pwd-tax-yes" class="btn btn-ghost   btn-sm" onclick="ReportsPage._pwdSetTax(true)">With Tax</button>
+          </div>
+        </div>
         <div class="sp-body">
           <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
             <div class="fg" style="flex:1;min-width:150px">
@@ -2684,57 +2706,121 @@ const ReportsPage = {
       if (dd)  params.dueDate   = dd;
       const res  = await Api.get('/reports/project-wise-dues', { params });
       const body = res;
-      const rows = body.data   || [];
-      const tot  = body.totals || {};
+      const rows = body.data    || [];
+      const tot  = body.totals  || {};
+      const summ = body.summary || {};
+      const wt   = this._pwdWithTax;
+
+      const dem  = r => wt ? parseFloat(r.total_demanded_with_tax||0)   : parseFloat(r.total_demanded||0);
+      const os   = r => wt ? parseFloat(r.outstanding_with_tax||0)      : parseFloat(r.outstanding||0);
+      const duePct = r => wt ? parseFloat(r.due_pct_with_tax||0)        : parseFloat(r.due_pct||0);
+      const osPct  = r => wt ? parseFloat(r.outstanding_pct_with_tax||0): parseFloat(r.outstanding_pct||0);
+
       this._lastData = rows.map(r => ({
         'Project': r.project_name,
         'Consumers': parseInt(r.consumer_count||0),
         'Units': parseInt(r.unit_count||0),
         'Total Cost': parseFloat(r.total_cost||0),
-        'Total Demanded': parseFloat(r.total_demanded||0),
+        'Total Demanded': dem(r),
+        'Due %': duePct(r)+'%',
+        'Received Pending': parseFloat(r.received_pending||0),
+        'Received Clear': parseFloat(r.received_clear||0),
         'Total Received': parseFloat(r.total_received||0),
-        'Outstanding': parseFloat(r.outstanding||0),
-        'Outstanding %': parseFloat(r.total_demanded||0) > 0
-          ? (parseFloat(r.outstanding||0)/parseFloat(r.total_demanded)*100).toFixed(1)+'%' : '0%',
+        'Received %': parseFloat(r.received_pct||0)+'%',
+        'Outstanding': os(r),
+        'Outstanding %': osPct(r)+'%',
       }));
       const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
       const aR = 'text-align:right'; const aC = 'text-align:center';
       this._kpis([
         { label:'TOTAL PROJECTS',    value: rows.length.toString(),     color:'var(--accent)' },
-        { label:'TOTAL DEMANDED',    value: fmtA(tot.total_demanded),   color:'var(--accent)' },
+        { label:'TOTAL DEMANDED',    value: fmtA(wt ? tot.total_demanded_with_tax : tot.total_demanded), color:'var(--accent)' },
         { label:'TOTAL RECEIVED',    value: fmtA(tot.total_received),   color:'#198754' },
-        { label:'TOTAL OUTSTANDING', value: fmtA(tot.outstanding),      color:'#dc3545' },
+        { label:'TOTAL OUTSTANDING', value: fmtA(wt ? tot.outstanding_with_tax : tot.outstanding), color:'#dc3545' },
       ]);
       const kpiEl = document.getElementById('rpt-kpis');
       if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(4,1fr)';
       if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No records found</h3></div>'; return; }
       const bodyRows = rows.map((r,i) => {
-        const os = parseFloat(r.outstanding||0);
-        const dem = parseFloat(r.total_demanded||0);
-        const osPct = dem > 0 ? (os/dem*100).toFixed(1) : '0';
-        const osStyle = os > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
+        const osV = os(r);
+        const osStyle = osV > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
           <td style="${aC}">${i+1}</td>
           <td style="font-weight:600">${r.project_name}</td>
           <td style="${aC}">${r.consumer_count}</td>
           <td style="${aC}">${r.unit_count}</td>
           <td style="${aR}">${fmtA(r.total_cost)}</td>
-          <td style="${aR}">${fmtA(r.total_demanded)}</td>
-          <td style="${aR};color:#198754">${fmtA(r.total_received)}</td>
-          <td style="${osStyle}">${fmtA(r.outstanding)}</td>
-          <td style="${osStyle}">${osPct}%</td>
+          <td style="${aR}">${fmtA(dem(r))}</td>
+          <td style="${aC}">${duePct(r)}%</td>
+          <td style="${aR}">${fmtA(r.received_pending)}</td>
+          <td style="${aR};color:#198754">${fmtA(r.received_clear)}</td>
+          <td style="${aR};color:#198754;font-weight:600">${fmtA(r.total_received)}</td>
+          <td style="${aC}">${parseFloat(r.received_pct||0)}%</td>
+          <td style="${osStyle}">${fmtA(osV)}</td>
+          <td style="${osStyle}">${osPct(r)}%</td>
+          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',projectId:'${r.project_id}'})">DETAILS</button></td>
         </tr>`;
       });
-      const osT = parseFloat(tot.outstanding||0); const demT = parseFloat(tot.total_demanded||0);
-      const osPctT = demT > 0 ? (osT/demT*100).toFixed(1) : '0';
+      const demT = wt ? parseFloat(tot.total_demanded_with_tax||0) : parseFloat(tot.total_demanded||0);
+      const osT  = wt ? parseFloat(tot.outstanding_with_tax||0)    : parseFloat(tot.outstanding||0);
+      const duePctT = wt ? parseFloat(tot.due_pct_with_tax||0)        : parseFloat(tot.due_pct||0);
+      const osPctT  = wt ? parseFloat(tot.outstanding_pct_with_tax||0): parseFloat(tot.outstanding_pct||0);
       const footRow = `<td></td><td style="font-weight:700">TOTAL</td>
         <td style="${aC};font-weight:700">${tot.consumer_count}</td><td style="${aC};font-weight:700">${tot.unit_count}</td>
         <td style="${aR};font-weight:700">${fmtA(tot.total_cost)}</td>
-        <td style="${aR};font-weight:700">${fmtA(tot.total_demanded)}</td>
+        <td style="${aR};font-weight:700">${fmtA(demT)}</td>
+        <td style="${aC};font-weight:700">${duePctT}%</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.received_pending)}</td>
+        <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.received_clear)}</td>
         <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.total_received)}</td>
-        <td style="${aR};font-weight:700;color:#dc3545">${fmtA(tot.outstanding)}</td>
-        <td style="${aR};font-weight:700;color:#dc3545">${osPctT}%</td>`;
-      this._table(['S.NO.','PROJECT','CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','TOTAL RECEIVED','OUTSTANDING','OUTSTANDING %'], bodyRows, footRow);
+        <td style="${aC};font-weight:700">${parseFloat(tot.received_pct||0)}%</td>
+        <td style="${aR};font-weight:700;color:#dc3545">${fmtA(osT)}</td>
+        <td style="${aR};font-weight:700;color:#dc3545">${osPctT}%</td>
+        <td></td>`;
+      this._table(['S.NO.','PROJECT','CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','DUE %','RECEIVED (PENDING)','RECEIVED (CLEAR)','TOTAL RECEIVED','RECEIVED %','OUTSTANDING','OUTSTANDING %','DETAILS'], bodyRows, footRow);
+
+      const sm = summ;
+      const sfmt = v => parseFloat(v||0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
+      const summaryHtml = `
+        <div style="margin-top:20px;display:inline-block">
+          <table style="border-collapse:collapse;font-size:12px;min-width:420px">
+            <thead>
+              <tr style="background:#1a56db;color:#fff">
+                <th style="padding:6px 12px;border:1px solid #ddd"></th>
+                <th style="padding:6px 12px;border:1px solid #ddd">PENDING</th>
+                <th style="padding:6px 12px;border:1px solid #ddd">CLEAR</th>
+                <th style="padding:6px 12px;border:1px solid #ddd">TOTAL</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${[
+                ['Amount',   sm.pending?.amount,  sm.clear?.amount,  sm.total?.amount],
+                ['CGST',     sm.pending?.cgst,    sm.clear?.cgst,    sm.total?.cgst],
+                ['SGST',     sm.pending?.sgst,    sm.clear?.sgst,    sm.total?.sgst],
+                ['Interest', sm.pending?.interest,sm.clear?.interest,sm.total?.interest],
+              ].map(([lbl,p,c,t],idx) => `
+                <tr style="background:${idx%2===0?'#f8f9fa':'#fff'}">
+                  <td style="padding:5px 12px;border:1px solid #ddd;font-weight:600">${lbl}</td>
+                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(p)}</td>
+                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(c)}</td>
+                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(t)}</td>
+                </tr>`).join('')}
+              <tr style="background:#e3f2fd;font-weight:700">
+                <td style="padding:5px 12px;border:1px solid #ddd">Total :</td>
+                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.pending?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.clear?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.total?.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      `;
+      const wrap = document.getElementById('rpt-result');
+      if (wrap) wrap.innerHTML += `
+        <div style="margin-top:16px">
+          <div style="font-weight:700;font-size:12px;margin-bottom:6px;color:var(--accent)">AMOUNT RECEIVED AS ON DATE</div>
+          ${summaryHtml}
+        </div>`;
     } catch(err) { Utils.error(err.message); }
   },
 
@@ -3805,7 +3891,7 @@ Pages.reports = async function(params = {}) {
     </style>
   `;
 
-  await ReportsPage.init(tab);
+  await ReportsPage.init(tab, params);
   ReportsPage.loadSavedReports();
 };
 
