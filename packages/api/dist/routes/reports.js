@@ -3303,7 +3303,7 @@ router.get('/conveyance-deed-date', async (req, res, next) => {
 // GET /api/reports/all-applicants - All Applicants Report (per-booking, primary + co-applicants)
 router.get('/all-applicants', async (req, res, next) => {
     try {
-        const { projectId, bhkType, towerName, registrationNo, firstName, unitNumber } = req.query;
+        const { projectId, bhkType, towerName, registrationNo, firstName, unitNumber, plan, broker } = req.query;
         const whereParams = [];
         const wp = (val) => { whereParams.push(val); return `$${whereParams.length}`; };
         let where = `WHERE br.status IN ('complete','pending_payment','active')`;
@@ -3319,6 +3319,10 @@ router.get('/all-applicants', async (req, res, next) => {
             where += ` AND c.first_name ILIKE ${wp('%' + firstName + '%')}`;
         if (unitNumber)
             where += ` AND u.unit_number ILIKE ${wp('%' + unitNumber + '%')}`;
+        if (plan)
+            where += ` AND br.selected_plan_name = ${wp(plan)}`;
+        if (broker)
+            where += ` AND COALESCE(bk.firm_name, bk.name, 'Direct') ILIKE ${wp('%' + broker + '%')}`;
         const query = `
       SELECT
         c.id,
@@ -3345,6 +3349,7 @@ router.get('/all-applicants', async (req, res, next) => {
       JOIN units u ON u.id = br.unit_id
       JOIN projects p ON p.id = u.project_id
       LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
       LEFT JOIN LATERAL (
         SELECT json_agg(
           json_build_object(

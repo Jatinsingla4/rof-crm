@@ -3515,7 +3515,7 @@ router.get('/conveyance-deed-date', async (req: AuthRequest, res: Response, next
 // GET /api/reports/all-applicants - All Applicants Report (per-booking, primary + co-applicants)
 router.get('/all-applicants', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, bhkType, towerName, registrationNo, firstName, unitNumber } = req.query as Record<string, string>;
+    const { projectId, bhkType, towerName, registrationNo, firstName, unitNumber, plan, broker } = req.query as Record<string, string>;
 
     const whereParams: any[] = [];
     const wp = (val: any): string => { whereParams.push(val); return `$${whereParams.length}`; };
@@ -3527,6 +3527,8 @@ router.get('/all-applicants', async (req: AuthRequest, res: Response, next: Next
     if (registrationNo)  where += ` AND c.registration_no ILIKE ${wp('%' + registrationNo + '%')}`;
     if (firstName)       where += ` AND c.first_name ILIKE ${wp('%' + firstName + '%')}`;
     if (unitNumber)      where += ` AND u.unit_number ILIKE ${wp('%' + unitNumber + '%')}`;
+    if (plan)            where += ` AND br.selected_plan_name = ${wp(plan)}`;
+    if (broker)          where += ` AND COALESCE(bk.firm_name, bk.name, 'Direct') ILIKE ${wp('%' + broker + '%')}`;
 
     const query = `
       SELECT
@@ -3554,6 +3556,7 @@ router.get('/all-applicants', async (req: AuthRequest, res: Response, next: Next
       JOIN units u ON u.id = br.unit_id
       JOIN projects p ON p.id = u.project_id
       LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
       LEFT JOIN LATERAL (
         SELECT json_agg(
           json_build_object(

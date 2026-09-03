@@ -79,7 +79,7 @@ const ReportsPage = {
   _filters(title, fields, fetchFn) {
     const fHtml = fields.map(f => {
       if (f.type === 'date') return `<div class="fg" style="min-width:130px"><label class="fl">${f.label}</label><input type="date" class="fc" id="f-${f.id}" value="${f.value||''}"></div>`;
-      if (f.type === 'select') return `<div class="fg" style="min-width:160px;flex:1"><label class="fl">${f.label}</label><select class="fc" id="f-${f.id}">${f.options}</select></div>`;
+      if (f.type === 'select') return `<div class="fg" style="min-width:160px;flex:1"><label class="fl">${f.label}</label><select class="fc" id="f-${f.id}"${f.onchange ? ` onchange="${f.onchange}"` : ''}>${f.options}</select></div>`;
       if (f.type === 'text') return `<div class="fg" style="min-width:160px"><label class="fl">${f.label}</label><input type="text" class="fc" id="f-${f.id}" placeholder="${f.placeholder||''}"></div>`;
       if (f.type === 'checkbox-group') {
         return `<div class="fg" style="min-width:100%;margin-top:10px"><label class="fl">${f.label}</label><div style="display:flex;gap:10px;flex-wrap:wrap">
@@ -778,18 +778,38 @@ const ReportsPage = {
 
   loadAllApplicants(params) {
     this._main(this._filters('All Applicants Report', [
-      { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
+      { id:'project',        type:'select', label:'Project',        options: this._projectOptions(), onchange: 'ReportsPage._aaLoadPlans()' },
       { id:'bhkType',        type:'text',   label:'Unit Type' },
       { id:'towerName',      type:'text',   label:'Tower' },
       { id:'registrationNo', type:'text',   label:'Registration No.' },
       { id:'firstName',      type:'text',   label:'First Name' },
       { id:'unitNumber',     type:'text',   label:'Unit Number' },
+      { id:'plan',           type:'select', label:'Payment Plan',   options: '<option value="">&#60;--All--&#62;</option>' },
+      { id:'broker',         type:'text',   label:'Broker' },
     ], 'fetchAllApplicants'));
     if (params && params.projectId) {
       const sel = document.getElementById('f-project');
       if (sel) sel.value = params.projectId;
+      this._aaLoadPlans();
       this.fetchAllApplicants();
     }
+  },
+
+  async _aaLoadPlans() {
+    const sel = document.getElementById('f-plan');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">&#60;--All--&#62;</option>';
+    const pid = document.getElementById('f-project')?.value;
+    if (!pid) return;
+    try {
+      const res = await Api.get(`/payments/plan-names/${pid}`);
+      const names = res.data || res || [];
+      names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        sel.appendChild(o);
+      });
+    } catch (_) {}
   },
 
   async fetchAllApplicants() {
@@ -803,6 +823,8 @@ const ReportsPage = {
         registrationNo: this._f('registrationNo') || undefined,
         firstName:      this._f('firstName')      || undefined,
         unitNumber:     this._f('unitNumber')     || undefined,
+        plan:           this._f('plan')           || undefined,
+        broker:         this._f('broker')         || undefined,
       };
       const res  = await Api.get('/reports/all-applicants', { params });
       const data = res.data || [];
