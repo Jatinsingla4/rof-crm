@@ -3032,7 +3032,7 @@ const ReportsPage = {
           <td style="${aC}">${parseFloat(r.received_pct||0)}%</td>
           <td style="${osStyle}">${fmtA(osV)}</td>
           <td style="${osStyle}">${osPct(r)}%</td>
-          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(cfg.groupBy === 'plan' ? r.plan_name : r.group_label).replace(/'/g,"\\'")}'})">DETAILS</button></td>
+          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(cfg.groupBy === 'plan' ? r.plan_name : (cfg.groupBy === 'project' ? r.group_id : r.group_label)).replace(/'/g,"\\'")}'})">DETAILS</button></td>
         </tr>`;
       });
       const demT = wt ? parseFloat(tot.total_demanded_with_tax||0) : parseFloat(tot.total_demanded||0);
