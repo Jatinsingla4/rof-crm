@@ -38,6 +38,7 @@ const ReportsPage = {
       'month-wise-dues':     () => this.loadMonthWiseDues(),
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
+      'customer-due-summary':() => this.loadCustomerDueSummary(),
       'project-wise-dues':   () => this.loadProjectWiseDues(),
       'tower-wise-dues':     () => this.loadTowerWiseDues(),
       'plan-wise-dues':      () => this.loadPlanWiseDues(),
@@ -1626,6 +1627,215 @@ const ReportsPage = {
         `;
       }
     } catch (err) { Utils.error(err.message); }
+  },
+
+  // ─── Customer Due Details (REPORT B) ───────────────────────────────────────
+  // Single fetch returns all 5 base-value fields per row; the 5-way tab below
+  // just picks which one drives "A" and re-renders client-side — no refetch.
+  _cdsTab: 'total_unit_cost',
+  _cdsData: [],
+
+  _cdsSetTab(tab) {
+    this._cdsTab = tab;
+    ['net_basic_price','basic_with_plc','total_unit_cost','due_amount','due_amount_with_tax'].forEach(t => {
+      const btn = document.getElementById(`cds-tab-${t}`);
+      if (btn) { btn.classList.toggle('btn-primary', t === tab); btn.classList.toggle('btn-ghost', t !== tab); }
+    });
+    this._cdsRender();
+  },
+
+  loadCustomerDueSummary() {
+    this._cdsTab = 'total_unit_cost';
+    this._cdsData = [];
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Customer Due Details</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:8px">
+            <div class="fg" style="flex:1;min-width:140px">
+              <label class="fl">*Project</label>
+              <select class="fc" id="f-project" onchange="ReportsPage._cdsLoadTowers();ReportsPage._cdsLoadPlans()">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="flex:1;min-width:120px">
+              <label class="fl">Tower</label>
+              <select class="fc" id="f-tower"><option value="">&#60;--All--&#62;</option></select>
+            </div>
+            <div class="fg" style="min-width:110px">
+              <label class="fl">Payment Plan</label>
+              <select class="fc" id="f-plan"><option value="">&#60;--All--&#62;</option></select>
+            </div>
+            <div class="fg" style="min-width:110px">
+              <label class="fl">Broker</label>
+              <input type="text" class="fc" id="f-broker" placeholder="Search...">
+            </div>
+            <div class="fg" style="min-width:100px">
+              <label class="fl">Unit No.</label>
+              <input type="text" class="fc" id="f-unitno" placeholder="Search...">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="min-width:110px">
+              <label class="fl">Registration No.</label>
+              <input type="text" class="fc" id="f-regno" placeholder="Search...">
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">Name</label>
+              <input type="text" class="fc" id="f-name" placeholder="Search...">
+            </div>
+            <div class="fg" style="min-width:120px">
+              <label class="fl">Booking Date From</label>
+              <input type="date" class="fc" id="f-bookfrom">
+            </div>
+            <div class="fg" style="min-width:120px">
+              <label class="fl">Booking Date To</label>
+              <input type="date" class="fc" id="f-bookto">
+            </div>
+            <div class="fg" style="min-width:100px">
+              <label class="fl">Paid Clear %</label>
+              <select class="fc" id="f-pctop">
+                <option value="">&#60;--None--&#62;</option>
+                <option value="gt">&#62;</option>
+                <option value="gte">&#62;=</option>
+                <option value="eq">=</option>
+                <option value="lte">&#60;=</option>
+                <option value="lt">&#60;</option>
+              </select>
+            </div>
+            <div class="fg" style="min-width:80px">
+              <label class="fl">%</label>
+              <input type="number" class="fc" id="f-pctval" min="0" max="100" placeholder="%">
+            </div>
+            <div style="margin-bottom:2px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchCustomerDueSummary()">FETCH</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:12px">
+            <button id="cds-tab-net_basic_price"      class="btn btn-ghost btn-sm" onclick="ReportsPage._cdsSetTab('net_basic_price')">Net Basic Price</button>
+            <button id="cds-tab-basic_with_plc"        class="btn btn-ghost btn-sm" onclick="ReportsPage._cdsSetTab('basic_with_plc')">Basic With PLC</button>
+            <button id="cds-tab-total_unit_cost"       class="btn btn-primary btn-sm" onclick="ReportsPage._cdsSetTab('total_unit_cost')">Total Unit Cost</button>
+            <button id="cds-tab-due_amount"            class="btn btn-ghost btn-sm" onclick="ReportsPage._cdsSetTab('due_amount')">Due Amount</button>
+            <button id="cds-tab-due_amount_with_tax"   class="btn btn-ghost btn-sm" onclick="ReportsPage._cdsSetTab('due_amount_with_tax')">Due Amount With Tax</button>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-result"><div class="empty-state"><h3>Select a project and click FETCH</h3></div></div>
+    `);
+  },
+
+  async _cdsLoadTowers() {
+    const pid = document.getElementById('f-project')?.value;
+    const sel = document.getElementById('f-tower');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">&#60;--All--&#62;</option>';
+    if (!pid) return;
+    try {
+      const res = await Api.get('/units/towers', { params: { projectId: pid } });
+      const towers = res.data || res || [];
+      towers.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.id; o.textContent = t.tower_name;
+        sel.appendChild(o);
+      });
+    } catch (_) {}
+  },
+
+  async _cdsLoadPlans() {
+    const sel = document.getElementById('f-plan');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">&#60;--All--&#62;</option>';
+    const pid = document.getElementById('f-project')?.value;
+    if (!pid) return;
+    try {
+      const res = await Api.get(`/payments/plan-names/${pid}`);
+      const names = res.data || res || [];
+      names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        sel.appendChild(o);
+      });
+    } catch (_) {}
+  },
+
+  async fetchCustomerDueSummary() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const pid = document.getElementById('f-project')?.value;
+      const params = { projectId: pid || undefined };
+      const tid  = document.getElementById('f-tower')?.value;
+      const plan = document.getElementById('f-plan')?.value;
+      const brk  = document.getElementById('f-broker')?.value?.trim();
+      const uno  = document.getElementById('f-unitno')?.value?.trim();
+      const reg  = document.getElementById('f-regno')?.value?.trim();
+      const nam  = document.getElementById('f-name')?.value?.trim();
+      const bf   = document.getElementById('f-bookfrom')?.value;
+      const bt   = document.getElementById('f-bookto')?.value;
+      const pctop  = document.getElementById('f-pctop')?.value;
+      const pctval = document.getElementById('f-pctval')?.value;
+      if (tid)  params.towerId          = tid;
+      if (plan) params.planName         = plan;
+      if (brk)  params.broker           = brk;
+      if (uno)  params.unitNo           = uno;
+      if (reg)  params.registrationNo   = reg;
+      if (nam)  params.name             = nam;
+      if (bf)   params.bookingFromDate  = bf;
+      if (bt)   params.bookingToDate    = bt;
+      if (pctop && pctval) { params.pctOperator = pctop; params.pctValue = pctval; }
+
+      const res = await Api.get('/reports/customer-due-summary', { params });
+      this._cdsData = res.data || [];
+      this._cdsRender();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  _cdsRender() {
+    const rows = this._cdsData;
+    const tab  = this._cdsTab;
+    const fmtA = v => parseFloat(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+    const fmtD = v => v ? String(v).slice(0,10) : '—';
+
+    const cols = ['S.NO','REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','AREA','BROKER','PAYMENT PLAN','LOAN','RATE',
+      'A (' + ({net_basic_price:'Net Basic Price',basic_with_plc:'Basic With PLC',total_unit_cost:'Total Unit Cost',due_amount:'Due Amount',due_amount_with_tax:'Due Amount With Tax'})[tab] + ')',
+      'DUE AMOUNT AS ON DATE (B)','DUE AMOUNT % (C)','10% DUE','PENDING','CLEAR','TOTAL (D)','% (E)','BALANCE (F)','AS ON DATE (G)'];
+
+    const bodyRows = rows.map((r, i) => {
+      const A = parseFloat(r[tab] || 0);
+      const B = parseFloat(r.due_amount_with_tax || 0);
+      const C = A > 0 ? (B * 100 / A) : 0;
+      const pending = parseFloat(r.received_pending || 0);
+      const clear   = parseFloat(r.received_clear   || 0);
+      const D = parseFloat(r.received_total || 0);
+      const E = A > 0 ? (D * 100 / A) : 0;
+      const F = A - D;
+      const G = B - D;
+      return `<tr>
+        <td>${i+1}</td>
+        <td>${r.registration_no || '—'}</td>
+        <td>${fmtD(r.booking_date)}</td>
+        <td>${r.name || '—'}</td>
+        <td>${r.tower_name || '—'}</td>
+        <td>${r.unit_number || '—'}</td>
+        <td>${r.bhk_type || '—'}</td>
+        <td style="text-align:right">${r.area ? parseFloat(r.area).toFixed(4) : '—'}</td>
+        <td>${r.broker_name || 'Direct'}</td>
+        <td>${r.plan_name || '—'}</td>
+        <td>${r.loan_type || '—'}</td>
+        <td style="text-align:right">${fmtA(r.rate)}</td>
+        <td style="text-align:right;font-weight:600">${fmtA(A)}</td>
+        <td style="text-align:right">${fmtA(B)}</td>
+        <td style="text-align:right">${C.toFixed(2)}%</td>
+        <td style="text-align:right">${fmtA(r.ten_pct_due)}</td>
+        <td style="text-align:right">${fmtA(pending)}</td>
+        <td style="text-align:right;color:#198754">${fmtA(clear)}</td>
+        <td style="text-align:right;font-weight:600">${fmtA(D)}</td>
+        <td style="text-align:right">${E.toFixed(2)}%</td>
+        <td style="text-align:right">${fmtA(F)}</td>
+        <td style="text-align:right">${fmtA(G)}</td>
+      </tr>`;
+    });
+
+    this._lastData = rows;
+    this._table(cols, bodyRows);
   },
 
   loadDueReport(preFrom, preTo, title = 'Due Report') {
@@ -3860,6 +4070,7 @@ Pages.reports = async function(params = {}) {
         { id: 'month-wise-dues',      label: 'Month Wise Dues' },
         { id: 'customer-forecasting', label: 'Customer Forecasting' },
         { id: 'customer-dues-detail', label: 'Customer Dues Details' },
+        { id: 'customer-due-summary', label: 'Customer Due Summary' },
         { id: 'project-wise-dues',    label: 'Project Wise Dues' },
         { id: 'tower-wise-dues',      label: 'Tower Wise Dues' },
         { id: 'unit-type-wise-dues',  label: 'Unit Type Wise Dues' },

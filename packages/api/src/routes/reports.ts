@@ -3228,6 +3228,140 @@ router.get('/customer-dues-detail', async (req: AuthRequest, res: Response, next
   } catch (err) { next(err); }
 });
 
+// GET /api/reports/customer-due-summary - Customer Due Details (REPORT B)
+// Consumer-grain, one row per booking. Returns all 5 base-value fields
+// (net_basic_price, basic_with_plc, total_unit_cost, due_amount, due_amount_with_tax)
+// per row so the frontend can switch which one drives the "A" column client-side
+// without refetching. due_amount/due_amount_with_tax are computed fresh here —
+// deliberately not reusing /applicant-payment-file's tax-exclusive dues_total or
+// /customer-dues's tax-inclusive dues_total, since those two disagree with each other.
+// "Due amount as on date" (B) is fixed at due_amount_with_tax across all 5 tabs.
+// "Paid Clear Amount Criteria" (pctOperator/pctValue) is evaluated against
+// total_unit_cost (tax-exclusive full cost), independent of the active tab.
+router.get('/customer-due-summary', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const {
+      projectId, towerId, unitNo, planName, broker, registrationNo, name,
+      bookingFromDate, bookingToDate, dueDate, pctOperator, pctValue,
+    } = req.query as Record<string, string>;
+
+    const qp: any[] = [];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+
+    const pidP = p(projectId || null);
+    const tidP = p(towerId   || null);
+    const unoP = p(unitNo    || null);
+    const planP = p(planName || null);
+    const brkP  = p(broker   || null);
+    const regP  = p(registrationNo || null);
+    const namP  = p(name     || null);
+    const bfdP  = p(bookingFromDate || null);
+    const btdP  = p(bookingToDate   || null);
+    const ddP   = p(dueDate  || null);
+
+    // Whitelist pctOperator -> real SQL operator text. The raw pctOperator token
+    // itself is NEVER interpolated — only the fixed mapped value is.
+    const pctOpMap: Record<string, string> = { gt: '>', lt: '<', eq: '=', gte: '>=', lte: '<=' };
+    const sqlOp = pctOpMap[pctOperator as string] || null;
+    const pctActive = !!(sqlOp && pctValue !== undefined && pctValue !== '');
+    const pctP = pctActive ? p(parseFloat(pctValue)) : null;
+
+    const unitCostBase = `
+      CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+        COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+      ELSE
+        COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+      END
+    `;
+
+    const netBasicPriceExpr = `
+      (${unitCostBase}
+        - COALESCE(br.dealer_adjustment_amount,0)
+        - COALESCE(br.company_inaugural_disc,0))
+    `;
+    const totalUnitCostExpr = `
+      (${netBasicPriceExpr}
+        + COALESCE(br.plc_amount,0)
+        + COALESCE(br.other_charge_amount,0))
+    `;
+
+    const baseFrom = `
+      FROM consumers c
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          id, consumer_id, unit_id, booking_date, selected_plan_name,
+          plc_amount, other_charge_amount, main_broker_id, self_or_loan, basic_rate_inr_sqft,
+          balcony_charge_amount, balcony_cgst_amount, balcony_sgst_amount,
+          dealer_adjustment_amount, company_inaugural_disc
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
+      LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+        AND (${tidP}::uuid IS NULL OR t.id = ${tidP}::uuid)
+        AND (${unoP}::text IS NULL OR u.unit_number ILIKE '%' || ${unoP}::text || '%')
+        AND (${planP}::text IS NULL OR br.selected_plan_name = ${planP}::text)
+        AND (${brkP}::text  IS NULL OR COALESCE(bk.firm_name, bk.name, 'Direct') ILIKE '%' || ${brkP}::text || '%')
+        AND (${regP}::text  IS NULL OR c.registration_no ILIKE '%' || ${regP}::text || '%')
+        AND (${namP}::text  IS NULL OR (c.first_name || ' ' || COALESCE(c.last_name,'')) ILIKE '%' || ${namP}::text || '%')
+        AND (${bfdP}::date  IS NULL OR br.booking_date >= ${bfdP}::date)
+        AND (${btdP}::date  IS NULL OR br.booking_date <= ${btdP}::date)
+        ${pctActive ? `AND (CASE WHEN ${totalUnitCostExpr} > 0
+              THEN COALESCE((SELECT SUM(r2.amount_received_inr) FROM receipts r2 WHERE r2.consumer_id = c.id AND r2.status != 'cancelled' AND r2.is_advance IS NOT TRUE),0)
+                * 100.0 / ${totalUnitCostExpr}
+              ELSE 0 END) ${sqlOp} ${pctP}::numeric` : ''}
+    `;
+
+    const dataQuery = `
+      SELECT
+        c.id AS consumer_id,
+        c.registration_no,
+        br.booking_date,
+        TRIM(c.first_name || ' ' || COALESCE(c.last_name,'')) AS name,
+        t.tower_name,
+        u.unit_number,
+        u.bhk_type,
+        u.carpet_area_sqft AS area,
+        COALESCE(bk.firm_name, bk.name, 'Direct') AS broker_name,
+        br.selected_plan_name AS plan_name,
+        br.self_or_loan AS loan_type,
+        COALESCE(br.basic_rate_inr_sqft,0) AS rate,
+
+        ${netBasicPriceExpr} AS net_basic_price,
+        COALESCE(br.plc_amount,0) AS plc_amount,
+        (${netBasicPriceExpr} + COALESCE(br.plc_amount,0)) AS basic_with_plc,
+        ${totalUnitCostExpr} AS total_unit_cost,
+        (${totalUnitCostExpr}
+          + COALESCE(bpt.cgst_amount,0) + COALESCE(bpt.sgst_amount,0)
+          + CASE WHEN br.balcony_charge_amount IS NOT NULL
+              THEN COALESCE(br.balcony_cgst_amount,0) + COALESCE(br.balcony_sgst_amount,0)
+              ELSE 0 END) AS total_cost_with_gst,
+
+        COALESCE((SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+          AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)),0) AS due_amount,
+        COALESCE((SELECT SUM(d.amount_due_inr) + SUM(COALESCE(d.cgst_amount,0)) + SUM(COALESCE(d.sgst_amount,0))
+          FROM demands d WHERE d.consumer_id = c.id
+          AND (${ddP}::date IS NULL OR d.due_date <= ${ddP}::date)),0) AS due_amount_with_tax,
+
+        ROUND(${totalUnitCostExpr} * 0.10) AS ten_pct_due,
+
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'pending' AND r.is_advance IS NOT TRUE),0) AS received_pending,
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),0) AS received_clear,
+        COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE),0) AS received_total
+      ${baseFrom}
+      ORDER BY t.tower_name ASC NULLS LAST, u.unit_number ASC
+    `;
+
+    const result = await db.query(dataQuery, qp);
+    res.json({ success: true, data: result.rows, total: result.rows.length });
+  } catch (err) { next(err); }
+});
+
 // ─── Endpoint 6: Other Charges ────────────────────────────────────────────────
 router.get('/other-charges', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
