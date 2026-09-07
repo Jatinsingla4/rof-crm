@@ -2174,7 +2174,10 @@ router.get('/project-wise-dues', async (req, res, next) => {
         )),0) -
         COALESCE(SUM((
           SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
-        )),0) AS outstanding_with_tax`;
+        )),0) AS outstanding_with_tax,
+        COALESCE(SUM((
+          SELECT SUM(pp.advance_amount) FROM payment_plans pp WHERE pp.consumer_id = c.id
+        )),0) AS credit_amount`;
         let query = '';
         if (gb === 'project') {
             query = `
@@ -2282,8 +2285,7 @@ router.get('/project-wise-dues', async (req, res, next) => {
                 received_pct: totalCost > 0 ? Math.round(totalReceived * 10000 / totalCost) / 100 : 0,
                 outstanding_pct: totalDemanded > 0 ? Math.round(outstanding * 10000 / totalDemanded) / 100 : 0,
                 outstanding_pct_with_tax: totalDemandedWithTax > 0 ? Math.round(outstandingWithTax * 10000 / totalDemandedWithTax) / 100 : 0,
-                // CREDIT AMOUNT — placeholder, real source deferred, see advance_amount audit
-                credit_amount: 0,
+                credit_amount: parseFloat(r.credit_amount || 0),
             };
         });
         const totals = rows.reduce((a, r) => ({

@@ -3030,6 +3030,7 @@ const ReportsPage = {
           <td style="${aR};color:#198754">${fmtA(r.received_clear)}</td>
           <td style="${aR};color:#198754;font-weight:600">${fmtA(r.total_received)}</td>
           <td style="${aC}">${parseFloat(r.received_pct||0)}%</td>
+          <td style="${aR}">${fmtA(r.credit_amount)}</td>
           <td style="${osStyle}">${fmtA(osV)}</td>
           <td style="${osStyle}">${osPct(r)}%</td>
           <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(cfg.groupBy === 'plan' ? r.plan_name : (cfg.groupBy === 'project' ? r.group_id : r.group_label)).replace(/'/g,"\\'")}'})">DETAILS</button></td>
@@ -3039,6 +3040,7 @@ const ReportsPage = {
       const osT  = wt ? parseFloat(tot.outstanding_with_tax||0)    : parseFloat(tot.outstanding||0);
       const duePctT = wt ? parseFloat(tot.due_pct_with_tax||0)        : parseFloat(tot.due_pct||0);
       const osPctT  = wt ? parseFloat(tot.outstanding_pct_with_tax||0): parseFloat(tot.outstanding_pct||0);
+      const creditT = rows.reduce((s,r) => s + parseFloat(r.credit_amount||0), 0);
       const footRow = `<td></td><td style="font-weight:700">TOTAL</td>
         <td style="${aC};font-weight:700">${tot.consumer_count}</td><td style="${aC};font-weight:700">${tot.unit_count}</td>
         <td style="${aR};font-weight:700">${fmtA(tot.total_cost)}</td>
@@ -3048,10 +3050,11 @@ const ReportsPage = {
         <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.received_clear)}</td>
         <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.total_received)}</td>
         <td style="${aC};font-weight:700">${parseFloat(tot.received_pct||0)}%</td>
+        <td style="${aR};font-weight:700">${fmtA(creditT)}</td>
         <td style="${aR};font-weight:700;color:#dc3545">${fmtA(osT)}</td>
         <td style="${aR};font-weight:700;color:#dc3545">${osPctT}%</td>
         <td></td>`;
-      this._table(['S.NO.',cfg.headerLabel,'CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','DUE %','RECEIVED (PENDING)','RECEIVED (CLEAR)','TOTAL RECEIVED','RECEIVED %','OUTSTANDING','OUTSTANDING %','DETAILS'], bodyRows, footRow);
+      this._table(['S.NO.',cfg.headerLabel,'CONSUMERS','UNITS','TOTAL COST','TOTAL DEMANDED','DUE %','RECEIVED (PENDING)','RECEIVED (CLEAR)','TOTAL RECEIVED','RECEIVED %','CREDIT AMOUNT','OUTSTANDING','OUTSTANDING %','DETAILS'], bodyRows, footRow);
 
       const sm = summ;
       const sfmt = v => parseFloat(v||0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2});
