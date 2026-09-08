@@ -43,6 +43,10 @@ const ReportsPage = {
       'tower-wise-dues':     () => this.loadTowerWiseDues(),
       'plan-wise-dues':      () => this.loadPlanWiseDues(),
       'broker-wise-dues':    () => this.loadBrokerWiseDues(),
+      'ageing-summary-project':  () => this.loadAgeingSummaryProject(),
+      'ageing-summary-tower':    () => this.loadAgeingSummaryTower(),
+      'ageing-summary-plan':     () => this.loadAgeingSummaryPlan(),
+      'ageing-summary-customer': () => this.loadAgeingSummaryCustomer(),
       'unit-type-wise-dues': () => this.loadUnitTypeWiseDues(),
       'conveyance-deed-date':() => this.loadConveyanceDeedDate(),
       'unit-wise-plc':       () => this.loadUnitWisePLC(),
@@ -2933,6 +2937,139 @@ const ReportsPage = {
     return this._fetchDuesByGroup({ groupBy: 'broker', headerLabel: 'BROKER', detailsParamName: 'broker' });
   },
 
+  // ─── Ageing Summary Report (legacy due_ageing_common_report.aspx spec) ──────
+  // A new, distinct report from Ageing (Project/Tower/Plan) / Installment Wise
+  // Dues tabs above — those are overdue-only with a different bucket scheme.
+  // This report shows the legacy DUE/RECEIVED/CREDIT/OUTSTANDING/OUTSTANDING%
+  // summary columns plus legacy's exact age buckets (0-30/31-60/61-120/121-180/180+).
+  loadAgeingSummaryProject() {
+    this._loadAgeingSummary({ endpoint: 'ageing-summary-project', headerLabel: 'PROJECT', title: 'Project Wise Dues Ageing', csvName: 'Project_Wise_Dues_Ageing.csv' });
+  },
+  loadAgeingSummaryTower() {
+    this._loadAgeingSummary({ endpoint: 'ageing-summary-tower', headerLabel: 'TOWER', title: 'Tower Wise Dues Ageing', csvName: 'Tower_Wise_Dues_Ageing.csv' });
+  },
+  loadAgeingSummaryPlan() {
+    this._loadAgeingSummary({ endpoint: 'ageing-summary-plan', headerLabel: 'PLAN', title: 'Plan Wise Dues Ageing', csvName: 'Plan_Wise_Dues_Ageing.csv' });
+  },
+  loadAgeingSummaryCustomer() {
+    this._loadAgeingSummary({ endpoint: 'ageing-summary-customer', headerLabel: 'CUSTOMER', title: 'Customer Wise Dues Ageing', csvName: 'Customer_Wise_Dues_Ageing.csv' });
+  },
+
+  _loadAgeingSummary(cfg) {
+    this._agsCfg = cfg;
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">${cfg.title}</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:150px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">As On Date</label>
+              <input type="date" class="fc" id="f-asondate">
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage._fetchAgeingSummary()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('${cfg.csvName}')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+  },
+
+  async _fetchAgeingSummary() {
+    const cfg = this._agsCfg;
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {};
+      const pid = document.getElementById('f-project')?.value;
+      const aod = document.getElementById('f-asondate')?.value;
+      if (pid) params.projectId = pid;
+      if (aod) params.asOnDate  = aod;
+      const res  = await Api.get(`/reports/${cfg.endpoint}`, { params });
+      const rows = res.data   || [];
+      const tot  = res.totals || {};
+      const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const aR = 'text-align:right'; const aC = 'text-align:center';
+
+      this._lastData = rows.map(r => ({
+        [cfg.headerLabel[0] + cfg.headerLabel.slice(1).toLowerCase()]: r.group_label,
+        'Consumers': parseInt(r.consumer_count||0),
+        'Due Amount (A)': parseFloat(r.due_amount||0),
+        'Received Amount (B)': parseFloat(r.received_amount||0),
+        'Credit Amount (C)': parseFloat(r.credit_amount||0),
+        'Outstanding (D)': parseFloat(r.outstanding_amount||0),
+        'Outstanding % (E)': parseFloat(r.outstanding_pct||0)+'%',
+        '0-30 Days': parseFloat(r.bucket_0_30||0),
+        '31-60 Days': parseFloat(r.bucket_31_60||0),
+        '61-120 Days': parseFloat(r.bucket_61_120||0),
+        '121-180 Days': parseFloat(r.bucket_121_180||0),
+        '180+ Days': parseFloat(r.bucket_180_plus||0),
+      }));
+
+      this._kpis([
+        { label:`TOTAL ${cfg.headerLabel}S`, value: rows.length.toString(),        color:'var(--accent)' },
+        { label:'TOTAL DUE (A)',    value: fmtA(tot.due_amount),         color:'var(--accent)' },
+        { label:'TOTAL RECEIVED (B)', value: fmtA(tot.received_amount),  color:'#198754' },
+        { label:'TOTAL OUTSTANDING (D)', value: fmtA(tot.outstanding_amount), color:'#dc3545' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(4,1fr)';
+      if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const bodyRows = rows.map((r,i) => {
+        const osV = parseFloat(r.outstanding_amount||0);
+        const osStyle = osV > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
+        const label = (cfg.endpoint === 'ageing-summary-tower' || cfg.endpoint === 'ageing-summary-customer') && r.project_name ? `${r.group_label} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : r.group_label;
+        const custExtra = cfg.endpoint === 'ageing-summary-customer'
+          ? `<td>${r.registration_no||''}</td><td>${r.unit_no||''}</td>`
+          : '';
+        return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
+          <td style="${aC}">${i+1}</td>
+          ${custExtra}
+          <td style="font-weight:600">${label}</td>
+          <td style="${aC}">${r.consumer_count}</td>
+          <td style="${aR}">${fmtA(r.due_amount)}</td>
+          <td style="${aR};color:#198754">${fmtA(r.received_amount)}</td>
+          <td style="${aR}">${fmtA(r.credit_amount)}</td>
+          <td style="${osStyle}">${fmtA(r.outstanding_amount)}</td>
+          <td style="${osStyle}">${parseFloat(r.outstanding_pct||0)}%</td>
+          <td style="${aR}">${fmtA(r.bucket_0_30)}</td>
+          <td style="${aR}">${fmtA(r.bucket_31_60)}</td>
+          <td style="${aR}">${fmtA(r.bucket_61_120)}</td>
+          <td style="${aR}">${fmtA(r.bucket_121_180)}</td>
+          <td style="${aR}">${fmtA(r.bucket_180_plus)}</td>
+        </tr>`;
+      });
+
+      const footRow = `<td></td>${cfg.endpoint === 'ageing-summary-customer' ? '<td></td><td></td>' : ''}<td style="font-weight:700">TOTAL</td>
+        <td style="${aC};font-weight:700">${tot.consumer_count}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.due_amount)}</td>
+        <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.received_amount)}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.credit_amount)}</td>
+        <td style="${aR};font-weight:700;color:#dc3545">${fmtA(tot.outstanding_amount)}</td>
+        <td style="${aR};font-weight:700;color:#dc3545">${parseFloat(tot.outstanding_pct||0)}%</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.bucket_0_30)}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.bucket_31_60)}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.bucket_61_120)}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.bucket_121_180)}</td>
+        <td style="${aR};font-weight:700">${fmtA(tot.bucket_180_plus)}</td>`;
+
+      const cols = cfg.endpoint === 'ageing-summary-customer'
+        ? ['S.NO.','REGISTRATION NO','UNIT NO',cfg.headerLabel,'CONSUMERS','DUE AMOUNT (A)','RECEIVED AMOUNT (B)','CREDIT AMOUNT (C)','OUTSTANDING (D)','OUTSTANDING % (E)','0-30 DAYS','31-60 DAYS','61-120 DAYS','121-180 DAYS','180+ DAYS']
+        : ['S.NO.',cfg.headerLabel,'CONSUMERS','DUE AMOUNT (A)','RECEIVED AMOUNT (B)','CREDIT AMOUNT (C)','OUTSTANDING (D)','OUTSTANDING % (E)','0-30 DAYS','31-60 DAYS','61-120 DAYS','121-180 DAYS','180+ DAYS'];
+      this._table(cols, bodyRows, footRow);
+    } catch (err) {
+      if (el) el.innerHTML = `<div class="empty-state"><h3>Error loading report</h3><p>${err.message||err}</p></div>`;
+    }
+  },
+
   _loadDuesByGroup(cfg) {
     this._pwdWithTax = false;
     this._pwdCfg = cfg;
@@ -4079,6 +4216,10 @@ Pages.reports = async function(params = {}) {
         { id: 'unit-type-wise-dues',  label: 'Unit Type Wise Dues' },
         { id: 'plan-wise-dues',       label: 'Plan Wise Dues' },
         { id: 'broker-wise-dues',     label: 'Broker Wise Dues' },
+        { id: 'ageing-summary-project',  label: 'Project Wise Dues Ageing' },
+        { id: 'ageing-summary-tower',    label: 'Tower Wise Dues Ageing' },
+        { id: 'ageing-summary-plan',     label: 'Plan Wise Dues Ageing' },
+        { id: 'ageing-summary-customer', label: 'Customer Wise Dues Ageing' },
         { id: 'conveyance-deed-date', label: 'Conveyance Deed Date' },
       ],
     },

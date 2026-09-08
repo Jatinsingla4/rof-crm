@@ -2823,6 +2823,362 @@ router.get('/ageing-plan', async (req, res, next) => {
         next(err);
     }
 });
+// ─── Ageing Summary Report (legacy due_ageing_common_report.aspx spec) ──────
+// A NEW, distinct report from /ageing-project, /ageing-tower, /ageing-plan,
+// /ageing-installment above (those are overdue-only, no DUE/RECEIVED/CREDIT/
+// OUTSTANDING summary columns, and use a different bucket scheme: 0-30/31-60/
+// 61-90/91-180/180+). This report uses legacy's exact buckets — 0-30/31-60/
+// 61-120/121-180/180+ — plus full DUE(A)/RECEIVED(B)/CREDIT(C)/OUTSTANDING(D)/
+// OUTSTANDING%(E) summary columns, reusing /project-wise-dues's exact
+// DUE/RECEIVED/CREDIT/OUTSTANDING definitions (GST-inclusive due amount).
+const ageingSummaryBrJoin = `
+  LEFT JOIN (
+    SELECT DISTINCT ON (unit_id)
+      unit_id, consumer_id, plc_amount, other_charge_amount, basic_rate_inr_sqft, balcony_charge_amount, selected_plan_name, main_broker_id
+    FROM booking_records
+    WHERE unit_id IS NOT NULL
+    ORDER BY unit_id, created_at DESC
+  ) br ON br.unit_id = u.id
+  LEFT JOIN consumers c ON c.id = br.consumer_id`;
+function ageingSummaryFinancialCols(aodP) {
+    return `
+    COALESCE(SUM((
+      SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+      AND (${aodP}::date IS NULL OR d.due_date <= ${aodP}::date)
+    )),0) AS total_demanded,
+    COALESCE(SUM((
+      SELECT SUM(COALESCE(d.cgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
+      AND (${aodP}::date IS NULL OR d.due_date <= ${aodP}::date)
+    )),0) AS total_demanded_cgst,
+    COALESCE(SUM((
+      SELECT SUM(COALESCE(d.sgst_amount,0)) FROM demands d WHERE d.consumer_id = c.id
+      AND (${aodP}::date IS NULL OR d.due_date <= ${aodP}::date)
+    )),0) AS total_demanded_sgst,
+    COALESCE(SUM((
+      SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'pending' AND r.is_advance IS NOT TRUE
+    )),0) AS received_pending,
+    COALESCE(SUM((
+      SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
+    )),0) AS received_clear,
+    COALESCE(SUM((
+      SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+    )),0) AS total_received,
+    COALESCE(SUM((
+      SELECT SUM(pp.advance_amount) FROM payment_plans pp WHERE pp.consumer_id = c.id
+    )),0) AS credit_amount`;
+}
+function ageingSummaryMapRow(r) {
+    const dueAmount = parseFloat(r.total_demanded || 0) + parseFloat(r.total_demanded_cgst || 0) + parseFloat(r.total_demanded_sgst || 0);
+    const receivedAmount = parseFloat(r.total_received || 0);
+    const outstandingAmount = dueAmount - receivedAmount;
+    return {
+        due_amount: dueAmount,
+        received_amount: receivedAmount,
+        credit_amount: parseFloat(r.credit_amount || 0),
+        outstanding_amount: outstandingAmount,
+        outstanding_pct: dueAmount > 0 ? Math.round(outstandingAmount * 10000 / dueAmount) / 100 : 0,
+    };
+}
+function ageingSummaryEmptyBuckets() {
+    return { bucket_0_30: 0, bucket_31_60: 0, bucket_61_120: 0, bucket_121_180: 0, bucket_180_plus: 0 };
+}
+// Per-consumer overdue bucketing via applyWaterfall() — reuses the exact mechanic
+// already proven in /ageing-project, but with legacy's bucket boundaries
+// (1-30/31-60/61-120/121-180/180+) instead of the existing endpoints' scheme.
+async function ageingSummaryComputeBuckets(consumerIds, asOnDate) {
+    const cutoff = asOnDate ? new Date(asOnDate) : new Date();
+    const bucketsByConsumer = new Map();
+    await Promise.all(consumerIds.map(async (consumerId) => {
+        const buckets = ageingSummaryEmptyBuckets();
+        const [rcptsRes, demandsRes] = await Promise.all([
+            pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+           FROM receipts
+           WHERE consumer_id = $1 AND status = 'cleared'
+           ORDER BY received_date ASC, created_at ASC`, [consumerId]),
+            pool_1.db.query(`SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                  addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                  status, due_date::text AS due_date
+           FROM demands
+           WHERE consumer_id = $1`, [consumerId]),
+        ]);
+        if (demandsRes.rows.length === 0) {
+            bucketsByConsumer.set(consumerId, buckets);
+            return;
+        }
+        const wfResult = (0, payment_waterfall_js_1.applyWaterfall)(rcptsRes.rows, demandsRes.rows);
+        const paidByDemand = new Map();
+        for (const w of wfResult)
+            paidByDemand.set(String(w.demand_id), w.paid);
+        for (const d of demandsRes.rows) {
+            if (!d.due_date)
+                continue;
+            const dueDate = new Date(d.due_date);
+            if (dueDate >= cutoff)
+                continue;
+            const days = Math.floor((cutoff.getTime() - dueDate.getTime()) / 86400000);
+            const dueWithGst = parseFloat(d.amount_due_inr || 0) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0);
+            const paid = paidByDemand.get(String(d.id)) || 0;
+            const overdueAmt = Math.max(0, dueWithGst - paid);
+            if (overdueAmt <= 0)
+                continue;
+            if (days >= 1 && days <= 30)
+                buckets.bucket_0_30 += overdueAmt;
+            else if (days >= 31 && days <= 60)
+                buckets.bucket_31_60 += overdueAmt;
+            else if (days >= 61 && days <= 120)
+                buckets.bucket_61_120 += overdueAmt;
+            else if (days >= 121 && days <= 180)
+                buckets.bucket_121_180 += overdueAmt;
+            else
+                buckets.bucket_180_plus += overdueAmt;
+        }
+        bucketsByConsumer.set(consumerId, buckets);
+    }));
+    return bucketsByConsumer;
+}
+function ageingSummaryTotals(rows) {
+    const totals = rows.reduce((a, r) => ({
+        consumer_count: a.consumer_count + parseInt(String(r.consumer_count || 0)),
+        due_amount: a.due_amount + r.due_amount,
+        received_amount: a.received_amount + r.received_amount,
+        credit_amount: a.credit_amount + r.credit_amount,
+        outstanding_amount: a.outstanding_amount + r.outstanding_amount,
+        bucket_0_30: a.bucket_0_30 + r.bucket_0_30,
+        bucket_31_60: a.bucket_31_60 + r.bucket_31_60,
+        bucket_61_120: a.bucket_61_120 + r.bucket_61_120,
+        bucket_121_180: a.bucket_121_180 + r.bucket_121_180,
+        bucket_180_plus: a.bucket_180_plus + r.bucket_180_plus,
+    }), { consumer_count: 0, due_amount: 0, received_amount: 0, credit_amount: 0, outstanding_amount: 0,
+        bucket_0_30: 0, bucket_31_60: 0, bucket_61_120: 0, bucket_121_180: 0, bucket_180_plus: 0 });
+    totals.outstanding_pct = totals.due_amount > 0 ? Math.round(totals.outstanding_amount * 10000 / totals.due_amount) / 100 : 0;
+    return totals;
+}
+router.get('/ageing-summary-project', async (req, res, next) => {
+    try {
+        const { projectId, asOnDate } = req.query;
+        const qp = [];
+        const p = (v) => { qp.push(v); return `$${qp.length}`; };
+        const pidP = p(projectId || null);
+        const aodP = p(asOnDate || null);
+        const query = `
+      SELECT
+        p.id AS group_id, p.name AS group_label,
+        COUNT(DISTINCT c.id) AS consumer_count,
+        ${ageingSummaryFinancialCols(aodP)}
+      FROM projects p
+      LEFT JOIN units u ON u.project_id = p.id
+      ${ageingSummaryBrJoin}
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+      GROUP BY p.id, p.name
+      ORDER BY p.name
+    `;
+        const result = await pool_1.db.query(query, qp);
+        const consumerListQuery = `
+      SELECT DISTINCT p.id AS group_id, c.id AS consumer_id
+      FROM projects p
+      LEFT JOIN units u ON u.project_id = p.id
+      ${ageingSummaryBrJoin}
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid) AND c.id IS NOT NULL
+    `;
+        const consumerListRes = await pool_1.db.query(consumerListQuery, [qp[0]]);
+        const consumerIdsByGroup = new Map();
+        for (const row of consumerListRes.rows) {
+            if (!consumerIdsByGroup.has(row.group_id))
+                consumerIdsByGroup.set(row.group_id, []);
+            consumerIdsByGroup.get(row.group_id).push(row.consumer_id);
+        }
+        const allConsumerIds = consumerListRes.rows.map((r) => r.consumer_id);
+        const bucketsByConsumer = await ageingSummaryComputeBuckets(allConsumerIds, asOnDate || null);
+        const rows = result.rows.map((r) => {
+            const summary = ageingSummaryMapRow(r);
+            const buckets = ageingSummaryEmptyBuckets();
+            for (const cid of (consumerIdsByGroup.get(r.group_id) || [])) {
+                const b = bucketsByConsumer.get(cid);
+                if (!b)
+                    continue;
+                buckets.bucket_0_30 += b.bucket_0_30;
+                buckets.bucket_31_60 += b.bucket_31_60;
+                buckets.bucket_61_120 += b.bucket_61_120;
+                buckets.bucket_121_180 += b.bucket_121_180;
+                buckets.bucket_180_plus += b.bucket_180_plus;
+            }
+            return { group_id: r.group_id, group_label: r.group_label, consumer_count: parseInt(r.consumer_count || 0), ...summary, ...buckets };
+        });
+        res.json({ success: true, data: rows, totals: ageingSummaryTotals(rows) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get('/ageing-summary-tower', async (req, res, next) => {
+    try {
+        const { projectId, asOnDate } = req.query;
+        const qp = [];
+        const p = (v) => { qp.push(v); return `$${qp.length}`; };
+        const pidP = p(projectId || null);
+        const aodP = p(asOnDate || null);
+        const query = `
+      SELECT
+        t.id AS group_id, t.tower_name AS group_label, p.name AS project_name,
+        COUNT(DISTINCT c.id) AS consumer_count,
+        ${ageingSummaryFinancialCols(aodP)}
+      FROM towers t
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN units u ON u.tower_id = t.id
+      ${ageingSummaryBrJoin}
+      WHERE t.deleted_at IS NULL
+        AND (${pidP}::uuid IS NULL OR t.project_id = ${pidP}::uuid)
+      GROUP BY t.id, t.tower_name, p.name
+      ORDER BY p.name, t.tower_name
+    `;
+        const result = await pool_1.db.query(query, qp);
+        const consumerListQuery = `
+      SELECT DISTINCT t.id AS group_id, c.id AS consumer_id
+      FROM towers t
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN units u ON u.tower_id = t.id
+      ${ageingSummaryBrJoin}
+      WHERE t.deleted_at IS NULL
+        AND (${pidP}::uuid IS NULL OR t.project_id = ${pidP}::uuid) AND c.id IS NOT NULL
+    `;
+        const consumerListRes = await pool_1.db.query(consumerListQuery, [qp[0]]);
+        const consumerIdsByGroup = new Map();
+        for (const row of consumerListRes.rows) {
+            if (!consumerIdsByGroup.has(row.group_id))
+                consumerIdsByGroup.set(row.group_id, []);
+            consumerIdsByGroup.get(row.group_id).push(row.consumer_id);
+        }
+        const allConsumerIds = consumerListRes.rows.map((r) => r.consumer_id);
+        const bucketsByConsumer = await ageingSummaryComputeBuckets(allConsumerIds, asOnDate || null);
+        const rows = result.rows.map((r) => {
+            const summary = ageingSummaryMapRow(r);
+            const buckets = ageingSummaryEmptyBuckets();
+            for (const cid of (consumerIdsByGroup.get(r.group_id) || [])) {
+                const b = bucketsByConsumer.get(cid);
+                if (!b)
+                    continue;
+                buckets.bucket_0_30 += b.bucket_0_30;
+                buckets.bucket_31_60 += b.bucket_31_60;
+                buckets.bucket_61_120 += b.bucket_61_120;
+                buckets.bucket_121_180 += b.bucket_121_180;
+                buckets.bucket_180_plus += b.bucket_180_plus;
+            }
+            return { group_id: r.group_id, group_label: r.group_label, project_name: r.project_name, consumer_count: parseInt(r.consumer_count || 0), ...summary, ...buckets };
+        });
+        res.json({ success: true, data: rows, totals: ageingSummaryTotals(rows) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get('/ageing-summary-plan', async (req, res, next) => {
+    try {
+        const { projectId, asOnDate } = req.query;
+        const qp = [];
+        const p = (v) => { qp.push(v); return `$${qp.length}`; };
+        const pidP = p(projectId || null);
+        const aodP = p(asOnDate || null);
+        const query = `
+      SELECT
+        COALESCE(br.selected_plan_name,'(No Plan)') || '|' || p.id AS group_id,
+        COALESCE(br.selected_plan_name,'(No Plan)') || ' (' || p.name || ')' AS group_label,
+        COALESCE(br.selected_plan_name,'(No Plan)') AS plan_name,
+        p.name AS project_name,
+        COUNT(DISTINCT c.id) AS consumer_count,
+        ${ageingSummaryFinancialCols(aodP)}
+      FROM units u
+      JOIN projects p ON p.id = u.project_id
+      ${ageingSummaryBrJoin}
+      WHERE (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid)
+      GROUP BY p.id, p.name, br.selected_plan_name
+      ORDER BY p.name, br.selected_plan_name
+    `;
+        const result = await pool_1.db.query(query, qp);
+        const consumerListQuery = `
+      SELECT DISTINCT COALESCE(br.selected_plan_name,'(No Plan)') || '|' || p.id AS group_id, c.id AS consumer_id
+      FROM units u
+      JOIN projects p ON p.id = u.project_id
+      ${ageingSummaryBrJoin}
+      WHERE (${pidP}::uuid IS NULL OR u.project_id = ${pidP}::uuid) AND c.id IS NOT NULL
+    `;
+        const consumerListRes = await pool_1.db.query(consumerListQuery, [qp[0]]);
+        const consumerIdsByGroup = new Map();
+        for (const row of consumerListRes.rows) {
+            if (!consumerIdsByGroup.has(row.group_id))
+                consumerIdsByGroup.set(row.group_id, []);
+            consumerIdsByGroup.get(row.group_id).push(row.consumer_id);
+        }
+        const allConsumerIds = consumerListRes.rows.map((r) => r.consumer_id);
+        const bucketsByConsumer = await ageingSummaryComputeBuckets(allConsumerIds, asOnDate || null);
+        const rows = result.rows.map((r) => {
+            const summary = ageingSummaryMapRow(r);
+            const buckets = ageingSummaryEmptyBuckets();
+            for (const cid of (consumerIdsByGroup.get(r.group_id) || [])) {
+                const b = bucketsByConsumer.get(cid);
+                if (!b)
+                    continue;
+                buckets.bucket_0_30 += b.bucket_0_30;
+                buckets.bucket_31_60 += b.bucket_31_60;
+                buckets.bucket_61_120 += b.bucket_61_120;
+                buckets.bucket_121_180 += b.bucket_121_180;
+                buckets.bucket_180_plus += b.bucket_180_plus;
+            }
+            return { group_id: r.group_id, group_label: r.group_label, plan_name: r.plan_name, project_name: r.project_name, consumer_count: parseInt(r.consumer_count || 0), ...summary, ...buckets };
+        });
+        res.json({ success: true, data: rows, totals: ageingSummaryTotals(rows) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+router.get('/ageing-summary-customer', async (req, res, next) => {
+    try {
+        const { projectId, asOnDate } = req.query;
+        const qp = [];
+        const p = (v) => { qp.push(v); return `$${qp.length}`; };
+        const pidP = p(projectId || null);
+        const aodP = p(asOnDate || null);
+        const query = `
+      SELECT
+        c.id AS group_id,
+        c.name AS group_label,
+        c.registration_no,
+        u.unit_number AS unit_no,
+        br.booking_date::text AS booking_date,
+        p.name AS project_name,
+        ${ageingSummaryFinancialCols(aodP)}
+      FROM consumers c
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id, booking_date
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units u    ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+      GROUP BY c.id, c.name, c.registration_no, u.unit_number, br.booking_date, p.name
+      ORDER BY c.name
+    `;
+        const result = await pool_1.db.query(query, qp);
+        const allConsumerIds = result.rows.map((r) => r.group_id);
+        const bucketsByConsumer = await ageingSummaryComputeBuckets(allConsumerIds, asOnDate || null);
+        const rows = result.rows.map((r) => {
+            const summary = ageingSummaryMapRow(r);
+            const buckets = bucketsByConsumer.get(r.group_id) || ageingSummaryEmptyBuckets();
+            return {
+                group_id: r.group_id, group_label: r.group_label, registration_no: r.registration_no,
+                unit_no: r.unit_no, booking_date: r.booking_date, project_name: r.project_name,
+                consumer_count: 1, ...summary, ...buckets,
+            };
+        });
+        res.json({ success: true, data: rows, totals: ageingSummaryTotals(rows) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // ─── Endpoint 4: Month Wise Dues ──────────────────────────────────────────────
 router.get('/month-wise-dues', async (req, res, next) => {
     try {
