@@ -36,6 +36,7 @@ const ReportsPage = {
       'ageing-project':      () => this.loadAgeingProject(),
       'ageing-installment':  () => this.loadAgeingInstallment(),
       'month-wise-dues':     () => this.loadMonthWiseDues(),
+      'month-wise-dues-customer': () => this.loadMonthWiseDuesCustomer(),
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'customer-due-summary':() => this.loadCustomerDueSummary(),
@@ -2708,6 +2709,164 @@ const ReportsPage = {
     } catch(err) { Utils.error(err.message); }
   },
 
+  loadMonthWiseDuesCustomer() {
+    const now = new Date();
+    const y = now.getFullYear(), m = now.getMonth() + 1;
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Month Wise Dues Report (Customer Wise)</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:150px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project" onchange="ReportsPage._mwdcLoadTowers()">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">Tower</label>
+              <select class="fc" id="f-tower"><option value="">All Towers</option></select>
+            </div>
+            <div class="fg" style="min-width:90px">
+              <label class="fl">From Month</label>
+              <input type="number" class="fc" id="f-from-month" value="${m}" min="1" max="12">
+            </div>
+            <div class="fg" style="min-width:90px">
+              <label class="fl">From Year</label>
+              <input type="number" class="fc" id="f-from-year" value="${y}" min="2015" max="2035">
+            </div>
+            <div class="fg" style="min-width:90px">
+              <label class="fl">To Month</label>
+              <input type="number" class="fc" id="f-to-month" value="${m}" min="1" max="12">
+            </div>
+            <div class="fg" style="min-width:90px">
+              <label class="fl">To Year</label>
+              <input type="number" class="fc" id="f-to-year" value="${y}" min="2015" max="2035">
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchMonthWiseDuesCustomer()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Month_Wise_Dues_Customer.csv')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Select a From-To range and click FETCH</h3></div></div>
+    `);
+  },
+
+  async _mwdcLoadTowers() {
+    const pid = document.getElementById('f-project')?.value;
+    const sel = document.getElementById('f-tower');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">All Towers</option>';
+    if (!pid) return;
+    try {
+      const res = await Api.get('/units/towers', { params: { projectId: pid } });
+      const towers = res.data || res || [];
+      towers.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.id; o.textContent = t.tower_name;
+        sel.appendChild(o);
+      });
+    } catch {}
+  },
+
+  async fetchMonthWiseDuesCustomer() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const pid = document.getElementById('f-project')?.value;
+      const tid = document.getElementById('f-tower')?.value;
+      const fromMonth = document.getElementById('f-from-month')?.value;
+      const fromYear  = document.getElementById('f-from-year')?.value;
+      const toMonth   = document.getElementById('f-to-month')?.value;
+      const toYear    = document.getElementById('f-to-year')?.value;
+      const params = { fromMonth, fromYear, toMonth, toYear };
+      if (pid) params.projectId = pid;
+      if (tid) params.towerId = tid;
+      const res = await Api.get('/reports/month-wise-dues-customer', { params });
+      const months = res.months || [];
+      const rows   = res.data   || [];
+      const tot    = res.totals || {};
+      const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const aR = 'text-align:right'; const aC = 'text-align:center';
+
+      this._lastData = rows.map(r => {
+        const o = {
+          'Reg No': r.registration_no, 'Name': r.consumer_name, 'Unit No': r.unit_no,
+          'Booking Date': r.booking_date ? String(r.booking_date).slice(0,10) : '',
+        };
+        months.forEach(mo => {
+          const mc = r.months[mo.key] || { dues:0, paid:0, os:0 };
+          o[`${mo.label} DUES`] = parseFloat(mc.dues||0);
+          o[`${mo.label} PAID`] = parseFloat(mc.paid||0);
+          o[`${mo.label} O/S`]  = parseFloat(mc.os||0);
+        });
+        o['TOTAL DUES'] = parseFloat(r.total_dues||0);
+        o['TOTAL PAID'] = parseFloat(r.total_paid||0);
+        o['TOTAL O/S']  = parseFloat(r.total_os||0);
+        return o;
+      });
+
+      this._kpis([
+        { label:'CUSTOMERS',  value: rows.length.toString(),   color:'var(--accent)' },
+        { label:'TOTAL DUES', value: fmtA(tot.total_dues),     color:'var(--accent)' },
+        { label:'TOTAL PAID', value: fmtA(tot.total_paid),     color:'#198754' },
+        { label:'TOTAL O/S',  value: fmtA(tot.total_os),       color:'#dc3545' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(4,1fr)';
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
+      const monthHead = months.map(mo => `<th colspan="3" style="${thS};background:var(--accent-bg,#eef2ff)">${mo.label}</th>`).join('');
+      const monthSubHead = months.map(() => `<th style="${thS}">DUES</th><th style="${thS}">PAID</th><th style="${thS}">O/S</th>`).join('');
+
+      const bodyRows = rows.map((r, i) => {
+        const monthCells = months.map(mo => {
+          const mc = r.months[mo.key] || { dues:0, paid:0, os:0 };
+          const osStyle = mc.os > 0 ? `${aR};color:#dc3545` : `${aR};color:#198754`;
+          return `<td style="${aR}">${fmtA(mc.dues)}</td><td style="${aR};color:#198754">${fmtA(mc.paid)}</td><td style="${osStyle}">${fmtA(mc.os)}</td>`;
+        }).join('');
+        return `<tr>
+          <td style="${aC}">${i+1}</td>
+          <td>${r.registration_no||''}</td>
+          <td>${r.consumer_name||''}</td>
+          <td>${r.unit_no||''}</td>
+          <td>${r.booking_date ? String(r.booking_date).slice(0,10) : ''}</td>
+          ${monthCells}
+          <td style="${aR};font-weight:600">${fmtA(r.total_dues)}</td>
+          <td style="${aR};font-weight:600;color:#198754">${fmtA(r.total_paid)}</td>
+          <td style="${aR};font-weight:600;color:${r.total_os>0?'#dc3545':'#198754'}">${fmtA(r.total_os)}</td>
+        </tr>`;
+      });
+
+      const totMonthCells = months.map(mo => {
+        const mc = (tot.months && tot.months[mo.key]) || { dues:0, paid:0, os:0 };
+        return `<td style="${aR};font-weight:700">${fmtA(mc.dues)}</td><td style="${aR};font-weight:700">${fmtA(mc.paid)}</td><td style="${aR};font-weight:700">${fmtA(mc.os)}</td>`;
+      }).join('');
+      const footRow = `<td></td><td></td><td style="font-weight:700">TOTAL</td><td></td><td></td>
+        ${totMonthCells}
+        <td style="${aR};font-weight:700">${fmtA(tot.total_dues)}</td>
+        <td style="${aR};font-weight:700;color:#198754">${fmtA(tot.total_paid)}</td>
+        <td style="${aR};font-weight:700;color:#dc3545">${fmtA(tot.total_os)}</td>`;
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr><th rowspan="2" style="${thS}">S.NO.</th><th rowspan="2" style="${thS}">REG NO</th><th rowspan="2" style="${thS}">NAME</th>
+            <th rowspan="2" style="${thS}">UNIT NO</th><th rowspan="2" style="${thS}">BOOKING DATE</th>
+            ${monthHead}
+            <th colspan="3" style="${thS};background:#e0e0e0">TOTAL</th>
+          </tr>
+          <tr>${monthSubHead}<th style="${thS}">DUES</th><th style="${thS}">PAID</th><th style="${thS}">O/S</th></tr>
+        </thead>
+        <tbody>${bodyRows.join('')}</tbody>
+        <tfoot class="tfoot-total"><tr>${footRow}</tr></tfoot>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   loadCustomerForecasting() {
     this._main(`
       <div class="sp" style="margin-bottom:12px">
@@ -4208,6 +4367,7 @@ Pages.reports = async function(params = {}) {
         { id: 'ageing-project',       label: 'Ageing (Project/Tower/Plan)' },
         { id: 'ageing-installment',   label: 'Installment Wise Dues' },
         { id: 'month-wise-dues',      label: 'Month Wise Dues' },
+        { id: 'month-wise-dues-customer', label: 'Month Wise Dues (Customer Wise)' },
         { id: 'customer-forecasting', label: 'Customer Forecasting' },
         { id: 'customer-dues-detail', label: 'Customer Dues Details' },
         { id: 'customer-due-summary', label: 'Customer Due Summary' },

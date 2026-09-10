@@ -3493,6 +3493,146 @@ router.get('/month-wise-dues', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
+// ─── Endpoint 4b: Month Wise Dues — Customer Wise (crosstab) ─────────────────
+// Rows = customers. Columns = per-month DUES/PAID/O-S triplet across a
+// From-To month-year range, plus a final TOTAL triplet. Distinct from
+// /month-wise-dues (month-as-row aggregate) above — does NOT touch it.
+router.get('/month-wise-dues-customer', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, towerId, fromMonth, fromYear, toMonth, toYear } = req.query as Record<string, string>;
+    const qp: any[] = [];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+    const pidP = p(projectId || null);
+    const tidP = p(towerId   || null);
+
+    const fMon = parseInt(fromMonth, 10);
+    const fYr  = parseInt(fromYear, 10);
+    const tMon = parseInt(toMonth, 10);
+    const tYr  = parseInt(toYear, 10);
+    if (!fMon || !fYr || !tMon || !tYr) {
+      return res.status(400).json({ success: false, message: 'fromMonth, fromYear, toMonth, toYear are required' });
+    }
+
+    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    // Build the ordered list of month keys in [from, to] inclusive.
+    const months: { key: string; label: string; year: number; month: number }[] = [];
+    let y = fYr, m = fMon;
+    while (y < tYr || (y === tYr && m <= tMon)) {
+      months.push({ key: `${y}-${String(m).padStart(2, '0')}`, label: `${MONTH_ABBR[m - 1]} ${y}`, year: y, month: m });
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+
+    const query = `
+      SELECT
+        c.id AS consumer_id,
+        c.name AS consumer_name,
+        c.registration_no,
+        u.unit_number AS unit_no,
+        br.booking_date::text AS booking_date
+      FROM consumers c
+      JOIN (
+        SELECT DISTINCT ON (consumer_id)
+          consumer_id, unit_id, booking_date
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY consumer_id, created_at DESC
+      ) br ON br.consumer_id = c.id
+      JOIN units   u ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      JOIN towers  t ON t.id = u.tower_id
+      WHERE (${pidP}::uuid IS NULL OR p.id = ${pidP}::uuid)
+        AND (${tidP}::uuid IS NULL OR t.id = ${tidP}::uuid)
+        AND t.deleted_at IS NULL
+      ORDER BY c.name
+    `;
+    const result = await db.query(query, qp);
+    const consumers = result.rows;
+
+    const rows = await Promise.all(consumers.map(async (c: any) => {
+      const [rcptsRes, demandsRes] = await Promise.all([
+        db.query(
+          `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+           FROM receipts
+           WHERE consumer_id = $1 AND status = 'cleared'
+           ORDER BY received_date ASC, created_at ASC`,
+          [c.consumer_id]
+        ),
+        db.query(
+          `SELECT id, installment_index, demand_type, amount_due_inr, cgst_amount, sgst_amount,
+                  addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
+                  status, due_date::text AS due_date
+           FROM demands
+           WHERE consumer_id = $1`,
+          [c.consumer_id]
+        ),
+      ]);
+
+      const monthCols: Record<string, { dues: number; paid: number; os: number }> = {};
+      for (const mo of months) monthCols[mo.key] = { dues: 0, paid: 0, os: 0 };
+
+      if (demandsRes.rows.length > 0) {
+        const wfResult = applyWaterfall(rcptsRes.rows, demandsRes.rows);
+        const demandById = new Map<string, any>();
+        for (const d of demandsRes.rows) demandById.set(String(d.id), d);
+
+        for (const w of wfResult) {
+          const d = demandById.get(String(w.demand_id));
+          if (!d || d.status !== 'demanded' || !d.due_date) continue;
+          const yr  = parseInt(d.due_date.slice(0, 4), 10);
+          const mon = parseInt(d.due_date.slice(5, 7), 10);
+          const key = `${yr}-${String(mon).padStart(2, '0')}`;
+          if (!monthCols[key]) continue;
+          const dueWithGst = parseFloat(d.amount_due_inr || 0) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0);
+          monthCols[key].dues += dueWithGst;
+          monthCols[key].paid += w.paid;
+        }
+      }
+
+      let totalDues = 0, totalPaid = 0;
+      for (const mo of months) {
+        const mc = monthCols[mo.key];
+        mc.os = mc.dues - mc.paid;
+        totalDues += mc.dues;
+        totalPaid += mc.paid;
+      }
+
+      return {
+        consumer_id: c.consumer_id,
+        consumer_name: c.consumer_name,
+        registration_no: c.registration_no,
+        unit_no: c.unit_no,
+        booking_date: c.booking_date,
+        months: monthCols,
+        total_dues: totalDues,
+        total_paid: totalPaid,
+        total_os: totalDues - totalPaid,
+      };
+    }));
+
+    const totals = { total_dues: 0, total_paid: 0, total_os: 0 };
+    const monthTotals: Record<string, { dues: number; paid: number; os: number }> = {};
+    for (const mo of months) monthTotals[mo.key] = { dues: 0, paid: 0, os: 0 };
+    for (const r of rows) {
+      totals.total_dues += r.total_dues;
+      totals.total_paid += r.total_paid;
+      totals.total_os   += r.total_os;
+      for (const mo of months) {
+        monthTotals[mo.key].dues += r.months[mo.key].dues;
+        monthTotals[mo.key].paid += r.months[mo.key].paid;
+        monthTotals[mo.key].os   += r.months[mo.key].os;
+      }
+    }
+
+    res.json({
+      success: true,
+      months: months.map(mo => ({ key: mo.key, label: mo.label })),
+      data: rows,
+      totals: { months: monthTotals, ...totals },
+    });
+  } catch (err) { next(err); }
+});
+
 // ─── Endpoint 5: Customer Dues Detail ────────────────────────────────────────
 router.get('/customer-dues-detail', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
