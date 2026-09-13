@@ -865,6 +865,148 @@ router.get('/inventory-details', async (req: AuthRequest, res: Response, next: N
   } catch (error) { next(error); }
 });
 
+// GET /api/reports/tower-floor-sales - Tower Floor Sales (a.k.a. Cumulative Sales Report)
+// Rows = floor number within a project. Reuses /inventory-details' exact status-bucket
+// definitions (read-only reference, not modified) — see comment above that handler.
+//   TOTAL STOCK      = COUNT(u.id) unfiltered
+//   STOCK HOLD       = u.status IN ('locked','held')
+//   OPEN ON DATE     = u.status = 'available' — LIVE STATUS AT QUERY TIME, NOT a true
+//                       historical snapshot. unit_status_history exists but only covers
+//                       19/34 real units (56%), confirmed unreliable for the rest during
+//                       audit — so asOnDate is informational/label-only here, not a real filter.
+//   TEMP SURRENDER   = u.status = 'temp_surrender'
+//   BALANCE          = TOTAL STOCK - STOCK HOLD - OPEN ON DATE - TEMP SURRENDER
+//                       = units with status IN ('application_received','draw_pending','booked',
+//                         'allotted','agreement_signed','under_construction','oc_received',
+//                         'possession_handed_over') i.e. BOOKED + ALLOTTED (the genuinely sold/
+//                         committed stock). This reconciles exactly because `status` is a single
+//                         enum column — confirmed against live data (34 units: 31 available,
+//                         2 booked, 1 allotted; 31+2+1=34, no gaps/overlaps).
+// Sale value / received amount are computed over the BALANCE population (the real sales),
+// reusing the exact total_unit_cost expression (verbatim from lines 922-927/982-986) and the
+// receipts.status = 'cleared' convention proven earlier this session.
+router.get('/tower-floor-sales', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, asOnDate } = req.query as Record<string, string>;
+    const pid = projectId || null;
+
+    const HOLD = `u.status IN ('locked','held')`;
+    const OPEN = `u.status = 'available'`;
+    const TEMP_SURRENDER = `u.status = 'temp_surrender'`;
+    const SOLD = `u.status NOT IN ('available','locked','held','temp_surrender')`;
+
+    const brJoin = `
+      LEFT JOIN LATERAL (
+        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
+               b.company_inaugural_disc, b.plc_amount, b.other_charge_amount
+        FROM booking_records b
+        WHERE b.unit_id = u.id AND b.status != 'cancelled'
+        ORDER BY b.created_at DESC
+        LIMIT 1
+      ) br ON true`;
+
+    const unitCostBase = `
+      CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+        COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+      ELSE
+        COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+      END`;
+
+    const totalUnitCostExpr = `(${unitCostBase}
+        - COALESCE(br.dealer_adjustment_amount, 0)
+        - COALESCE(br.company_inaugural_disc, 0)
+        + COALESCE(br.plc_amount, 0)
+        + COALESCE(br.other_charge_amount, 0))`;
+
+    const receivedJoin = `
+      LEFT JOIN LATERAL (
+        SELECT COALESCE(SUM(r.amount_received_inr), 0) AS received
+        FROM receipts r
+        JOIN payment_plans pp ON pp.id = r.payment_plan_id
+        WHERE pp.unit_id = u.id AND r.status = 'cleared'
+      ) rcv ON true`;
+
+    const query = `
+      SELECT
+        u.floor,
+        COUNT(u.id) AS total_stock_units,
+        COALESCE(SUM(u.carpet_area_sqft), 0) AS total_stock_area,
+        COUNT(u.id) FILTER (WHERE ${HOLD}) AS stock_hold_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${HOLD}), 0) AS stock_hold_area,
+        COUNT(u.id) FILTER (WHERE ${OPEN}) AS open_on_date_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${OPEN}), 0) AS open_on_date_area,
+        COUNT(u.id) FILTER (WHERE ${TEMP_SURRENDER}) AS temp_surrender_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${TEMP_SURRENDER}), 0) AS temp_surrender_area,
+        COUNT(u.id) FILTER (WHERE ${SOLD}) AS balance_units,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE ${SOLD}), 0) AS balance_area,
+        COALESCE(SUM(${totalUnitCostExpr}) FILTER (WHERE ${SOLD}), 0) AS total_sale_value_inr,
+        COALESCE(SUM(rcv.received) FILTER (WHERE ${SOLD}), 0) AS received_amount_inr
+      FROM units u
+      ${brJoin}
+      ${receivedJoin}
+      WHERE ($1::uuid IS NULL OR u.project_id = $1::uuid)
+      GROUP BY u.floor
+      ORDER BY u.floor
+    `;
+
+    const result = await db.query(query, [pid]);
+
+    const data = result.rows.map((r: any) => {
+      const totalStockArea = parseFloat(r.total_stock_area || 0);
+      const stockHoldArea = parseFloat(r.stock_hold_area || 0);
+      const balanceArea = parseFloat(r.balance_area || 0);
+      const totalSaleValueInr = parseFloat(r.total_sale_value_inr || 0);
+      const receivedAmountInr = parseFloat(r.received_amount_inr || 0);
+      return {
+        floor: r.floor,
+        total_stock_units: parseInt(r.total_stock_units, 10),
+        total_stock_area: totalStockArea,
+        stock_hold_units: parseInt(r.stock_hold_units, 10),
+        stock_hold_area: stockHoldArea,
+        open_on_date_units: parseInt(r.open_on_date_units, 10),
+        open_on_date_area: parseFloat(r.open_on_date_area || 0),
+        temp_surrender_units: parseInt(r.temp_surrender_units, 10),
+        temp_surrender_area: parseFloat(r.temp_surrender_area || 0),
+        balance_units: parseInt(r.balance_units, 10),
+        balance_area: balanceArea,
+        pct_sold_vs_total_stock: totalStockArea > 0 ? (balanceArea / totalStockArea) * 100 : 0,
+        pct_sold_vs_stock_hold: stockHoldArea > 0 ? (balanceArea / stockHoldArea) * 100 : 0,
+        total_sale_value_lakhs: totalSaleValueInr / 100000,
+        received_amount_lakhs: receivedAmountInr / 100000,
+      };
+    });
+
+    const totals = data.reduce((acc: any, r: any) => ({
+      total_stock_units: acc.total_stock_units + r.total_stock_units,
+      total_stock_area: acc.total_stock_area + r.total_stock_area,
+      stock_hold_units: acc.stock_hold_units + r.stock_hold_units,
+      stock_hold_area: acc.stock_hold_area + r.stock_hold_area,
+      open_on_date_units: acc.open_on_date_units + r.open_on_date_units,
+      open_on_date_area: acc.open_on_date_area + r.open_on_date_area,
+      temp_surrender_units: acc.temp_surrender_units + r.temp_surrender_units,
+      temp_surrender_area: acc.temp_surrender_area + r.temp_surrender_area,
+      balance_units: acc.balance_units + r.balance_units,
+      balance_area: acc.balance_area + r.balance_area,
+      total_sale_value_lakhs: acc.total_sale_value_lakhs + r.total_sale_value_lakhs,
+      received_amount_lakhs: acc.received_amount_lakhs + r.received_amount_lakhs,
+    }), {
+      total_stock_units: 0, total_stock_area: 0, stock_hold_units: 0, stock_hold_area: 0,
+      open_on_date_units: 0, open_on_date_area: 0, temp_surrender_units: 0, temp_surrender_area: 0,
+      balance_units: 0, balance_area: 0, total_sale_value_lakhs: 0, received_amount_lakhs: 0,
+    });
+    totals.pct_sold_vs_total_stock = totals.total_stock_area > 0 ? (totals.balance_area / totals.total_stock_area) * 100 : 0;
+    totals.pct_sold_vs_stock_hold = totals.stock_hold_area > 0 ? (totals.balance_area / totals.stock_hold_area) * 100 : 0;
+
+    res.json({
+      success: true,
+      asOnDate: asOnDate || null,
+      asOnDateNote: 'OPEN ON DATE reflects live unit status at report generation time, not a true historical reconstruction as of the selected date.',
+      data,
+      totals,
+    });
+  } catch (err) { next(err); }
+});
+
 // GET /api/reports/applicant-payment-file - Applicant financial ledger
 router.get('/applicant-payment-file', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {

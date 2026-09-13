@@ -37,6 +37,7 @@ const ReportsPage = {
       'ageing-installment':  () => this.loadAgeingInstallment(),
       'month-wise-dues':     () => this.loadMonthWiseDues(),
       'month-wise-dues-customer': () => this.loadMonthWiseDuesCustomer(),
+      'tower-floor-sales':   () => this.loadTowerFloorSales(),
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'customer-due-summary':() => this.loadCustomerDueSummary(),
@@ -2867,6 +2868,141 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadTowerFloorSales() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Tower Floor Sales</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:150px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="min-width:150px">
+              <label class="fl">Date</label>
+              <input type="date" class="fc" id="f-date" value="${Utils.today ? Utils.today() : new Date().toISOString().slice(0,10)}">
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchTowerFloorSales()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Tower_Floor_Sales.csv')">Export CSV</button>
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text3)">
+            Note: OPEN ON DATE reflects live unit status as of report generation time, not a true historical snapshot for the selected Date.
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Select a Project and click FETCH</h3></div></div>
+    `);
+  },
+
+  async fetchTowerFloorSales() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const pid = document.getElementById('f-project')?.value;
+      const asOnDate = document.getElementById('f-date')?.value;
+      const params = {};
+      if (pid) params.projectId = pid;
+      if (asOnDate) params.asOnDate = asOnDate;
+      const res = await Api.get('/reports/tower-floor-sales', { params });
+      const rows = res.data   || [];
+      const tot  = res.totals || {};
+      const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const fmtL = v => parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:2});
+      const fmtPct = v => parseFloat(v||0).toFixed(2) + '%';
+      const aR = 'text-align:right'; const aC = 'text-align:center';
+
+      this._lastData = rows.map(r => ({
+        'Floor': r.floor,
+        'Total Stock Units': r.total_stock_units, 'Total Stock Area': r.total_stock_area,
+        'Stock Hold Units': r.stock_hold_units, 'Stock Hold Area': r.stock_hold_area,
+        'Open On Date Units': r.open_on_date_units, 'Open On Date Area': r.open_on_date_area,
+        'Temp Surrender Units': r.temp_surrender_units, 'Temp Surrender Area': r.temp_surrender_area,
+        'Balance Units': r.balance_units, 'Balance Area': r.balance_area,
+        '% Sold vs Total Stock': r.pct_sold_vs_total_stock, '% Sold vs Stock Hold': r.pct_sold_vs_stock_hold,
+        'Total Sale Value (Lakhs)': r.total_sale_value_lakhs, 'Received Amount (Lakhs)': r.received_amount_lakhs,
+      }));
+
+      this._kpis([
+        { label:'FLOORS',            value: rows.length.toString(),                 color:'var(--accent)' },
+        { label:'TOTAL STOCK UNITS', value: String(tot.total_stock_units||0),       color:'var(--accent)' },
+        { label:'BALANCE (SOLD) UNITS', value: String(tot.balance_units||0),        color:'#198754' },
+        { label:'TOTAL SALE VALUE',  value: '₹' + fmtL(tot.total_sale_value_lakhs) + 'L', color:'#198754' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(4,1fr)';
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
+
+      const bodyRows = rows.map((r, i) => `<tr>
+          <td style="${aC}">${i+1}</td>
+          <td style="${aC}">${r.floor}</td>
+          <td style="${aR}">${r.total_stock_units}</td>
+          <td style="${aR}">${fmtL(r.total_stock_area)}</td>
+          <td style="${aR}">${r.stock_hold_units}</td>
+          <td style="${aR}">${fmtL(r.stock_hold_area)}</td>
+          <td style="${aR}">${r.open_on_date_units}</td>
+          <td style="${aR}">${fmtL(r.open_on_date_area)}</td>
+          <td style="${aR}">${r.temp_surrender_units}</td>
+          <td style="${aR}">${fmtL(r.temp_surrender_area)}</td>
+          <td style="${aR}">${r.balance_units}</td>
+          <td style="${aR}">${fmtL(r.balance_area)}</td>
+          <td style="${aR}">${fmtPct(r.pct_sold_vs_total_stock)}</td>
+          <td style="${aR}">${fmtPct(r.pct_sold_vs_stock_hold)}</td>
+          <td style="${aR};font-weight:600">${fmtL(r.total_sale_value_lakhs)}</td>
+          <td style="${aR};font-weight:600;color:#198754">${fmtL(r.received_amount_lakhs)}</td>
+        </tr>`);
+
+      const footRow = `<td></td><td style="font-weight:700">TOTAL</td>
+        <td style="${aR};font-weight:700">${tot.total_stock_units||0}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.total_stock_area)}</td>
+        <td style="${aR};font-weight:700">${tot.stock_hold_units||0}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.stock_hold_area)}</td>
+        <td style="${aR};font-weight:700">${tot.open_on_date_units||0}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.open_on_date_area)}</td>
+        <td style="${aR};font-weight:700">${tot.temp_surrender_units||0}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.temp_surrender_area)}</td>
+        <td style="${aR};font-weight:700">${tot.balance_units||0}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.balance_area)}</td>
+        <td style="${aR};font-weight:700">${fmtPct(tot.pct_sold_vs_total_stock)}</td>
+        <td style="${aR};font-weight:700">${fmtPct(tot.pct_sold_vs_stock_hold)}</td>
+        <td style="${aR};font-weight:700">${fmtL(tot.total_sale_value_lakhs)}</td>
+        <td style="${aR};font-weight:700;color:#198754">${fmtL(tot.received_amount_lakhs)}</td>`;
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr>
+            <th rowspan="2" style="${thS}">S.NO.</th>
+            <th rowspan="2" style="${thS}">FLOOR</th>
+            <th colspan="2" style="${thS};background:var(--accent-bg,#eef2ff)">TOTAL STOCK</th>
+            <th colspan="2" style="${thS};background:var(--accent-bg,#eef2ff)">STOCK HOLD</th>
+            <th colspan="2" style="${thS};background:var(--accent-bg,#eef2ff)">OPEN ON DATE</th>
+            <th colspan="2" style="${thS};background:var(--accent-bg,#eef2ff)">TEMP SURRENDER</th>
+            <th colspan="2" style="${thS};background:var(--accent-bg,#eef2ff)">BALANCE</th>
+            <th colspan="2" style="${thS};background:#e0e0e0">%AGE REPORT</th>
+            <th rowspan="2" style="${thS}">TOTAL SALE VALUE (₹L)</th>
+            <th rowspan="2" style="${thS}">RECEIVED AMOUNT (₹L)</th>
+          </tr>
+          <tr>
+            <th style="${thS}">Units</th><th style="${thS}">Area</th>
+            <th style="${thS}">Units</th><th style="${thS}">Area</th>
+            <th style="${thS}">Units</th><th style="${thS}">Area</th>
+            <th style="${thS}">Units</th><th style="${thS}">Area</th>
+            <th style="${thS}">Units</th><th style="${thS}">Area</th>
+            <th style="${thS}">% vs Total</th><th style="${thS}">% vs Hold</th>
+          </tr>
+        </thead>
+        <tbody>${bodyRows.join('')}</tbody>
+        <tfoot class="tfoot-total"><tr>${footRow}</tr></tfoot>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   loadCustomerForecasting() {
     this._main(`
       <div class="sp" style="margin-bottom:12px">
@@ -4387,6 +4523,12 @@ Pages.reports = async function(params = {}) {
       label: 'Charge Detail',
       items: [
         { id: 'other-charge-report', label: 'Other Charge Report' },
+      ],
+    },
+    {
+      label: 'Sales Reports',
+      items: [
+        { id: 'tower-floor-sales', label: 'Tower Floor Sales' },
       ],
     },
   ];
