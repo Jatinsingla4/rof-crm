@@ -27,6 +27,7 @@ const ReportsPage = {
       'booking-auth':        () => this.loadBookingAuth(),
       'tds-status':          () => this.loadTdsStatus(),
       'project-collection':  () => this.loadProjectCollection(),
+      'year-month-collection': () => this.loadYearMonthCollection(),
       'customer-balance':    () => this.loadCustomerBalance(),
       'customer-dues':       () => this.loadCustomerDues(),
       'due-report':          () => this.loadDueReport(),
@@ -3004,6 +3005,65 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadYearMonthCollection() {
+    this._main(this._filters('Year Month Wise Collection Report', [
+      { id:'project', type:'select', label:'Project', options: this._projectOptions() },
+    ], 'fetchYearMonthCollection'));
+  },
+
+  async fetchYearMonthCollection() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = { projectId: this._f('project') || undefined };
+      const res    = await Api.get('/reports/year-month-collection', { params });
+      const grid   = res.data || [];
+      const monthTotals = res.monthTotals || Array(12).fill(0);
+      const grandTotal  = res.grandTotal || 0;
+      const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+      this._lastData = grid.map(r => {
+        const row = { 'Year': r.year };
+        MONTH_ABBR.forEach((mo, i) => { row[mo] = r.months[i]; });
+        row['Total'] = r.total;
+        return row;
+      });
+
+      this._kpis([
+        { label:'GRAND TOTAL', value: `₹${grandTotal.toLocaleString('en-IN')}`, color:'var(--accent)' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(1,1fr)';
+
+      if (!grid.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap;text-align:right';
+      const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+      const bodyRows = grid.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border);font-weight:600">${r.year}</td>
+          ${r.months.map(m => `<td style="${thS}">${fmt(m)}</td>`).join('')}
+          <td style="${thS};font-weight:700">${fmt(r.total)}</td>
+        </tr>`);
+
+      const totalRow = `<tr style="font-weight:700;background:var(--bg2)">
+          <td style="padding:6px 8px;border:1px solid var(--border)">Total</td>
+          ${monthTotals.map(m => `<td style="${thS}">${fmt(m)}</td>`).join('')}
+          <td style="${thS}">${fmt(grandTotal)}</td>
+        </tr>`;
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="padding:6px 8px;border:1px solid var(--border)">YEAR</th>
+          ${MONTH_ABBR.map(mo => `<th style="${thS}">${mo.toUpperCase()}</th>`).join('')}
+          <th style="${thS}">TOTAL</th>
+        </tr></thead>
+        <tbody>${bodyRows.join('')}${totalRow}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   loadCustomerPaymentMismatch() {
     this._main(this._filters('Customer Payment Mismatch Report', [
       { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
@@ -4579,6 +4639,7 @@ Pages.reports = async function(params = {}) {
       label: 'Collection & Dues',
       items: [
         { id: 'project-collection',   label: 'Project Wise Collection' },
+        { id: 'year-month-collection', label: 'Year Month Wise Collection' },
         { id: 'customer-balance',     label: 'Customer Wise Balance' },
         { id: 'customer-dues',        label: 'Customer Wise Dues' },
         { id: 'due-report',           label: 'Due Report' },

@@ -4225,5 +4225,60 @@ router.get('/customer-payment-mismatch', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/year-month-collection - Year Month Wise Collection Report
+// "Collection" here = r.status != 'cancelled' (includes 'pending'), matching /project-collection's
+// established precedent for "collection" amounts. This is NOT the same as the status='cleared'
+// convention used for "Received"/waterfall reports elsewhere (e.g. Ageing, Credit Amount) — do not
+// conflate the two. Project reached via payment_plans.project_id directly (confirmed NOT NULL and
+// equal to units.project_id for all real bookings, per audit), no units join needed.
+router.get('/year-month-collection', async (req, res, next) => {
+    try {
+        const { projectId } = req.query;
+        const qp = [];
+        const pidP = projectId ? (qp.push(projectId), `$${qp.length}`) : null;
+        const pidWhere = pidP ? ` AND pp.project_id = ${pidP}::uuid` : '';
+        const query = `
+      SELECT
+        EXTRACT(YEAR FROM r.received_date)::int  AS yr,
+        EXTRACT(MONTH FROM r.received_date)::int AS mo,
+        COALESCE(SUM(r.amount_received_inr), 0)  AS total
+      FROM receipts r
+      JOIN payment_plans pp ON pp.id = r.payment_plan_id
+      WHERE r.status != 'cancelled'${pidWhere}
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `;
+        const result = await pool_1.db.query(query, qp);
+        // Build a complete year x month grid (zero-filled) spanning the real min-to-max years
+        // found in the data, so the frontend never has to guess at gaps. If no data exists at
+        // all, fall back to the current year alone.
+        const currentYear = new Date().getFullYear();
+        const years = result.rows.map((r) => r.yr);
+        const minYear = years.length ? Math.min(...years) : currentYear;
+        const maxYear = years.length ? Math.max(...years) : currentYear;
+        const cellByKey = new Map();
+        for (const r of result.rows)
+            cellByKey.set(`${r.yr}-${r.mo}`, parseFloat(r.total));
+        const monthTotals = Array(12).fill(0);
+        const grid = [];
+        let grandTotal = 0;
+        for (let y = minYear; y <= maxYear; y++) {
+            const months = [];
+            let rowTotal = 0;
+            for (let m = 1; m <= 12; m++) {
+                const val = cellByKey.get(`${y}-${m}`) || 0;
+                months.push(val);
+                rowTotal += val;
+                monthTotals[m - 1] += val;
+            }
+            grandTotal += rowTotal;
+            grid.push({ year: y, months, total: rowTotal });
+        }
+        res.json({ success: true, data: grid, monthTotals, grandTotal });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map
