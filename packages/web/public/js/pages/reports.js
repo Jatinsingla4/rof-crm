@@ -38,6 +38,7 @@ const ReportsPage = {
       'month-wise-dues':     () => this.loadMonthWiseDues(),
       'month-wise-dues-customer': () => this.loadMonthWiseDuesCustomer(),
       'tower-floor-sales':   () => this.loadTowerFloorSales(),
+      'customer-payment-mismatch': () => this.loadCustomerPaymentMismatch(),
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'customer-due-summary':() => this.loadCustomerDueSummary(),
@@ -3003,6 +3004,90 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadCustomerPaymentMismatch() {
+    this._main(this._filters('Customer Payment Mismatch Report', [
+      { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
+      { id:'unitType',       type:'text',   label:'Unit Type' },
+      { id:'towerId',        type:'text',   label:'Tower ID' },
+      { id:'registrationNo', type:'text',   label:'Registration No.' },
+      { id:'firstName',      type:'text',   label:'First Name' },
+      { id:'unitAddress',    type:'text',   label:'Unit Address' },
+    ], 'fetchCustomerPaymentMismatch'));
+  },
+
+  async fetchCustomerPaymentMismatch() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        projectId:      this._f('project')        || undefined,
+        unitType:       this._f('unitType')       || undefined,
+        towerId:        this._f('towerId')        || undefined,
+        registrationNo: this._f('registrationNo') || undefined,
+        firstName:      this._f('firstName')      || undefined,
+        unitAddress:    this._f('unitAddress')    || undefined,
+      };
+      const res  = await Api.get('/reports/customer-payment-mismatch', { params });
+      const rows = res.data || [];
+      this._lastData = rows.map((r, i) => ({
+        'S.No': i + 1,
+        'Registration No': r.registration_no,
+        'Name': r.name,
+        'Tower': r.tower_name,
+        'Unit Address': r.unit_address,
+        'Broker Company': r.broker_company,
+        'Registration Date': r.registration_date,
+      }));
+
+      this._kpis([
+        { label:'MISMATCHED CUSTOMERS', value: String(rows.length), color:'var(--accent)' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(1,1fr)';
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
+      const bodyRows = rows.map((r, i) => `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${r.registration_no || ''}</td>
+          <td>${r.name || ''}</td>
+          <td>${r.tower_name || ''}</td>
+          <td>${r.unit_address || ''}</td>
+          <td>${r.broker_company || ''}</td>
+          <td>${r.registration_date ? new Date(r.registration_date).toLocaleDateString('en-IN') : ''}</td>
+          <td><a href="#" onclick="ReportsPage.goToApplicantDetail('${(r.registration_no||'').replace(/'/g, "\\'")}');return false;">DETAIL</a></td>
+        </tr>`);
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="${thS}">S.NO.</th>
+          <th style="${thS}">REGISTRATION NO</th>
+          <th style="${thS}">NAME</th>
+          <th style="${thS}">TOWER</th>
+          <th style="${thS}">UNIT ADDRESS</th>
+          <th style="${thS}">BROKER COMPANY</th>
+          <th style="${thS}">REGISTRATION DATE</th>
+          <th style="${thS}">DETAIL</th>
+        </tr></thead>
+        <tbody>${bodyRows.join('')}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // Navigates to the existing All Applicants report, pre-filtered by registration
+  // number, as the DETAIL target for a mismatched customer's row. Does not modify
+  // loadAllApplicants/fetchAllApplicants — drives them from outside after activation.
+  goToApplicantDetail(registrationNo) {
+    this.activate('all-applicants');
+    setTimeout(() => {
+      const el = document.getElementById('f-registrationNo');
+      if (el) el.value = registrationNo;
+      this.fetchAllApplicants();
+    }, 0);
+  },
+
   loadCustomerForecasting() {
     this._main(`
       <div class="sp" style="margin-bottom:12px">
@@ -4529,6 +4614,7 @@ Pages.reports = async function(params = {}) {
       label: 'Sales Reports',
       items: [
         { id: 'tower-floor-sales', label: 'Tower Floor Sales' },
+        { id: 'customer-payment-mismatch', label: 'Customer Payment Mismatch' },
       ],
     },
   ];

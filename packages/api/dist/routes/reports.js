@@ -4163,5 +4163,67 @@ router.get('/all-applicants', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/customer-payment-mismatch - Customer Payment Mismatch Report
+// "Mismatch" = a receipt whose money was received but never tied to a specific demand/
+// installment — applyWaterfall()'s existing "advance pool" category (demand_id IS NULL
+// AND installment_index IS NULL), confirmed via audit as the only evidence-backed,
+// data-present definition. Read-only reference to that categorization; applyWaterfall()
+// itself is untouched.
+// Row grain: one row per consumer (per booking), not per orphan receipt — the legacy
+// screenshot shows one row per S.NO with no receipt-amount/count column, so a consumer
+// with multiple qualifying orphan receipts (real case: Radhika has 2) still yields one
+// row via EXISTS, not one row per receipt.
+router.get('/customer-payment-mismatch', async (req, res, next) => {
+    try {
+        const { projectId, unitType, towerId, registrationNo, firstName, unitAddress } = req.query;
+        const whereParams = [];
+        const wp = (val) => { whereParams.push(val); return `$${whereParams.length}`; };
+        let where = `WHERE br.status IN ('complete','pending_payment','active')
+      AND EXISTS (
+        SELECT 1 FROM receipts r
+        WHERE r.consumer_id = c.id
+          AND r.demand_id IS NULL
+          AND r.installment_index IS NULL
+          AND r.status != 'cancelled'
+      )`;
+        if (projectId)
+            where += ` AND p.id = ${wp(projectId)}::uuid`;
+        if (unitType)
+            where += ` AND u.bhk_type ILIKE ${wp('%' + unitType + '%')}`;
+        if (towerId)
+            where += ` AND t.id = ${wp(towerId)}::uuid`;
+        if (registrationNo)
+            where += ` AND c.registration_no ILIKE ${wp('%' + registrationNo + '%')}`;
+        if (firstName)
+            where += ` AND c.first_name ILIKE ${wp('%' + firstName + '%')}`;
+        if (unitAddress)
+            where += ` AND u.unit_number ILIKE ${wp('%' + unitAddress + '%')}`;
+        const query = `
+      SELECT
+        c.id,
+        c.registration_no,
+        TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')) AS name,
+        COALESCE(t.tower_name, '—') AS tower_name,
+        COALESCE(u.unit_number,'')
+          || COALESCE(', Floor ' || u.floor::text, '')
+          || COALESCE(', ' || t.tower_name, '')                                AS unit_address,
+        COALESCE(bk.firm_name, bk.name, 'Direct')                              AS broker_company,
+        br.booking_date                                                       AS registration_date
+      FROM consumers c
+      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
+      ${where}
+      ORDER BY p.name ASC, c.registration_no ASC
+    `;
+        const result = await pool_1.db.query(query, whereParams);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map
