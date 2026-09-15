@@ -40,6 +40,7 @@ const ReportsPage = {
       'month-wise-dues-customer': () => this.loadMonthWiseDuesCustomer(),
       'tower-floor-sales':   () => this.loadTowerFloorSales(),
       'customer-payment-mismatch': () => this.loadCustomerPaymentMismatch(),
+      'booking-record': () => this.loadBookingRecord(),
       'customer-forecasting':() => this.loadCustomerForecasting(),
       'customer-dues-detail':() => this.loadCustomerDuesDetail(),
       'customer-due-summary':() => this.loadCustomerDueSummary(),
@@ -3064,6 +3065,143 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  // Search-By toggle (All/Project/Broker/Team) is a UI-organizing concept only — it
+  // shows/hides which single extra filter input is highlighted, it does not itself
+  // change what gets sent to the backend. Whatever ID inputs are actually filled in
+  // (project/broker/team/salesEmployee/date range) are sent regardless of which
+  // toggle button is active. No existing toggle-button component to reuse (confirmed
+  // via audit grep for Search-By/searchBy — zero matches), so this is new markup.
+  loadBookingRecord() {
+    this._bookingSearchBy = 'all';
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Booking Record Report</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:8px;margin-bottom:12px" id="br-searchby">
+            ${['all','project','broker','team'].map(m => `
+              <button type="button" class="btn ${m==='all'?'btn-primary':'btn-ghost'}" data-mode="${m}"
+                onclick="ReportsPage.setBookingSearchBy('${m}')">${m.toUpperCase()}</button>
+            `).join('')}
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="min-width:160px;flex:1">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="min-width:160px">
+              <label class="fl">Broker</label>
+              <input type="text" class="fc" id="f-brokerId" placeholder="Broker ID">
+            </div>
+            <div class="fg" style="min-width:160px">
+              <label class="fl">Sales Employee</label>
+              <input type="text" class="fc" id="f-salesEmployeeId" placeholder="Sales Employee ID">
+            </div>
+            <div class="fg" style="min-width:160px">
+              <label class="fl">Team</label>
+              <input type="text" class="fc" id="f-teamId" placeholder="Team ID">
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">Booking Date From</label>
+              <input type="date" class="fc" id="f-bookingFromDate">
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">Booking Date To</label>
+              <input type="date" class="fc" id="f-bookingToDate">
+            </div>
+            <div style="margin-top:10px;width:100%;display:flex;gap:10px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchBookingRecord()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Booking_Record.csv')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+  },
+
+  setBookingSearchBy(mode) {
+    this._bookingSearchBy = mode;
+    const el = document.getElementById('br-searchby');
+    if (!el) return;
+    el.querySelectorAll('button[data-mode]').forEach(b => {
+      b.className = `btn ${b.dataset.mode === mode ? 'btn-primary' : 'btn-ghost'}`;
+    });
+  },
+
+  async fetchBookingRecord() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        searchBy:        this._bookingSearchBy || 'all',
+        projectId:       this._f('project')        || undefined,
+        brokerId:        this._f('brokerId')        || undefined,
+        salesEmployeeId: this._f('salesEmployeeId') || undefined,
+        teamId:          this._f('teamId')          || undefined,
+        bookingFromDate: this._f('bookingFromDate') || undefined,
+        bookingToDate:   this._f('bookingToDate')   || undefined,
+      };
+      const res  = await Api.get('/reports/booking-record', { params });
+      const rows = res.data || [];
+      this._lastData = rows.map((r, i) => ({
+        'S.No': i + 1,
+        'Registration No': r.registration_no,
+        'Name': r.name,
+        'Unit': r.unit_number,
+        'Tower': r.tower_name,
+        'Project': r.project_name,
+        'Booking Date': r.booking_date,
+        'Booking Amount': r.booking_amount,
+        'Broker Company': r.broker_company,
+        'Sales Employee': r.sales_employee_name,
+        'Status': r.status,
+      }));
+
+      this._kpis([
+        { label:'TOTAL BOOKINGS', value: String(rows.length), color:'var(--accent)' },
+      ]);
+      const kpiEl = document.getElementById('rpt-kpis');
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(1,1fr)';
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
+      const fmtAmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+      const bodyRows = rows.map((r, i) => `<tr>
+          <td style="text-align:center">${i+1}</td>
+          <td>${r.registration_no || ''}</td>
+          <td>${r.name || ''}</td>
+          <td>${r.unit_number || ''}</td>
+          <td>${r.tower_name || ''}</td>
+          <td>${r.project_name || ''}</td>
+          <td>${r.booking_date ? new Date(r.booking_date).toLocaleDateString('en-IN') : ''}</td>
+          <td style="text-align:right">${fmtAmt(r.booking_amount)}</td>
+          <td>${r.broker_company || ''}</td>
+          <td>${r.sales_employee_name || '—'}</td>
+          <td>${r.status || ''}</td>
+        </tr>`);
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>
+          <th style="${thS}">S.NO.</th>
+          <th style="${thS}">REGISTRATION NO</th>
+          <th style="${thS}">NAME</th>
+          <th style="${thS}">UNIT</th>
+          <th style="${thS}">TOWER</th>
+          <th style="${thS}">PROJECT</th>
+          <th style="${thS}">BOOKING DATE</th>
+          <th style="${thS}">BOOKING AMOUNT</th>
+          <th style="${thS}">BROKER COMPANY</th>
+          <th style="${thS}">SALES EMPLOYEE</th>
+          <th style="${thS}">STATUS</th>
+        </tr></thead>
+        <tbody>${bodyRows.join('')}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   loadCustomerPaymentMismatch() {
     this._main(this._filters('Customer Payment Mismatch Report', [
       { id:'project',        type:'select', label:'Project',        options: this._projectOptions() },
@@ -4676,6 +4814,7 @@ Pages.reports = async function(params = {}) {
       items: [
         { id: 'tower-floor-sales', label: 'Tower Floor Sales' },
         { id: 'customer-payment-mismatch', label: 'Customer Payment Mismatch' },
+        { id: 'booking-record', label: 'Booking Record' },
       ],
     },
   ];

@@ -4280,5 +4280,59 @@ router.get('/year-month-collection', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/booking-record - Booking Record Report
+// searchBy (all|project|broker|team) is a UI-organizing concept only — it does not change
+// query logic here; the actual filtering is driven by whichever of projectId/brokerId/
+// teamId/salesEmployeeId is actually supplied. Team filter is a real, schema-backed 2-hop
+// join (sales_employee_id -> team_members.user_id -> team_members.team_id) confirmed via
+// audit — teams/team_members tables exist (migration 024) but currently hold 0 rows in this
+// database, so this filter is code-correct but unverifiable against real data today.
+router.get('/booking-record', async (req, res, next) => {
+    try {
+        const { projectId, brokerId, salesEmployeeId, teamId, bookingFromDate, bookingToDate } = req.query;
+        const whereParams = [];
+        const wp = (val) => { whereParams.push(val); return `$${whereParams.length}`; };
+        let where = `WHERE 1=1`;
+        if (projectId)
+            where += ` AND p.id = ${wp(projectId)}::uuid`;
+        if (brokerId)
+            where += ` AND br.main_broker_id = ${wp(brokerId)}::uuid`;
+        if (salesEmployeeId)
+            where += ` AND br.sales_employee_id = ${wp(salesEmployeeId)}::uuid`;
+        if (teamId)
+            where += ` AND br.sales_employee_id IN (SELECT user_id FROM team_members WHERE team_id = ${wp(teamId)}::uuid)`;
+        if (bookingFromDate)
+            where += ` AND br.booking_date >= ${wp(bookingFromDate)}::date`;
+        if (bookingToDate)
+            where += ` AND br.booking_date <= ${wp(bookingToDate)}::date`;
+        const query = `
+      SELECT
+        c.registration_no,
+        TRIM(COALESCE(c.salutation,'') || ' ' || COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS name,
+        u.unit_number,
+        t.tower_name,
+        p.name                                                     AS project_name,
+        br.booking_date,
+        br.booking_amount,
+        COALESCE(bk.firm_name, bk.name, 'Direct')                  AS broker_company,
+        usr.name                                                   AS sales_employee_name,
+        br.status
+      FROM consumers c
+      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN units u ON u.id = br.unit_id
+      JOIN projects p ON p.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN brokers bk ON bk.id = br.main_broker_id
+      LEFT JOIN users usr ON usr.id = br.sales_employee_id
+      ${where}
+      ORDER BY p.name ASC, c.registration_no ASC
+    `;
+        const result = await pool_1.db.query(query, whereParams);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map
