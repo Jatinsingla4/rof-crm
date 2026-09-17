@@ -640,12 +640,25 @@ export async function cascadeOverpaymentExcess(
   excessAmount: number,
   method: string,
   userId: string | null,
+  sourceReceiptId: string | null = null,
 ): Promise<void> {
   const sourceRes = await client.query(
     `SELECT installment_index FROM demands WHERE id = $1`,
     [sourceDemandId]
   );
   if (sourceRes.rows.length === 0) return;
+
+  // Synthetic advance receipts inherit the bank account of the receipt whose
+  // overpayment triggered the cascade (same money, same account); null if
+  // the source receipt has none set.
+  let inheritedBankAccountId: string | null = null;
+  if (sourceReceiptId) {
+    const sourceReceiptRes = await client.query(
+      `SELECT company_bank_account_id FROM receipts WHERE id = $1`,
+      [sourceReceiptId]
+    );
+    inheritedBankAccountId = sourceReceiptRes.rows[0]?.company_bank_account_id || null;
+  }
 
   let excess = excessAmount;
   let sourceId = sourceDemandId;
@@ -671,11 +684,11 @@ export async function cascadeOverpaymentExcess(
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
-          is_advance, advance_from_demand_id)
-       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)
+          is_advance, advance_from_demand_id, company_bank_account_id)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9,$10)
        RETURNING id`,
       [consumerId, paymentPlanId, nextId, nextIdx, excess,
-       method, userId, advanceNum, sourceId]
+       method, userId, advanceNum, sourceId, inheritedBankAccountId]
     );
     const advanceReceiptId = advanceReceiptRes.rows[0].id;
     await client.query(

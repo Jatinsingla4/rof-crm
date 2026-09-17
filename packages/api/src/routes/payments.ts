@@ -153,7 +153,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       referenceNumber, bankName, branch, remarks,
       baseAmount, plcAmount, edcAmount, idcAmount,
       otherChargeAmount, otherChargeDesc, interestAmount,
-      isOtherPayment, isAdjustment,
+      isOtherPayment, isAdjustment, companyBankAccountId,
       // legacy fields
       paymentPlanId: legacyPlanId, installmentIndex: legacyIdx,
       paymentMethod, transactionRef, receivedDate,
@@ -234,13 +234,14 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
          (payment_plan_id, installment_index, consumer_id, amount_received_inr,
           payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,
           plc_amount, edc_amount, idc_amount, other_charge_amount, other_charge_desc, interest_amount,
-          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status, is_adjustment)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed', $20)
+          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status, is_adjustment,
+          company_bank_account_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed', $20, $21)
        RETURNING id, receipt_number, amount_received_inr, plc_amount, edc_amount, idc_amount, other_charge_amount, interest_amount, status`,
       [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber,
        parseFloat(plcAmount||0), parseFloat(edcAmount||0), parseFloat(idcAmount||0),
        parseFloat(otherChargeAmount||0), otherChargeDesc||null, parseFloat(interestAmount||0),
-       bankNameVal, branchVal, chequeNoVal, chequeDateVal, !!isAdjustment]
+       bankNameVal, branchVal, chequeNoVal, chequeDateVal, !!isAdjustment, companyBankAccountId || null]
     );
 
     const receiptId = result.rows[0].id;
@@ -294,7 +295,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
             if (excess > 0) {
               await cascadeOverpaymentExcess(
                 matchClient, demand.consumer_id, resolvedPlanId, demand.id,
-                excess, method, req.userId || null
+                excess, method, req.userId || null, receiptId
               );
             }
           } else {

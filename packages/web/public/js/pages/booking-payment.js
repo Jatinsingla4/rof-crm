@@ -37,11 +37,25 @@ Pages.bookingPayment = async function(params = {}) {
     console.warn('GST rate fetch failed:', e.message);
   }
 
+  // Load company bank accounts for this booking's project (optional field)
+  let companyBankAccounts = [];
+  if (booking.project_id) {
+    try {
+      const cbaRes = await Api.get(`/payments/clearing-banks/${booking.project_id}`);
+      companyBankAccounts = cbaRes.data || [];
+    } catch (e) {
+      console.warn('Company bank accounts fetch failed:', e.message);
+    }
+  }
+
   const bankOpts = banks.map(b => `<option value="${b.name}">${b.name}</option>`).join('');
   const empOpts  = employees.map(e => {
     const name = e.name || `${e.first_name||''} ${e.last_name||''}`.trim();
     return `<option value="${e.id}">${name}</option>`;
   }).join('');
+  const companyBankAccountOpts = companyBankAccounts.map(a =>
+    `<option value="${a.id}">${a.bank_name}${a.account_name ? ' — ' + a.account_name : ''} (${a.account_number})</option>`
+  ).join('');
 
   const regNo = booking.registration_no || regNoParam || '—';
 
@@ -158,6 +172,11 @@ Pages.bookingPayment = async function(params = {}) {
               <input type="hidden" id="bkp-tds-type" value="not_calculate">
             </div>
           </div>
+        </div>
+
+        <div class="sp-grid" style="margin-bottom:14px">
+          <div class="fg"><label class="fl">Company Bank Account (Optional)</label>
+            <select class="fc" id="bkp-company-bank-account"><option value="">— Select Bank Account —</option>${companyBankAccountOpts}</select></div>
         </div>
 
         <!-- BLOCK 2: Payment Method Tabs -->
@@ -613,6 +632,7 @@ const BkPayPage = {
     setVal('bkp-amt-cash',        bk.booking_amount);
     setVal('bkp-amt-card',        bk.booking_amount);
     setVal('bkp-interest-amt',    bk.interest_amount);
+    setVal('bkp-company-bank-account', bk.company_bank_account_id);
     if (bk.invoice_date_by) this.setToggleValue('invoice_date_by', bk.invoice_date_by, ['bkp-idb-receipt','bkp-idb-posting']);
     if (bk.interest_type)   this.setToggleValue('interest_type',   bk.interest_type,   ['bkp-int-incl','bkp-int-excl']);
     if (bk.extra_add_on_type) this.setToggleValue('extra_add_on_type', bk.extra_add_on_type, ['bkp-eao-incl','bkp-eao-excl']);
@@ -682,6 +702,7 @@ const BkPayPage = {
         bank_name:                bankName,
         bank_branch:              branchName,
         cheque_date:              chequeDate,
+        companyBankAccountId:     document.getElementById('bkp-company-bank-account')?.value || null,
         received_for:             document.getElementById('bkp-received-for')?.value || null,
         account_holder:           document.getElementById('bkp-account-holder')?.value || null,
         on_account_of:            document.getElementById('bkp-on-account-of')?.value || 'Booking',

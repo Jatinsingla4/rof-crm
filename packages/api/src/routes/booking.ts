@@ -721,6 +721,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       interest_amount = 0, dealer_adjustment_amount = 0, tds_challan_id = null,
       s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
       cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
+      companyBankAccountId,
     } = req.body;
 
     if (!booking_amount || parseFloat(booking_amount) === 0) {
@@ -1060,9 +1061,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
                   payment_method, transaction_ref, received_date, received_by_user_id,
                   receipt_number, bank_name, branch, cheque_no, cheque_date, plc_amount,
-                  status, approval_status, print_status)
+                  status, approval_status, print_status, company_bank_account_id)
                VALUES ($1, $2, NULL, $3, $4::payment_method, $5, $6::date, $7, $8,
-                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed')
+                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed', $13)
                RETURNING id`,
               [
                 booking.consumer_id,
@@ -1077,6 +1078,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                 booking.bank_branch || null,
                 booking.payment_mode === 'cheque' ? (booking.payment_ref || null) : null,
                 booking.cheque_date || null,
+                companyBankAccountId || null,
               ]
             );
             const stepGReceiptId = stepGReceiptRes.rows[0].id;
@@ -1109,7 +1111,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               if (stepGExcess > 0) {
                 await cascadeOverpaymentExcess(
                   client, booking.consumer_id, paymentPlanId, inst1.id,
-                  stepGExcess, payMethod, req.userId || null
+                  stepGExcess, payMethod, req.userId || null, stepGReceiptId
                 );
               }
             }

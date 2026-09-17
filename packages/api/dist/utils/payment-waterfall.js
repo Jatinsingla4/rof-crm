@@ -440,10 +440,18 @@ async function reverseInstallment1IfNoValidReceipt(client, paymentPlanId) {
  * behavior a manual receipt's overpayment already does. Transaction-agnostic:
  * takes whatever client/transaction the caller already has open.
  */
-async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourceDemandId, excessAmount, method, userId) {
+async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourceDemandId, excessAmount, method, userId, sourceReceiptId = null) {
     const sourceRes = await client.query(`SELECT installment_index FROM demands WHERE id = $1`, [sourceDemandId]);
     if (sourceRes.rows.length === 0)
         return;
+    // Synthetic advance receipts inherit the bank account of the receipt whose
+    // overpayment triggered the cascade (same money, same account); null if
+    // the source receipt has none set.
+    let inheritedBankAccountId = null;
+    if (sourceReceiptId) {
+        const sourceReceiptRes = await client.query(`SELECT company_bank_account_id FROM receipts WHERE id = $1`, [sourceReceiptId]);
+        inheritedBankAccountId = sourceReceiptRes.rows[0]?.company_bank_account_id || null;
+    }
     let excess = excessAmount;
     let sourceId = sourceDemandId;
     let cascadeFromIdx = sourceRes.rows[0].installment_index;
@@ -464,10 +472,10 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
-          is_advance, advance_from_demand_id)
-       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9)
+          is_advance, advance_from_demand_id, company_bank_account_id)
+       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9,$10)
        RETURNING id`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
-            method, userId, advanceNum, sourceId]);
+            method, userId, advanceNum, sourceId, inheritedBankAccountId]);
         const advanceReceiptId = advanceReceiptRes.rows[0].id;
         await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);
         const planProjectRes = await client.query(`SELECT project_id FROM payment_plans WHERE id = $1`, [paymentPlanId]);

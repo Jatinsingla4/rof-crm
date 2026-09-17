@@ -81,6 +81,11 @@ Pages.receipts = async function(params = {}) {
               <div class="fg"><label class="fl">Receipt Date <span class="r">*</span></label>
                 <input type="date" class="fc" id="rec-date" value="${Utils.today()}">
               </div>
+              <div class="fg"><label class="fl">Company Bank Account (Optional)</label>
+                <select class="fc" id="rec-company-bank-account">
+                  <option value="">— Select Bank Account —</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -820,6 +825,20 @@ const ReceiptsPage = {
       document.getElementById('rec-fin-hdr').style.display = 'block';
       document.getElementById('receipt-form').style.display = 'block';
       document.getElementById('rec-consumer-id').value = id;
+
+      const bankSel = document.getElementById('rec-company-bank-account');
+      if (bankSel) {
+        bankSel.innerHTML = '<option value="">— Select Bank Account —</option>';
+        const projId = c.project_id || c.projectId;
+        if (projId) {
+          try {
+            const baRes = await Api.get(`/payments/clearing-banks/${projId}`);
+            bankSel.innerHTML += (baRes.data || []).map(a =>
+              `<option value="${a.id}">${a.bank_name}${a.account_name ? ' — ' + a.account_name : ''} (${a.account_number})</option>`
+            ).join('');
+          } catch (e) { console.warn('Bank accounts fetch failed:', e.message); }
+        }
+      }
     } catch (err) { Utils.error(err.message); }
   },
 
@@ -878,6 +897,7 @@ const ReceiptsPage = {
       paymentMode: this._payType,
       referenceNumber: document.getElementById('rec-txn')?.value || undefined,
       bankName: document.getElementById('rec-bank')?.value || undefined,
+      companyBankAccountId: document.getElementById('rec-company-bank-account')?.value || undefined,
       remarks: document.getElementById('rec-remarks')?.value || undefined,
     };
 

@@ -578,7 +578,7 @@ router.patch('/:id/edit', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { booking_amount, payment_mode, payment_ref, bank_name, bank_branch, cheque_date, received_for, account_holder, on_account_of, invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan, interest_amount = 0, dealer_adjustment_amount = 0, tds_challan_id = null, s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0, cgst_amount = 0, sgst_amount = 0, tds_amount = 0, } = req.body;
+        const { booking_amount, payment_mode, payment_ref, bank_name, bank_branch, cheque_date, received_for, account_holder, on_account_of, invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan, interest_amount = 0, dealer_adjustment_amount = 0, tds_challan_id = null, s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0, cgst_amount = 0, sgst_amount = 0, tds_amount = 0, companyBankAccountId, } = req.body;
         if (!booking_amount || parseFloat(booking_amount) === 0) {
             return res.status(400).json({ error: 'booking_amount must be greater than zero' });
         }
@@ -803,9 +803,9 @@ router.patch('/:id', async (req, res, next) => {
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
                   payment_method, transaction_ref, received_date, received_by_user_id,
                   receipt_number, bank_name, branch, cheque_no, cheque_date, plc_amount,
-                  status, approval_status, print_status)
+                  status, approval_status, print_status, company_bank_account_id)
                VALUES ($1, $2, NULL, $3, $4::payment_method, $5, $6::date, $7, $8,
-                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed')
+                       $9, $10, $11, $12::date, 0, 'pending', 'pending', 'not_printed', $13)
                RETURNING id`, [
                             booking.consumer_id,
                             paymentPlanId,
@@ -819,6 +819,7 @@ router.patch('/:id', async (req, res, next) => {
                             booking.bank_branch || null,
                             booking.payment_mode === 'cheque' ? (booking.payment_ref || null) : null,
                             booking.cheque_date || null,
+                            companyBankAccountId || null,
                         ]);
                         const stepGReceiptId = stepGReceiptRes.rows[0].id;
                         const stepGGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, bookingAmt, booking.project_id, bookingDateStr);
@@ -839,7 +840,7 @@ router.patch('/:id', async (req, res, next) => {
                                 + parseFloat(inst1.sgst_amount || 0);
                             const stepGExcess = bookingAmt - inst1NetDue;
                             if (stepGExcess > 0) {
-                                await (0, payment_waterfall_js_1.cascadeOverpaymentExcess)(client, booking.consumer_id, paymentPlanId, inst1.id, stepGExcess, payMethod, req.userId || null);
+                                await (0, payment_waterfall_js_1.cascadeOverpaymentExcess)(client, booking.consumer_id, paymentPlanId, inst1.id, stepGExcess, payMethod, req.userId || null, stepGReceiptId);
                             }
                         }
                     }
