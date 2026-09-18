@@ -28,6 +28,7 @@ const ReportsPage = {
       'tds-status':          () => this.loadTdsStatus(),
       'project-collection':  () => this.loadProjectCollection(),
       'year-month-collection': () => this.loadYearMonthCollection(),
+      'receipt-wise-collection': () => this.loadReceiptWiseCollection(),
       'customer-balance':    () => this.loadCustomerBalance(),
       'customer-dues':       () => this.loadCustomerDues(),
       'due-report':          () => this.loadDueReport(),
@@ -3073,6 +3074,93 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadReceiptWiseCollection() {
+    this._main(this._filters('Receipt Wise Collection Report', [
+      { id:'project',  type:'select', label:'Project',  options: this._projectOptions() },
+      { id:'fromDate', type:'date',   label:'From Date' },
+      { id:'toDate',   type:'date',   label:'To Date' },
+      { id:'status',   type:'select', label:'Status', options:
+        '<option value="">All</option>'
+        + '<option value="cleared">Cleared</option>'
+        + '<option value="pending">Pending</option>'
+        + '<option value="cancelled">Cancelled</option>'
+      },
+      { id:'paymentMethod', type:'select', label:'Payment Method', options:
+        '<option value="">All</option>'
+        + '<option value="bank_transfer">Bank Transfer</option>'
+        + '<option value="cheque">Cheque</option>'
+        + '<option value="neft">NEFT</option>'
+        + '<option value="rtgs">RTGS</option>'
+        + '<option value="upi">UPI</option>'
+        + '<option value="demand_draft">Demand Draft</option>'
+        + '<option value="cash">Cash</option>'
+        + '<option value="card">Card</option>'
+        + '<option value="tds_challan">TDS Challan</option>'
+      },
+    ], 'fetchReceiptWiseCollection'));
+  },
+
+  async fetchReceiptWiseCollection() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        projectId:     this._f('project') || undefined,
+        fromDate:      this._f('fromDate') || undefined,
+        toDate:        this._f('toDate') || undefined,
+        status:        this._f('status') || undefined,
+        paymentMethod: this._f('paymentMethod') || undefined,
+      };
+      const res  = await Api.get('/reports/receipt-wise-collection', { params });
+      const rows = res.data || [];
+
+      this._lastData = rows.map(r => ({
+        'Receipt No':    r.receipt_number,
+        'Date':          r.received_date,
+        'Consumer':      r.consumer_name,
+        'Reg No':        r.registration_no,
+        'Project':       r.project_name,
+        'Tower':         r.tower_name,
+        'Unit':          r.unit_number,
+        'Payment Method':r.payment_method,
+        'Amount':        r.amount_received_inr,
+        'Status':        r.status,
+        'Bank':          r.bank_name,
+        'Reference':     r.reference,
+      }));
+
+      const totalAmount = rows.reduce((s, r) => s + Number(r.amount_received_inr || 0), 0);
+      this._kpis([
+        { label:'TOTAL RECEIPTS', value: rows.length, color:'var(--accent)' },
+        { label:'TOTAL AMOUNT', value: `₹${totalAmount.toLocaleString('en-IN')}`, color:'var(--accent)' },
+      ]);
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const cols = ['Receipt No','Date','Consumer','Reg No','Project','Tower','Unit','Payment Method','Amount','Status','Bank','Reference'];
+      const bodyRows = rows.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_number || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.received_date || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.consumer_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.tower_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_number || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.payment_method || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount_received_inr || 0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.status || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.bank_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.reference || ''}</td>
+        </tr>`).join('');
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${cols.map(c => `<th style="padding:6px 8px;border:1px solid var(--border);text-align:left">${c.toUpperCase()}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   // Search-By toggle (All/Project/Broker/Team) is a UI-organizing concept only — it
   // shows/hides which single extra filter input is highlighted, it does not itself
   // change what gets sent to the backend. Whatever ID inputs are actually filled in
@@ -4900,6 +4988,7 @@ Pages.reports = async function(params = {}) {
       items: [
         { id: 'project-collection',   label: 'Project Wise Collection' },
         { id: 'year-month-collection', label: 'Year Month Wise Collection' },
+        { id: 'receipt-wise-collection', label: 'Receipt Wise Collection' },
         { id: 'customer-balance',     label: 'Customer Wise Balance' },
         { id: 'customer-dues',        label: 'Customer Wise Dues' },
         { id: 'due-report',           label: 'Due Report' },

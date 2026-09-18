@@ -1594,6 +1594,59 @@ router.get('/project-collection', async (req: AuthRequest, res: Response, next: 
   } catch (err) { next(err); }
 });
 
+// GET /api/reports/receipt-wise-collection — flat one-row-per-receipt collection ledger
+router.get('/receipt-wise-collection', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, fromDate, toDate, status, paymentMethod } = req.query as Record<string, string>;
+
+    const qp: any[] = [];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+
+    const pidP = projectId     ? p(projectId)     : p(null);
+    const fdP  = fromDate      ? p(fromDate)      : p(null);
+    const tdP  = toDate        ? p(toDate)        : p(null);
+    const stP  = status        ? p(status)        : p(null);
+    const pmP  = paymentMethod ? p(paymentMethod) : p(null);
+
+    const where = `
+      AND (${pidP}::uuid IS NULL OR pp.project_id = ${pidP}::uuid)
+      AND (${fdP}::date IS NULL OR r.received_date >= ${fdP}::date)
+      AND (${tdP}::date IS NULL OR r.received_date <= ${tdP}::date)
+      AND (${stP}::text IS NULL OR r.status = ${stP}::text)
+      AND (${pmP}::text IS NULL OR r.payment_method::text = ${pmP}::text)
+    `;
+
+    const query = `
+      SELECT
+        r.id,
+        r.receipt_number,
+        r.received_date,
+        TRIM(CONCAT_WS(' ', c.salutation, c.first_name, c.last_name)) AS consumer_name,
+        c.registration_no,
+        pr.name        AS project_name,
+        t.tower_name   AS tower_name,
+        u.unit_number  AS unit_number,
+        r.payment_method,
+        r.amount_received_inr,
+        r.status,
+        r.bank_name,
+        CASE WHEN r.payment_method = 'cheque' THEN r.cheque_no ELSE r.transaction_ref END AS reference
+      FROM receipts r
+      JOIN consumers c        ON c.id  = r.consumer_id
+      LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
+      LEFT JOIN projects pr   ON pr.id = pp.project_id
+      LEFT JOIN units u       ON u.id  = pp.unit_id
+      LEFT JOIN towers t      ON t.id  = u.tower_id
+      WHERE 1=1${where}
+      ORDER BY r.received_date DESC
+    `;
+
+    const result = await db.query(query, qp);
+
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
 // GET /api/reports/due-report
 router.get('/due-report', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
