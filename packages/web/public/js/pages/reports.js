@@ -60,18 +60,21 @@ const ReportsPage = {
       'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
       'all-applicants':      () => this.loadAllApplicants(params),
+      'cash-bank-summary':   () => this.loadCashBankSummary(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
 
   async _loadLookups() {
     try {
-      const [pr, cr] = await Promise.allSettled([
+      const [pr, cr, co] = await Promise.allSettled([
         window.ProjectCache.load(),
         Api.get('/consumers', { params: { pageSize: 500 } }),
+        Api.get('/companies'),
       ]);
       this._projects = pr.status === 'fulfilled' ? (pr.value.data || pr.value || []) : [];
       this._consumers = cr.status === 'fulfilled' ? (cr.value.data || cr.value || []) : [];
+      this._companies = co.status === 'fulfilled' ? (co.value.data || co.value || []) : [];
     } catch {}
   },
 
@@ -86,6 +89,11 @@ const ReportsPage = {
         const nm = c.first_name ? `${c.first_name} ${c.last_name||''}`.trim() : (c.name||'—');
         return `<option value="${c.id}">${nm} · ${c.mobile||''}</option>`;
       }).join('');
+  },
+
+  _companyOptions() {
+    return '<option value="">All Companies</option>' +
+      (this._companies||[]).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   },
 
   _filters(title, fields, fetchFn) {
@@ -4749,6 +4757,120 @@ const ReportsPage = {
       if (el) el.innerHTML = '<div style="color:var(--red);font-size:10px;padding:8px">Error loading saved reports</div>';
     }
   },
+
+  // ─────────────────────────────────────────────────────────────
+  // GROUP: Financial Reports (Phase 6)
+  // ─────────────────────────────────────────────────────────────
+
+  // Drill-down is a simple in-place view swap inside #rpt-main (no modal component
+  // exists elsewhere in this file to reuse — confirmed via audit grep), not a
+  // separate NAV_GROUPS tab, since it is reached only from a summary row click.
+  loadCashBankSummary() {
+    this._cbsDrilldownId = null;
+    this._main(this._filters('Cash/Bank Summary', [
+      { id:'cbsCompany',   type:'select', label:'Company',    options: this._companyOptions() },
+      { id:'cbsProject',   type:'select', label:'Project',    options: this._projectOptions() },
+      { id:'cbsFromDate',  type:'date',   label:'From Date' },
+      { id:'cbsToDate',    type:'date',   label:'To Date' },
+    ], 'fetchCashBankSummary'));
+  },
+
+  async fetchCashBankSummary() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        companyId: this._f('cbsCompany') || undefined,
+        projectId: this._f('cbsProject') || undefined,
+        fromDate:  this._f('cbsFromDate') || undefined,
+        toDate:    this._f('cbsToDate') || undefined,
+      };
+      const res  = await Api.get('/reports/cash-bank-summary', { params });
+      const rows_data = res.data || [];
+      const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+      this._lastData = rows_data.map(r => ({
+        'Bank Name': r.bank_name,
+        'Account Name': r.account_name,
+        'Account Number': r.account_number,
+        'Debit': r.debit,
+        'Credit': r.credit,
+        'Closing Balance': r.closing_balance,
+      }));
+
+      if (!rows_data.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No bank accounts found</h3></div>'; return; }
+
+      const rows = rows_data.map(r => `
+        <tr>
+          <td class="td-bold" style="color:var(--accent);cursor:pointer" onclick="ReportsPage.loadLedgerMonthlySummary('${r.id}')">
+            ${r.bank_name}${r.account_name ? ' — ' + r.account_name : ''} (${r.account_number})
+          </td>
+          <td style="text-align:right">${fmt(r.debit)}</td>
+          <td style="text-align:right">${fmt(r.credit)}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)}</td>
+        </tr>
+      `);
+
+      this._table(['PARTICULARS', 'DEBIT', 'CREDIT', 'CLOSING BALANCE'], rows);
+    } catch (err) {
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
+  },
+
+  async loadLedgerMonthlySummary(companyBankAccountId) {
+    this._cbsDrilldownId = companyBankAccountId;
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Ledger Monthly Summary</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="min-width:130px"><label class="fl">From Date</label><input type="date" class="fc" id="f-lmsFromDate"></div>
+            <div class="fg" style="min-width:130px"><label class="fl">To Date</label><input type="date" class="fc" id="f-lmsToDate"></div>
+            <div style="margin-top:10px;display:flex;gap:10px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchLedgerMonthlySummary()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.loadCashBankSummary()">← Back to Summary</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-result"><div class="page-loading"><div class="spinner"></div></div></div>
+    `);
+    await this.fetchLedgerMonthlySummary();
+  },
+
+  async fetchLedgerMonthlySummary() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        fromDate: this._f('lmsFromDate') || undefined,
+        toDate:   this._f('lmsToDate') || undefined,
+      };
+      const res  = await Api.get(`/reports/ledger-monthly-summary/${this._cbsDrilldownId}`, { params });
+      const rows_data = res.data || [];
+      const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+      this._lastData = rows_data.map(r => ({
+        'Period': r.label,
+        'Debit': r.debit,
+        'Credit': r.credit,
+        'Closing Balance': `${fmt(r.closing_balance)} ${r.closing_notation}`,
+      }));
+
+      const rows = rows_data.map(r => `
+        <tr${r.month === null ? ' style="font-weight:700;background:var(--bg2)"' : ''}>
+          <td>${r.label}</td>
+          <td style="text-align:right">${fmt(r.debit)}</td>
+          <td style="text-align:right">${fmt(r.credit)}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)} ${r.closing_notation}</td>
+        </tr>
+      `);
+
+      this._table(['PERIOD', 'DEBIT', 'CREDIT', 'CLOSING BALANCE'], rows);
+    } catch (err) {
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
+  },
 };
 
 // Page entry point
@@ -4815,6 +4937,12 @@ Pages.reports = async function(params = {}) {
         { id: 'tower-floor-sales', label: 'Tower Floor Sales' },
         { id: 'customer-payment-mismatch', label: 'Customer Payment Mismatch' },
         { id: 'booking-record', label: 'Booking Record' },
+      ],
+    },
+    {
+      label: 'Financial Reports',
+      items: [
+        { id: 'cash-bank-summary', label: 'Cash/Bank Summary' },
       ],
     },
   ];

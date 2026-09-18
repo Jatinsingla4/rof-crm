@@ -4561,5 +4561,126 @@ router.get('/booking-record', async (req: AuthRequest, res: Response, next: Next
   } catch (err) { next(err); }
 });
 
+// GET /api/reports/cash-bank-summary - Cash/Bank Summary (Phase 6)
+// One row per active company_bank_account (scoped by company/project/account filter).
+// CREDIT = cleared receipts only (bank-confirmed money, excludes pending/cancelled).
+// DEBIT = 0 today (no outgoing-payment mechanism exists yet — Phase 4/5). The inner
+// LATERAL subquery is structured so Phase 4/5 can replace the literal 0 with a real
+// SUM(...) FROM outgoing_payments-style table without touching the surrounding query.
+// received_date is a plain DATE column (no timezone component) — EXTRACT/comparison
+// needs no UTC/IST conversion, matching the established pattern in /year-month-collection.
+router.get('/cash-bank-summary', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { companyId, projectId, companyBankAccountId, fromDate, toDate } = req.query as Record<string, string>;
+
+    const qp: any[] = [];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+    const companyIdP = p(companyId || null);
+    const projectIdP = p(projectId || null);
+    const bankAccountIdP = p(companyBankAccountId || null);
+    const fromDateP = p(fromDate || null);
+    const toDateP = p(toDate || null);
+
+    const query = `
+      SELECT
+        cba.id,
+        cba.bank_name,
+        cba.account_name,
+        cba.account_number,
+        COALESCE(credit.total, 0) AS credit,
+        COALESCE(debit.total, 0)  AS debit
+      FROM company_bank_accounts cba
+      LEFT JOIN LATERAL (
+        SELECT SUM(r.amount_received_inr) AS total
+        FROM receipts r
+        WHERE r.company_bank_account_id = cba.id
+          AND r.status = 'cleared'
+          AND (${fromDateP}::date IS NULL OR r.received_date >= ${fromDateP}::date)
+          AND (${toDateP}::date IS NULL OR r.received_date <= ${toDateP}::date)
+      ) credit ON true
+      LEFT JOIN LATERAL (
+        -- TODO Phase 4/5: replace with a real SUM(...) FROM the outgoing-payments table
+        -- once it exists, scoped to cba.id and the same fromDate/toDate range.
+        SELECT 0::numeric AS total
+      ) debit ON true
+      WHERE cba.is_active = true
+        AND (${companyIdP}::uuid IS NULL OR cba.company_id = ${companyIdP}::uuid)
+        AND (${projectIdP}::uuid IS NULL OR cba.company_id = (SELECT company_id FROM projects WHERE id = ${projectIdP}::uuid))
+        AND (${bankAccountIdP}::uuid IS NULL OR cba.id = ${bankAccountIdP}::uuid)
+      ORDER BY cba.is_primary DESC, cba.bank_name ASC
+    `;
+    const result = await db.query(query, qp);
+
+    const data = result.rows.map((r: any) => {
+      const credit = parseFloat(r.credit) || 0;
+      const debit = parseFloat(r.debit) || 0;
+      return {
+        id: r.id,
+        bank_name: r.bank_name,
+        account_name: r.account_name,
+        account_number: r.account_number,
+        credit,
+        debit,
+        closing_balance: 0 + credit - debit,
+      };
+    });
+
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/ledger-monthly-summary/:companyBankAccountId - Ledger Monthly Summary (Phase 6)
+// One row per month WITH cleared-receipt activity (no zero-fill grid — opposite of
+// /year-month-collection). Opening balance is always 0 (no opening-balance infrastructure
+// exists in this schema). Running CLOSING BALANCE is computed here in JS across the
+// ordered month rows, in CR/DR notation (a positive net balance is shown as Cr).
+router.get('/ledger-monthly-summary/:companyBankAccountId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { companyBankAccountId } = req.params;
+    const { fromDate, toDate } = req.query as Record<string, string>;
+
+    const qp: any[] = [companyBankAccountId];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+    const fromDateP = p(fromDate || null);
+    const toDateP = p(toDate || null);
+
+    const query = `
+      SELECT
+        EXTRACT(YEAR FROM r.received_date)::int  AS yr,
+        EXTRACT(MONTH FROM r.received_date)::int AS mo,
+        COALESCE(SUM(r.amount_received_inr), 0)  AS credit
+      FROM receipts r
+      WHERE r.company_bank_account_id = $1
+        AND r.status = 'cleared'
+        AND (${fromDateP}::date IS NULL OR r.received_date >= ${fromDateP}::date)
+        AND (${toDateP}::date IS NULL OR r.received_date <= ${toDateP}::date)
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `;
+    const result = await db.query(query, qp);
+
+    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    let runningBalance = 0;
+    const openingRow = { label: 'Opening Balance', year: null, month: null, debit: 0, credit: 0, closing_balance: 0, closing_notation: 'Cr' };
+
+    const monthRows = result.rows.map((r: any) => {
+      const credit = parseFloat(r.credit) || 0;
+      const debit = 0; // TODO Phase 4/5: sum outgoing payments for this month here.
+      runningBalance = runningBalance + credit - debit;
+      return {
+        label: `${MONTH_ABBR[r.mo - 1]} ${r.yr}`,
+        year: r.yr,
+        month: r.mo,
+        debit,
+        credit,
+        closing_balance: Math.abs(runningBalance),
+        closing_notation: runningBalance >= 0 ? 'Cr' : 'Dr',
+      };
+    });
+
+    res.json({ success: true, data: [openingRow, ...monthRows] });
+  } catch (err) { next(err); }
+});
+
 export default router;
 
