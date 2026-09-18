@@ -4599,9 +4599,12 @@ router.get('/cash-bank-summary', async (req: AuthRequest, res: Response, next: N
           AND (${toDateP}::date IS NULL OR r.received_date <= ${toDateP}::date)
       ) credit ON true
       LEFT JOIN LATERAL (
-        -- TODO Phase 4/5: replace with a real SUM(...) FROM the outgoing-payments table
-        -- once it exists, scoped to cba.id and the same fromDate/toDate range.
-        SELECT 0::numeric AS total
+        SELECT SUM(op.amount_inr) AS total
+        FROM outgoing_payments op
+        WHERE op.company_bank_account_id = cba.id
+          AND op.status = 'cleared'
+          AND (${fromDateP}::date IS NULL OR op.payment_date >= ${fromDateP}::date)
+          AND (${toDateP}::date IS NULL OR op.payment_date <= ${toDateP}::date)
       ) debit ON true
       WHERE cba.is_active = true
         AND (${companyIdP}::uuid IS NULL OR cba.company_id = ${companyIdP}::uuid)
@@ -4644,7 +4647,7 @@ router.get('/ledger-monthly-summary/:companyBankAccountId', async (req: AuthRequ
     const fromDateP = p(fromDate || null);
     const toDateP = p(toDate || null);
 
-    const query = `
+    const creditQuery = `
       SELECT
         EXTRACT(YEAR FROM r.received_date)::int  AS yr,
         EXTRACT(MONTH FROM r.received_date)::int AS mo,
@@ -4657,20 +4660,48 @@ router.get('/ledger-monthly-summary/:companyBankAccountId', async (req: AuthRequ
       GROUP BY 1, 2
       ORDER BY 1, 2
     `;
-    const result = await db.query(query, qp);
+    const debitQuery = `
+      SELECT
+        EXTRACT(YEAR FROM op.payment_date)::int  AS yr,
+        EXTRACT(MONTH FROM op.payment_date)::int AS mo,
+        COALESCE(SUM(op.amount_inr), 0)          AS debit
+      FROM outgoing_payments op
+      WHERE op.company_bank_account_id = $1
+        AND op.status = 'cleared'
+        AND (${fromDateP}::date IS NULL OR op.payment_date >= ${fromDateP}::date)
+        AND (${toDateP}::date IS NULL OR op.payment_date <= ${toDateP}::date)
+      GROUP BY 1, 2
+      ORDER BY 1, 2
+    `;
+    const [creditResult, debitResult] = await Promise.all([
+      db.query(creditQuery, qp),
+      db.query(debitQuery, qp),
+    ]);
 
     const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     let runningBalance = 0;
     const openingRow = { label: 'Opening Balance', year: null, month: null, debit: 0, credit: 0, closing_balance: 0, closing_notation: 'Cr' };
 
-    const monthRows = result.rows.map((r: any) => {
-      const credit = parseFloat(r.credit) || 0;
-      const debit = 0; // TODO Phase 4/5: sum outgoing payments for this month here.
+    const monthMap = new Map<string, { yr: number; mo: number; credit: number; debit: number }>();
+    for (const r of creditResult.rows) {
+      const key = `${r.yr}-${r.mo}`;
+      monthMap.set(key, { yr: r.yr, mo: r.mo, credit: parseFloat(r.credit) || 0, debit: 0 });
+    }
+    for (const r of debitResult.rows) {
+      const key = `${r.yr}-${r.mo}`;
+      const existing = monthMap.get(key);
+      if (existing) { existing.debit = parseFloat(r.debit) || 0; }
+      else { monthMap.set(key, { yr: r.yr, mo: r.mo, credit: 0, debit: parseFloat(r.debit) || 0 }); }
+    }
+    const sortedMonths = Array.from(monthMap.values()).sort((a, b) => a.yr - b.yr || a.mo - b.mo);
+
+    const monthRows = sortedMonths.map((m) => {
+      const { credit, debit } = m;
       runningBalance = runningBalance + credit - debit;
       return {
-        label: `${MONTH_ABBR[r.mo - 1]} ${r.yr}`,
-        year: r.yr,
-        month: r.mo,
+        label: `${MONTH_ABBR[m.mo - 1]} ${m.yr}`,
+        year: m.yr,
+        month: m.mo,
         debit,
         credit,
         closing_balance: Math.abs(runningBalance),
