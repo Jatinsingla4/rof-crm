@@ -285,7 +285,7 @@ Pages.allotment = async function(params = {}) {
           </div>
           <div class="sp-grid">
             <div class="fg"><label class="fl">Project</label>
-              <select class="fc" id="edraw-project">
+              <select class="fc" id="edraw-project" onchange="AllotmentPage.loadEdrawBankAccounts()">
                 <option value="">— Select Project —</option>
               </select>
             </div>
@@ -294,6 +294,11 @@ Pages.allotment = async function(params = {}) {
             </div>
             <div class="fg"><label class="fl">E-Draw CSV File</label>
               <input type="file" class="fc" id="edraw-file" accept=".csv,.xlsx,.xls">
+            </div>
+            <div class="fg"><label class="fl">Company Bank Account</label>
+              <select class="fc" id="edraw-bank-account">
+                <option value="">— Select Bank Account —</option>
+              </select>
             </div>
           </div>
           <button class="btn btn-teal btn-lg" style="margin-top:10px" onclick="AllotmentPage.importEdraw()">Import E-Draw Results</button>
@@ -811,14 +816,32 @@ const AllotmentPage = {
     });
   },
 
+  async loadEdrawBankAccounts() {
+    const projectId = document.getElementById('edraw-project')?.value;
+    const sel = document.getElementById('edraw-bank-account');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select Bank Account —</option>';
+    if (!projectId) return;
+    try {
+      const res = await Api.get(`/payments/clearing-banks/${projectId}`);
+      const accounts = res.data || [];
+      sel.innerHTML = '<option value="">— Select Bank Account —</option>' +
+        accounts.map(a => `<option value="${a.id}">${a.bank_name}${a.account_name ? ' — ' + a.account_name : ''} (${a.account_number})</option>`).join('');
+    } catch (e) {
+      console.warn('Company bank accounts fetch failed:', e.message);
+    }
+  },
+
   async importEdraw() {
     const file = document.getElementById('edraw-file')?.files[0];
     const projectId = document.getElementById('edraw-project')?.value;
+    const companyBankAccountId = document.getElementById('edraw-bank-account')?.value;
     if (!file) { Utils.warn('Please select a CSV file'); return; }
 
     const fd = new FormData();
     fd.append('file', file);
     if (projectId) fd.append('projectId', projectId);
+    if (companyBankAccountId) fd.append('companyBankAccountId', companyBankAccountId);
     fd.append('drawDate', document.getElementById('edraw-date')?.value || Utils.today());
 
     try {

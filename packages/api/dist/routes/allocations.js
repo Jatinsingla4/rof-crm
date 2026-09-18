@@ -273,7 +273,7 @@ router.post('/:id/cancel', async (req, res, next) => {
 // POST /api/allocations/import-edraw - Import e-draw results
 router.post('/import-edraw', async (req, res, next) => {
     try {
-        const { projectId, results } = req.body;
+        const { projectId, results, companyBankAccountId } = req.body;
         // Parse e-draw CSV results and match to consumers
         let matched = 0;
         let mismatched = 0;
@@ -301,8 +301,8 @@ router.post('/import-edraw', async (req, res, next) => {
                         await index_js_1.db.query(`INSERT INTO draw_refunds (
                 consumer_id, project_id, draw_result,
                 booking_amount_paid_inr, refund_amount_inr,
-                refund_due_by, refund_status, created_by_user_id
-               ) VALUES ($1, $2, 'unsuccessful', $3, $4, CURRENT_DATE + INTERVAL '30 days', 'pending', $5)`, [consumerId, projectId, bookingAmountPaid, bookingAmountPaid, req.userId]);
+                refund_due_by, refund_status, created_by_user_id, company_bank_account_id
+               ) VALUES ($1, $2, 'unsuccessful', $3, $4, CURRENT_DATE + INTERVAL '30 days', 'pending', $5, $6)`, [consumerId, projectId, bookingAmountPaid, bookingAmountPaid, req.userId, companyBankAccountId || null]);
                         // Update consumer lead_stage to cancelled
                         await index_js_1.db.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
                         refundsCreated++;
