@@ -63,6 +63,7 @@ const ReportsPage = {
       'addon-charge-report': () => this.loadAddonChargeReport(),
       'all-applicants':      () => this.loadAllApplicants(params),
       'cash-bank-summary':   () => this.loadCashBankSummary(),
+      'bank-ledger':         () => this.loadBankLedger(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -4821,6 +4822,129 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  // Bank Ledger (legacy BankLeadger.aspx). Receipt-level cheque/clearing detail, distinct from
+  // Cash/Bank Summary above (aggregate). Cheque Date/Clear Date toggle switches dateType param
+  // between 'received' (receipts.received_date) and 'clearing' (receipts.clearing_date).
+  loadBankLedger() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Bank Ledger</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:150px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="flex:1;min-width:180px">
+              <label class="fl">Company Bank</label>
+              <select class="fc" id="f-companybank"><option value="">&lt;--All--&gt;</option></select>
+            </div>
+            <div class="fg" style="min-width:150px">
+              <label class="fl">Date Type</label>
+              <select class="fc" id="f-datetype">
+                <option value="received">Cheque Date</option>
+                <option value="clearing">Clear Date</option>
+              </select>
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">From Date</label>
+              <input type="date" class="fc" id="f-fromdate">
+            </div>
+            <div class="fg" style="min-width:130px">
+              <label class="fl">To Date</label>
+              <input type="date" class="fc" id="f-todate">
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchBankLedger()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Bank_Ledger.csv')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+    this._blLoadCompanyBanks();
+  },
+
+  async _blLoadCompanyBanks() {
+    const sel = document.getElementById('f-companybank');
+    if (!sel) return;
+    try {
+      const res = await Api.get('/reports/bank-ledger-company-banks');
+      const banks = res.data || [];
+      banks.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.account_name ? `${b.bank_name} — ${b.account_name}` : b.bank_name;
+        sel.appendChild(o);
+      });
+    } catch (_) {}
+  },
+
+  async fetchBankLedger() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        projectId:           document.getElementById('f-project')?.value || undefined,
+        companyBankAccountId: document.getElementById('f-companybank')?.value || undefined,
+        dateType:            document.getElementById('f-datetype')?.value || undefined,
+        dateFrom:            document.getElementById('f-fromdate')?.value || undefined,
+        dateTo:              document.getElementById('f-todate')?.value || undefined,
+      };
+      const res  = await Api.get('/reports/bank-ledger', { params });
+      const rows = res.data || [];
+
+      this._lastData = rows.map(r => ({
+        'Registration No': r.registration_no,
+        'Name':            r.name,
+        'Unit Address':    r.unit_address,
+        'Mode':            r.mode,
+        'Receipt No':      r.receipt_number,
+        'Receipt Date':    r.receipt_date,
+        'Amount':          parseFloat(r.amount || 0),
+        'Cheque/Draft No': r.cheque_no,
+        'Cheque Date':     r.cheque_date,
+        'Bank Name':       r.bank_name,
+        'Branch':          r.branch,
+        'Clearing Date':   r.clearing_date,
+        'Status':          r.status,
+      }));
+
+      const totalAmount = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+      this._kpis([
+        { label:'TOTAL RECEIPTS', value: rows.length, color:'var(--accent)' },
+        { label:'TOTAL AMOUNT',   value: `₹${totalAmount.toLocaleString('en-IN')}`, color:'var(--accent)' },
+      ]);
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const cols = ['Registration No','Name','Unit Address','Mode','Receipt No','Receipt Date','Amount','Cheque/Draft No','Cheque Date','Bank Name','Branch','Clearing Date','Status'];
+      const bodyRows = rows.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_address || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.mode || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_number || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_date || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.cheque_no || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.cheque_date || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.bank_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.branch || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.clearing_date || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.status || ''}</td>
+        </tr>`).join('');
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${cols.map(c => `<th style="padding:6px 8px;border:1px solid var(--border);text-align:left">${c.toUpperCase()}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   async fetchOtherChargeReport() {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
@@ -5148,9 +5272,10 @@ Pages.reports = async function(params = {}) {
       ],
     },
     {
-      label: 'Financial Reports',
+      label: 'Financial Details',
       items: [
         { id: 'cash-bank-summary', label: 'Cash/Bank Summary' },
+        { id: 'bank-ledger', label: 'Bank Ledger' },
       ],
     },
   ];

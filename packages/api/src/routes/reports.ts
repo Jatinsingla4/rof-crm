@@ -4827,6 +4827,72 @@ router.get('/addon-charge-names', async (req: AuthRequest, res: Response, next: 
   } catch (err) { next(err); }
 });
 
+// GET /api/reports/bank-ledger — Bank Ledger report (legacy BankLeadger.aspx). Receipt-level cheque/
+// clearing detail, distinct from /cash-bank-summary (aggregate). dateType toggles which date column
+// dateFrom/dateTo filter against: 'clearing' -> receipts.clearing_date, else (default) -> received_date
+// (legacy's Cheque Date/Clear Date toggle). receipts.bank_name/branch = payer's drawee bank (kept as-is
+// on the row); company_bank_accounts.bank_name/account_name = the company's own receiving account,
+// joined via receipts.company_bank_account_id (LEFT JOIN — company_bank_account_id is nullable).
+router.get('/bank-ledger', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { projectId, companyBankAccountId, dateFrom, dateTo, dateType } = req.query as Record<string, string>;
+    const dateCol = dateType === 'clearing' ? 'r.clearing_date' : 'r.received_date';
+
+    const qp: any[] = [];
+    const p = (v: any) => { qp.push(v); return `$${qp.length}`; };
+    const pidP = p(projectId || null);
+    const cbaP = p(companyBankAccountId || null);
+    const dfP  = p(dateFrom || null);
+    const dtP  = p(dateTo || null);
+
+    const query = `
+      SELECT
+        r.id,
+        c.registration_no,
+        c.name,
+        COALESCE(u.unit_number,'')
+          || COALESCE(', Floor ' || u.floor::text, '')
+          || COALESCE(', ' || t.tower_name, '')   AS unit_address,
+        r.payment_method                          AS mode,
+        r.receipt_number,
+        r.received_date                           AS receipt_date,
+        r.amount_received_inr                     AS amount,
+        r.cheque_no,
+        r.cheque_date,
+        r.bank_name,
+        r.branch,
+        r.clearing_date,
+        r.status,
+        cba.id                                    AS company_bank_account_id,
+        cba.bank_name                              AS company_bank_name,
+        cba.account_name                          AS company_account_name
+      FROM receipts r
+      JOIN consumers c ON c.id = r.consumer_id
+      JOIN units u ON u.id = c.allocated_unit_id
+      JOIN projects pr ON pr.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      LEFT JOIN company_bank_accounts cba ON cba.id = r.company_bank_account_id
+      WHERE (${pidP}::uuid IS NULL OR pr.id = ${pidP}::uuid)
+        AND (${cbaP}::uuid IS NULL OR r.company_bank_account_id = ${cbaP}::uuid)
+        AND (${dfP}::date IS NULL OR ${dateCol} >= ${dfP}::date)
+        AND (${dtP}::date IS NULL OR ${dateCol} <= ${dtP}::date)
+      ORDER BY ${dateCol} NULLS LAST, r.receipt_number
+    `;
+    const result = await db.query(query, qp);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/reports/bank-ledger-company-banks — active company_bank_accounts for the Company Bank
+// filter dropdown on the Bank Ledger report.
+router.get('/bank-ledger-company-banks', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const result = await db.query(
+      `SELECT id, account_name, bank_name FROM company_bank_accounts WHERE is_active = true ORDER BY bank_name`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
 
 export default router;
 
