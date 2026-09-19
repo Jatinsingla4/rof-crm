@@ -4533,5 +4533,68 @@ router.get('/ledger-monthly-summary/:companyBankAccountId', async (req, res, nex
         next(err);
     }
 });
+// GET /api/reports/addon-charges-report — Addon Charge Report (legacy OtherChargesReport.aspx /
+// AdminFinalReport.aspx IFMS listing). Distinct from /other-charges (booking_records-based PLC/
+// EDC/IDC summary) — this operates on addon_charge_master/consumer_addon_charges, one row per
+// consumer per assigned charge. chargeName filters by exact addon_charge_master.charge_name value
+// (dropdown populated via /addon-charge-names below), matching legacy's per-type listing (e.g. IFMS).
+// registrationNo uses partial ILIKE per this file's established convention. unitAddress filters
+// against u.unit_number, matching the "Unit Address" mislabel precedent already established at
+// /customer-payment-mismatch (u.unit_number ILIKE, not a real address field — no real address
+// field exists on units).
+router.get('/addon-charges-report', async (req, res, next) => {
+    try {
+        const { projectId, towerId, chargeName, registrationNo, unitAddress } = req.query;
+        const qp = [];
+        const p = (v) => { qp.push(v); return `$${qp.length}`; };
+        const pidP = p(projectId || null);
+        const tidP = p(towerId || null);
+        const cnP = p(chargeName || null);
+        const regP = p(registrationNo || null);
+        const uaP = p(unitAddress || null);
+        const query = `
+      SELECT
+        cac.id,
+        c.registration_no,
+        c.name,
+        u.bhk_type    AS unit_type,
+        t.tower_name,
+        u.floor,
+        COALESCE(u.unit_number,'')
+          || COALESCE(', Floor ' || u.floor::text, '')
+          || COALESCE(', ' || t.tower_name, '')   AS unit_address,
+        cac.charge_name,
+        cac.amount
+      FROM consumer_addon_charges cac
+      JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
+      JOIN consumers c ON c.id = cac.consumer_id
+      JOIN units u ON u.id = c.allocated_unit_id
+      JOIN projects pr ON pr.id = u.project_id
+      LEFT JOIN towers t ON t.id = u.tower_id
+      WHERE (${pidP}::uuid IS NULL OR pr.id = ${pidP}::uuid)
+        AND (${tidP}::uuid IS NULL OR t.id = ${tidP}::uuid)
+        AND (${cnP}::text IS NULL OR acm.charge_name = ${cnP}::text)
+        AND (${regP}::text IS NULL OR c.registration_no ILIKE '%' || ${regP}::text || '%')
+        AND (${uaP}::text IS NULL OR u.unit_number ILIKE '%' || ${uaP}::text || '%')
+      ORDER BY t.tower_name NULLS LAST, u.unit_number, cac.charge_name
+    `;
+        const result = await pool_1.db.query(query, qp);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// GET /api/reports/addon-charge-names — distinct charge_name values for the Addon Charge Report
+// filter dropdown, deduped for display (charge_name is not unique in addon_charge_master).
+router.get('/addon-charge-names', async (req, res, next) => {
+    try {
+        const result = await pool_1.db.query(`SELECT DISTINCT charge_name FROM addon_charge_master ORDER BY charge_name`);
+        res.json({ success: true, data: result.rows.map((r) => r.charge_name) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map

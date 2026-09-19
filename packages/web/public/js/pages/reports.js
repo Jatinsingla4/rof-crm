@@ -60,6 +60,7 @@ const ReportsPage = {
       'unit-cost':           () => this.loadUnitCost(),
       'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
+      'addon-charge-report': () => this.loadAddonChargeReport(),
       'all-applicants':      () => this.loadAllApplicants(params),
       'cash-bank-summary':   () => this.loadCashBankSummary(),
     };
@@ -4703,6 +4704,123 @@ const ReportsPage = {
     } catch(_) {}
   },
 
+  // Addon Charge Report (legacy OtherChargesReport.aspx / AdminFinalReport.aspx IFMS listing).
+  // Distinct from Other Charge Report above (booking_records-based PLC/EDC/IDC summary) — this
+  // reads addon_charge_master/consumer_addon_charges, one row per consumer per assigned charge.
+  loadAddonChargeReport() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Addon Charge Report</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:150px">
+              <label class="fl">Project</label>
+              <select class="fc" id="f-project" onchange="ReportsPage._acLoadTowers()">${this._projectOptions()}</select>
+            </div>
+            <div class="fg" style="flex:1;min-width:130px">
+              <label class="fl">Tower</label>
+              <select class="fc" id="f-tower"><option value="">&lt;--All--&gt;</option></select>
+            </div>
+            <div class="fg" style="flex:1;min-width:160px">
+              <label class="fl">Other Charge</label>
+              <select class="fc" id="f-chargename"><option value="">&lt;--All--&gt;</option></select>
+            </div>
+            <div class="fg" style="min-width:150px">
+              <label class="fl">Registration No</label>
+              <input type="text" class="fc" id="f-registrationNo">
+            </div>
+            <div class="fg" style="min-width:150px">
+              <label class="fl">Unit Address</label>
+              <input type="text" class="fc" id="f-unitAddress">
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchAddonChargeReport()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Addon_Charges.csv')">Export CSV</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+    this._acLoadChargeNames();
+  },
+
+  async _acLoadTowers() {
+    const pid = document.getElementById('f-project')?.value;
+    const sel = document.getElementById('f-tower');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
+    if (!pid) return;
+    try {
+      const res = await Api.get('/units/towers', { params: { projectId: pid } });
+      const towers = res.data || res || [];
+      towers.forEach(t => { const o=document.createElement('option'); o.value=t.id; o.textContent=t.tower_name; sel.appendChild(o); });
+    } catch(_) {}
+  },
+
+  async _acLoadChargeNames() {
+    const sel = document.getElementById('f-chargename');
+    if (!sel) return;
+    try {
+      const res = await Api.get('/reports/addon-charge-names');
+      const names = res.data || [];
+      names.forEach(n => { const o=document.createElement('option'); o.value=n; o.textContent=n; sel.appendChild(o); });
+    } catch(_) {}
+  },
+
+  async fetchAddonChargeReport() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        projectId:      document.getElementById('f-project')?.value || undefined,
+        towerId:        document.getElementById('f-tower')?.value || undefined,
+        chargeName:     document.getElementById('f-chargename')?.value || undefined,
+        registrationNo: this._f('registrationNo') || undefined,
+        unitAddress:    this._f('unitAddress') || undefined,
+      };
+      const res  = await Api.get('/reports/addon-charges-report', { params });
+      const rows = res.data || [];
+
+      this._lastData = rows.map(r => ({
+        'Registration No': r.registration_no,
+        'Name':            r.name,
+        'Unit Type':       r.unit_type,
+        'Tower':           r.tower_name,
+        'Floor':           r.floor,
+        'Unit Address':    r.unit_address,
+        'Charge Name':     r.charge_name,
+        'Amount':          parseFloat(r.amount || 0),
+      }));
+
+      const totalAmount = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+      this._kpis([
+        { label:'TOTAL RECORDS', value: rows.length, color:'var(--accent)' },
+        { label:'TOTAL AMOUNT',  value: `₹${totalAmount.toLocaleString('en-IN')}`, color:'var(--accent)' },
+      ]);
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const cols = ['Registration No','Name','Unit Type','Tower','Floor','Unit Address','Amount'];
+      const bodyRows = rows.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_type || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.tower_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.floor ?? ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_address || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
+        </tr>`).join('');
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${cols.map(c => `<th style="padding:6px 8px;border:1px solid var(--border);text-align:left">${c.toUpperCase()}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   async fetchOtherChargeReport() {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
@@ -5018,6 +5136,7 @@ Pages.reports = async function(params = {}) {
       label: 'Charge Detail',
       items: [
         { id: 'other-charge-report', label: 'Other Charge Report' },
+        { id: 'addon-charge-report', label: 'Addon Charge Report' },
       ],
     },
     {
