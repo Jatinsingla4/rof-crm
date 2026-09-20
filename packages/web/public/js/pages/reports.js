@@ -64,6 +64,7 @@ const ReportsPage = {
       'all-applicants':      () => this.loadAllApplicants(params),
       'cash-bank-summary':   () => this.loadCashBankSummary(),
       'bank-ledger':         () => this.loadBankLedger(),
+      'stock-report':        () => this.loadStockReport(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -4945,6 +4946,95 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadStockReport() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Stock Report</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:220px">
+              <label class="fl">Company</label>
+              <select class="fc" id="f-company"><option value="">&lt;--All--&gt;</option>${
+                (this._companies || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+              }</select>
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchStockReport()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Stock_Report.csv')">Export CSV</button>
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text3)">
+            Note: Unsold Stock (Value) is unavailable — per-unit pricing is not yet entered for unbooked units.
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+  },
+
+  async fetchStockReport() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = { companyId: document.getElementById('f-company')?.value || undefined };
+      const res  = await Api.get('/reports/stock-report', { params });
+      const rows = res.data || [];
+
+      const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const aR = 'text-align:right';
+
+      this._lastData = rows.map(r => ({
+        'Company':            r.company_name,
+        'Project':            r.project_name,
+        'UOM':                r.uom,
+        'Stock (Unit)':       r.stock_unit,
+        'Stock (Area)':       parseFloat(r.stock_area || 0),
+        'Stock (Value)':      parseFloat(r.sold_stock_value || 0),
+        'Sold Stock (Unit)':  r.sold_stock_unit,
+        'Sold Stock (Area)':  parseFloat(r.sold_stock_area || 0),
+        'Sold Stock (Value)': parseFloat(r.sold_stock_value || 0),
+        'Unsold Stock (Unit)': r.unsold_stock_unit,
+        'Unsold Stock (Area)': parseFloat(r.unsold_stock_area || 0),
+        'Unsold Stock (Value)': 0,
+      }));
+
+      const totalUnits = rows.reduce((s, r) => s + Number(r.stock_unit || 0), 0);
+      const soldValue  = rows.reduce((s, r) => s + Number(r.sold_stock_value || 0), 0);
+      this._kpis([
+        { label:'PROJECTS',          value: rows.length, color:'var(--accent)' },
+        { label:'TOTAL UNITS',       value: totalUnits,  color:'var(--accent)' },
+        { label:'SOLD STOCK VALUE',  value: fmtA(soldValue), color:'#198754' },
+      ]);
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const cols = ['COMPANY','PROJECT','UOM','STOCK (UNIT)','STOCK (AREA)','STOCK (VALUE)',
+        'SOLD STOCK (UNIT)','SOLD STOCK (AREA)','SOLD STOCK (VALUE)',
+        'UNSOLD STOCK (UNIT)','UNSOLD STOCK (AREA)','UNSOLD STOCK (VALUE)'];
+      const bodyRows = rows.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.company_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.uom || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.stock_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.stock_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.sold_stock_value)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.sold_stock_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.sold_stock_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR};color:#198754">${fmtA(r.sold_stock_value)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.unsold_stock_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.unsold_stock_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}" title="Per-unit pricing not yet entered for unbooked units — Unsold Value unavailable">—</td>
+        </tr>`).join('');
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${cols.map(c => `<th style="padding:6px 8px;border:1px solid var(--border);text-align:left">${c}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   async fetchOtherChargeReport() {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
@@ -5223,6 +5313,7 @@ Pages.reports = async function(params = {}) {
         { id: 'unit-wise-plc',      label: 'Unit Wise PLC' },
         { id: 'unit-sold-area',     label: 'Unit Sold/Availb. Area Wise' },
         { id: 'unit-cost',          label: 'Unit Cost' },
+        { id: 'stock-report',       label: 'Stock Report' },
       ],
     },
     {

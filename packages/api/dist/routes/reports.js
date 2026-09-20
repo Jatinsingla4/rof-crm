@@ -4663,5 +4663,65 @@ router.get('/bank-ledger-company-banks', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/stock-report - Company Wise Stock Report (CompanyWiseStockReport.aspx equivalent).
+// Company-level unit-inventory rollup, grouped by company + project. Reuses /inventory-details'
+// simple two-way SOLD/UNSOLD split (SOLD = status != 'available', UNSOLD = status = 'available') —
+// not /tower-floor-sales' four-way hold/temp_surrender carve-out, since this report has only two
+// top-level buckets. Area basis = carpet_area_sqft, same as /inventory-details.
+// Sold Stock (Value) reuses the canonical unitCostBase/net_basic_price construct (reports.ts:908-920)
+// via LATERAL join to the unit's most recent non-cancelled booking_records row — real and computable
+// since sold units have a booking. Unsold Stock (Value) is hardcoded 0: units.base_price_inr and
+// units.total_price_inr are 100% NULL on all real data (confirmed via audit) and total_price_inr is
+// never read anywhere else in the codebase — there is no per-unit price independent of a booking, so
+// no real number can be shown for unbooked units without fabricating one.
+router.get('/stock-report', async (req, res, next) => {
+    try {
+        const { companyId } = req.query;
+        const cid = companyId || null;
+        const result = await pool_1.db.query(`
+      SELECT
+        c.id                                                                    AS company_id,
+        c.name                                                                  AS company_name,
+        pr.id                                                                   AS project_id,
+        pr.name                                                                 AS project_name,
+        'Sq.Ft.'                                                                AS uom,
+        COUNT(u.id)                                                             AS stock_unit,
+        COALESCE(SUM(u.carpet_area_sqft), 0)                                    AS stock_area,
+        COUNT(u.id) FILTER (WHERE u.status != 'available')                      AS sold_stock_unit,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status != 'available'), 0) AS sold_stock_area,
+        COALESCE(SUM(
+          CASE WHEN u.status != 'available' THEN
+            CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+              COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+            ELSE
+              COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+            END
+            - COALESCE(br.dealer_adjustment_amount, 0)
+            - COALESCE(br.company_inaugural_disc, 0)
+          ELSE 0 END
+        ), 0)                                                                   AS sold_stock_value,
+        COUNT(u.id) FILTER (WHERE u.status = 'available')                       AS unsold_stock_unit,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status = 'available'), 0) AS unsold_stock_area,
+        0                                                                       AS unsold_stock_value
+      FROM projects pr
+      JOIN companies c ON c.id = pr.company_id
+      JOIN units u ON u.project_id = pr.id
+      LEFT JOIN LATERAL (
+        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc
+        FROM booking_records b
+        WHERE b.unit_id = u.id AND b.status != 'cancelled'
+        ORDER BY b.created_at DESC
+        LIMIT 1
+      ) br ON true
+      WHERE ($1::uuid IS NULL OR c.id = $1)
+      GROUP BY c.id, c.name, pr.id, pr.name
+      ORDER BY c.name, pr.name
+      `, [cid]);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map
