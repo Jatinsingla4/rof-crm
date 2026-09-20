@@ -774,10 +774,11 @@ router.get('/unit-cost', async (req: AuthRequest, res: Response, next: NextFunct
 // most recent non-cancelled booking_records row per unit (existing codebase dedup convention).
 router.get('/inventory-details', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, groupBy, view } = req.query as Record<string, string>;
-    const gb = (groupBy === 'tower' || groupBy === 'bhk_type' || groupBy === 'matrix') ? groupBy : 'project';
+    const { projectId, companyId, groupBy, view } = req.query as Record<string, string>;
+    const gb = (groupBy === 'tower' || groupBy === 'bhk_type' || groupBy === 'matrix' || groupBy === 'project_bhk_type') ? groupBy : 'project';
     const vw = view === 'details' ? 'details' : 'summary';
     const pid = projectId || null;
+    const cid = companyId || null;
 
     const BOOKED = `u.status IN ('application_received','draw_pending','booked')`;
     const ALLOTTED = `u.status IN ('allotted','agreement_signed','under_construction','oc_received','possession_handed_over')`;
@@ -844,6 +845,24 @@ router.get('/inventory-details', async (req: AuthRequest, res: Response, next: N
           AND ($1::uuid IS NULL OR u.project_id = $1::uuid)
         GROUP BY u.bhk_type
         ORDER BY u.bhk_type`;
+    } else if (gb === 'project_bhk_type') {
+      // Unit Type Wise Unit Status (no legacy screenshot — inferred report, confirmed via audit).
+      // Row grain is the compound key (project_id, bhk_type), never bhk_type alone: bhk_type strings
+      // are project-specific (e.g. "Type-A (3 BHK)" only exists in one project) and merging them
+      // across projects would silently combine unrelated unit types under a shared label. companyId
+      // is an optional additional scope, consistent with Stock Report/Summary Report's convention.
+      sql = `
+        SELECT pr.id AS project_id, pr.name AS project_name, u.bhk_type AS group_id, u.bhk_type AS group_name,
+          ${aggCols}
+        FROM units u
+        JOIN towers t ON t.id = u.tower_id
+        JOIN projects pr ON pr.id = u.project_id
+        ${brJoin}
+        WHERE t.deleted_at IS NULL
+          AND ($1::uuid IS NULL OR u.project_id = $1::uuid)
+          AND ($2::uuid IS NULL OR pr.company_id = $2::uuid)
+        GROUP BY pr.id, pr.name, u.bhk_type
+        ORDER BY pr.name, u.bhk_type`;
     } else {
       // matrix: tower x unit type, fixed Total/Sold/Unsold shape (LEFT JOIN so empty towers don't vanish)
       sql = `
@@ -859,7 +878,7 @@ router.get('/inventory-details', async (req: AuthRequest, res: Response, next: N
         ORDER BY t.tower_name, u.bhk_type`;
     }
 
-    const result = await db.query(sql, [pid]);
+    const result = await db.query(sql, [pid, cid]);
 
     res.json({ success: true, data: result.rows, groupBy: gb, view: vw });
   } catch (error) { next(error); }

@@ -66,6 +66,8 @@ const ReportsPage = {
       'bank-ledger':         () => this.loadBankLedger(),
       'stock-report':        () => this.loadStockReport(),
       'summary-report':      () => this.loadSummaryReport(),
+      'unit-type-status':    () => this.loadUnitTypeStatus(),
+      'bank-wise-balance':   () => this.loadBankWiseBalance(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -750,6 +752,86 @@ const ReportsPage = {
         cells += `<td style="text-align:right">${r.avg_rate ? f(r.avg_rate).toFixed(2) : '—'}</td>`;
         return `<tr>${cells}</tr>`;
       });
+
+      this._table(cols, rows);
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // Unit Type Wise Unit Status — reuses /inventory-details' project_bhk_type groupBy
+  // branch (added for this report). Row grain is (project_id, bhk_type) compound key,
+  // never bhk_type alone, since bhk_type strings are project-specific.
+  loadUnitTypeStatus() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Unit Type Wise Unit Status</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:200px">
+              <label class="fl">Company</label>
+              <select class="fc" id="f-utsCompany">${this._companyOptions()}</select>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-primary" onclick="ReportsPage.fetchUnitTypeStatus()">FETCH</button>
+            <button class="btn btn-ghost"   onclick="ReportsPage.exportCsv('Unit_Type_Wise_Unit_Status.csv')">Export CSV</button>
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+    this.fetchUnitTypeStatus();
+  },
+
+  async fetchUnitTypeStatus() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    const companyId = document.getElementById('f-utsCompany')?.value || '';
+
+    const n = v => parseInt(v || 0);
+    const f = v => parseFloat(v || 0);
+    const pct = (part, total) => total ? ((part / total) * 100).toFixed(1) : '0.0';
+    const ua = (u, a) => `${u} / ${f(a).toFixed(1)}`;
+
+    try {
+      const res = await Api.get('/reports/inventory-details', {
+        params: { groupBy: 'project_bhk_type', view: 'details', companyId: companyId || undefined },
+      });
+      const data = res.data || [];
+      this._lastData = data;
+
+      const totalUnits = data.reduce((s, r) => s + n(r.total_units), 0);
+      const totalSold  = data.reduce((s, r) => s + n(r.sold_units), 0);
+      const totalUnsold = data.reduce((s, r) => s + n(r.unsold_units), 0);
+      this._kpis([
+        { label: 'Total Units',  value: totalUnits },
+        { label: 'Sold Units',   value: totalSold,   color: 'var(--accent)' },
+        { label: 'Unsold Units', value: totalUnsold, color: 'var(--green)'  },
+        { label: 'Sold %', value: pct(totalSold, totalUnits) + '%', color: 'var(--blue)' },
+      ]);
+
+      if (!data.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No units found</h3></div>'; return; }
+
+      const cols = ['#', 'Project', 'Unit Type', 'Total (Unit/Area)', 'Sold (Unit/Area)', 'Sold %',
+        'Booked', 'Allotted', 'Hold', 'Temp Surrender', 'Unsold (Unit/Area)', 'Unsold %', 'Avg Rate (₹/sqft)'];
+
+      const rows = data.map((r, i) => `
+        <tr>
+          <td style="color:var(--text3)">${i + 1}</td>
+          <td class="td-bold">${r.project_name || '—'}</td>
+          <td>${r.group_name || '—'}</td>
+          <td style="text-align:center;font-weight:600">${ua(n(r.total_units), r.total_area)}</td>
+          <td style="text-align:center;color:var(--accent);font-weight:600">${ua(n(r.sold_units), r.sold_area)}</td>
+          <td style="text-align:center">${pct(n(r.sold_units), n(r.total_units))}%</td>
+          <td style="text-align:center">${ua(n(r.booked_units), r.booked_area)}</td>
+          <td style="text-align:center">${ua(n(r.allotted_units), r.allotted_area)}</td>
+          <td style="text-align:center">${ua(n(r.hold_units), r.hold_area)}</td>
+          <td style="text-align:center">${ua(n(r.temp_surrender_units), r.temp_surrender_area)}</td>
+          <td style="text-align:center;color:var(--green);font-weight:600">${ua(n(r.unsold_units), r.unsold_area)}</td>
+          <td style="text-align:center">${pct(n(r.unsold_units), n(r.total_units))}%</td>
+          <td style="text-align:right">${r.avg_rate ? f(r.avg_rate).toFixed(2) : '—'}</td>
+        </tr>
+      `);
 
       this._table(cols, rows);
     } catch (err) { Utils.error(err.message); }
@@ -5337,6 +5419,53 @@ const ReportsPage = {
     }
   },
 
+  // Bank Wise Balance — reuses /cash-bank-summary verbatim with no date filter (all-time),
+  // presentation-only tab: date picker and monthly drill-down link are hidden here.
+  loadBankWiseBalance() {
+    this._main(this._filters('Bank Wise Balance', [
+      { id:'bwbCompany',   type:'select', label:'Company',    options: this._companyOptions() },
+      { id:'bwbProject',   type:'select', label:'Project',    options: this._projectOptions() },
+    ], 'fetchBankWiseBalance'));
+  },
+
+  async fetchBankWiseBalance() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = {
+        companyId: this._f('bwbCompany') || undefined,
+        projectId: this._f('bwbProject') || undefined,
+      };
+      const res  = await Api.get('/reports/cash-bank-summary', { params });
+      const rows_data = res.data || [];
+      const fmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
+
+      this._lastData = rows_data.map(r => ({
+        'Bank Name': r.bank_name,
+        'Account Name': r.account_name,
+        'Account Number': r.account_number,
+        'Debit': r.debit,
+        'Credit': r.credit,
+        'Closing Balance': r.closing_balance,
+      }));
+
+      if (!rows_data.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No bank accounts found</h3></div>'; return; }
+
+      const rows = rows_data.map(r => `
+        <tr>
+          <td class="td-bold">${r.bank_name}${r.account_name ? ' — ' + r.account_name : ''} (${r.account_number})</td>
+          <td style="text-align:right">${fmt(r.debit)}</td>
+          <td style="text-align:right">${fmt(r.credit)}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)}</td>
+        </tr>
+      `);
+
+      this._table(['PARTICULARS', 'DEBIT', 'CREDIT', 'CLOSING BALANCE'], rows);
+    } catch (err) {
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+    }
+  },
+
   async loadLedgerMonthlySummary(companyBankAccountId) {
     this._cbsDrilldownId = companyBankAccountId;
     this._main(`
@@ -5468,6 +5597,8 @@ Pages.reports = async function(params = {}) {
       items: [
         { id: 'cash-bank-summary', label: 'Cash/Bank Summary' },
         { id: 'bank-ledger', label: 'Bank Ledger' },
+        { id: 'unit-type-status', label: 'Unit Type Wise Unit Status' },
+        { id: 'bank-wise-balance', label: 'Bank Wise Balance' },
       ],
     },
   ];
