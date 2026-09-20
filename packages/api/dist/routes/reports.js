@@ -4723,5 +4723,169 @@ router.get('/stock-report', async (req, res, next) => {
         next(err);
     }
 });
+// GET /api/reports/summary-report - Company Wise Summary Report (CompanyWiseSummaryReport.aspx equivalent).
+// Company-level rollup combining Stock Report's unit/area/value logic with /project-wise-dues'
+// financialCols dues logic (both re-rooted from their original grain to company+project grain) plus
+// a separately-computed Due Interest figure. Column mapping (confirmed via audit, resolved by user):
+//   total/sold/balance unit+area, project_value/sold_value -> identical formulas to /stock-report.
+//   upto_received -> financialCols.total_received, upto_demanded -> financialCols.total_demanded,
+//   balance_recoverable -> financialCols.outstanding, current_os -> SAME value as balance_recoverable
+//   (legacy duplicate column, distinct UI label only, per explicit resolved decision — no separate
+//   overdue-filtering logic is built).
+// Due Interest cannot be a SQL SUM: it is a per-consumer, date-ordered waterfall (see
+// buildInterestRows() in payment-waterfall.ts) with a running balance and grace period entirely
+// within one consumer's own timeline. It is safe to SUM across consumers to company grain (confirmed
+// during audit) but must be computed by actually running the loop per consumer, exactly as
+// /applicant-payment-file does (same consumers/booking_records/units join, same receipts/demands/
+// penal_interests/global_settings/consumers queries, same buildInterestRows + penal_interests-override
+// call), then summed to company+project grain in application code.
+// Known dormant risk (pre-existing, inherited unmodified from /project-wise-dues' financialCols):
+// its correlated subqueries key off c.id (consumer) — a consumer holding >1 unit in the same project
+// would have demands/receipts double-counted per extra unit row. Verified via real data during the
+// audit that 0 consumers currently hold >1 unit, so this does not manifest today. Left as-is
+// (matching /project-wise-dues exactly) rather than restructuring, per explicit instruction not to
+// introduce new risk fixing a pre-existing edge case as a side effect of this task.
+router.get('/summary-report', async (req, res, next) => {
+    try {
+        const { companyId } = req.query;
+        const cid = companyId || null;
+        // Corrected unit-cost base (GST-exclusive) — identical to /stock-report and /project-wise-dues.
+        const unitCostBase = `
+      CASE WHEN br.balcony_charge_amount IS NOT NULL THEN
+        COALESCE(br.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br.balcony_charge_amount,0)
+      ELSE
+        COALESCE(br.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+      END
+    `;
+        // financialCols copy-pasted verbatim from /project-wise-dues (reports.ts:2561-2609) — only the
+        // FROM/JOIN root changes (company+project grain instead of project-only), the math is untouched.
+        const financialCols = `
+        COALESCE(SUM((
+          SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+        )),0) AS upto_demanded,
+        COALESCE(SUM((
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS upto_received,
+        COALESCE(SUM((
+          SELECT SUM(d.amount_due_inr) FROM demands d WHERE d.consumer_id = c.id
+        )),0) -
+        COALESCE(SUM((
+          SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled' AND r.is_advance IS NOT TRUE
+        )),0) AS balance_recoverable`;
+        const stockResult = await pool_1.db.query(`
+      SELECT
+        comp.id                                                                 AS company_id,
+        comp.name                                                               AS company_name,
+        pr.id                                                                   AS project_id,
+        pr.name                                                                 AS project_name,
+        'Sq.Ft.'                                                                AS uom,
+        COUNT(u.id)                                                             AS total_unit,
+        COALESCE(SUM(u.carpet_area_sqft), 0)                                    AS total_area,
+        COUNT(u.id) FILTER (WHERE u.status != 'available')                      AS sold_unit,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status != 'available'), 0) AS sold_area,
+        COUNT(u.id) FILTER (WHERE u.status = 'available')                       AS balance_unit,
+        COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status = 'available'), 0) AS balance_area,
+        COALESCE(SUM(
+          CASE WHEN u.status != 'available' THEN
+            CASE WHEN br_stock.balcony_charge_amount IS NOT NULL THEN
+              COALESCE(br_stock.basic_rate_inr_sqft,0) * COALESCE(u.carpet_area_sqft,0) + COALESCE(br_stock.balcony_charge_amount,0)
+            ELSE
+              COALESCE(br_stock.basic_rate_inr_sqft,0) * (COALESCE(u.carpet_area_sqft,0) + COALESCE(u.balcony_area_sqft,0))
+            END
+            - COALESCE(br_stock.dealer_adjustment_amount, 0)
+            - COALESCE(br_stock.company_inaugural_disc, 0)
+          ELSE 0 END
+        ), 0)                                                                   AS sold_value,
+        ${financialCols}
+      FROM projects pr
+      JOIN companies comp ON comp.id = pr.company_id
+      JOIN units u ON u.project_id = pr.id
+      LEFT JOIN LATERAL (
+        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc
+        FROM booking_records b
+        WHERE b.unit_id = u.id AND b.status != 'cancelled'
+        ORDER BY b.created_at DESC
+        LIMIT 1
+      ) br_stock ON true
+      LEFT JOIN (
+        SELECT DISTINCT ON (unit_id)
+          unit_id, consumer_id, basic_rate_inr_sqft, balcony_charge_amount
+        FROM booking_records
+        WHERE unit_id IS NOT NULL
+        ORDER BY unit_id, created_at DESC
+      ) br ON br.unit_id = u.id
+      LEFT JOIN consumers c ON c.id = br.consumer_id
+      WHERE ($1::uuid IS NULL OR comp.id = $1)
+      GROUP BY comp.id, comp.name, pr.id, pr.name
+      ORDER BY comp.name, pr.name
+      `, [cid]);
+        const rows = stockResult.rows;
+        // Due Interest — computed per-consumer, exactly as /applicant-payment-file does, then summed
+        // to company+project grain. Cannot be folded into the SQL aggregate above (see file header note).
+        const penalRateRes = await pool_1.db.query(`SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent' LIMIT 1`);
+        const penalRate = parseFloat(penalRateRes.rows[0]?.value || '15');
+        await Promise.all(rows.map(async (row) => {
+            const consumersRes = await pool_1.db.query(`
+          SELECT DISTINCT ON (c.id) c.id AS consumer_id, u.id AS unit_id
+          FROM consumers c
+          JOIN booking_records br ON br.consumer_id = c.id
+          JOIN units u ON u.id = COALESCE(br.unit_id, c.allocated_unit_id)
+          WHERE u.project_id = $1 AND br.status IN ('complete','pending_payment','active')
+          ORDER BY c.id, br.booking_date DESC
+          `, [row.project_id]);
+            let projectInterest = 0;
+            await Promise.all(consumersRes.rows.map(async (cons) => {
+                const [rcptsRes, demandsRes, piRes, consumerRes] = await Promise.all([
+                    pool_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+                 FROM receipts
+                 WHERE consumer_id = $1 AND status = 'cleared'
+                   AND payment_plan_id = (
+                     SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                     ORDER BY created_at DESC LIMIT 1
+                   )
+                 ORDER BY received_date ASC, created_at ASC`, [cons.consumer_id, cons.unit_id]),
+                    pool_1.db.query(`SELECT id, installment_index, installment_index AS installment_name,
+                   due_date, amount_due_inr, cgst_amount, sgst_amount,
+                   addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+                 FROM demands
+                 WHERE consumer_id = $1
+                   AND payment_plan_id = (
+                     SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2
+                     ORDER BY created_at DESC LIMIT 1
+                   )`, [cons.consumer_id, cons.unit_id]),
+                    pool_1.db.query(`SELECT installment_index,
+                   COALESCE(interest_waived_inr, 0) AS interest_waived_inr,
+                   GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0)) AS net_interest_inr
+                 FROM penal_interests
+                 WHERE consumer_id = $1`, [cons.consumer_id]),
+                    pool_1.db.query(`SELECT grace_period_days, interest_start_date FROM consumers WHERE id = $1`, [cons.consumer_id]),
+                ]);
+                const gracePeriodDays = parseInt(String(consumerRes.rows[0]?.grace_period_days || 0));
+                const interestStartDate = consumerRes.rows[0]?.interest_start_date
+                    ? new Date(String(consumerRes.rows[0].interest_start_date))
+                    : null;
+                const piMap = new Map();
+                for (const pi of piRes.rows) {
+                    if (parseFloat(pi.net_interest_inr) > 0) {
+                        piMap.set(Number(pi.installment_index), parseFloat(pi.net_interest_inr));
+                    }
+                }
+                const irRows = (0, payment_waterfall_js_1.buildInterestRows)(rcptsRes.rows, demandsRes.rows.map((d) => ({ ...d, installment_name: d.demand_type || String(d.installment_index) })), penalRate, { asOfDate: new Date(), gracePeriodDays, interestStartDate });
+                let consumerInterest = 0;
+                for (const ir of irRows) {
+                    const piOverride = piMap.get(ir.installment_index);
+                    consumerInterest += piOverride !== undefined ? piOverride : ir.interest_amount;
+                }
+                projectInterest += consumerInterest;
+            }));
+            row.due_interest = Math.round(projectInterest * 100) / 100;
+            row.current_os = row.balance_recoverable; // duplicate column — same value, distinct UI label, per resolved decision
+        }));
+        res.json({ success: true, data: rows });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 exports.default = router;
 //# sourceMappingURL=reports.js.map

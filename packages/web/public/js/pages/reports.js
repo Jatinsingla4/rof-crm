@@ -65,6 +65,7 @@ const ReportsPage = {
       'cash-bank-summary':   () => this.loadCashBankSummary(),
       'bank-ledger':         () => this.loadBankLedger(),
       'stock-report':        () => this.loadStockReport(),
+      'summary-report':      () => this.loadSummaryReport(),
     };
     (map[tab] || (() => this._notFound(tab)))();
   },
@@ -5035,6 +5036,105 @@ const ReportsPage = {
     } catch (err) { Utils.error(err.message); }
   },
 
+  loadSummaryReport() {
+    this._main(`
+      <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><div class="sp-title">Summary Report</div></div>
+        <div class="sp-body">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+            <div class="fg" style="flex:1;min-width:220px">
+              <label class="fl">Company</label>
+              <select class="fc" id="f-company"><option value="">&lt;--All--&gt;</option>${
+                (this._companies || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+              }</select>
+            </div>
+            <div style="margin-bottom:2px;display:flex;gap:8px">
+              <button class="btn btn-primary" onclick="ReportsPage.fetchSummaryReport()">FETCH</button>
+              <button class="btn btn-ghost" onclick="ReportsPage.exportCsv('Summary_Report.csv')">Export CSV</button>
+            </div>
+          </div>
+          <div style="margin-top:8px;font-size:11px;color:var(--text3)">
+            Note: Balance (Value) is unavailable — per-unit pricing is not yet entered for unbooked units.
+          </div>
+        </div>
+      </div>
+      <div id="rpt-kpis" style="display:grid;gap:12px;margin-bottom:12px"></div>
+      <div id="rpt-result"><div class="empty-state"><h3>Apply filters and click FETCH</h3></div></div>
+    `);
+  },
+
+  async fetchSummaryReport() {
+    const el = document.getElementById('rpt-result');
+    if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
+    try {
+      const params = { companyId: document.getElementById('f-company')?.value || undefined };
+      const res  = await Api.get('/reports/summary-report', { params });
+      const rows = res.data || [];
+
+      const fmtA = v => '₹' + parseFloat(v||0).toLocaleString('en-IN',{maximumFractionDigits:0});
+      const aR = 'text-align:right';
+
+      this._lastData = rows.map(r => ({
+        'Company':               r.company_name,
+        'Project':               r.project_name,
+        'UOM':                   r.uom,
+        'Total (Unit)':          r.total_unit,
+        'Total (Area)':          parseFloat(r.total_area || 0),
+        'Sold (Unit)':           r.sold_unit,
+        'Sold (Area)':           parseFloat(r.sold_area || 0),
+        'Balance (Unit)':        r.balance_unit,
+        'Balance (Area)':        parseFloat(r.balance_area || 0),
+        'Project Value':         parseFloat(r.sold_value || 0),
+        'Sold Value':            parseFloat(r.sold_value || 0),
+        'Upto Recd(+Pending)':   parseFloat(r.upto_received || 0),
+        'Balance Recoverable':   parseFloat(r.balance_recoverable || 0),
+        'Upto Demanded':         parseFloat(r.upto_demanded || 0),
+        'Current O/S':           parseFloat(r.current_os || 0),
+        'Due Interest':          parseFloat(r.due_interest || 0),
+      }));
+
+      const totalUnits    = rows.reduce((s, r) => s + Number(r.total_unit || 0), 0);
+      const soldValue     = rows.reduce((s, r) => s + Number(r.sold_value || 0), 0);
+      const dueInterest   = rows.reduce((s, r) => s + Number(r.due_interest || 0), 0);
+      this._kpis([
+        { label:'PROJECTS',      value: rows.length, color:'var(--accent)' },
+        { label:'TOTAL UNITS',   value: totalUnits,  color:'var(--accent)' },
+        { label:'SOLD VALUE',    value: fmtA(soldValue), color:'#198754' },
+        { label:'DUE INTEREST',  value: fmtA(dueInterest), color:'#dc3545' },
+      ]);
+
+      if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
+
+      const cols = ['COMPANY','PROJECT','UOM','TOTAL (UNIT)','TOTAL (AREA)','SOLD (UNIT)','SOLD (AREA)',
+        'BALANCE (UNIT)','BALANCE (AREA)','PROJECT VALUE','SOLD VALUE',
+        'UPTO RECD(+PENDING)','BALANCE RECOVERABLE','UPTO DEMANDED','CURRENT O/S','DUE INTEREST'];
+      const bodyRows = rows.map(r => `<tr>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.company_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${r.uom || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.total_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.total_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.sold_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.sold_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.balance_unit || 0}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.balance_area||0).toLocaleString('en-IN')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.sold_value)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR};color:#198754">${fmtA(r.sold_value)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.upto_received)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.balance_recoverable)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.upto_demanded)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.current_os)}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border);${aR};color:#dc3545">${fmtA(r.due_interest)}</td>
+        </tr>`).join('');
+
+      const el2 = document.getElementById('rpt-result');
+      if (el2) el2.innerHTML = `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr>${cols.map(c => `<th style="padding:6px 8px;border:1px solid var(--border);text-align:left">${c}</th>`).join('')}</tr></thead>
+        <tbody>${bodyRows}</tbody>
+      </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
   async fetchOtherChargeReport() {
     const el = document.getElementById('rpt-result');
     if (el) el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
@@ -5314,6 +5414,7 @@ Pages.reports = async function(params = {}) {
         { id: 'unit-sold-area',     label: 'Unit Sold/Availb. Area Wise' },
         { id: 'unit-cost',          label: 'Unit Cost' },
         { id: 'stock-report',       label: 'Stock Report' },
+        { id: 'summary-report',     label: 'Summary Report' },
       ],
     },
     {
