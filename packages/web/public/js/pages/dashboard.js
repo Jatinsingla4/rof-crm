@@ -10,14 +10,20 @@ Pages.dashboard = async function() {
     <div id="dash-alert"></div>
 
     <!-- KPI Cards -->
-    <div id="dash-kpis" class="kpi-row">
-      ${[...Array(6)].map(() => `<div class="kpi"><div class="page-loading"><div class="spinner"></div></div></div>`).join('')}
+    <div class="kpi-carousel">
+      <button class="kpi-arrow prev" onclick="DashboardPage.kpiScroll(-1)" aria-label="Previous">‹</button>
+      <div id="dash-kpis" class="kpi-track">
+        ${[...Array(6)].map(() => `<div class="kpi"><div class="page-loading"><div class="spinner"></div></div></div>`).join('')}
+      </div>
+      <button class="kpi-arrow next" onclick="DashboardPage.kpiScroll(1)" aria-label="Next">›</button>
+      <div id="dash-kpi-dots" class="kpi-dots"></div>
     </div>
 
     <!-- Row 1: Pending Cheques + Demand Status -->
     <div class="g2" style="margin-top:20px">
       <div class="tbl-wrap">
         <div class="tbl-hdr">
+          <span class="tbl-icon">📝</span>
           <div class="tbl-title">Pending Cheques</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/receipts')">View All</button></div>
         </div>
@@ -25,6 +31,7 @@ Pages.dashboard = async function() {
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
+          <span class="tbl-icon">📋</span>
           <div class="tbl-title">Demand Status</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demands')">Details</button></div>
         </div>
@@ -35,21 +42,26 @@ Pages.dashboard = async function() {
     <!-- Row 2: Pending Approval + Employee Ticket Details -->
     <div class="g2" style="margin-top:14px">
       <div class="tbl-wrap">
-        <div class="tbl-hdr"><div class="tbl-title">Pending Approval</div></div>
+        <div class="tbl-hdr"><span class="tbl-icon">✅</span><div class="tbl-title">Pending Approval</div></div>
         <div id="dash-pending-approval"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
+          <span class="tbl-icon">👥</span>
           <div class="tbl-title">Employee Wise Ticket Details</div>
-          <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">View All</button></div>
+          <div class="tbl-actions">
+            <button class="collapse-toggle" onclick="DashboardPage.toggleCollapse('dash-employee-tickets')" aria-label="Collapse">▾</button>
+            <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">View All</button>
+          </div>
         </div>
-        <div id="dash-employee-tickets"><div class="page-loading"><div class="spinner"></div></div></div>
+        <div id="dash-employee-tickets" class="collapsible-body"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
     </div>
 
     <!-- Row 3: Daily Status (full width) -->
     <div class="tbl-wrap" style="margin-top:14px">
       <div class="tbl-hdr">
+        <span class="tbl-icon">📊</span>
         <div class="tbl-title">Daily Status</div>
         <div class="tbl-actions"><span style="font-size:11px;color:var(--text3)">T = Today &nbsp;·&nbsp; M = This Month &nbsp;·&nbsp; TIID = Total Till Date</span></div>
       </div>
@@ -60,13 +72,18 @@ Pages.dashboard = async function() {
     <div class="g2" style="margin-top:14px">
       <div class="tbl-wrap">
         <div class="tbl-hdr">
+          <span class="tbl-icon">🅿</span>
           <div class="tbl-title">Parking Detail</div>
-          <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/parking')">Manage</button></div>
+          <div class="tbl-actions">
+            <button class="collapse-toggle collapsed" onclick="DashboardPage.toggleCollapse('dash-parking-detail')" aria-label="Expand">▾</button>
+            <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/parking')">Manage</button>
+          </div>
         </div>
-        <div id="dash-parking-detail"><div class="page-loading"><div class="spinner"></div></div></div>
+        <div id="dash-parking-detail" class="collapsible-body collapsed"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
+          <span class="tbl-icon">📅</span>
           <div class="tbl-title">Forthcoming Due</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demands')">Schedule</button></div>
         </div>
@@ -105,36 +122,43 @@ Pages.dashboard = async function() {
 
   document.getElementById('dash-kpis').innerHTML = `
     <div class="kpi c-teal" onclick="Router.navigate('/receipts')">
+      <span class="kpi-icon">💰</span>
       <div class="kpi-lbl">Today's Collection</div>
       <div class="kpi-val">${Utils.currency(totalCollection)}</div>
       <div class="kpi-sub">All projects today</div>
     </div>
     <div class="kpi c-warn" onclick="Router.navigate('/receipts')">
+      <span class="kpi-icon">📝</span>
       <div class="kpi-lbl">Pending Cheques</div>
       <div class="kpi-val">${totalPending}</div>
       <div class="kpi-sub">${Utils.currency(totalAmount)}</div>
     </div>
     <div class="kpi c-gold">
+      <span class="kpi-icon">🏦</span>
       <div class="kpi-lbl">PDC / Demand Draft</div>
       <div class="kpi-val">${totalPDC}</div>
       <div class="kpi-sub">Post-dated instruments</div>
     </div>
     <div class="kpi c-blue" onclick="Router.navigate('/receipts')">
+      <span class="kpi-icon">✅</span>
       <div class="kpi-lbl">Pending Approval</div>
       <div class="kpi-val">${totalApproval}</div>
       <div class="kpi-sub">Receipts awaiting approval</div>
     </div>
     <div class="kpi c-red" onclick="Router.navigate('/demands')">
+      <span class="kpi-icon">⏰</span>
       <div class="kpi-lbl">Today's Dues</div>
       <div class="kpi-val">${totalToday}</div>
       <div class="kpi-sub">${total17Days} due in next 7 days</div>
     </div>
     <div class="kpi c-accent" onclick="Router.navigate('/tasks')">
+      <span class="kpi-icon">🎫</span>
       <div class="kpi-lbl">Open Tickets</div>
       <div class="kpi-val">${totalTicketsOpen}</div>
       <div class="kpi-sub">Across all employees</div>
     </div>
   `;
+  DashboardPage.kpiInitDots();
 
   // Alert bar
   if (totalPending > 0 || totalApproval > 0) {
@@ -159,7 +183,7 @@ Pages.dashboard = async function() {
 
   document.getElementById('dash-pending-cheques').innerHTML = chequeRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">✓</div><div>No pending cheques</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>S.No.</th><th>Project</th>
           <th class="txt-right">Pending</th><th class="txt-right">Deposite</th><th class="txt-right">Total</th>
@@ -191,7 +215,7 @@ Pages.dashboard = async function() {
   // ── DEMAND STATUS TABLE ────────────────────────────────────────────────────
   document.getElementById('dash-demand-status').innerHTML = demandRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">📋</div><div>No demand data</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead>
           <tr>
             <th rowspan="2">Project</th>
@@ -229,7 +253,7 @@ Pages.dashboard = async function() {
   // ── PENDING APPROVAL TABLE ─────────────────────────────────────────────────
   document.getElementById('dash-pending-approval').innerHTML = approvalRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">✓</div><div>No pending approvals</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Consumer</th><th>Mobile</th><th>Project</th><th>Unit</th>
           <th class="txt-right">Amount</th><th>Mode</th><th>Date</th><th>Action</th>
@@ -251,7 +275,7 @@ Pages.dashboard = async function() {
   // ── EMPLOYEE TICKET DETAILS ────────────────────────────────────────────────
   document.getElementById('dash-employee-tickets').innerHTML = tickRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No active tickets</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Employee Name</th>
           <th class="txt-right">Total</th><th class="txt-right" style="color:var(--warn)">Open</th>
@@ -274,7 +298,7 @@ Pages.dashboard = async function() {
   // ── DAILY STATUS TABLE ─────────────────────────────────────────────────────
   document.getElementById('dash-daily-status').innerHTML = dailyRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">📊</div><div>No project data</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Project</th>
           <th class="txt-right">Sales (T)</th><th class="txt-right">Coll. (T)</th>
@@ -306,7 +330,7 @@ Pages.dashboard = async function() {
   // ── PARKING DETAIL TABLE ───────────────────────────────────────────────────
   document.getElementById('dash-parking-detail').innerHTML = parkRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">🅿</div><div>No parking data</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Project</th><th>Parking Type</th>
           <th class="txt-right">Total</th><th class="txt-right" style="color:var(--teal)">Paid</th>
@@ -329,7 +353,7 @@ Pages.dashboard = async function() {
   // ── FORTHCOMING DUE TABLE ──────────────────────────────────────────────────
   document.getElementById('dash-forthcoming-due').innerHTML = forthRows.length === 0
     ? `<div class="empty-state"><div class="empty-icon">📅</div><div>No upcoming dues</div></div>`
-    : `<div style="overflow-x:auto"><table class="dash-tbl">
+    : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Project Name</th>
           <th class="txt-right" style="color:var(--red)">Today</th>
@@ -373,5 +397,36 @@ const DashboardPage = {
       btn.textContent = 'Approve';
       Utils.error(err.message);
     }
+  },
+
+  kpiScroll(dir) {
+    const track = document.getElementById('dash-kpis');
+    if (!track) return;
+    const card = track.querySelector('.kpi');
+    const step = card ? card.offsetWidth + 11 : 180;
+    track.scrollBy({ left: dir * step, behavior: 'smooth' });
+  },
+
+  kpiInitDots() {
+    const track = document.getElementById('dash-kpis');
+    const dots = document.getElementById('dash-kpi-dots');
+    if (!track || !dots) return;
+    const cards = track.querySelectorAll('.kpi');
+    dots.innerHTML = [...cards].map((_, i) => `<span class="kpi-dot${i === 0 ? ' active' : ''}"></span>`).join('');
+    [...dots.children].forEach((dot, i) => {
+      dot.onclick = () => cards[i] && cards[i].scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+    });
+    track.onscroll = () => {
+      const idx = [...cards].findIndex(c => Math.abs(c.offsetLeft - track.scrollLeft) < c.offsetWidth / 2);
+      [...dots.children].forEach((dot, i) => dot.classList.toggle('active', i === Math.max(idx, 0)));
+    };
+  },
+
+  toggleCollapse(id) {
+    const body = document.getElementById(id);
+    if (!body) return;
+    body.classList.toggle('collapsed');
+    const btn = body.closest('.tbl-wrap').querySelector('.collapse-toggle');
+    if (btn) btn.classList.toggle('collapsed', body.classList.contains('collapsed'));
   },
 };
