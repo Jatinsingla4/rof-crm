@@ -5,7 +5,8 @@ yarn.lock
 package-lock.json
 
 # Build output
-# packages/api/dist is committed — Render serves pre-built files (no tsc on server)
+# packages/api/dist is committed for local runs (node dist/index.js). Render rebuilds it
+# on every deploy via `npm run build` (tsc && node copy-files.js), so keep it in sync before commits.
 packages/web/dist/
 packages/design-system/dist/
 build/
@@ -52,3 +53,8 @@ coverage/
 *.sqlite
 *.sqlite3
 db_export.sql
+backup_*.sql
+
+# Uploaded files: ignore contents, keep the folders (multer does not create them)
+packages/api/uploads/*/*
+!packages/api/uploads/*/.gitkeep
