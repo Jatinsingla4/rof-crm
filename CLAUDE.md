@@ -190,7 +190,8 @@ The user needs to review verification results before deciding to commit. Auto-co
 
 ## Repo facts (post-cleanup, 2026-10)
 
-- **Migrations** run ONLY via `npm run db:migrate` (`dist/db/migrations.js`). The old `run-migrations*.mjs` scripts were removed. 91 files in `src/db/migrations/`, all tracked. Numbering has gaps (037-039, 043-045, 060) and duplicates (015, 016, 061, plus 068b). Do not renumber.
+- **Migrations** run ONLY via `npm run db:migrate` (`dist/db/migrations.js`). The old `run-migrations*.mjs` scripts were removed. 91 files in `src/db/migrations/`, all tracked. Numbers run 001-094 (94 slots). 87 slots have a file; 91 files in total because 015, 016, 061 and 068 each have 2 files (`068b_create_interest_waivers_table.sql` shares 068). 037-039 and 043-045 have no file and no inline migration. 060 has no file and exists only inline (`060_store_ats_html_in_db`). 057, 058 and 059 have BOTH a file and an inline migration in `migrations.ts` (different names, e.g. file `059_seed_test_user.sql` and inline `059_seed_testuser`); both run. Do not renumber.
+- **Stray folder `packages/api/migrations/`** holds `043_alter_units_area_to_numeric.sql` and `045_add_registration_no_to_bookings.sql`. The runner does NOT read it (it reads `src/db/migrations`, compiled to `dist/db/migrations`). Nothing in `src/db/migrations`, `schema.sql` or the inline migrations makes the same changes: `schema.sql` still declares `units.carpet_area_sqft`, `super_area_sqft` and `balcony_area_sqft` as INT, and no migration adds `booking_records.registration_no`, `booking_records.form_no` or the `booking_counters` table. Neon already has all of them (the `db_export.sql` snapshot shows NUMERIC area columns, both booking_records columns and `booking_counters`), so they were applied by hand. A new database built only from `src/db/migrations` would lack them, and `routes/booking.ts` uses `booking_counters`. Do not move or delete the stray files until this is decided.
 - **Legal templates** live in `packages/api/src/templates/legal/*.html`. NEVER delete them. Migrations 053-055 insert `FILE:ats_rof_alante.html`-style placeholders into `document_templates`; `src/db/migrations.ts` replaces them with the file contents at migrate time.
 - **Removed in bb850f9 and 614009c** (still in git history, do not recreate): root and `packages/api` `run-migrations*.mjs`, `seed_ats_template.sql`, `seed_conveyance_template.sql`, `build_legal_templates.py`, `ats_complete_template.html`, `dl_*` and `demand_*` dumps, `test_*.sh`, `gen_hash.mjs`, `backup_before_client_demo_20260503.sql`, 7 test uploads.
 - **Upload folders** `booking-documents`, `consumer-photos`, `co-applicant-photos`, `multi-applicant-photos`, `company-logos` exist only through tracked `.gitkeep` files under `packages/api/uploads/`. Multer does not create them (only `companies.ts` creates `company-logos`). Never delete a `.gitkeep`. Upload contents are gitignored.
@@ -201,10 +202,13 @@ The user needs to review verification results before deciding to commit. Auto-co
 ## Known hazards and open decisions
 
 ### Consumers
-Neon has 4 consumers, by registration_no: `DEMO-2026-0001`, `ALAN-2026-0139`, `ALAN-2026-0140` (created 2026-09-23), `TULA-2026-0003` (created 2026-09-23). Older guidance said only 2 real consumers exist and must never be altered. The status of the two September consumers (real vs test) is UNCONFIRMED. Confirm with the owner before altering or deleting ANY consumer.
+The system is live. Neon has 4 consumers. Treat ALL 4 as real clients. Never alter or delete any consumer (or its bookings, demands or receipts) without the owner's approval.
+
+### Production database
+All development and verification so far ran against the production Neon database. There is no staging database. Use a Neon branch for local work; do not point local runs at production.
 
 ### Destructive script
-`packages/api/reset-to-clean-slate.mjs` is destructive and runs against whatever `DATABASE_URL` is set. Never run it without checking `DATABASE_URL` and getting explicit approval.
+`packages/api/reset-to-clean-slate.mjs` reads the `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` and `DB_PASSWORD` variables from `packages/api/.env` (defaults: localhost, 5432, rof_crm, postgres). It does NOT use `DATABASE_URL`. It deletes the demo data and every user except `super_admin`. This system is live: never run it. Do not point `DB_*` in `.env` at production.
 
 ### Auth (`packages/api/src/index.ts`, `authenticateToken`)
 - Accepts `'mock-jwt-token'` as super_admin when `NODE_ENV` is not production (~line 179).
@@ -212,10 +216,30 @@ Neon has 4 consumers, by registration_no: `DEMO-2026-0001`, `ALAN-2026-0139`, `A
 - Accepts the token in the URL as `?token=` (needed by letter/print routes).
 - Never checks that the user exists or is active (no DB lookup, no `is_active` check).
 - `render.yaml` sets `NODE_ENV=production`; `JWT_SECRET` and `DATABASE_URL` are `sync:false`, so they live only in the Render dashboard. `JWT_EXPIRES_IN=7d` in `render.yaml` (lines 19-20) is unused by the code, which hardcodes `expiresIn: '8h'` (`index.ts:331`).
-- Open: rotate the live super_admin password, remove the fallback secret and the mock token, add an `is_active` check.
+- Open: rotate the live super_admin password (only after removing the migrate-time re-seed, see hazard 1 below), remove the fallback secret and the mock token, add an `is_active` check.
 
 ### Render build
 `render.yaml` sets `NODE_ENV=production` while `typescript` is a devDependency; how `tsc` is resolved during the Render build is unverified. Check a Render build log before changing the build command.
+
+### Other hazards (verified 2026-10-11)
+1. Inline migration `059_seed_testuser` (`src/db/migrations.ts`) re-seeds the super_admin account on every `db:migrate`. It upserts `password_hash`, `is_active`, `role` and `name`, with no NODE_ENV guard. Render runs `db:migrate` on every deploy, so a password changed in the database is overwritten at the next deploy.
+2. There is no migration tracking table. All migrations replay on every deploy and rely on idempotency. Errors containing "already exists" are swallowed.
+3. Hardcoded fallback keys exist for `JWT_SECRET` (`index.ts`), `ENCRYPTION_KEY` (`routes/documents.ts:17`, protects `document_vault.file_url`) and `SMTP_SECRET` (`routes/smtp_config.ts:7`, protects `project_smtp_configs.password_encrypted`). If the real variable is unset, the code silently uses the literal in the repo. Changing a key makes existing encrypted rows undecryptable (`decrypt` then returns the stored text as is).
+4. `/api/health/debug` and `/api/health/templates` need no login. `/api/health/templates` returns template HTML from the database and, on failure, the raw error message.
+5. `docker-compose.yml` builds the api from `packages/api/Dockerfile`, which does not exist. The compose api service cannot build.
+6. `packages/api/.env.example` is out of step with the code. It lists many variables the code never reads and omits `DATABASE_URL`, `ENCRYPTION_KEY` and `SMTP_SECRET`.
+7. `src/queues/*` (Bull queue, scheduler, email and SMS workers) is dead code. Nothing imports it.
+8. `/uploads/*` is served with no login (`index.ts:256`). Booking documents, consumer photos, co-applicant photos, multi-applicant photos and company logos are readable by anyone who has the URL. Also, `render.yaml` has no persistent disk, so uploads may not survive a deploy (unverified; check the Render dashboard).
+
+### Integrations
+- Not used: Twilio (package listed, never imported; the SMS worker is an unwired stub), WhatsApp (`POST /api/communications/whatsapp` only writes a DB row), Puppeteer (no code, not in any `package.json`; only a leftover env var in `render.yaml`), Redis/Bull (dead queue code).
+- Live: Anthropic (optional `ANTHROPIC_API_KEY`, used in `routes/communications.ts`; skipped if unset), Neon (production Postgres via `DATABASE_URL`) and SMTP settings (per-project configs are stored encrypted by `routes/smtp_config.ts`; the worker that would send mail is not wired).
+
+### Data model notes
+- `receipts.status` has no CHECK or enum (`VARCHAR(50)`, default `'pending'`). The code assigns: `pending`, `authorized`, `deposited`, `cleared`, `on_hold`, `bounced`, `cancelled`.
+
+### Documentation status
+`README.md` is partly stale (for example the port and the page count). Its "Default Login" section is stale: it describes mock authentication, but the live system uses a real login. This file and the handover document are the source of truth.
 
 ### Known data gaps (deliberate, not bugs)
 - `company_bank_accounts` holds only a placeholder account.
