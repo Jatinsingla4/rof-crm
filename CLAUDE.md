@@ -65,7 +65,7 @@ Every commit must follow this sequence:
 1. Make changes in `packages/api/src/`
 2. **`cd packages/api && npx tsc`** ← MANDATORY BUILD STEP
 3. Verify zero TypeScript errors (command returns clean)
-4. `cd ../.. && git add -A`
+4. `cd ../.. && git add <specific files by name>` — stage specific files by name, then check `git status` before committing
 5. `git commit -m "message"`
 6. `git push origin main`
 
@@ -87,7 +87,7 @@ src/ changes → npx tsc → dist/ rebuilt → git add → commit → git push
 Render's auto-deploy will:
 1. Pull commit from GitHub
 2. Run `npm install && npm run build && npm run db:migrate` (rebuilds dist/ fresh from src/, then applies migrations)
-3. Start with `node dist/index.js`, serve production traffic
+3. Start with `node packages/api/dist/index.js` (run from repo root), serve production traffic
 
 Because Render rebuilds dist/ itself, a stale committed dist/ does NOT cause stale production code. It DOES cause incorrect behavior when running the app locally from the committed dist/ (no local rebuild step) — which is why the rebuild-before-commit rule above remains mandatory.
 
@@ -188,7 +188,44 @@ The user needs to review verification results before deciding to commit. Auto-co
 
 ---
 
-**Last Updated:** 2026-06-30  
+## Repo facts (post-cleanup, 2026-10)
+
+- **Migrations** run ONLY via `npm run db:migrate` (`dist/db/migrations.js`). The old `run-migrations*.mjs` scripts were removed. 91 files in `src/db/migrations/`, all tracked. Numbering has gaps (037-039, 043-045, 060) and duplicates (015, 016, 061, plus 068b). Do not renumber.
+- **Legal templates** live in `packages/api/src/templates/legal/*.html`. NEVER delete them. Migrations 053-055 insert `FILE:ats_rof_alante.html`-style placeholders into `document_templates`; `src/db/migrations.ts` replaces them with the file contents at migrate time.
+- **Removed in bb850f9 and 614009c** (still in git history, do not recreate): root and `packages/api` `run-migrations*.mjs`, `seed_ats_template.sql`, `seed_conveyance_template.sql`, `build_legal_templates.py`, `ats_complete_template.html`, `dl_*` and `demand_*` dumps, `test_*.sh`, `gen_hash.mjs`, `backup_before_client_demo_20260503.sql`, 7 test uploads.
+- **Upload folders** `booking-documents`, `consumer-photos`, `co-applicant-photos`, `multi-applicant-photos`, `company-logos` exist only through tracked `.gitkeep` files under `packages/api/uploads/`. Multer does not create them (only `companies.ts` creates `company-logos`). Never delete a `.gitkeep`. Upload contents are gitignored.
+- **Dependencies** are unpinned; npm is the API's package manager. `pnpm-lock.yaml` and `packages/api/package-lock.json` are gitignored and invalid (generated under pnpm links). Do not copy or commit them. Installs are not reproducible.
+
+---
+
+## Known hazards and open decisions
+
+### Consumers
+Neon has 4 consumers, by registration_no: `DEMO-2026-0001`, `ALAN-2026-0139`, `ALAN-2026-0140` (created 2026-09-23), `TULA-2026-0003` (created 2026-09-23). Older guidance said only 2 real consumers exist and must never be altered. The status of the two September consumers (real vs test) is UNCONFIRMED. Confirm with the owner before altering or deleting ANY consumer.
+
+### Destructive script
+`packages/api/reset-to-clean-slate.mjs` is destructive and runs against whatever `DATABASE_URL` is set. Never run it without checking `DATABASE_URL` and getting explicit approval.
+
+### Auth (`packages/api/src/index.ts`, `authenticateToken`)
+- Accepts `'mock-jwt-token'` as super_admin when `NODE_ENV` is not production (~line 179).
+- Falls back to a hardcoded `JWT_SECRET` literal when the env var is unset (~lines 201 and 327).
+- Accepts the token in the URL as `?token=` (needed by letter/print routes).
+- Never checks that the user exists or is active (no DB lookup, no `is_active` check).
+- `render.yaml` sets `NODE_ENV=production`; `JWT_SECRET` and `DATABASE_URL` are `sync:false`, so they live only in the Render dashboard. `JWT_EXPIRES_IN=7d` in `render.yaml` (lines 19-20) is unused by the code, which hardcodes `expiresIn: '8h'` (`index.ts:331`).
+- Open: rotate the live super_admin password, remove the fallback secret and the mock token, add an `is_active` check.
+
+### Render build
+`render.yaml` sets `NODE_ENV=production` while `typescript` is a devDependency; how `tsc` is resolved during the Render build is unverified. Check a Render build log before changing the build command.
+
+### Known data gaps (deliberate, not bugs)
+- `company_bank_accounts` holds only a placeholder account.
+- `units.base_price_inr` and `total_price_inr` are NULL everywhere.
+- Unsold Stock Value is deliberately unavailable in Stock Report and Summary Report.
+- Current O/S is deliberately identical to Balance Recoverable.
+
+---
+
+**Last Updated:** 2026-10-11  
 **Rule 0 Added:** 2026-06-05 (Working directory boundary — never touch Pay10 or Pay10 Bahrain)  
 **Rule 1 Added:** 2026-06-01 (Build dist/ before every commit)  
 **Rule 2 Added:** 2026-06-02 (Surgical changes only)  
@@ -227,6 +264,4 @@ The user needs to review verification results before deciding to commit. Auto-co
 | `e7c1a58` | Phase 5 |
 
 **CURRENT GIT STATE:**  
-Latest commit: `e7c1a58`  
-Working tree: CLEAN  
-Local = GitHub = Render ✅
+Do not trust a hardcoded hash here. Check with `git status`, `git log -1` and `git log origin/main..HEAD`. Last verified at `614009c`, tree clean, local main = origin/main (2026-10-11). Render deploy state is not verifiable from the repo.
