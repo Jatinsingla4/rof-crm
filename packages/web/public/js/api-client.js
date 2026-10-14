@@ -73,6 +73,10 @@ const Api = {
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData,
     });
+    if (res.status === 401) {
+      Auth.logout();
+      throw new Error('Session expired. Please log in again.');
+    }
     let data;
     try { data = await res.json(); } catch { data = {}; }
     if (!res.ok) throw new Error(data.error || data.message || `Upload failed (${res.status})`);

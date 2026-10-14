@@ -8,7 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = exports.db = void 0;
+exports.authenticateToken = exports.invalidateAuthUser = exports.db = void 0;
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
@@ -64,6 +64,15 @@ dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
+// Auth config. No fallback secret: a missing JWT_SECRET must stop the server, not sign tokens with a known value.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET)
+    throw new Error('JWT_SECRET is not set. Refusing to start.');
+// Dev shortcuts (mock token, passwordless login) need an explicit opt-in on top of a non-production NODE_ENV.
+const DEV_AUTH = isDev && process.env.ALLOW_DEV_AUTH === 'true';
+// Behind Render's proxy, req.ip must be the client address or every user shares one rate-limit bucket.
+if (!isDev)
+    app.set('trust proxy', 1);
 const pool_1 = require("./db/pool");
 var pool_2 = require("./db/pool");
 Object.defineProperty(exports, "db", { enumerable: true, get: function () { return pool_2.db; } });
@@ -115,40 +124,60 @@ app.use((req, res, next) => {
     }
     next();
 });
-const authenticateToken = (req, res, next) => {
+// Role, active flag and token_version are read from the DB (cached briefly) so that
+// deactivation, role changes and logout take effect without waiting for the JWT to expire.
+const AUTH_CACHE_MS = 15000;
+const authUserCache = new Map();
+const invalidateAuthUser = (userId) => { authUserCache.delete(userId); };
+exports.invalidateAuthUser = invalidateAuthUser;
+const loadAuthUser = async (userId) => {
+    const hit = authUserCache.get(userId);
+    if (hit && Date.now() - hit.at < AUTH_CACHE_MS)
+        return hit.user;
+    const r = await pool_1.db.query(`SELECT role, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE id = $1`, [userId]);
+    const user = r.rows[0] || null;
+    authUserCache.set(userId, { at: Date.now(), user });
+    if (authUserCache.size > 2000)
+        authUserCache.clear();
+    return user;
+};
+const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    // Accept ?token= query param as fallback for window.open() navigations (e.g. receipt HTML)
-    const token = (authHeader && authHeader.split(' ')[1]) || req.query.token || null;
+    // ?token= is accepted for GET only (window.open() navigations such as letters and receipts)
+    const queryToken = req.method === 'GET' ? req.query.token : null;
+    const token = (authHeader && authHeader.split(' ')[1]) || queryToken || null;
     if (!token) {
         return res.status(401).json({ error: 'Access token required' });
     }
-    // Development: Allow mock token
-    if (isDev && token === 'mock-jwt-token') {
+    // Development only, and only with ALLOW_DEV_AUTH=true
+    if (DEV_AUTH && token === 'mock-jwt-token') {
         req.userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
         req.userName = 'Test User';
         req.userRole = 'super_admin';
-        req.userPermissions = [
-            'view_consumers', 'create_consumers', 'edit_consumers', 'delete_consumers',
-            'view_units', 'create_units', 'edit_units', 'delete_units',
-            'view_allotments', 'create_allotments', 'edit_allotments', 'cancel_allotments',
-            'view_payments', 'record_payments', 'view_overdue', 'calculate_interest',
-            'view_documents', 'generate_documents', 'upload_documents', 'delete_documents',
-            'view_communications', 'send_email', 'send_whatsapp', 'send_sms',
-            'view_reports', 'export_reports',
-            'manage_users', 'manage_roles', 'view_audit_logs',
-        ];
+        req.userPermissions = [];
         return next();
     }
+    let decoded;
     try {
-        const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET || 'secret');
+        decoded = jsonwebtoken_1.default.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    }
+    catch {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    try {
+        const user = await loadAuthUser(decoded.userId);
+        if (!user || user.is_active === false || user.token_version !== (decoded.tv ?? 0)) {
+            return res.status(401).json({ error: 'Session is no longer valid. Please sign in again.' });
+        }
         req.userId = decoded.userId;
         req.userName = decoded.name || decoded.email || 'Unknown';
-        req.userRole = decoded.role;
+        req.userRole = user.role;
         req.userPermissions = decoded.permissions || [];
         next();
     }
     catch (err) {
-        return res.status(403).json({ error: 'Invalid or expired token' });
+        console.error('Auth lookup failed:', err);
+        return res.status(503).json({ error: 'Authentication service unavailable' });
     }
 };
 exports.authenticateToken = authenticateToken;
@@ -160,6 +189,9 @@ const rbac = (resource) => (req, res, next) => {
         GET: 'view', POST: 'create', PATCH: 'edit', PUT: 'edit', DELETE: 'delete',
     };
     const action = methodToAction[req.method] || 'view';
+    // Every signed-in user may read their own profile and process permissions
+    if (resource === 'users' && req.method === 'GET' && req.path === '/me')
+        return next();
     return (0, rbac_js_1.requirePermission)(resource, action)(req, res, next);
 };
 // ============================================
@@ -209,6 +241,9 @@ app.get('/api/import/template/units', (req, res) => {
 // ============================================
 // AUTH ENDPOINT
 // ============================================
+const LOGIN_MAX_FAILS = 5;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const loginFailures = new Map();
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -217,8 +252,18 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (typeof email !== 'string' || typeof password !== 'string') {
         return res.status(400).json({ error: 'Invalid input' });
     }
+    // Per account and per IP lockout on top of the per IP limiter
+    const failKey = `${req.ip}|${email.toLowerCase().trim()}`;
+    const fails = loginFailures.get(failKey);
+    if (fails && fails.until > Date.now()) {
+        return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
+    }
+    if (fails && fails.until && fails.until <= Date.now())
+        loginFailures.delete(failKey);
+    if (loginFailures.size > 5000)
+        loginFailures.clear();
     try {
-        const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
+        const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
         const user = result.rows[0];
         // Always return same error to prevent email enumeration
         if (!user || user.is_active === false) {
@@ -226,8 +271,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         }
         let validPassword = false;
         if (!user.password_hash) {
-            // No password set — allow login in dev only
-            validPassword = isDev;
+            // No password set: only with the explicit dev opt-in
+            validPassword = DEV_AUTH;
         }
         else if (user.password_hash.startsWith('$2')) {
             // bcrypt hash
@@ -244,10 +289,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             }
         }
         if (!validPassword) {
+            const f = loginFailures.get(failKey) || { count: 0, until: 0 };
+            f.count += 1;
+            if (f.count >= LOGIN_MAX_FAILS)
+                f.until = Date.now() + LOGIN_LOCK_MS;
+            loginFailures.set(failKey, f);
             return res.status(401).json({ error: 'Invalid email or password' });
         }
-        const secret = process.env.JWT_SECRET || 'secret';
-        const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email, name: user.name, role: user.role }, secret, { expiresIn: '8h' });
+        loginFailures.delete(failKey);
+        const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email, name: user.name, role: user.role, tv: user.token_version }, JWT_SECRET, { expiresIn: '8h', algorithm: 'HS256' });
         return res.json({
             success: true,
             token,
@@ -256,6 +306,20 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
     catch (err) {
         console.error('Login error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Server side sign out: bumping token_version invalidates every token issued so far for this user
+app.post('/api/auth/logout', exports.authenticateToken, async (req, res) => {
+    try {
+        if (req.userId && req.userId !== 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa') {
+            await pool_1.db.query(`UPDATE users SET token_version = COALESCE(token_version, 0) + 1 WHERE id = $1`, [req.userId]);
+            (0, exports.invalidateAuthUser)(req.userId);
+        }
+        return res.json({ success: true });
+    }
+    catch (err) {
+        console.error('Logout error:', err);
         return res.status(500).json({ error: 'Internal server error' });
     }
 });

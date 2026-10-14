@@ -484,6 +484,7 @@ router.patch('/employee-login/:id', async (req: AuthRequest, res: Response, next
       const hash = await bcrypt.hash(password, 12);
       updates.push(`password_hash = $${idx++}`);
       values.push(hash);
+      updates.push('token_version = COALESCE(token_version, 0) + 1'); // sign out existing sessions
     }
 
     const client = await db.connect();

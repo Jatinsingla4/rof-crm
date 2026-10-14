@@ -59,6 +59,14 @@ const Auth = {
 
   logout() {
     if (typeof Permissions !== 'undefined') Permissions.clear();
+    const token = this.getToken();
+    if (token) {
+      // Invalidate the token on the server too; ignore failures (offline, already expired)
+      fetch(`${ROF.API_BASE}/auth/logout`, {
+        method: 'POST', keepalive: true,
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
     this.clearToken();
     window.location.href = '/pages/login.html';
   },

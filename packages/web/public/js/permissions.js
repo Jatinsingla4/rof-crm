@@ -11,6 +11,7 @@ const Permissions = (() => {
       const res = await fetch(`${ROF.API_BASE}/users/me`, {
         headers: { Authorization: `Bearer ${Auth.getToken()}` },
       });
+      if (res.status === 401) { Auth.logout(); return; }
       if (!res.ok) return;
       const json = await res.json();
       _data = json.data;
