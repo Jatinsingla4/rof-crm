@@ -221,7 +221,7 @@ These are specific to running the project on a developer machine.
 ## 7. Design strengths
 
 - Passwords are hashed with bcrypt (12 rounds). Legacy hashes upgrade silently at next login.
-- Generic failure message, so account existence is not leaked.
+- Generic failure message, and (after the edge case round, section 11) the same response time for known and unknown emails, so account existence is not leaked.
 - Parameterised SQL. Email is normalised (trim, lower case).
 - JWT verification rejects expired, tampered and `alg:none` tokens.
 - Deactivated users cannot start a new session, and (after the fixes) existing sessions end within seconds.
@@ -307,3 +307,50 @@ Then open `http://localhost:3001`, sign in, confirm the dashboard loads, and sig
 ---
 
 *Prepared for ROF Group by Grapes Worldwide. Based on code at the working tree of 2026-10-14 and a local run. Production (Render and Neon) was not touched or tested.*
+
+---
+
+## 11. Edge case round (2026-10-16)
+
+A second round on the local server with temporary users (removed afterwards). It found 5 issues, all fixed and re-tested.
+
+| # | Case | Before | After |
+|---|---|---|---|
+| 1 | Response time, wrong password for a real account vs an unknown email | 280 ms vs 2 ms (reveals which emails are registered) | 281 ms vs 281 ms (a dummy bcrypt compare runs for unknown or inactive accounts) |
+| 2 | Email containing a NUL byte | 500 | 401 (emails over 320 characters also get 401) |
+| 3 | Malformed JSON body, body over 10 MB | 500 | 400 and 413 |
+| 4 | `Cache-Control` on `/api/auth/*` responses | not set | `no-store` |
+| 5 | Password longer than 72 bytes: bcrypt ignores everything after byte 72, so a wrong tail was accepted | 200 | New passwords over 72 bytes are refused (400) when a user is created, a login is created, or a password is updated or changed |
+
+Cases that already behaved correctly: email case and surrounding spaces, password case and leading or trailing space, empty and missing fields, numbers, arrays and objects instead of strings (NoSQL style), SQL injection in email and password, unicode and emoji, a 10,000 character email, a 100,000 character password, empty body, `GET` and `PUT` on the login path (404), the generic error body, and `nosniff` and HSTS headers. Five wrong attempts for one IP and email lock that pair for 15 minutes (429), including for the correct password.
+
+Two more issues surfaced when the password paths were tested end to end (section 12):
+
+| # | Case | Before | After |
+|---|---|---|---|
+| 6 | A non-admin user changing their own password (`POST /api/users/:id/change-password`) | 403, because the `users` role check blocks every non-admin before the route runs, although the route has its own "own password only" logic | Allowed for the signed-in user's own id only (other ids still return 403) |
+| 7 | Sessions after a password change through `change-password` | Old tokens kept working | `token_version` is increased and the auth cache is cleared, so old tokens return 401 |
+
+Notes:
+- Form encoded bodies (`application/x-www-form-urlencoded`) are accepted by design, because the server parses them.
+- A 72 byte password that already exists keeps working with the same first 72 bytes. Only new passwords are limited.
+- All four password paths were called end to end (section 12).
+- Not changed: password strength rules beyond the 8 character minimum, and password reset by email (no such flow exists).
+
+---
+
+## 12. End to end password test (2026-10-16)
+
+Run against a database built from `packages/api/src/db/baseline/schema_baseline.sql` (the local development database lacks columns such as `users.username`, so the employee login routes cannot run there). Temporary users were created and removed. Result: **33 of 33 checks pass.**
+
+| Group | Checks |
+|---|---|
+| Create user (`POST /api/users`) | 73 byte password refused (400). Valid password creates the user (201) and the user can log in. A user created with a short password gets no password hash and cannot log in (401). |
+| Employee login (`POST /api/users/employee-login`) | 73 byte (400), short (400), mismatched confirmation (400), valid (200) and login with that password. |
+| Employee login update (`PATCH /api/users/employee-login/:id`) | 73 byte (400), valid (200), old password refused, new password works, token issued before the change returns 401. |
+| Change password (`POST /api/users/:id/change-password`) | Own password: 73 byte (400), missing current password (400), wrong current password (401), valid (200), new password works, old password refused, old token returns 401. A non-admin changing another user's password gets 403. A super_admin changing another user's password succeeds and the target can log in. |
+| Regression | Fresh token works, no token 401, logout revokes the token, inactive user refused (login and old token), lockout after 5 failures (429), other accounts unaffected, `sales_executive` can read `/api/users/me` and gets 403 on `/api/users`. |
+
+Behaviour to know:
+- Creating a user with a password shorter than 8 characters through `POST /api/users` succeeds but stores no password, so that user cannot sign in until a password is set. This is existing behaviour and was not changed.
+- Reactivating or deactivating a user, or changing a role by direct database edit, takes up to 15 seconds to apply to tokens already issued (auth cache). Password changes through the API clear the cache at once.

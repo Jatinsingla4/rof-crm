@@ -192,6 +192,9 @@ const rbac = (resource) => (req, res, next) => {
     // Every signed-in user may read their own profile and process permissions
     if (resource === 'users' && req.method === 'GET' && req.path === '/me')
         return next();
+    // Every signed-in user may change their own password (the route itself checks the current password)
+    if (resource === 'users' && req.method === 'POST' && req.path === `/${req.userId}/change-password`)
+        return next();
     return (0, rbac_js_1.requirePermission)(resource, action)(req, res, next);
 };
 // ============================================
@@ -241,9 +244,13 @@ app.get('/api/import/template/units', (req, res) => {
 // ============================================
 // AUTH ENDPOINT
 // ============================================
+// Compared against when the account does not exist, so response time does not reveal which emails are registered
+const DUMMY_HASH = '$2a$12$sa7LeROPXNZkq2afAye6LuncKbiuFGc0Qx7OUrtgNja4dbiffmqkC';
 const LOGIN_MAX_FAILS = 5;
 const LOGIN_LOCK_MS = 15 * 60 * 1000;
 const loginFailures = new Map();
+// Tokens must never be cached by browsers or proxies
+app.use('/api/auth', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -251,6 +258,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
     if (typeof email !== 'string' || typeof password !== 'string') {
         return res.status(400).json({ error: 'Invalid input' });
+    }
+    // Postgres rejects NUL bytes; treat such input as a failed login, not a server error
+    if (email.includes('\u0000') || email.length > 320) {
+        return res.status(401).json({ error: 'Invalid email or password' });
     }
     // Per account and per IP lockout on top of the per IP limiter
     const failKey = `${req.ip}|${email.toLowerCase().trim()}`;
@@ -267,6 +278,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         const user = result.rows[0];
         // Always return same error to prevent email enumeration
         if (!user || user.is_active === false) {
+            await bcryptjs_1.default.compare(password, DUMMY_HASH);
             return res.status(401).json({ error: 'Invalid email or password' });
         }
         let validPassword = false;
@@ -438,6 +450,11 @@ app.get(/^(?!\/api\/).*/, (req, res) => {
 // ERROR HANDLING
 // ============================================
 app.use((err, req, res, next) => {
+    // Body parser errors (bad JSON, body too large) are client errors, not server errors
+    const clientStatus = err.status || err.statusCode;
+    if (clientStatus >= 400 && clientStatus < 500) {
+        return res.status(clientStatus).json({ error: clientStatus === 413 ? 'Request too large' : 'Bad request' });
+    }
     console.error('Error:', err);
     res.status(500).json({
         error: 'Internal server error',
@@ -453,10 +470,13 @@ app.use((err, req, res, next) => {
     // 80+ sequential DB queries blocked app.listen(), server never bound to port.
     lastMigrationLog = ['[STARTUP] Migrations skipped at runtime — applied during build phase'];
     console.log('[STARTUP] Skipping runtime migrations (already applied during build)');
-    app.listen(Number(PORT), '0.0.0.0', () => {
-        console.log(`ROF CRM API running on port ${PORT}`);
-        console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
+    // On Vercel the exported app is the request handler; only bind a port elsewhere
+    if (!process.env.VERCEL) {
+        app.listen(Number(PORT), '0.0.0.0', () => {
+            console.log(`ROF CRM API running on port ${PORT}`);
+            console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+        });
+    }
 })();
 exports.default = app;
 //# sourceMappingURL=index.js.map

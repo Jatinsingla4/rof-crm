@@ -1,0 +1,12 @@
+{
+  "installCommand": "cd packages/api && npm install --include=dev",
+  "buildCommand": "cd packages/api && npx tsc && node copy-files.js",
+  "outputDirectory": "packages/web/public",
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "{packages/web/public/**,packages/api/dist/**,packages/api/node_modules/**}"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+}

@@ -6,11 +6,14 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../index.js';
-import { AuthRequest } from '../index.js';
+import { AuthRequest, invalidateAuthUser } from '../index.js';
 
 const router = Router();
 
 // Pre-defined roles
+// bcrypt only uses the first 72 bytes; refuse longer passwords instead of silently ignoring the rest
+const passwordTooLong = (p: unknown) => typeof p === 'string' && Buffer.byteLength(p) > 72;
+
 const ROLES = {
   SUPER_ADMIN: 'super_admin',
   PROJECT_MANAGER: 'project_manager',
@@ -34,6 +37,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
 
     let passwordHash: string | null = null;
+    if (passwordTooLong(password)) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
     if (password && typeof password === 'string' && password.length >= 8) {
       passwordHash = await bcrypt.hash(password, 12);
     }
@@ -335,6 +339,7 @@ router.post('/employee-login', async (req: AuthRequest, res: Response, next: Nex
     if (password.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
+    if (passwordTooLong(password)) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
 
     const hash = await bcrypt.hash(password, 12);
     let userName = username;
@@ -480,6 +485,7 @@ router.patch('/employee-login/:id', async (req: AuthRequest, res: Response, next
     if (isActive !== undefined)           { updates.push(`is_active = $${idx++}`);                values.push(isActive); }
     if (assignedProjectIds !== undefined) { updates.push(`assigned_project_ids = $${idx++}`);    values.push(JSON.stringify(assignedProjectIds)); }
     if (ipSecurityEnabled !== undefined)  { updates.push(`ip_security_enabled = $${idx++}`);     values.push(ipSecurityEnabled); }
+    if (passwordTooLong(password)) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
     if (password) {
       const hash = await bcrypt.hash(password, 12);
       updates.push(`password_hash = $${idx++}`);
@@ -690,6 +696,7 @@ router.post('/:id/change-password', async (req: AuthRequest, res: Response, next
     if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
+    if (passwordTooLong(newPassword)) return res.status(400).json({ error: 'Password must be at most 72 bytes' });
 
     // Non-admins can only change their own password
     if (req.userRole !== 'super_admin' && req.userId !== id) {
@@ -717,7 +724,7 @@ router.post('/:id/change-password', async (req: AuthRequest, res: Response, next
     const hashedPassword = await bcrypt.hash(newPassword, 12);
 
     const result = await db.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2
+      `UPDATE users SET password_hash = $1, token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() WHERE id = $2
        RETURNING id, name, email`,
       [hashedPassword, id]
     );
@@ -725,6 +732,7 @@ router.post('/:id/change-password', async (req: AuthRequest, res: Response, next
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'User not found' });
     }
+    invalidateAuthUser(id); // existing sessions of this user stop working now
 
     res.json({
       success: true,

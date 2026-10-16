@@ -58,3 +58,5 @@ backup_*.sql
 # Uploaded files: ignore contents, keep the folders (multer does not create them)
 packages/api/uploads/*/*
 !packages/api/uploads/*/.gitkeep
+.vercel
+.env*
