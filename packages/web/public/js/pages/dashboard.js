@@ -112,12 +112,16 @@ Pages.dashboard = async function() {
   `;
 
   // Load all data in parallel — summary + dedicated endpoints
+  const mine = document.getElementById('dash-kpis');
   const [summaryRes, dailyRes, parkingRes, ticketsRes] = await Promise.allSettled([
     Api.get('/dashboard/summary'),
     Api.get('/dashboard/daily-status'),
     Api.get('/dashboard/parking-detail'),
     Api.get('/dashboard/employee-tickets'),
   ]);
+
+  // The user may have gone to another page while the numbers loaded; this dashboard is gone, so stop.
+  if (!mine || !mine.isConnected) return;
 
   const summary   = summaryRes.status === 'fulfilled'  ? (summaryRes.value.data   || {}) : {};
   const dailyRows = dailyRes.status === 'fulfilled'    ? (dailyRes.value.data     || []) : [];
