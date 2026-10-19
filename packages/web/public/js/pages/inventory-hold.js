@@ -8,6 +8,32 @@ Pages.inventoryHold = async function(params = {}) {
       <div class="breadcrumb">Investor & Hold / <b>Unit Holds</b></div>
     </div>
 
+    <style>
+      .ihd { max-width:1280px; margin-left:auto; margin-right:auto }
+      .ihd .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:0 }
+      .ihd .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .ihd .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .ihd .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .ihd .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .ihd .tbl-wrap table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .ihd .tbl-wrap th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .ihd .tbl-wrap td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .ihd .tbl-wrap tbody tr:hover td { background:var(--surface2) }
+      .ihd .tbl-wrap small { color:var(--text3) }
+      .ihd .sp { border-radius:10px; overflow:hidden }
+      .ihd .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .ihd .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .ihd .sp-body { padding:18px }
+      .ihd .sp-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px }
+      .ihd .fg { gap:6px }
+      .ihd .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .ihd .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .ihd .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .ihd .btn-teal { background:var(--teal); color:#fff; border:none; padding:9px 26px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .ihd .btn-teal:hover { filter:brightness(.92) }
+      .ihd .btn-warn { border-radius:6px }
+    </style>
+    <div class="ihd">
     <div class="tabs-line">
       <button class="tab-line active" data-group="hold" data-tab="active" onclick="switchTab('hold','active');InventoryHoldPage.loadHolds('active')">Active Holds</button>
       <button class="tab-line" data-group="hold" data-tab="history" onclick="switchTab('hold','history');InventoryHoldPage.loadHolds('all')">Hold History</button>
@@ -57,7 +83,7 @@ Pages.inventoryHold = async function(params = {}) {
 
     <!-- Create Hold -->
     <div data-panel-group="hold" data-panel="create" style="display:none">
-      <div class="sp" style="margin-top:16px;max-width:800px;">
+      <div class="sp" style="margin-top:16px;max-width:900px;">
         <div class="sp-hdr"><div class="sp-title">Create Unit Hold (24-48 Hours)</div></div>
         <div class="sp-body">
           <div class="alert alert-warn" style="margin-bottom:16px">
@@ -108,6 +134,7 @@ Pages.inventoryHold = async function(params = {}) {
           </div>
         </div>
       </div>
+    </div>
     </div>
   `;
 
