@@ -4,7 +4,7 @@
  * Enforces role-based permissions across all API routes
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requirePermission = void 0;
+exports.requirePermission = exports.hasPermission = void 0;
 const rolePermissions = {
     super_admin: {
         consumers: ['view', 'create', 'edit', 'delete'],
@@ -19,6 +19,7 @@ const rolePermissions = {
         inventory_hold: ['view', 'create', 'edit', 'delete'],
         smtp_configs: ['view', 'create', 'edit', 'delete'],
         calling: ['view', 'create', 'edit', 'delete'],
+        master_data: ['view', 'create', 'edit', 'delete'],
     },
     project_manager: {
         consumers: ['view', 'create', 'edit'],
@@ -30,6 +31,7 @@ const rolePermissions = {
         reports: ['view'],
         users: ['view'],
         inventory_hold: ['view', 'create', 'edit'],
+        master_data: ['view', 'create', 'edit'],
     },
     sales_executive: {
         consumers: ['view', 'create', 'edit'],
@@ -76,6 +78,8 @@ const rolePermissions = {
         users: [],
     },
 };
+const hasPermission = (role, resource, action) => !!(role && rolePermissions[role]?.[resource]?.includes(action));
+exports.hasPermission = hasPermission;
 const requirePermission = (resource, action) => {
     return (req, res, next) => {
         const userRole = req.userRole;

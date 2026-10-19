@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ROF Group — Real Estate Manager</title>
 <link rel="stylesheet" href="/css/rof.css">
+<link rel="stylesheet" href="/css/set-master.css">
 <style>
 /* 4-level nav: sub-sub-dd inside sub-sub-dd */
 .sub-sub-dd .has-sub { position: relative; }
@@ -62,15 +63,13 @@
 
       <div class="dd-link has-sub">Set Up <span class="arr">▶</span>
         <div class="sub-dd">
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'country'})">Country Master</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'state'})">State Master</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'city'})">City Master</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'salutation'})">Salutation</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'profession'})">Profession</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'nationality'})">Nationality</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'bank'})">Bank Master</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'source'})">Source Of Enquiry</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'company'})">Company Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'locations'})">Locations (country, state, city)</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'lists',list:'salutations'})">Salutation</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'lists',list:'professions'})">Profession</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'lists',list:'nationalities'})">Nationality</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'lists',list:'sources'})">Source of Enquiry</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'banks'})">Banks</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'companies'})">Companies</a>
         </div>
       </div>
 
@@ -95,8 +94,8 @@
 
       <div class="dd-link has-sub">Documents <span class="arr">▶</span>
         <div class="sub-dd">
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'doctype'})">Document Type Creation</a>
-          <a class="dd-link" onclick="Router.navigate('/set-master',{tab:'dispatch'})">Document Dispatch Master</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'checklist'})">Document Checklist</a>
+          <a class="dd-link" onclick="Router.navigate('/set-master',{screen:'dispatch'})">Document Dispatch Log</a>
         </div>
       </div>
 
@@ -540,6 +539,8 @@
 <script src="/js/pages/analytics.js"></script>
 <script src="/js/pages/leads.js"></script>
 <script src="/js/pages/set-master.js"></script>
+<script src="/js/pages/set-master-docs.js"></script>
+<script src="/js/pages/set-master-company.js"></script>
 <script src="/js/pages/set-projects.js"></script>
 <script src="/js/pages/automation.js"></script>
 <script src="/js/pages/import.js"></script>

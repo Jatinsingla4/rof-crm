@@ -5,8 +5,32 @@
 
 import { Pool } from 'pg';
 
+// Bank account numbers are kept to their last four digits in the log
+const MASKED_KEYS = ['account_number', 'bank_account_no'];
+const maskSecrets = (o?: object) => {
+  if (!o) return o;
+  const c: Record<string, any> = { ...o };
+  for (const k of MASKED_KEYS) if (typeof c[k] === 'string') c[k] = 'XXXX' + c[k].slice(-4);
+  return c;
+};
+
+// Logs one change and tells the generic autoAudit middleware not to log the same request again
+export const auditChange = (
+  db: Pick<Pool, 'query'>,
+  req: { userId?: string },
+  res: { locals: Record<string, any> },
+  action: 'create' | 'update' | 'delete',
+  resourceType: string,
+  resourceId: string,
+  previousValues?: object,
+  newValues?: object
+): Promise<void> => {
+  res.locals.auditLogged = true;
+  return logAudit(db, req.userId || null, action, resourceType, resourceId, maskSecrets(previousValues), maskSecrets(newValues));
+};
+
 export const logAudit = async (
-  db: Pool,
+  db: Pick<Pool, 'query'>,
   userId: string | null,
   action: 'create' | 'update' | 'delete' | 'view',
   resourceType: string,

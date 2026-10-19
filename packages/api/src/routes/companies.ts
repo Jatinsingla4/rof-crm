@@ -4,8 +4,58 @@ import path from 'path';
 import fs from 'fs';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { auditChange } from '../middleware/auditLogger.js';
 
 const router = Router();
+
+const LOGO_EXT: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/gif': '.gif' };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Format checks for tax and bank identifiers. Values are upper-cased before checking.
+const FORMATS: Record<string, [RegExp, string]> = {
+  gstin:      [/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, 'GSTIN must be 15 characters, for example 06ABCDE1234F1Z5'],
+  pan_no:     [/^[A-Z]{5}[0-9]{4}[A-Z]$/, 'PAN must be 10 characters, for example ABCDE1234F'],
+  cin:        [/^[LU][0-9]{5}[A-Z]{2}[0-9]{4}[A-Z]{3}[0-9]{6}$/, 'CIN must be 21 characters, for example U70100HR2015PTC012345'],
+  bank_ifsc:  [/^[A-Z]{4}0[A-Z0-9]{6}$/, 'IFSC must be 11 characters: 4 letters, 0, then 6 letters or digits'],
+  pin_code:   [/^[1-9][0-9]{5}$/, 'PIN code must be 6 digits'],
+  phone:      [/^[0-9+()\-\s]{6,20}$/, 'Phone number is not valid'],
+  email:      [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Email address is not valid'],
+};
+// Company details are printed into letters as HTML, so markup characters are not accepted in any text field
+const hasMarkup = (v: unknown) => typeof v === 'string' && /[<>]/.test(v);
+
+const COMPANY_COLUMNS = ['name', 'code', 'group_name', 'address1', 'address2', 'address3', 'city', 'state', 'country', 'pin_code',
+  'phone', 'fax', 'email', 'website', 'gstin', 'cin', 'pan_no', 'service_tax_no', 'vat_no', 'reg_address', 'place_of_supply',
+  'bank_company_name', 'bank_account_no', 'bank_ifsc', 'bank_name', 'bank_branch', 'payable_at'];
+
+// Reads bank account fields from a request. Text is trimmed and blank becomes null. Returns snake_case values or an error.
+const BANK_FIELDS: Record<string, string> = { accountName: 'account_name', bankName: 'bank_name', accountNumber: 'account_number',
+  ifscCode: 'ifsc_code', branch: 'branch', payableAt: 'payable_at', accountType: 'account_type' };
+function readBank(body: any): { v: Record<string, string | null>; isPrimary?: boolean } | { error: string } {
+  const v: Record<string, string | null> = {};
+  for (const [key, col] of Object.entries(BANK_FIELDS)) {
+    let x = body?.[key];
+    if (x === undefined) continue;
+    if (x !== null && typeof x !== 'string') return { error: 'Invalid bank account details.' };
+    x = (x || '').trim() || null;
+    if (hasMarkup(x)) return { error: 'Text cannot contain < or >.' };
+    v[col] = x;
+  }
+  if ('bank_name' in v && !v.bank_name) return { error: 'Bank name is required.' };
+  if ('account_number' in v && !v.account_number) return { error: 'Account number is required.' };
+  const ip = body?.isPrimary;
+  if (ip !== undefined && typeof ip !== 'boolean') return { error: 'isPrimary must be true or false.' };
+  return { v, isPrimary: ip };
+}
+const UPPERCASE_FIELDS = new Set(['gstin', 'pan_no', 'cin', 'bank_ifsc']);
+// Returns the normalised value, or an error message. Empty values are allowed (the field is optional).
+function checkFormat(field: string, value: string | null): { value: string | null } | { error: string } {
+  if (value == null) return { value };
+  const v = UPPERCASE_FIELDS.has(field) ? value.toUpperCase() : value;
+  const rule = FORMATS[field];
+  return rule && !rule[0].test(v) ? { error: rule[1] } : { value: v };
+}
 
 const logoStorage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -14,8 +64,7 @@ const logoStorage = multer.diskStorage({
     cb(null, dir);
   },
   filename: (req: any, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.params.id}${ext}`);
+    cb(null, `${req.params.id}${LOGO_EXT[file.mimetype]}`);
   },
 });
 
@@ -32,7 +81,9 @@ const uploadLogo = multer({
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(`
-      SELECT c.*, COUNT(DISTINCT p.id)::int AS project_count
+      SELECT c.*, COUNT(DISTINCT p.id)::int AS project_count,
+        (SELECT COUNT(*)::int FROM company_bank_accounts b
+          WHERE b.company_id = c.id AND b.is_active = true AND b.is_primary = true) AS primary_accounts
       FROM companies c
       LEFT JOIN projects p ON p.company_id = c.id
       WHERE c.is_active = true
@@ -64,37 +115,28 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can create companies' });
   try {
-    const {
-      name, code, group_name, address1, address2, address3,
-      city, state, country, pin_code, phone, fax, email, website,
-      gstin, cin, pan_no, service_tax_no, vat_no, reg_address,
-      place_of_supply, bank_company_name, bank_account_no,
-      bank_ifsc, bank_name, bank_branch, payable_at,
-    } = req.body;
-    if (!name) return res.status(400).json({ error: 'Company name required' });
-
-    const result = await db.query(`
-      INSERT INTO companies (
-        name, code, group_name, address1, address2, address3,
-        city, state, country, pin_code, phone, fax, email, website,
-        gstin, cin, pan_no, service_tax_no, vat_no, reg_address,
-        place_of_supply, bank_company_name, bank_account_no,
-        bank_ifsc, bank_name, bank_branch, payable_at,
-        is_active, updated_at
-      ) VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'India'),$10,
-        $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-        COALESCE($21,'Haryana'),$22,$23,$24,$25,$26,$27,
-        true, NOW()
-      ) RETURNING *`,
-      [name, code||null, group_name||null, address1||null, address2||null,
-       address3||null, city||null, state||null, country||null, pin_code||null,
-       phone||null, fax||null, email||null, website||null, gstin||null,
-       cin||null, pan_no||null, service_tax_no||null, vat_no||null,
-       reg_address||null, place_of_supply||null, bank_company_name||null,
-       bank_account_no||null, bank_ifsc||null, bank_name||null,
-       bank_branch||null, payable_at||null]
+    const body = req.body || {};
+    if (typeof body.name !== 'string' || !body.name.trim()) return res.status(400).json({ error: 'Company name required' });
+    const v: Record<string, string | null> = {};
+    for (const col of COMPANY_COLUMNS) {
+      let x = body[col];
+      if (x === undefined) { v[col] = null; continue; }
+      if (x !== null && typeof x !== 'string') return res.status(400).json({ error: `Invalid value for ${col}` });
+      x = (x || '').trim() || null;
+      if (hasMarkup(x)) return res.status(400).json({ error: `${col} cannot contain < or >` });
+      const r = FORMATS[col] ? checkFormat(col, x) : { value: x };
+      if ('error' in r) return res.status(400).json({ error: r.error });
+      v[col] = r.value;
+    }
+    if ((await db.query('SELECT 1 FROM companies WHERE lower(name) = lower($1)', [v.name])).rows.length) {
+      return res.status(409).json({ error: 'A company with this name already exists' });
+    }
+    const slots = COMPANY_COLUMNS.map((c, i) => c === 'country' ? `COALESCE($${i + 1},'India')` : c === 'place_of_supply' ? `COALESCE($${i + 1},'Haryana')` : `$${i + 1}`);
+    const result = await db.query(
+      `INSERT INTO companies (${COMPANY_COLUMNS.join(', ')}, is_active, updated_at) VALUES (${slots.join(', ')}, true, NOW()) RETURNING *`,
+      COMPANY_COLUMNS.map((c) => v[c])
     );
+    await auditChange(db, req, res, 'create', 'company', result.rows[0].id, undefined, result.rows[0]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -104,58 +146,42 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
   if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can update companies' });
   try {
     const { id } = req.params;
-    const {
-      name, code, group_name, address1, address2, address3,
-      city, state, country, pin_code, phone, fax, email, website,
-      gstin, cin, pan_no, service_tax_no, vat_no, reg_address,
-      place_of_supply, bank_company_name, bank_account_no,
-      bank_ifsc, bank_name, bank_branch, payable_at,
-      write_to_global_settings,
-    } = req.body;
+    const { write_to_global_settings } = req.body || {};
 
     const client = await db.connect();
     try {
       await client.query('BEGIN');
 
-      const result = await client.query(`
-        UPDATE companies SET
-          name              = COALESCE($1, name),
-          code              = COALESCE($2, code),
-          group_name        = COALESCE($3, group_name),
-          address1          = COALESCE($4, address1),
-          address2          = COALESCE($5, address2),
-          address3          = COALESCE($6, address3),
-          city              = COALESCE($7, city),
-          state             = COALESCE($8, state),
-          country           = COALESCE($9, country),
-          pin_code          = COALESCE($10, pin_code),
-          phone             = COALESCE($11, phone),
-          fax               = COALESCE($12, fax),
-          email             = COALESCE($13, email),
-          website           = COALESCE($14, website),
-          gstin             = COALESCE($15, gstin),
-          cin               = COALESCE($16, cin),
-          pan_no            = COALESCE($17, pan_no),
-          service_tax_no    = COALESCE($18, service_tax_no),
-          vat_no            = COALESCE($19, vat_no),
-          reg_address       = COALESCE($20, reg_address),
-          place_of_supply   = COALESCE($21, place_of_supply),
-          bank_company_name = COALESCE($22, bank_company_name),
-          bank_account_no   = COALESCE($23, bank_account_no),
-          bank_ifsc         = COALESCE($24, bank_ifsc),
-          bank_name         = COALESCE($25, bank_name),
-          bank_branch       = COALESCE($26, bank_branch),
-          payable_at        = COALESCE($27, payable_at),
-          updated_at        = NOW()
-        WHERE id = $28
-        RETURNING *`,
-        [name||null, code||null, group_name||null, address1||null, address2||null,
-         address3||null, city||null, state||null, country||null, pin_code||null,
-         phone||null, fax||null, email||null, website||null, gstin||null,
-         cin||null, pan_no||null, service_tax_no||null, vat_no||null,
-         reg_address||null, place_of_supply||null, bank_company_name||null,
-         bank_account_no||null, bank_ifsc||null, bank_name||null,
-         bank_branch||null, payable_at||null, id]
+      // Only the fields present in the request are changed; a blank value clears the field
+      const before = (await client.query('SELECT * FROM companies WHERE id = $1', [id])).rows[0];
+      const body = req.body || {};
+      const columns = COMPANY_COLUMNS;
+      const sets: string[] = [];
+      const vals: any[] = [];
+      for (const col of columns) {
+        let v = body[col];
+        if (v === undefined) continue;
+        if (v !== null && typeof v !== 'string') { await client.query('ROLLBACK'); return res.status(400).json({ error: `Invalid value for ${col}` }); }
+        if (hasMarkup(v) && (!before || v !== before[col])) { await client.query('ROLLBACK'); return res.status(400).json({ error: `${col} cannot contain < or >` }); }
+        if (typeof v === 'string') v = v.trim() || null;
+        if (col === 'name' && !v) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Company name required' }); }
+        if (col === 'name' && before && v.toLowerCase() !== String(before.name).toLowerCase()
+            && (await client.query('SELECT 1 FROM companies WHERE lower(name) = lower($1) AND id <> $2', [v, id])).rows.length) {
+          await client.query('ROLLBACK'); return res.status(409).json({ error: 'A company with this name already exists' });
+        }
+        // A value that is unchanged is not re-checked, so an old record with a bad value can still be saved
+        if (FORMATS[col] && before && v !== before[col]) {
+          const r = checkFormat(col, v);
+          if ('error' in r) { await client.query('ROLLBACK'); return res.status(400).json({ error: r.error }); }
+          v = r.value;
+        }
+        vals.push(v);
+        sets.push(`${col} = $${vals.length}`);
+      }
+      vals.push(id);
+      const result = await client.query(
+        `UPDATE companies SET ${sets.length ? sets.join(', ') + ', ' : ''}updated_at = NOW() WHERE id = $${vals.length} RETURNING *`,
+        vals
       );
 
       if (!result.rows[0]) {
@@ -165,7 +191,7 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 
       const co = result.rows[0];
 
-      if (write_to_global_settings) {
+      if (write_to_global_settings === true) {
         const settings: [string, string][] = [
           ['company_name',        co.name || ''],
           ['company_cin',         co.cin || ''],
@@ -194,6 +220,8 @@ router.put('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       }
 
       await client.query('COMMIT');
+      // write_to_global_settings is the "set as active company" switch: it changes what every letter and receipt prints
+      await auditChange(client, req, res, 'update', 'company', id, before, { ...co, write_to_global_settings: write_to_global_settings === true });
       res.json({ success: true, data: co });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -222,94 +250,143 @@ router.get('/:id/bank-accounts', async (req: AuthRequest, res: Response, next: N
 
 // POST /api/companies/:id/bank-accounts
 router.post('/:id/bank-accounts', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can add bank accounts' });
+  let client: any;
   try {
     const { id } = req.params;
-    const {
-      accountName, bankName, accountNumber, ifscCode,
-      branch, payableAt, accountType = 'current', isPrimary = false,
-    } = req.body;
+    const parsed = readBank(req.body);
+    if ('error' in parsed) return res.status(400).json({ success: false, error: parsed.error });
+    const { v } = parsed;
+    if (!v.bank_name || !v.account_number) return res.status(400).json({ success: false, error: 'Bank name and account number are required.' });
+    const ifsc = checkFormat('bank_ifsc', v.ifsc_code ?? null);
+    if ('error' in ifsc) return res.status(400).json({ success: false, error: ifsc.error });
 
-    if (!bankName || !accountNumber) {
-      return res.status(400).json({ success: false, error: 'Bank name and account number are required.' });
+    client = await db.connect();
+    await client.query('BEGIN');
+    // Locking the company row makes two simultaneous requests take turns, so there is never more than one primary account
+    if (!(await client.query('SELECT 1 FROM companies WHERE id = $1 FOR UPDATE', [id])).rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Company not found.' });
     }
-
-    if (isPrimary) {
-      await db.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1`, [id]);
-    }
-
-    const result = await db.query(`
-      INSERT INTO company_bank_accounts (
-        company_id, account_name, bank_name, account_number,
-        ifsc_code, branch, payable_at, account_type, is_primary
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `, [id, accountName || null, bankName, accountNumber, ifscCode || null, branch || null, payableAt || null, accountType, isPrimary]);
-
+    // The first account of a company is always its primary account
+    const hasPrimary = (await client.query(`SELECT 1 FROM company_bank_accounts WHERE company_id = $1 AND is_active = true AND is_primary = true`, [id])).rows.length > 0;
+    const makePrimary = parsed.isPrimary === true || !hasPrimary;
+    if (makePrimary) await client.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1`, [id]);
+    const result = await client.query(`
+      INSERT INTO company_bank_accounts (company_id, account_name, bank_name, account_number, ifsc_code, branch, payable_at, account_type, is_primary)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, 'current'), $9) RETURNING *`,
+      [id, v.account_name ?? null, v.bank_name, v.account_number, ifsc.value, v.branch ?? null, v.payable_at ?? null, v.account_type ?? null, makePrimary]);
+    await client.query('COMMIT');
+    // Audited on the same connection: asking the pool for a second one while holding this one can deadlock a busy pool
+    await auditChange(client, req, res, 'create', 'company_bank_account', result.rows[0].id, undefined, result.rows[0]);
     return res.json({ success: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    if (client) client.release();
+  }
 });
 
-// PATCH /api/companies/:companyId/bank-accounts/:bankId
+// PATCH /api/companies/:companyId/bank-accounts/:bankId  (only the fields sent are changed; a blank value clears a field)
 router.patch('/:companyId/bank-accounts/:bankId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can update bank accounts' });
+  let client: any;
   try {
     const { companyId, bankId } = req.params;
-    const {
-      accountName, bankName, accountNumber, ifscCode,
-      branch, payableAt, accountType, isPrimary,
-    } = req.body;
+    const parsed = readBank(req.body);
+    if ('error' in parsed) return res.status(400).json({ success: false, error: parsed.error });
+    const { v } = parsed;
+    if (!Object.keys(v).length && parsed.isPrimary === undefined) return res.status(400).json({ success: false, error: 'Nothing to update.' });
 
-    if (isPrimary) {
-      await db.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1`, [companyId]);
+    client = await db.connect();
+    await client.query('BEGIN');
+    await client.query('SELECT 1 FROM companies WHERE id = $1 FOR UPDATE', [companyId]);
+    const before = (await client.query('SELECT * FROM company_bank_accounts WHERE id = $1 AND company_id = $2 AND is_active = true FOR UPDATE', [bankId, companyId])).rows[0];
+    if (!before) { await client.query('ROLLBACK'); return res.status(404).json({ success: false, error: 'Bank account not found.' }); }
+    if (before.is_primary && parsed.isPrimary === false) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ success: false, error: 'A company needs a primary account. Make another account primary instead.' });
     }
-
-    const result = await db.query(`
-      UPDATE company_bank_accounts SET
-        account_name   = COALESCE($3, account_name),
-        bank_name      = COALESCE($4, bank_name),
-        account_number = COALESCE($5, account_number),
-        ifsc_code      = COALESCE($6, ifsc_code),
-        branch         = COALESCE($7, branch),
-        payable_at     = COALESCE($8, payable_at),
-        account_type   = COALESCE($9, account_type),
-        is_primary     = COALESCE($10, is_primary),
-        updated_at     = now()
-      WHERE id = $1 AND company_id = $2
-      RETURNING *
-    `, [bankId, companyId, accountName || null, bankName || null, accountNumber || null,
-        ifscCode || null, branch || null, payableAt || null, accountType || null, isPrimary ?? null]);
-
-    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Bank account not found.' });
+    if ('ifsc_code' in v && v.ifsc_code !== before.ifsc_code) {
+      const r = checkFormat('bank_ifsc', v.ifsc_code);
+      if ('error' in r) { await client.query('ROLLBACK'); return res.status(400).json({ success: false, error: r.error }); }
+      v.ifsc_code = r.value;
+    }
+    if (parsed.isPrimary === true) {
+      await client.query(`UPDATE company_bank_accounts SET is_primary = false, updated_at = now() WHERE company_id = $1 AND id <> $2`, [companyId, bankId]);
+    }
+    const cols = Object.keys(v);
+    const vals: any[] = cols.map((c) => v[c]);
+    const sets = cols.map((c, i) => `${c} = $${i + 1}`);
+    if (parsed.isPrimary !== undefined) { vals.push(parsed.isPrimary); sets.push(`is_primary = $${vals.length}`); }
+    vals.push(bankId, companyId);
+    const result = await client.query(
+      `UPDATE company_bank_accounts SET ${sets.join(', ')}, updated_at = now() WHERE id = $${vals.length - 1} AND company_id = $${vals.length} RETURNING *`, vals);
+    await client.query('COMMIT');
+    await auditChange(client, req, res, 'update', 'company_bank_account', bankId, before, result.rows[0]);
     return res.json({ success: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) {
+    if (client) await client.query('ROLLBACK').catch(() => {});
+    next(err);
+  } finally {
+    if (client) client.release();
+  }
 });
 
 // DELETE /api/companies/:companyId/bank-accounts/:bankId (soft delete)
 router.delete('/:companyId/bank-accounts/:bankId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can delete bank accounts' });
   try {
     const { companyId, bankId } = req.params;
+    const target = (await db.query(`SELECT is_primary FROM company_bank_accounts WHERE id = $1 AND company_id = $2 AND is_active = true`, [bankId, companyId])).rows[0];
+    if (target?.is_primary) {
+      const others = (await db.query(`SELECT COUNT(*)::int AS n FROM company_bank_accounts WHERE company_id = $1 AND is_active = true AND id <> $2`, [companyId, bankId])).rows[0].n;
+      if (others) return res.status(409).json({ success: false, error: 'This is the primary account. Make another account primary before deleting it.' });
+    }
     const result = await db.query(`
       UPDATE company_bank_accounts SET is_active = false, updated_at = now()
-      WHERE id = $1 AND company_id = $2
-      RETURNING id
+      WHERE id = $1 AND company_id = $2 AND is_active = true
+      RETURNING *
     `, [bankId, companyId]);
 
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'Bank account not found.' });
+    await auditChange(db, req, res, 'delete', 'company_bank_account', bankId, result.rows[0]);
     return res.json({ success: true, data: { id: bankId } });
   } catch (err) { next(err); }
 });
 
 // POST /api/companies/:id/logo
-router.post('/:id/logo', uploadLogo.single('logo'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+// Role and id are checked before multer, so nothing is written for a forbidden or malformed request
+const logoGuard = (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.userRole !== 'super_admin') return res.status(403).json({ error: 'Only super_admin can upload logos' });
+  if (!UUID_RE.test(req.params.id)) return res.status(400).json({ error: 'Invalid company id' });
+  req.params.id = req.params.id.toLowerCase();
+  next();
+};
+// Upload problems (too large, wrong field, bad multipart) are client errors, not server errors
+const logoUpload = (req: AuthRequest, res: Response, next: NextFunction) => uploadLogo.single('logo')(req as any, res as any, (err: any) => {
+  if (!err) return next();
+  if (err instanceof multer.MulterError) {
+    return err.code === 'LIMIT_FILE_SIZE' ? res.status(413).json({ error: 'Logo is larger than 2 MB' }) : res.status(400).json({ error: 'Invalid upload' });
+  }
+  return res.status(400).json({ error: 'Invalid upload' });
+});
+router.post('/:id/logo', logoGuard, logoUpload, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded. Use a PNG, JPG or GIF image.' });
+    if (req.file.size === 0) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: 'The file is empty' }); }
     const logoUrl = `/uploads/company-logos/${req.file.filename}`;
-    await db.query(`UPDATE companies SET logo_url = $1, updated_at = NOW() WHERE id = $2`, [logoUrl, req.params.id]);
+    const updated = await db.query(`UPDATE companies SET logo_url = $1, updated_at = NOW() WHERE id = $2`, [logoUrl, req.params.id]);
+    if (!updated.rowCount) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'Company not found' }); }
     await db.query(`
       INSERT INTO global_settings (key, value, updated_at) VALUES ('company_logo_url', $1, NOW())
       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [logoUrl]);
+    await auditChange(db, req, res, 'update', 'company', req.params.id, undefined, { logo_url: logoUrl });
     res.json({ success: true, logo_url: logoUrl });
   } catch (err) { next(err); }
 });
+
+router.use(pgErrorHandler);
 
 export default router;

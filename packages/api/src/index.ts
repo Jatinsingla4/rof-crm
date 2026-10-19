@@ -268,7 +268,7 @@ const autoAudit = (req: AuthRequest, res: Response, next: NextFunction) => {
 
   const origJson = res.json.bind(res);
   res.json = (data: any) => {
-    if (data?.success && data?.data?.id) {
+    if (data?.success && data?.data?.id && !res.locals.auditLogged) {
       const pathParts = req.path.split('/').filter(Boolean);
       const resourceType = pathParts[0] || 'unknown';
       const action = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'update';

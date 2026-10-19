@@ -20,6 +20,7 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     inventory_hold: ['view', 'create', 'edit', 'delete'],
     smtp_configs: ['view', 'create', 'edit', 'delete'],
     calling: ['view', 'create', 'edit', 'delete'],
+    master_data: ['view', 'create', 'edit', 'delete'],
   },
   project_manager: {
     consumers: ['view', 'create', 'edit'],
@@ -31,6 +32,7 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     reports: ['view'],
     users: ['view'],
     inventory_hold: ['view', 'create', 'edit'],
+    master_data: ['view', 'create', 'edit'],
   },
   sales_executive: {
     consumers: ['view', 'create', 'edit'],
@@ -77,6 +79,9 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
     users: [],
   },
 };
+
+export const hasPermission = (role: string | undefined, resource: string, action: string) =>
+  !!(role && rolePermissions[role]?.[resource]?.includes(action));
 
 export const requirePermission = (resource: string, action: string) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {

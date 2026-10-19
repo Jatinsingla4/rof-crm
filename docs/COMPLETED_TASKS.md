@@ -4,7 +4,7 @@ What has been done, in the order it happened. Pending work is in `DEFERRED_TASKS
 
 Status words: **Pushed** (on GitHub `main`, commit `1e08e7c` or earlier), **Local only** (in the working tree, not committed), **Live** (deployed on Vercel), **Not deployed** (code exists, the Vercel site does not have it yet).
 
-Last updated: 2026-10-16.
+Last updated: 2026-10-16. Commit `8a71cdc` pushed and deployed to Vercel.
 
 ---
 
@@ -29,10 +29,10 @@ Last updated: 2026-10-16.
 | 10 | Fix F5: dev shortcuts | Mock token and passwordless login need `ALLOW_DEV_AUTH=true`. | Pushed |
 | 11 | Fix F6 partly: `?token=` in URLs | Accepted for GET only. (The cookie move is pending, DT-002.) | Pushed |
 | 12 | Fix F8, F9: lockout and logout | `trust proxy`, 5 failures per IP and email lock for 15 minutes, `POST /api/auth/logout` revokes tokens (`users.token_version`, migration 095). Password change through the user update route also revokes. | Pushed |
-| 13 | Edge case round | Timing difference between known and unknown emails removed, NUL byte and bad JSON no longer return 500, `Cache-Control: no-store` on auth routes, passwords over 72 bytes refused when set. | Local only |
-| 14 | End to end password test | 33 of 33 checks pass across create user, employee login, employee login update, change password and regression. | Local only |
-| 15 | Fix: non-admin could not change their own password | `POST /api/users/:id/change-password` allowed for the user's own id. | Local only |
-| 16 | Fix: sessions survived a `change-password` call | `token_version` increased and cache cleared. | Local only |
+| 13 | Edge case round | Timing difference between known and unknown emails removed, NUL byte and bad JSON no longer return 500, `Cache-Control: no-store` on auth routes, passwords over 72 bytes refused when set. | Pushed, Live |
+| 14 | End to end password test | 33 of 33 checks pass across create user, employee login, employee login update, change password and regression. | Pushed, Live |
+| 15 | Fix: non-admin could not change their own password | `POST /api/users/:id/change-password` allowed for the user's own id. | Pushed, Live |
+| 16 | Fix: sessions survived a `change-password` call | `token_version` increased and cache cleared. | Pushed, Live |
 
 ## 3. Security incident (malware in the repository)
 
@@ -50,16 +50,16 @@ Done by the owner (reported in chat, not verified from here): secret rotation, m
 | # | Task | Result | Status |
 |---|---|---|---|
 | 21 | Vercel project | `threezinc/rof-crm`, alias `https://rof-crm-ten.vercel.app`. | Live |
-| 22 | Vercel entry and config | `api/index.js` (Express app as handler), `vercel.json` (install with dev dependencies, build with `tsc`, 60 second limit), `app.listen` skipped on Vercel. | Local only (deployed from the working tree) |
+| 22 | Vercel entry and config | `api/index.js` (Express app as handler), `vercel.json` (install with dev dependencies, build with `tsc`, 60 second limit), `app.listen` skipped on Vercel. | Pushed, Live |
 | 23 | Environment variables | `NODE_ENV`, `JWT_SECRET` (new random value), `DATABASE_URL` (direct URL of the new Neon project), all as secrets. | Live |
-| 24 | Live checks | Health 200, login page 200, unknown user and wrong password return 401, no token returns 401. | Live (code of step 12 and earlier) |
+| 24 | Live checks | Health 200, login page 200, unknown user and wrong password return 401, no token returns 401. | Live (re-checked after the 2026-10-16 deploy: NUL byte 401, bad JSON 400, `no-store`, equal timing) |
 
 ## 5. Database
 
 | # | Task | Result | Status |
 |---|---|---|---|
 | 25 | New Neon project `ROF` (Singapore, free plan) | Created by the owner. | Done |
-| 26 | Reconstructed baseline schema | 123 tables, 1693 columns, restores into an empty database with no errors. Built from the 3 May 2026 `pg_dump` in git history (data discarded), the migrations, and columns and tables derived from the code. `packages/api/src/db/baseline/` with a README. | Local only |
+| 26 | Reconstructed baseline schema | 123 tables, 1693 columns, restores into an empty database with no errors. Built from the 3 May 2026 `pg_dump` in git history (data discarded), the migrations, and columns and tables derived from the code. `packages/api/src/db/baseline/` with a README. | Pushed |
 | 27 | Baseline checked against the code | 176 of 178 parameterless GET endpoints return no 5xx. | Done |
 | 28 | Baseline restored into the new Neon database | 123 tables, 6 system roles, one super_admin. | Done (live database) |
 | 29 | Found two pooler problems | A pooled connection kept an empty `search_path` after a dump restore, so the app got `relation "users" does not exist`. Switched Vercel to the direct URL. | Done |
@@ -68,17 +68,18 @@ Done by the owner (reported in chat, not verified from here): secret rotation, m
 
 | # | File | Content | Status |
 |---|---|---|---|
-| 30 | `docs/LOGIN_SYSTEM.md` | Login flow, tests, findings, fixes, edge cases, password test (sections 1 to 12). | Pushed up to section 10; sections 11 and 12 local only |
+| 30 | `docs/LOGIN_SYSTEM.md` | Login flow, tests, findings, fixes, edge cases, password test (sections 1 to 12). | Pushed |
 | 31 | `docs/PLAN_F6_COOKIE_SESSION.md` | Plan to move the token to an httpOnly cookie. | Pushed |
-| 32 | `docs/MODULE_VERIFICATION_PLAN.md` | Module by module method, 18 modules, 10 integration journeys. | Local only |
-| 33 | `docs/modules/TEMPLATE.md` | Template for each module document. | Local only |
-| 34 | `docs/DEFERRED_TASKS.md` | Parallel backlog. | Local only |
-| 35 | `docs/COMPLETED_TASKS.md` | This file. | Local only |
+| 32 | `docs/MODULE_VERIFICATION_PLAN.md` | Module by module method, 18 modules, 10 integration journeys. | Pushed |
+| 33 | `docs/modules/TEMPLATE.md` | Template for each module document. | Pushed |
+| 34 | `docs/DEFERRED_TASKS.md` | Parallel backlog. | Pushed |
+| 35 | `docs/COMPLETED_TASKS.md` | This file. | Pushed |
 
 ---
 
 ## 7. Where things stand
 
-- **On GitHub:** items 4 to 12, 17 to 19, 31, and part of 30.
-- **Not committed:** items 13 to 16, 22, 26, 30 (sections 11 and 12), 32 to 35, and the rebuilt `dist/`.
-- **Live on Vercel:** the code as of the last `vercel deploy` (built before items 13 to 16). Redeploy is pending (DT-035).
+- **GitHub `main`:** `8a71cdc`. Everything in this file is pushed, except the Vercel deployment itself and the local database setup (item 1 to 3).
+- **Live on Vercel:** the build of `8a71cdc` (`https://rof-crm-ten.vercel.app`). Live checks passed: health 200, login page 200, unknown user and wrong password 401, no token 401, NUL byte email 401, malformed JSON 400, `Cache-Control: no-store`, same response time for known and unknown emails.
+- **Not done on the live site:** a login with the real admin password (DT-036), browser pass on the login page (DT-037), and the 4 untested roles (DT-038).
+- **Not committed:** `packages/api/dist/db/baseline/` (DT-044).

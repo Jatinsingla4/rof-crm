@@ -1,0 +1,214 @@
+-- Reconstructed COLUMNS that the code writes (INSERT/UPDATE) but no migration in this repository adds.
+-- Derived by comparing INSERT column lists and UPDATE ... SET targets in packages/api/src with the schema
+-- (May 2026 pg_dump + migrations + baseline/000). TYPES ARE BEST-EFFORT GUESSES BY COLUMN NAME and must be
+-- compared with production when production schema access is available (docs/DEFERRED_TASKS.md, DT-001).
+-- Apply by hand to a NEW database only, after baseline/000 and before migration 091. Idempotent.
+
+ALTER TABLE booking_records
+  ADD COLUMN IF NOT EXISTS account_holder VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS bank_branch VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS booking_type VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS broker_rebate_pct NUMERIC(8,3),
+  ADD COLUMN IF NOT EXISTS broker_rebate_rs NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS broker_rebate_sqft NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS comm_address_line1 TEXT,
+  ADD COLUMN IF NOT EXISTS comm_city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_pin VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS communication_mode VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS company_inaugural_disc NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS company_rebate_pct NUMERIC(8,3),
+  ADD COLUMN IF NOT EXISTS company_rebate_rs NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS company_rebate_sqft NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS completion_date DATE,
+  ADD COLUMN IF NOT EXISTS dealer_adjustment_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS extra_add_on_type VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS has_other_charge BOOLEAN,
+  ADD COLUMN IF NOT EXISTS has_plc BOOLEAN,
+  ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS interest_type VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS invoice_date_by UUID,
+  ADD COLUMN IF NOT EXISTS mailing_address_type TEXT,
+  ADD COLUMN IF NOT EXISTS main_broker_id UUID,
+  ADD COLUMN IF NOT EXISTS on_account_of VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS other_charge_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS other_charge_desc TEXT,
+  ADD COLUMN IF NOT EXISTS plc_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS possession_date DATE,
+  ADD COLUMN IF NOT EXISTS received_for VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS selected_plan_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS self_or_loan VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS tds_challan_id UUID,
+  ADD COLUMN IF NOT EXISTS tds_type VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS total_price_inr NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+ALTER TABLE co_applicants
+  ADD COLUMN IF NOT EXISTS anniversary_date DATE,
+  ADD COLUMN IF NOT EXISTS applicant_number INTEGER,
+  ADD COLUMN IF NOT EXISTS applicant_type VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS communication_mode VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS designation VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS email_2 VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS father_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS gender VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS has_poa BOOLEAN,
+  ADD COLUMN IF NOT EXISTS mailing_address_type TEXT,
+  ADD COLUMN IF NOT EXISTS marital_status VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS middle_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS nationality VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS no_of_children INTEGER,
+  ADD COLUMN IF NOT EXISTS office_address TEXT,
+  ADD COLUMN IF NOT EXISTS office_city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_pin VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS passport_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_address TEXT,
+  ADD COLUMN IF NOT EXISTS perm_city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_pin VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS poa_details TEXT,
+  ADD COLUMN IF NOT EXISTS present_address TEXT,
+  ADD COLUMN IF NOT EXISTS present_city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_pin VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS profession VARCHAR(255);
+
+ALTER TABLE consumers
+  ADD COLUMN IF NOT EXISTS anniversary_date DATE,
+  ADD COLUMN IF NOT EXISTS comm_address_line1 TEXT,
+  ADD COLUMN IF NOT EXISTS comm_city VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_pin VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS comm_state VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS communication_mode VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS designation VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS email_2 VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS has_poa BOOLEAN,
+  ADD COLUMN IF NOT EXISTS mailing_address_type TEXT,
+  ADD COLUMN IF NOT EXISTS marital_status VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS no_of_children INTEGER,
+  ADD COLUMN IF NOT EXISTS office_country VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS office_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS passport_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS perm_phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS phone_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_fax_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_mobile_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS present_phone_no VARCHAR(255);
+
+ALTER TABLE credit_debit_notes
+  ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS approved_by UUID,
+  ADD COLUMN IF NOT EXISTS consumer_id UUID,
+  ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS rejected_by UUID,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT;
+
+ALTER TABLE document_templates
+  ADD COLUMN IF NOT EXISTS letter_meta JSONB;
+
+ALTER TABLE document_types
+  ADD COLUMN IF NOT EXISTS document_from VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS is_mandatory BOOLEAN,
+  ADD COLUMN IF NOT EXISTS project_id UUID,
+  ADD COLUMN IF NOT EXISTS required_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS document_subtype VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS edit_count INTEGER,
+  ADD COLUMN IF NOT EXISTS is_edited BOOLEAN,
+  ADD COLUMN IF NOT EXISTS last_edited_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS last_edited_by UUID,
+  ADD COLUMN IF NOT EXISTS reference_id UUID,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS version_number INTEGER;
+
+ALTER TABLE financial_audit_logs
+  ADD COLUMN IF NOT EXISTS payment_plan_id UUID;
+
+ALTER TABLE interest_waivers
+  ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS rejected_by UUID,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+ALTER TABLE journal_entries
+  ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS created_by_user_id UUID,
+  ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS rejected_by UUID,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+ALTER TABLE projects
+  ADD COLUMN IF NOT EXISTS possession_date DATE;
+
+ALTER TABLE receipts
+  ADD COLUMN IF NOT EXISTS bank_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS branch VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS cheque_date DATE,
+  ADD COLUMN IF NOT EXISTS cheque_no VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS demand_id UUID,
+  ADD COLUMN IF NOT EXISTS edc_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS idc_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS other_charge_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS other_charge_desc TEXT,
+  ADD COLUMN IF NOT EXISTS plc_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS printed_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS printed_by UUID;
+
+ALTER TABLE roles
+  ADD COLUMN IF NOT EXISTS description TEXT,
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN,
+  ADD COLUMN IF NOT EXISTS is_system BOOLEAN,
+  ADD COLUMN IF NOT EXISTS label VARCHAR(255);
+
+ALTER TABLE units
+  ADD COLUMN IF NOT EXISTS basic_price NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS parking_number VARCHAR(255);
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS authorized_download BOOLEAN,
+  ADD COLUMN IF NOT EXISTS authorized_print BOOLEAN,
+  ADD COLUMN IF NOT EXISTS employee_id UUID,
+  ADD COLUMN IF NOT EXISTS home_page_widgets JSONB,
+  ADD COLUMN IF NOT EXISTS unit_status_access VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS username VARCHAR(255);
+
+-- Added after crawling every GET endpoint against a database built from this baseline
+ALTER TABLE users ADD COLUMN IF NOT EXISTS ip_security_enabled BOOLEAN DEFAULT FALSE;
+ALTER TABLE units
+  ADD COLUMN IF NOT EXISTS balcony_rate_inr_sqft NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS balcony_rate_cap_inr NUMERIC(14,2);
+
+-- Found by the crawl: reports.ts reads 'booked' as a unit_status; users.role is VARCHAR in production
+-- (custom roles exist, roles.name is VARCHAR). The May 2026 dump still had enum role_name.
+ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'booked';
+-- roles.name is VARCHAR in production (custom roles); the May 2026 dump had enum role_name
+ALTER TABLE roles ALTER COLUMN name TYPE VARCHAR(100) USING name::text;
