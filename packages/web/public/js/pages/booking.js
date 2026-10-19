@@ -1561,11 +1561,15 @@ const BookingPage = {
       const res = await Api.get(`/projects/${projectId}/plan-templates`);
       const plans = res.data || res;
 
-      // Get unique plan names
-      const planNames = [...new Set(plans.map(p => p.plan_name))];
+      // Only plans that add up to 100% can be booked: each demand is price x the row's percentage
+      const totals = {};
+      plans.forEach(p => { totals[p.plan_name] = (totals[p.plan_name] || 0) + (parseFloat(p.percentage) || 0); });
+      const planNames = Object.keys(totals).filter(n => Math.abs(totals[n] - 100) < 0.001);
 
       if (planNames.length === 0) {
-        planSelect.innerHTML = '<option value="">No plans configured</option>';
+        planSelect.innerHTML = Object.keys(totals).length
+          ? '<option value="">No complete plan (a plan must add up to 100%)</option>'
+          : '<option value="">No plans configured</option>';
         return;
       }
 

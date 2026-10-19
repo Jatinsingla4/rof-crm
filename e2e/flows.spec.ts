@@ -800,3 +800,102 @@ test('Employees: project_manager can look but not change; others cannot open it'
   await go('#/employees?tab=employees');
   await expect(content()).toContainText('Access Denied');
 });
+
+// ── 11. Payment plans ───────────────────────────────────────────────────
+const plan = { name: `E2E Plan ${U}`, copy: `E2E Copy ${U} 30+70 & "q" 'x'`, own: `E2E Own ${U}` };
+const planRow = (name: string) => content().locator('tr').filter({ hasText: name }).first();
+
+test('Payment Plans: standard plan, a row over 100% is refused, total shows, copy, delete', async () => {
+  await logout();
+  await login('super_admin');
+  await go('#/payment-plans');
+  await expect(content()).toContainText('Payment Plans');
+  await content().locator('#plx-project').selectOption({ label: names.project });
+  // a new plan from the usual 9-row schedule
+  await content().getByRole('button', { name: 'New plan' }).click();
+  await fillDrawer({ plan_name: plan.name });
+  await drawer().locator('[name=start]').selectOption('standard');
+  await saveDrawer();
+  await expect(content()).toContainText('100% of 100%');
+  await expect(content()).toContainText('complete');
+  await expect(content().locator('tbody tr')).toHaveCount(9);
+  // take a row away: the plan is no longer complete
+  await rowAction('1st Half-Yearly', 'Delete');
+  await confirmDelete();
+  await expect(toast('Row deleted')).toBeVisible();
+  await expect(content()).toContainText('12.5% still to add');
+  // a row that goes past 100% is refused with the reason
+  await content().getByRole('button', { name: 'Add row' }).click();
+  await fillDrawer({ installment_name: 'Too big', percentage: '40', installment_index: '20' });
+  await drawer().locator('[name=installment_type]').selectOption('installment');
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('100% at most');
+  // a bad percentage and a duplicate name are refused
+  await fillDrawer({ percentage: 'abc' });
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('Percentage');
+  await fillDrawer({ installment_name: 'on allotment', percentage: '12.5' });
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('already has a row');
+  // the right row completes the plan
+  await fillDrawer({ installment_name: '1st Half-Yearly', percentage: '12.5', installment_index: '3' });
+  await saveDrawer();
+  await expect(toast('Row added')).toBeVisible();
+  await expect(content()).toContainText('100% of 100%');
+  // copy the plan, see both in the list, delete the copy
+  await content().getByRole('button', { name: 'Copy plan' }).click();
+  await fillDrawer({ to: plan.copy });
+  await saveDrawer();
+  await expect(content()).toContainText(plan.copy);
+  await content().getByRole('link', { name: 'Plans' }).click();
+  await expect(planRow(plan.name)).toContainText('Complete');
+  await expect(planRow(plan.copy)).toContainText('Complete');
+  await rowAction(plan.copy, 'Delete');
+  await confirmDelete();
+  await expect(toast('Plan deleted')).toBeVisible();
+  await expect(content()).not.toContainText(plan.copy);
+});
+
+test('Payment Plans: old Set Projects plan links land on the new page; the booking form lists only complete plans', async () => {
+  await go('#/set-projects?tab=plan-view');
+  await expect(content()).toContainText('Payment Plans');
+  await expect(page.locator('#navbar')).toContainText('Payment Plan Setup');
+  // an incomplete plan is not offered while booking
+  await go('#/payment-plans');
+  await content().locator('#plx-project').selectOption({ label: names.project });
+  await content().getByRole('button', { name: 'New plan' }).click();
+  await fillDrawer({ plan_name: plan.own });
+  await saveDrawer();
+  await content().getByRole('button', { name: 'Add row' }).click();
+  await fillDrawer({ installment_name: 'Booking', percentage: '10' });
+  await drawer().locator('[name=installment_type]').selectOption('booking');
+  await saveDrawer();
+  await expect(content()).toContainText('90% still to add');
+  await go('#/booking');
+  await expect(page.locator('#bk-payment-plan')).toBeAttached();
+  const offered = await page.evaluate(async (project) => {
+    const list = (await (await fetch('/api/projects', { headers: { authorization: 'Bearer ' + Auth.getToken() } })).json()).data;
+    await (window as any).BookingPage.loadPaymentPlans(list.find((p: any) => p.name === project).id);
+    return Array.from((document.getElementById('bk-payment-plan') as HTMLSelectElement).options).map((o) => o.textContent).join('|');
+  }, names.project);
+  expect(offered).toContain(plan.name);
+  expect(offered).not.toContain(plan.own);
+});
+
+test('Payment Plans: project_manager adds but cannot delete; sales_executive only looks', async () => {
+  await logout();
+  await login('project_manager');
+  await go('#/payment-plans');
+  await content().locator('#plx-project').selectOption({ label: names.project });
+  await expect(content().getByRole('button', { name: 'New plan' })).toBeVisible();
+  await expect(content().locator('[data-act=del]')).toHaveCount(0);
+  await logout();
+  await login('sales_executive');
+  await go('#/payment-plans');
+  await expect(content()).toContainText('Access Denied'); // same as Set Projects: the page is for project managers and admins
+  const status = await page.evaluate(async () => (await fetch('/api/projects/00000000-0000-0000-0000-000000000000/plans/standard', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + Auth.getToken() }, body: JSON.stringify({ plan_name: 'x' }),
+  })).status);
+  expect(status).toBe(403); // and the server says no even if the page is skipped
+});
+

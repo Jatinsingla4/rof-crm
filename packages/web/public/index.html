@@ -117,24 +117,8 @@
 
       <div class="dd-link has-sub">Payment Plan Setup <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:230px">
-          <div class="dd-link has-sub">New <span class="arr">▶</span>
-            <div class="sub-sub-dd">
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-installment'})">Installment</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-plc'})">PLC Charge</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-new-other'})">Other Charge</a>
-            </div>
-          </div>
-          <div class="dd-link has-sub">Edit <span class="arr">▶</span>
-            <div class="sub-sub-dd">
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-installment'})">Installment</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-plc'})">PLC Charge</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-other'})">Other Charge</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-edit-personal'})">Edit Personal Installment</a>
-              <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-personalise'})">Personalise Installment</a>
-            </div>
-          </div>
-          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-view'})">View</a>
-          <a class="dd-link" onclick="Router.navigate('/set-projects',{tab:'plan-setup'})">Setup</a>
+          <a class="dd-link" onclick="Router.navigate('/payment-plans')">Plans (view and edit)</a>
+          <a class="dd-link" onclick="Router.navigate('/payment-plans',{new:1})">New Plan</a>
         </div>
       </div>
 
@@ -553,6 +537,7 @@
 <script src="/js/pages/inventory-hold.js"></script>
 <script src="/js/pages/campaigns.js"></script>
 <script src="/js/pages/employees.js"></script>
+<script src="/js/pages/payment-plans.js"></script>
 <script src="/js/pages/calling.js"></script>
 <script src="/js/pages/collection-setup.js"></script>
 <script src="/js/pages/interest-scheduler.js"></script>

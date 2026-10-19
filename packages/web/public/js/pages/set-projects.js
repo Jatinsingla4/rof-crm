@@ -4,6 +4,8 @@
 const spjCanDelete = () => (Auth.getUser() || {}).role === 'super_admin';
 
 Pages.setProjects = async function(params = {}) {
+  // Payment plans have a page of their own now; old bookmarks and links still land there
+  if ((params.tab || '').startsWith('plan-')) return Router.navigate('/payment-plans', params.tab === 'plan-new-installment' || params.tab === 'plan-new-plc' || params.tab === 'plan-new-other' ? { new: 1 } : {});
   const tab = params.tab || 'new-project';
   const content = document.getElementById('content');
 
@@ -24,8 +26,6 @@ Pages.setProjects = async function(params = {}) {
       ${tabBtn('unit-address',     'Unit Address',        tab==='unit-address')}
       ${tabBtn('unit-location',    'Unit Location',       tab==='unit-location')}
       ${tabBtn('reminder-master',  'Reminder Master',     tab==='reminder-master')}
-      ${tabBtn('plan-setup',       'Payment Plan Setup',  tab.startsWith('plan-') && tab !== 'plan-view')}
-      ${tabBtn('plan-view',        'View Plans',          tab==='plan-view')}
       ${tabBtn('rate-report',      'Rate Report',         tab==='rate-report')}
     </div>
 

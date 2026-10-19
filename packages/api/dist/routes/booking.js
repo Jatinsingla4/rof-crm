@@ -639,6 +639,19 @@ router.patch('/:id', async (req, res, next) => {
                 await client.query('ROLLBACK');
                 return res.status(404).json({ error: 'Booking not found' });
             }
+            // Every demand is price x percentage of a plan row, so the plan must add up to 100% or the customer would be billed less (or more) than the price.
+            {
+                const picked = updateResult.rows[0].selected_plan_name, planProject = updateResult.rows[0].project_id;
+                if (picked && planProject) {
+                    const t = await client.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(percentage), 0)::float AS pct FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [planProject, picked]);
+                    if (!t.rows[0].n || Math.abs(t.rows[0].pct - 100) > 0.001) {
+                        await client.query('ROLLBACK');
+                        return res.status(400).json({ error: t.rows[0].n
+                                ? `The payment plan "${picked}" adds up to ${t.rows[0].pct}%, not 100%. Finish the plan in Payment Plan Setup, or choose another plan.`
+                                : `The payment plan "${picked}" has no installments. Finish the plan in Payment Plan Setup, or choose another plan.` });
+                    }
+                }
+            }
             const booking = updateResult.rows[0];
             // Resolve BASIC GST rate from System A (gst_tax_charge_mapping) to store
             // correct rate in booking_payment_taxes. Replaces frontend-submitted

@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   Router.register('/import',            (p) => Pages.importPage(p));
   Router.register('/users',             (p) => Pages.users(p));
   Router.register('/custom-letters',    (p) => Pages.customLetters(p));
+  Router.register('/payment-plans',     (p) => Pages.paymentPlans(p));
   Router.register('/tasks',             (p) => Pages.tasks(p));
   Router.register('/help',              (p) => Pages.help(p));
   Router.register('/gst-invoicing',     (p) => Pages.gstInvoicing(p));
