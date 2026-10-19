@@ -10,7 +10,7 @@ Pages.unitStatus = async function(params = {}) {
   content.innerHTML = `
     <!-- Top bar: UNIT STATUS label + status toggle buttons -->
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
-      <span style="font-weight:700;font-size:13px;color:var(--accent);white-space:nowrap">UNIT STATUS</span>
+      <span style="font-weight:700;font-size:13px;color:var(--text);white-space:nowrap">UNIT STATUS</span>
       <div id="us-status-btns" style="display:flex;gap:5px;flex-wrap:wrap">
         ${[
           { key:'all',            label:'All'            },
@@ -26,20 +26,12 @@ Pages.unitStatus = async function(params = {}) {
         ].map(b => `
           <button class="us-sbtn${b.key === 'all' ? ' us-sbtn-active' : ''}"
             data-key="${b.key}"
-            onclick="UnitStatusPage.setStatusFilter('${b.key}')"
-            style="display:inline-flex;align-items:center;gap:4px;
-              padding:4px 10px;font-size:11.5px;border-radius:4px;cursor:pointer;
-              border:1px solid ${b.key === 'all' ? '#1db5a0' : '#bbb'};
-              background:${b.key === 'all' ? '#1db5a0' : '#fff'};
-              color:${b.key === 'all' ? '#fff' : '#555'};
-              font-weight:${b.key === 'all' ? '600' : '400'}">
+            onclick="UnitStatusPage.setStatusFilter('${b.key}')">
             <span class="us-sbtn-icon">${b.key === 'all' ? '✓' : '☐'}</span>
             ${b.label}
           </button>
         `).join('')}
-        <button title="Collapse filter panel"
-          style="margin-left:4px;padding:4px 8px;border:1px solid #bbb;
-            border-radius:4px;background:#555;color:#fff;cursor:pointer;font-size:12px"
+        <button title="Collapse filter panel" class="us-collapse"
           onclick="UnitStatusPage.toggleFilters()">—</button>
       </div>
     </div>
@@ -102,23 +94,21 @@ Pages.unitStatus = async function(params = {}) {
             </select>
           </div>
           <div class="fg" style="grid-column:span 4;display:flex;align-items:flex-end;justify-content:space-between">
-            <button class="btn btn-fetch" onclick="UnitStatusPage.load()"
-              style="background:#2196f3;color:#fff;border:none;padding:7px 22px;
-                border-radius:4px;font-size:13px;font-weight:600;cursor:pointer">FETCH</button>
-            <span id="us-total-sold" style="font-size:12.5px;color:#333;font-weight:500"></span>
+            <button class="btn btn-fetch us-fetch" onclick="UnitStatusPage.load()">FETCH</button>
+            <span id="us-total-sold" style="font-size:12.5px;color:var(--text);font-weight:500"></span>
           </div>
         </div>
       </div>
     </div>
 
     <!-- Summary Stats -->
-    <div id="us-stats" style="margin-bottom:10px;font-size:12.5px;color:#333;line-height:2"></div>
+    <div id="us-stats" style="margin-bottom:10px;font-size:12.5px;color:var(--text);line-height:2"></div>
 
     <!-- UNIT STATUS bar + Legend + Print/Download -->
     <div style="display:flex;align-items:center;justify-content:space-between;
-      background:#f8f9fa;border:1px solid #e0e0e0;padding:6px 12px;margin-bottom:0;flex-wrap:wrap;gap:6px">
+      background:var(--surface2);border:1px solid var(--border2);border-radius:10px 10px 0 0;padding:10px 14px;margin-bottom:0;flex-wrap:wrap;gap:6px">
       <span style="font-weight:700;font-size:12px;color:var(--accent)">UNIT STATUS</span>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px;color:#444">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--text2)">
         ${[
           { color:'#b2ebf2', label:'Mortgage'          },
           { color:'#c8e6c9', label:'Director Hold unit' },
@@ -151,24 +141,38 @@ Pages.unitStatus = async function(params = {}) {
     </div>
 
     <style>
-      .us-sbtn-active { background:#1db5a0 !important; color:#fff !important; border-color:#1db5a0 !important; font-weight:600 !important; }
+      .us-sbtn { display:inline-flex; align-items:center; gap:5px; padding:6px 14px; font-size:12px; border-radius:999px; cursor:pointer; border:1px solid var(--border2); background:var(--surface); color:var(--text2); font-weight:400; transition:.15s }
+      .us-sbtn:hover { border-color:var(--teal); color:var(--teal) }
+      .us-sbtn-active, .us-sbtn-active:hover { background:var(--teal) !important; color:#fff !important; border-color:var(--teal) !important; font-weight:600 !important; }
       .us-sbtn-active .us-sbtn-icon::before { content:'✓'; }
-      #us-grid table { border-collapse:collapse; width:100%; font-size:12px; }
+      .us-collapse { margin-left:4px; padding:5px 12px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; font-size:12px }
+      .us-collapse:hover { background:var(--surface2) }
+      #us-filter-panel { border-radius:10px; overflow:hidden }
+      #us-filter-panel .sp-body { padding:18px !important }
+      #us-filter-panel .fg { gap:6px }
+      #us-filter-panel .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      #us-filter-panel .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      #us-filter-panel .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .us-fetch, #tw-fetch-btn { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 26px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+      .us-fetch:hover, #tw-fetch-btn:hover { filter:brightness(.92) }
+      #us-grid { border:1px solid var(--border2); border-radius:10px; overflow:auto; background:var(--surface) }
+      #us-grid table { border-collapse:collapse; width:100%; font-size:12.5px; }
       #us-grid thead th {
-        background:#2c3e50; color:#fff; padding:7px 8px;
-        text-align:center; font-size:11px; font-weight:600;
-        white-space:nowrap; border:1px solid #1a252f; position:sticky; top:0; z-index:1;
+        background:var(--surface2); color:var(--text3); padding:10px 8px;
+        text-align:center; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px;
+        white-space:nowrap; border:1px solid var(--border2); position:sticky; top:0; z-index:1;
       }
       #us-grid tbody td {
-        padding:6px 8px; border:1px solid #ddd;
-        vertical-align:middle; text-align:center;
+        padding:8px; border:1px solid var(--border);
+        vertical-align:middle; text-align:center; color:var(--text);
       }
+      #us-grid tbody tr[style*="background:#"] td { color:#1f2937; }
       #us-grid tbody td.td-name { text-align:left; font-weight:600; }
       #us-grid tbody td.td-unitno { font-weight:700; }
       #us-grid tbody td.td-status { text-align:left; }
       #us-grid tfoot td {
-        background:#f5f5f5; font-weight:700; font-size:11px;
-        padding:5px 8px; border:1px solid #ccc;
+        background:var(--surface2); font-weight:700; font-size:11px; color:var(--text);
+        padding:7px 8px; border:1px solid var(--border2);
       }
       @media print {
         #us-filter-panel, #us-status-btns, .btn-fetch { display:none !important; }
@@ -250,10 +254,6 @@ const UnitStatusPage = {
       btn.classList.toggle('us-sbtn-active', isActive);
       const icon = btn.querySelector('.us-sbtn-icon');
       if (icon) icon.textContent = isActive ? '✓' : '☐';
-      btn.style.background   = isActive ? '#1db5a0' : '#fff';
-      btn.style.color        = isActive ? '#fff'    : '#555';
-      btn.style.borderColor  = isActive ? '#1db5a0' : '#bbb';
-      btn.style.fontWeight   = isActive ? '600'     : '400';
     });
     // Filter already-loaded data instantly
     if (this._units.length) this._renderFiltered();
@@ -478,7 +478,7 @@ const UnitStatusPage = {
       const dateVal  = this._getStatusDate(u);
       const dateStr  = this._fmtDate(dateVal);
       const statusHtml = dateStr
-        ? `${label}<br><span style="font-size:10.5px;color:#555">(${dateStr})</span>`
+        ? `${label}<br><span style="font-size:10.5px;color:var(--text2)">(${dateStr})</span>`
         : label;
 
       const floorLabel = u.floor != null ? this._ordinalFloor(u.floor) : '—';
@@ -496,14 +496,14 @@ const UnitStatusPage = {
       let projectCell = '';
       if (!projectEmitted.has(projName)) {
         projectEmitted.add(projName);
-        projectCell = `<td rowspan="${projectSpan[projName]}" style="font-weight:700;font-size:11.5px;text-align:center;vertical-align:middle;background:#1a3a5c;color:#fff;letter-spacing:0.4px;padding:8px 10px;min-width:140px;border-right:2px solid #0f2744;white-space:nowrap">${projName}</td>`;
+        projectCell = `<td rowspan="${projectSpan[projName]}" style="font-weight:700;font-size:11.5px;text-align:center;vertical-align:middle;background:var(--teal-bg);color:var(--text);letter-spacing:0.4px;padding:8px 10px;min-width:140px;border-right:2px solid #0f2744;white-space:nowrap">${projName}</td>`;
       }
 
       return `<tr style="background:${bg}">
         ${projectCell}
         <td>${i + 1}</td>
         <td>${regNo}</td>
-        <td class="td-name"><a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${name}</a></td>
+        <td class="td-name"><a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${name}</a></td>
         <td>${tower}</td>
         <td>${floorLabel}</td>
         <td>${group}</td>
@@ -691,8 +691,8 @@ const UnitStatusPage = {
     };
     const area = val => parseFloat(val || 0).toFixed(4);
 
-    const thG = `border:1px solid #2d4d7a;padding:8px 6px;text-align:center;font-weight:700;font-size:12px;background:#1e3a5f;`;
-    const thS = `border:1px solid #5a8dc5;padding:6px 4px;text-align:center;font-size:11px;font-weight:700;background:#4a7db5;`;
+    const thG = `border:1px solid var(--border2);padding:8px 6px;text-align:center;font-weight:700;font-size:12px;background:var(--surface2);color:var(--text);`;
+    const thS = `border:1px solid var(--border2);padding:6px 4px;text-align:center;font-size:11px;font-weight:700;background:var(--surface2);color:var(--text2);`;
     const subCols = () => `
       <th style="${thS}min-width:72px;">UNIT(NO.)</th>
       <th style="${thS}min-width:116px;">AREA(IN SQ. FT.)</th>
@@ -705,7 +705,7 @@ const UnitStatusPage = {
 
     const pid  = this._currentProjectId;
     const pname = this._currentProjectName;
-    const linkStyle = `color:#1a56db;font-weight:bold;text-decoration:none;cursor:pointer;`;
+    const linkStyle = `color:var(--teal);font-weight:bold;text-decoration:none;cursor:pointer;`;
     const mkLink = (count, towerId, towerName, sg) => {
       const n = parseInt(count) || 0;
       if (n === 0) return '0';
@@ -719,9 +719,9 @@ const UnitStatusPage = {
 
     let rowsHtml = '';
     towers.forEach((t, i) => {
-      const bg = i % 2 === 0 ? '#ffffff' : '#fef9f0';
+      const bg = i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)';
       const td = (val, align = 'center') =>
-        `<td style="padding:6px 8px;border:1px solid #dee2e6;text-align:${align}">${val}</td>`;
+        `<td style="padding:6px 8px;border:1px solid var(--border);text-align:${align}">${val}</td>`;
       rowsHtml += `<tr style="background:${bg}">
         ${td(i + 1)}
         ${td(t.tower_name || '—', 'left')}
@@ -745,7 +745,7 @@ const UnitStatusPage = {
     });
 
     const tdTot = (val, align = 'center') =>
-      `<td style="padding:7px 8px;border:1px solid #c5a800;text-align:${align};font-weight:700;background:#fef3cd">${val}</td>`;
+      `<td style="padding:7px 8px;border:1px solid var(--border2);text-align:${align};font-weight:700;background:var(--surface2)">${val}</td>`;
     rowsHtml += `<tr>
       ${tdTot('')}
       ${tdTot('Total :', 'left')}
@@ -769,7 +769,7 @@ const UnitStatusPage = {
 
     results.innerHTML = `
       <div style="display:flex;align-items:center;justify-content:space-between;
-        background:#f8f9fa;border:1px solid #e0e0e0;padding:6px 12px;margin-bottom:0">
+        background:var(--surface2);border:1px solid var(--border2);border-radius:10px 10px 0 0;padding:10px 14px;margin-bottom:0">
         <span style="font-weight:700;font-size:12px;color:var(--accent)">TOWER WISE UNIT STATUS</span>
         <div style="display:flex;gap:8px">
           <button onclick="window.print()" title="Print"
@@ -781,7 +781,7 @@ const UnitStatusPage = {
       <div style="overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;min-width:1100px;font-size:13px;">
           <thead>
-            <tr style="background:#1e3a5f;color:#fff;">
+            <tr style="background:var(--surface2);color:var(--text);">
               <th rowspan="2" style="${thG}min-width:50px;">S.NO.</th>
               <th rowspan="2" style="${thG}min-width:120px;text-align:left;padding-left:10px;">TOWER NAME</th>
               <th colspan="3" style="${thG}">TOTAL</th>
@@ -791,7 +791,7 @@ const UnitStatusPage = {
               <th colspan="3" style="${thG}">AVAILABLE</th>
               <th colspan="1" style="${thG}min-width:140px;">RECEIVED AMOUNT</th>
             </tr>
-            <tr style="background:#4a7db5;color:#fff;">
+            <tr style="background:var(--surface2);color:var(--text2);">
               ${subCols()}${subCols()}${subCols()}${subCols()}${subCols()}
               <th style="${thS}min-width:140px;">RS.</th>
             </tr>
@@ -827,8 +827,8 @@ const UnitStatusPage = {
       hold: 'Hold Units', available: 'Available Units', all: 'All Units'
     };
     const isAvailable = statusGroup === 'available';
-    const thStyle = `border:1px solid #2d4d7a;padding:8px 10px;text-align:center;background:#1e3a5f;color:white;font-size:12px;font-weight:bold;white-space:nowrap;`;
-    const tdStyle = `border:1px solid #dee2e6;padding:8px 10px;font-size:12px;vertical-align:middle;`;
+    const thStyle = `border:1px solid var(--border2);padding:8px 10px;text-align:center;background:var(--surface2);color:var(--text);font-size:12px;font-weight:bold;white-space:nowrap;`;
+    const tdStyle = `border:1px solid var(--border);padding:8px 10px;font-size:12px;vertical-align:middle;`;
 
     const fmtDate = d => d ? new Date(d).toLocaleDateString('en-GB') : '—';
     const fmtFloor = f => {
@@ -846,10 +846,10 @@ const UnitStatusPage = {
 
     let rowsHtml = '';
     if (!data.units || data.units.length === 0) {
-      rowsHtml = `<tr><td colspan="${isAvailable ? 7 : 10}" style="${tdStyle}text-align:center;padding:20px;color:#888;">No units found.</td></tr>`;
+      rowsHtml = `<tr><td colspan="${isAvailable ? 7 : 10}" style="${tdStyle}text-align:center;padding:20px;color:var(--text3);">No units found.</td></tr>`;
     } else {
       data.units.forEach((u, i) => {
-        const bg = i % 2 === 0 ? '#fff' : '#f9f9f9';
+        const bg = i % 2 === 0 ? 'var(--surface)' : 'var(--surface2)';
         const td = (val, align = 'center') => `<td style="${tdStyle}text-align:${align}">${val ?? '—'}</td>`;
         if (isAvailable) {
           rowsHtml += `<tr style="background:${bg}">
@@ -858,7 +858,7 @@ const UnitStatusPage = {
           </tr>`;
         } else {
           rowsHtml += `<tr style="background:${bg}">
-            ${td(i + 1)} ${td(u.registration_no,'left')} ${td(u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name||'—'), 'left')}
+            ${td(i + 1)} ${td(u.registration_no,'left')} ${td(u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name||'—'), 'left')}
             ${td(fmtDate(u.booking_date))} ${td(u.broker_name || 'Direct')}
             ${td(fmtLoan(u.loan_type))} ${td(u.payment_plan || 'Payment Plan')}
             ${td(u.unit_number)} ${td(u.unit_type)} ${td(parseFloat(u.area||0).toFixed(4),'right')}

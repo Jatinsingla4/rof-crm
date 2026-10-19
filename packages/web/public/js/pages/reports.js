@@ -1681,10 +1681,10 @@ const ReportsPage = {
           <table style="border-collapse:collapse;font-size:12px;min-width:420px">
             <thead>
               <tr style="background:#1a56db;color:#fff">
-                <th style="padding:6px 12px;border:1px solid #ddd"></th>
-                <th style="padding:6px 12px;border:1px solid #ddd">PENDING</th>
-                <th style="padding:6px 12px;border:1px solid #ddd">CLEAR</th>
-                <th style="padding:6px 12px;border:1px solid #ddd">TOTAL</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)"></th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">PENDING</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">CLEAR</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">TOTAL</th>
               </tr>
             </thead>
             <tbody>
@@ -1695,16 +1695,16 @@ const ReportsPage = {
                 ['Interest', sm.pending?.interest,sm.clear?.interest,sm.total?.interest],
               ].map(([lbl,p,c,t],idx) => `
                 <tr style="background:${idx%2===0?'#f8f9fa':'#fff'}">
-                  <td style="padding:5px 12px;border:1px solid #ddd;font-weight:600">${lbl}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(p)}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(c)}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(t)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);font-weight:600">${lbl}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(p)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(c)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(t)}</td>
                 </tr>`).join('')}
               <tr style="background:#e3f2fd;font-weight:700">
-                <td style="padding:5px 12px;border:1px solid #ddd">Total :</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.pending?.total)}</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.clear?.total)}</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.total?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2)">Total :</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.pending?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.clear?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.total?.total)}</td>
               </tr>
             </tbody>
           </table>
@@ -2593,9 +2593,9 @@ const ReportsPage = {
       const bTC     = {'0-30':'#333','31-60':'#333','61-90':'#333','91-180':'#333','180+':'#fff'};
       if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No overdue records found</h3></div>'; return; }
       const getLabel = r => view === 'tower'
-        ? `<span style="font-size:10px;color:#888">${r.project_name}</span><br>${r.tower_name}`
+        ? `<span style="font-size:10px;color:var(--text3)">${r.project_name}</span><br>${r.tower_name}`
         : view === 'plan'
-          ? `<span style="font-size:10px;color:#888">${r.project_name}</span><br>${r.plan_name}`
+          ? `<span style="font-size:10px;color:var(--text3)">${r.project_name}</span><br>${r.plan_name}`
           : r.project_name;
       const bodyRows = rows.map((r,i) => {
         const mkB = (amt, cnt, key) => `<td style="${aR};background:${bColors[key]};color:${bTC[key]}">${fmtA(amt)}</td><td style="${aC};background:${bColors[key]};color:${bTC[key]}">${cnt}</td>`;
@@ -2783,7 +2783,7 @@ const ReportsPage = {
         const osStyle = os > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
         const mDate = r.month_date ? String(r.month_date).slice(0,7) : '';
         let rowBg = '';
-        if (mDate && mDate < thisMonth) rowBg = 'background:#f5f5f5;color:#888';
+        if (mDate && mDate < thisMonth) rowBg = 'background:#f5f5f5;color:var(--text3)';
         else if (mDate && mDate === thisMonth) rowBg = 'border-left:3px solid #1a56db';
         return `<tr style="${rowBg}">
           <td style="${aC}">${i+1}</td>
@@ -3960,10 +3960,10 @@ const ReportsPage = {
           <table style="border-collapse:collapse;font-size:12px;min-width:420px">
             <thead>
               <tr style="background:#1a56db;color:#fff">
-                <th style="padding:6px 12px;border:1px solid #ddd"></th>
-                <th style="padding:6px 12px;border:1px solid #ddd">PENDING</th>
-                <th style="padding:6px 12px;border:1px solid #ddd">CLEAR</th>
-                <th style="padding:6px 12px;border:1px solid #ddd">TOTAL</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)"></th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">PENDING</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">CLEAR</th>
+                <th style="padding:6px 12px;border:1px solid var(--border2)">TOTAL</th>
               </tr>
             </thead>
             <tbody>
@@ -3974,16 +3974,16 @@ const ReportsPage = {
                 ['Interest', sm.pending?.interest,sm.clear?.interest,sm.total?.interest],
               ].map(([lbl,p,c,t],idx) => `
                 <tr style="background:${idx%2===0?'#f8f9fa':'#fff'}">
-                  <td style="padding:5px 12px;border:1px solid #ddd;font-weight:600">${lbl}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(p)}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(c)}</td>
-                  <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(t)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);font-weight:600">${lbl}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(p)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(c)}</td>
+                  <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(t)}</td>
                 </tr>`).join('')}
               <tr style="background:#e3f2fd;font-weight:700">
-                <td style="padding:5px 12px;border:1px solid #ddd">Total :</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.pending?.total)}</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.clear?.total)}</td>
-                <td style="padding:5px 12px;border:1px solid #ddd;text-align:right">${sfmt(sm.total?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2)">Total :</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.pending?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.clear?.total)}</td>
+                <td style="padding:5px 12px;border:1px solid var(--border2);text-align:right">${sfmt(sm.total?.total)}</td>
               </tr>
             </tbody>
           </table>
@@ -4096,24 +4096,18 @@ const ReportsPage = {
         .apf-scroll-container{overflow-x:auto;overflow-y:auto;max-height:68vh;border:1px solid var(--border);border-radius:4px}
         .apf-table{width:100%;border-collapse:collapse;font-size:11px;min-width:3200px}
         .apf-table thead{position:sticky;top:0;z-index:10}
-        .apf-table thead tr:first-child th{background:#1e3a5f;color:#fff;font-weight:700;font-size:12px;padding:7px 5px;text-align:center;border:1px solid #2d4d7a;white-space:nowrap}
-        .apf-table thead tr:last-child th{background:#2d5282;color:#fff;font-weight:700;font-size:10px;padding:5px 4px;text-align:center;border:1px solid #3a6194;white-space:nowrap}
-        .apf-table tbody tr:nth-child(even){background:#f8f9fa}
-        .apf-table tbody tr:nth-child(odd){background:#fff}
-        .apf-table tbody tr:hover{background:#e3f2fd}
-        .apf-table tbody td{padding:4px 5px;border:1px solid #dee2e6;font-size:11px;white-space:nowrap;color:#333}
-        .apf-table tfoot tr{background:#fef3cd;font-weight:700}
-        .apf-table tfoot td{padding:5px 5px;border:1px solid #dee2e6;font-size:11px;white-space:nowrap}
-        .apf-consumer-link{color:#1a56db;cursor:pointer;text-decoration:none}
+        .apf-table thead tr:first-child th{background:var(--surface2);color:var(--text);font-weight:700;font-size:12px;padding:7px 5px;text-align:center;border:1px solid var(--border2);white-space:nowrap}
+        .apf-table thead tr:last-child th{background:var(--surface3,var(--surface2));color:var(--text2);font-weight:700;font-size:10px;padding:5px 4px;text-align:center;border:1px solid var(--border2);white-space:nowrap}
+        .apf-table tbody tr:nth-child(even){background:var(--surface2)}
+        .apf-table tbody tr:nth-child(odd){background:var(--surface)}
+        .apf-table tbody tr:hover{background:var(--teal-bg)}
+        .apf-table tbody td{padding:4px 5px;border:1px solid var(--border);font-size:11px;white-space:nowrap;color:var(--text)}
+        .apf-table tfoot tr{background:var(--surface2);font-weight:700}
+        .apf-table tfoot td{padding:5px 5px;border:1px solid var(--border);font-size:11px;white-space:nowrap}
+        .apf-consumer-link{color:var(--teal);cursor:pointer;text-decoration:none}
         .apf-consumer-link:hover{text-decoration:underline}
         .apf-rec-btn{display:block;margin:3px auto 0;background:#1db5a0;color:#fff;border:none;padding:2px 7px;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap}
         .apf-rec-btn:hover{background:#16a085}
-        [data-theme="dark"] .apf-table tbody tr:nth-child(even){background:#1e2432}
-        [data-theme="dark"] .apf-table tbody tr:nth-child(odd){background:#181e2c}
-        [data-theme="dark"] .apf-table tbody tr:hover{background:#1a2a45}
-        [data-theme="dark"] .apf-table tbody td{color:#d1d5db;border-color:#374151}
-        [data-theme="dark"] .apf-table tfoot tr{background:#3b3009}
-        [data-theme="dark"] .apf-table tfoot td{border-color:#374151}
         @media print{.apf-filters,.apf-action-bar,.apf-icon-btn{display:none!important}.apf-scroll-container{max-height:none!important;overflow:visible!important}}
       </style>
 
@@ -5622,9 +5616,9 @@ Pages.reports = async function(params = {}) {
         + Create New Report
       </button>
     </div>
-    <div style="display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start">
+    <div class="rptn" style="display:grid;grid-template-columns:220px 1fr;gap:14px;align-items:start">
       <!-- Sidebar -->
-      <div class="sp" style="padding:8px 0;position:sticky;top:0">
+      <div class="sp rpt-side" style="padding:8px 0;position:sticky;top:0">
         <div style="padding:8px 10px;font-size:11px;font-weight:600;color:var(--text2);border-bottom:1px solid var(--border);margin-bottom:6px">
           Report Categories
         </div>
@@ -5679,10 +5673,41 @@ Pages.reports = async function(params = {}) {
     </div>
 
     <style>
-      .rpt-nav-item{padding:5px 12px;font-size:12px;cursor:pointer;border-radius:4px;margin:1px 6px;
-                    color:var(--text2);transition:background .15s}
-      .rpt-nav-item:hover{background:var(--bg3);color:var(--text1)}
-      .rpt-nav-item.active{background:var(--accent);color:#fff;font-weight:600}
+      .rptn { --bg3:var(--surface2); --text1:var(--text); --text-muted:var(--text3); --text-primary:var(--text); --hover-bg:var(--surface2); }
+      .rptn .rpt-side { border-radius:10px; overflow:hidden }
+      .rpt-nav-item { padding:7px 14px; font-size:12px; cursor:pointer; border-radius:8px; margin:1px 8px; color:var(--text2); transition:background .15s }
+      .rpt-nav-item:hover { background:var(--surface2); color:var(--text) }
+      .rpt-nav-item.active { background:var(--teal-bg); color:var(--teal); font-weight:600 }
+      @media (max-width:900px) { .rptn { grid-template-columns:minmax(0,1fr) !important } .rptn .rpt-side { position:static !important } }
+      #rpt-main { min-width:0 }
+      #rpt-main .sp { border-radius:10px; overflow:hidden }
+      #rpt-main .sp-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      #rpt-main .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      #rpt-main .sp-body { padding:18px }
+      #rpt-main .fg { gap:6px }
+      #rpt-main .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      #rpt-main .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      #rpt-main .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      #rpt-main .cb-label { display:inline-flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text); cursor:pointer }
+      #rpt-main .btn-primary, #rpt-main .btn-fetch, #create-report-modal .btn-primary { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 24px; font-size:12.5px; font-weight:600; border-radius:8px; min-height:38px; cursor:pointer }
+      #rpt-main .btn-primary:hover, #create-report-modal .btn-primary:hover { filter:brightness(.92) }
+      #rpt-main .btn-ghost, #create-report-modal .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      #rpt-main .btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      #rpt-main .kpi-card { background:var(--surface); border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px; padding:12px 16px }
+      #rpt-main .kpi-label { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:.5px }
+      #rpt-main .kpi-value { font-size:20px; font-weight:700; margin-top:4px }
+      #rpt-main .kpi-sub { font-size:11px; color:var(--text3); margin-top:2px }
+      #rpt-main #rpt-result { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow-x:auto }
+      #rpt-main #rpt-result:empty { display:none }
+      #rpt-main table { border-collapse:collapse; font-size:12.5px }
+      #rpt-main table th { padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap }
+      #rpt-main table td { padding:9px 14px; vertical-align:middle }
+      #rpt-main table tbody tr:hover td { background:var(--surface2) }
+      #rpt-main .tfoot-total td { background:var(--surface2); font-weight:700; border-top:1px solid var(--border2) }
+      #rpt-main .empty-state { padding:40px 18px; text-align:center; color:var(--text3) }
+      #rpt-main .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      #create-report-modal > .sp { border-radius:14px; background:var(--surface); border:1px solid var(--border2); box-shadow:0 20px 60px rgba(0,0,0,.4) }
+      #create-report-modal h2 { font-size:15px; font-weight:600; color:var(--text) }
     </style>
   `;
 
@@ -5756,10 +5781,10 @@ const EditsPage = {
     const topType = Object.entries(types).sort((a,b) => b[1]-a[1])[0];
     const lastEdit = this._data[0]?.edited_at;
     el.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--border);border-top:none;margin-bottom:0">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
         <div style="padding:14px 20px;border-right:1px solid var(--border)">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);margin-bottom:6px">Total Edits</div>
-          <div style="font-size:26px;font-weight:700;color:var(--accent);line-height:1">${this._total}</div>
+          <div style="font-size:26px;font-weight:700;color:var(--teal);line-height:1">${this._total}</div>
         </div>
         <div style="padding:14px 20px;border-right:1px solid var(--border)">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text2);margin-bottom:6px">Documents Edited</div>
@@ -5790,11 +5815,11 @@ const EditsPage = {
       const sno  = offset + i + 1;
       const ver  = r.edit_version ? `v${r.edit_version - 1}&rarr;v${r.edit_version}` : `v${r.current_version}`;
       const status = r.is_active
-        ? `<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:2px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid #c8e6c9">Active</span>`
-        : `<span style="display:inline-block;background:#f5f5f5;color:#757575;padding:2px 8px;border-radius:2px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid #e0e0e0">Reverted</span>`;
+        ? `<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid #c8e6c9">Active</span>`
+        : `<span style="display:inline-block;background:var(--surface2);color:var(--text3);padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid var(--border2)">Reverted</span>`;
       const viewUrl = `/api/documents/${r.document_id}/html?token=${encodeURIComponent(Auth.getToken()||'')}`;
       const consumerLink = r.consumer_id
-        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name||'N/A')}</a>`
+        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name||'N/A')}</a>`
         : `<span style="color:var(--text)">${Utils.esc(r.consumer_name || 'N/A')}</span>`;
       const zebra = i % 2 === 1 ? 'background:var(--bg2)' : '';
       return `<tr style="${zebra}">
@@ -5809,18 +5834,18 @@ const EditsPage = {
         <td style="padding:8px 10px;font-size:12px">${Utils.esc(r.edited_by_name || '—')}</td>
         <td style="padding:8px 10px;white-space:nowrap;font-family:monospace;font-size:11px;color:var(--text2)">${ver}</td>
         <td style="padding:8px 10px">${status}</td>
-        <td style="padding:8px 10px;text-align:center"><a href="${viewUrl}" target="_blank" style="font-size:11px;font-weight:700;color:var(--accent);text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;border:1px solid var(--accent);padding:2px 8px;border-radius:2px;white-space:nowrap">View</a></td>
+        <td style="padding:8px 10px;text-align:center"><a href="${viewUrl}" target="_blank" style="font-size:11px;font-weight:700;color:var(--teal);text-decoration:none;letter-spacing:0.3px;text-transform:uppercase;border:1px solid var(--accent);padding:2px 8px;border-radius:2px;white-space:nowrap">View</a></td>
       </tr>`;
     });
     el.innerHTML = `
-      <div style="border:1px solid var(--border);border-top:none;overflow-x:auto">
+      <div style="border-top:1px solid var(--border);overflow-x:auto">
         <table style="width:100%;border-collapse:collapse;min-width:1100px">
           <thead>
-            <tr style="background:#1a3c5e;color:#fff">
-              ${cols.map(c=>`<th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.6px;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.08)">${c}</th>`).join('')}
+            <tr style="background:var(--surface2);color:var(--text3)">
+              ${cols.map(c=>`<th style="padding:9px 10px;text-align:left;font-size:11px;font-weight:700;letter-spacing:0.6px;white-space:nowrap;border-bottom:1px solid var(--border2);text-transform:uppercase">${c}</th>`).join('')}
             </tr>
           </thead>
-          <tbody style="border-top:2px solid #1a3c5e">${rows.join('')}</tbody>
+          <tbody>${rows.join('')}</tbody>
         </table>
       </div>
       ${this.renderPagination()}
@@ -5832,14 +5857,14 @@ const EditsPage = {
     const start = (this._page - 1) * this._pageSize + 1;
     const end   = Math.min(this._page * this._pageSize, this._total);
     return `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border:1px solid var(--border);border-top:1px solid var(--border);background:var(--bg2)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-top:1px solid var(--border);background:var(--surface2)">
         <span style="font-size:12px;color:var(--text2)">Showing <strong>${start}–${end}</strong> of <strong>${this._total}</strong> records</span>
         <div style="display:flex;gap:6px;align-items:center">
-          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;border-radius:2px"
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;border-radius:6px"
             ${this._page <= 1 ? 'disabled' : ''}
             onclick="EditsPage.goTo(${this._page - 1})">&larr; Previous</button>
-          <span style="font-size:12px;padding:4px 10px;color:var(--text2);border:1px solid var(--border);background:var(--card)">Page ${this._page} / ${this._totalPages}</span>
-          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;border-radius:2px"
+          <span style="font-size:12px;padding:4px 10px;color:var(--text2);border:1px solid var(--border2);background:var(--surface);border-radius:6px">Page ${this._page} / ${this._totalPages}</span>
+          <button class="btn btn-ghost" style="font-size:12px;padding:4px 12px;border-radius:6px"
             ${this._page >= this._totalPages ? 'disabled' : ''}
             onclick="EditsPage.goTo(${this._page + 1})">Next &rarr;</button>
         </div>
@@ -5907,30 +5932,41 @@ Pages.documentEdits = async function(params = {}) {
   if (!content) return;
 
   content.innerHTML = `
-    <div class="page-header" style="margin-bottom:0;padding-bottom:14px;border-bottom:2px solid var(--border)">
-      <div>
-        <h1 class="page-title" style="font-size:17px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase">Document Edits Audit Trail</h1>
-        <p class="page-sub" style="color:var(--text2);margin-top:3px;font-size:12px">Complete log of all document field edits — who changed what, when</p>
-      </div>
+    <style>
+      .edn { max-width:1280px; margin-left:auto; margin-right:auto }
+      .edn-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden; margin-bottom:16px }
+      .edn .fg { gap:6px }
+      .edn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .edn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .edn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .edn .btn-teal { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .edn .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      #edits-summary, #edits-result { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden; margin-bottom:16px }
+      #edits-summary:empty { display:none }
+    </style>
+    <div class="page-hdr">
+      <h1>Document Edits Audit Trail</h1>
+      <div class="breadcrumb">Reports / <b>Edits</b></div>
     </div>
-
-    <div style="background:var(--card);border:1px solid var(--border);border-top:none;border-radius:0">
-      <div style="padding:7px 16px;border-bottom:1px solid var(--border);background:var(--bg2);display:flex;align-items:center;gap:8px">
-        <span style="font-size:10px;font-weight:700;letter-spacing:1px;color:var(--text2);text-transform:uppercase">Filters</span>
+    <div class="edn">
+    <div class="edn-card">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--border);background:var(--teal-bg);display:flex;align-items:center;gap:8px">
+        <span style="font-size:12px;font-weight:600;letter-spacing:.6px;color:var(--text);text-transform:uppercase">Filters</span>
+        <span style="font-size:11px;color:var(--text3)">Complete log of all document field edits — who changed what, when</span>
       </div>
-      <div style="padding:12px 16px">
-        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div style="padding:18px">
+        <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
           <div class="fg" style="min-width:140px">
             <label class="fl">From Date</label>
-            <input type="date" class="fc" id="ef-fromDate" style="border-radius:2px">
+            <input type="date" class="fc" id="ef-fromDate" >
           </div>
           <div class="fg" style="min-width:140px">
             <label class="fl">To Date</label>
-            <input type="date" class="fc" id="ef-toDate" style="border-radius:2px">
+            <input type="date" class="fc" id="ef-toDate" >
           </div>
           <div class="fg" style="min-width:180px">
             <label class="fl">Document Type</label>
-            <select class="fc" id="ef-docType" style="border-radius:2px">
+            <select class="fc" id="ef-docType" >
               <option value="">All Types</option>
               <option value="buyer_builder_agreement">Agreement for Sale</option>
               <option value="conveyance_deed">Conveyance Deed</option>
@@ -5943,15 +5979,15 @@ Pages.documentEdits = async function(params = {}) {
           </div>
           <div class="fg" style="min-width:160px">
             <label class="fl">Edited By</label>
-            <input type="text" class="fc" id="ef-editedBy" placeholder="Search by name…" style="border-radius:2px">
+            <input type="text" class="fc" id="ef-editedBy" placeholder="Search by name…" >
           </div>
           <div class="fg" style="min-width:160px">
             <label class="fl">Consumer ID</label>
-            <input type="text" class="fc" id="ef-consumer" placeholder="UUID (optional)" style="border-radius:2px">
+            <input type="text" class="fc" id="ef-consumer" placeholder="UUID (optional)" >
           </div>
           <div style="display:flex;gap:8px;margin-top:16px">
-            <button class="btn btn-primary" style="border-radius:2px" onclick="EditsPage._page=1;EditsPage.fetch()">Fetch</button>
-            <button class="btn btn-ghost" style="border-radius:2px" onclick="EditsPage.exportCsv()">Export CSV</button>
+            <button class="btn btn-teal" onclick="EditsPage._page=1;EditsPage.fetch()">Fetch</button>
+            <button class="btn btn-ghost"  onclick="EditsPage.exportCsv()">Export CSV</button>
           </div>
         </div>
       </div>
@@ -5959,6 +5995,7 @@ Pages.documentEdits = async function(params = {}) {
 
     <div id="edits-summary"></div>
     <div id="edits-result"><div class="empty-state"><h3>Apply filters and click Fetch</h3></div></div>
+    </div>
   `;
 
   EditsPage._data = [];
