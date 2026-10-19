@@ -20,6 +20,34 @@ Pages.receipts = async function(params = {}) {
       <button class="tab-line" data-group="rec" data-tab="upload-tds" onclick="switchTab('rec','upload-tds')">Upload Tds Challan</button>
     </div>
 
+    <style>
+      [data-panel-group="rec"] { max-width:1180px; margin-left:auto; margin-right:auto }
+      [data-panel-group="rec"] .sp, [data-panel-group="rec"] .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      [data-panel-group="rec"] .sp-hdr, [data-panel-group="rec"] .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      [data-panel-group="rec"] .sp-title, [data-panel-group="rec"] .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      [data-panel-group="rec"] .sp-body { padding:18px }
+      [data-panel-group="rec"] .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { [data-panel-group="rec"] .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } [data-panel-group="rec"] .fg { grid-column:auto !important } }
+      @media (max-width:640px) { [data-panel-group="rec"] .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      [data-panel-group="rec"] .fg { gap:6px }
+      [data-panel-group="rec"] .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      [data-panel-group="rec"] .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      [data-panel-group="rec"] .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      [data-panel-group="rec"] .btn-lg, [data-panel-group="rec"] .btn-fetch { padding:9px 24px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      [data-panel-group="rec"] .btn-fetch, [data-panel-group="rec"] .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none }
+      [data-panel-group="rec"] .btg-item { padding:7px 16px; font-size:12px; border-radius:8px; border:1px solid var(--border2) }
+      [data-panel-group="rec"] .alert { border-radius:8px; margin-bottom:16px !important }
+      [data-panel-group="rec"] #hwc-body, [data-panel-group="rec"] #dup-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow-x:auto }
+      [data-panel-group="rec"] #hwc-body:empty, [data-panel-group="rec"] #dup-body:empty { display:none }
+      [data-panel-group="rec"] .tbl-wrap, [data-panel-group="rec"] #rp-results-body, [data-panel-group="rec"] #receipt-list-body { overflow-x:auto }
+      [data-panel-group="rec"] table { width:100%; border-collapse:collapse; font-size:12.5px }
+      [data-panel-group="rec"] table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+      [data-panel-group="rec"] table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+      [data-panel-group="rec"] table tbody tr:hover td { background:var(--surface2) }
+      [data-panel-group="rec"] table tbody tr:last-child td { border-bottom:none }
+      [data-panel-group="rec"] table .td-bold { font-weight:600 }
+    </style>
+
     <!-- RECEIPT ENTRY TAB -->
     <div data-panel-group="rec" data-panel="entry">
       <div class="sp" id="rec-search-block" style="margin-bottom:12px">
@@ -342,7 +370,7 @@ Pages.receipts = async function(params = {}) {
     <div data-panel-group="rec" data-panel="journal" style="display:none">
 
       <!-- Inner sub-tab bar -->
-      <div style="display:flex;gap:0;border-bottom:2px solid #e5e7eb;margin-bottom:20px;overflow-x:auto;">
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border2);margin-bottom:20px;overflow-x:auto;">
         <button id="je-tab-entry" onclick="ReceiptsPage.switchJeTab('entry')"
           style="padding:9px 18px;font-size:12.5px;font-weight:600;border:none;background:none;cursor:pointer;white-space:nowrap;color:var(--teal);border-bottom:2px solid var(--teal);margin-bottom:-2px;">
           Journal Entry
@@ -366,34 +394,34 @@ Pages.receipts = async function(params = {}) {
 
         <!-- ── STEP 1: Consumer Search ── -->
         <div id="je-step-1">
-          <div style="font-size:13px;font-weight:700;color:var(--navy,#1a3a5c);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid #e2e8f0;">
+          <div style="font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px;padding-bottom:8px;border-bottom:2px solid var(--border2);">
             JOURNAL ENTRY
           </div>
-          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;padding:16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;padding:16px;background:var(--surface2);border-radius:8px;border:1px solid var(--border2);">
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">*PROJECT:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">*PROJECT:</label>
               <select id="je-project-filter" class="fc" style="width:100%;"><option value="">All Projects</option></select>
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">REGISTRATION NO.:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">REGISTRATION NO.:</label>
               <input type="text" id="je-reg-filter" class="fc" placeholder="Registration No." style="width:100%;">
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">FIRST NAME:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">FIRST NAME:</label>
               <input type="text" id="je-name-filter" class="fc" placeholder="First Name" style="width:100%;">
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">UNIT ADDRESS:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">UNIT ADDRESS:</label>
               <input type="text" id="je-unit-filter" class="fc" placeholder="Unit Address" style="width:100%;">
             </div>
           </div>
           <button id="je-fetch-btn" class="btn btn-fetch" style="margin-bottom:16px;" onclick="ReceiptsPage.jeFetch()">FETCH</button>
           <div id="je-results-container" style="display:none;">
-            <div style="font-size:13px;font-weight:700;color:var(--navy,#1a3a5c);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">JOURNAL ENTRY</div>
-            <div id="je-project-label" style="font-size:12px;color:#555;margin-bottom:8px;"></div>
+            <div style="font-size:13px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">JOURNAL ENTRY</div>
+            <div id="je-project-label" style="font-size:12px;color:var(--text2);margin-bottom:8px;"></div>
             <div class="tbl-wrap">
               <table>
-                <thead><tr style="background:#1a3a5c;color:#fff;">
+                <thead><tr>
                   <th>S.NO</th><th>REGISTRATION NO.</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th><th>SELECT</th>
                 </tr></thead>
                 <tbody id="je-results-body"></tbody>
@@ -404,21 +432,21 @@ Pages.receipts = async function(params = {}) {
 
         <!-- ── STEP 2: Entry Form ── -->
         <div id="je-step-2" style="display:none;">
-          <div style="font-size:12px;color:#555;margin-bottom:10px;">
-            <strong>Transfer From :</strong>&nbsp;Project: <span id="je-from-project" style="color:var(--navy,#1a3a5c);font-weight:600;"></span>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+            <strong>Transfer From :</strong>&nbsp;Project: <span id="je-from-project" style="color:var(--text);font-weight:600;"></span>
           </div>
           <div class="tbl-wrap" style="margin-bottom:20px;">
             <table>
-              <thead><tr style="background:#1a3a5c;color:#fff;"><th>S.NO</th><th>REGISTRATION NO.</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th><th>SELECT</th></tr></thead>
+              <thead><tr><th>S.NO</th><th>REGISTRATION NO.</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th><th>SELECT</th></tr></thead>
               <tbody id="je-from-body"></tbody>
             </table>
           </div>
-          <div style="font-size:12px;color:#555;margin-bottom:10px;">
-            <strong>Transfer To :</strong>&nbsp;Project: <span id="je-to-project" style="color:var(--navy,#1a3a5c);font-weight:600;"></span>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:10px;">
+            <strong>Transfer To :</strong>&nbsp;Project: <span id="je-to-project" style="color:var(--text);font-weight:600;"></span>
           </div>
           <div class="tbl-wrap" style="margin-bottom:20px;">
             <table>
-              <thead><tr style="background:#1a3a5c;color:#fff;"><th>REGISTRATION NO</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th></tr></thead>
+              <thead><tr><th>REGISTRATION NO</th><th>NAME</th><th>UNIT TYPE</th><th>UNIT ADDRESS</th><th>PAID AMOUNT</th></tr></thead>
               <tbody id="je-to-body"></tbody>
             </table>
           </div>
@@ -426,7 +454,7 @@ Pages.receipts = async function(params = {}) {
           <!-- GST toggle + form fields -->
           <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr;gap:16px;align-items:end;margin-bottom:16px;">
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Service Tax / GST:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;">Service Tax / GST:</label>
               <div style="display:flex;">
                 <button id="je-tax-none" onclick="ReceiptsPage.jeTaxToggle('none')"
                   style="padding:6px 11px;border:1px solid #0d9488;background:#0d9488;color:#fff;cursor:pointer;font-size:12px;font-weight:500;border-radius:4px 0 0 4px;">
@@ -443,7 +471,7 @@ Pages.receipts = async function(params = {}) {
               </div>
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Head Type</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Head Type</label>
               <select id="je-head-type" class="fc" style="width:100%;">
                 <option value="">&lt;All&gt;</option>
                 <option value="agreement_value">Agreement Value</option>
@@ -457,16 +485,16 @@ Pages.receipts = async function(params = {}) {
               </select>
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Amount:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Amount:</label>
               <input type="number" id="je-amount" class="fc" placeholder="Amount" min="0" step="0.01" style="width:100%;">
             </div>
             <div>
-              <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Adjustment Date:</label>
+              <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Adjustment Date:</label>
               <input type="date" id="je-adj-date" class="fc" style="width:100%;">
             </div>
           </div>
           <div style="margin-bottom:16px;">
-            <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Remarks (Max 1000)</label>
+            <label style="display:block;font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px;">Remarks (Max 1000)</label>
             <textarea id="je-remarks" class="fc" maxlength="1000" rows="3" placeholder="Remarks" style="width:100%;box-sizing:border-box;resize:vertical;"></textarea>
           </div>
           <div style="display:flex;gap:8px;">
@@ -481,29 +509,29 @@ Pages.receipts = async function(params = {}) {
 
             <!-- Debit panel -->
             <div>
-              <div style="background:#1a3a5c;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;border-radius:4px 4px 0 0;">
+              <div style="background:var(--surface2);color:var(--text);padding:12px 18px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.6px;border:1px solid var(--border2);border-bottom:none;border-radius:10px 10px 0 0;">
                 <span id="je-debit-title">PROJECT – NAME [REG] (DEBIT)</span>
               </div>
-              <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;overflow:hidden;">
+              <div style="border:1px solid var(--border2);border-top:none;border-radius:0 0 4px 4px;overflow:hidden;">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                  <thead><tr style="background:#e2e8f0;"><th style="padding:8px 10px;text-align:left;">S.No.</th><th style="padding:8px 10px;text-align:left;">Installment Name</th></tr></thead>
+                  <thead><tr><th style="padding:8px 10px;text-align:left;">S.No.</th><th style="padding:8px 10px;text-align:left;">Installment Name</th></tr></thead>
                   <tbody id="je-debit-body"></tbody>
                 </table>
               </div>
-              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:600;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;">
-                <span>Balance: <span id="je-debit-balance" style="color:var(--navy,#1a3a5c);">0/-</span></span>
-                <span>Total: <span id="je-debit-total" style="color:var(--navy,#1a3a5c);">0.00/-</span></span>
+              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:var(--surface2);font-size:12px;font-weight:600;border:1px solid var(--border2);border-top:none;border-radius:0 0 4px 4px;">
+                <span>Balance: <span id="je-debit-balance" style="color:var(--text);">0/-</span></span>
+                <span>Total: <span id="je-debit-total" style="color:var(--text);">0.00/-</span></span>
               </div>
             </div>
 
             <!-- Credit panel -->
             <div>
-              <div style="background:#0d9488;color:#fff;padding:8px 12px;font-weight:700;font-size:12px;border-radius:4px 4px 0 0;">
+              <div style="background:var(--teal-bg);color:var(--teal);padding:12px 18px;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.6px;border:1px solid var(--border2);border-bottom:none;border-radius:10px 10px 0 0;">
                 <span id="je-credit-title">PROJECT – NAME [REG] (CREDIT)</span>
               </div>
-              <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;overflow-x:auto;">
+              <div style="border:1px solid var(--border2);border-top:none;border-radius:0 0 4px 4px;overflow-x:auto;">
                 <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:700px;">
-                  <thead><tr style="background:#e2e8f0;">
+                  <thead><tr>
                     <th style="padding:8px 6px;">S.No.</th>
                     <th>Installment Name</th><th>Inst. Date</th><th>Head Name</th>
                     <th>Payable Amt</th><th>Payable CGST</th><th>Payable SGST</th>
@@ -513,9 +541,9 @@ Pages.receipts = async function(params = {}) {
                   <tbody id="je-credit-body"></tbody>
                 </table>
               </div>
-              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:#f8fafc;font-size:12px;font-weight:600;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 4px 4px;">
-                <span>Balance: <span id="je-credit-balance" style="color:var(--navy,#1a3a5c);">0/-</span></span>
-                <span>Total: <span id="je-credit-total" style="color:var(--navy,#1a3a5c);">0.00/-</span></span>
+              <div style="display:flex;justify-content:flex-end;gap:20px;padding:8px 12px;background:var(--surface2);font-size:12px;font-weight:600;border:1px solid var(--border2);border-top:none;border-radius:0 0 4px 4px;">
+                <span>Balance: <span id="je-credit-balance" style="color:var(--text);">0/-</span></span>
+                <span>Total: <span id="je-credit-total" style="color:var(--text);">0.00/-</span></span>
               </div>
             </div>
           </div>
@@ -578,7 +606,7 @@ Pages.receipts = async function(params = {}) {
           <table>
             <thead><tr><th>REF NO.</th><th>DATE</th><th>CONSUMER</th><th>TYPE</th><th>AMOUNT</th><th>REASON</th><th>STATUS</th></tr></thead>
             <tbody id="dc-history-body">
-              <tr><td colspan="7" style="text-align:center;color:#888;padding:20px;">No records found</td></tr>
+              <tr><td colspan="7" style="text-align:center;color:var(--text3);padding:20px;">No records found</td></tr>
             </tbody>
           </table>
         </div>
@@ -617,16 +645,16 @@ Pages.receipts = async function(params = {}) {
           </div>
         </div>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:20px 0;">
-          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Debit</div>
+          <div style="background:var(--surface);border:1px solid var(--border2);border-left:3px solid #16a34a;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Debit</div>
             <div id="jr-total-debit" style="font-size:22px;font-weight:700;color:#16a34a;">₹0</div>
           </div>
-          <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Credit</div>
+          <div style="background:var(--surface);border:1px solid var(--border2);border-left:3px solid #dc2626;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Total Credit</div>
             <div id="jr-total-credit" style="font-size:22px;font-weight:700;color:#dc2626;">₹0</div>
           </div>
-          <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:16px;text-align:center;">
-            <div style="font-size:11px;color:#666;text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Net Balance</div>
+          <div style="background:var(--surface);border:1px solid var(--border2);border-left:3px solid #1d4ed8;border-radius:10px;padding:16px;text-align:center;">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;margin-bottom:4px;letter-spacing:.5px;">Net Balance</div>
             <div id="jr-net-balance" style="font-size:22px;font-weight:700;color:#1d4ed8;">₹0</div>
           </div>
         </div>
@@ -634,7 +662,7 @@ Pages.receipts = async function(params = {}) {
           <table id="jr-table">
             <thead><tr><th>S.NO.</th><th>ENTRY NO.</th><th>DATE</th><th>CONSUMER</th><th>LEDGER HEAD</th><th>DEBIT (₹)</th><th>CREDIT (₹)</th><th>REMARKS</th><th>STATUS</th></tr></thead>
             <tbody id="jr-body">
-              <tr><td colspan="9" style="text-align:center;color:#888;padding:20px;">Select filters and click FETCH</td></tr>
+              <tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px;">Select filters and click FETCH</td></tr>
             </tbody>
           </table>
         </div>
@@ -672,11 +700,11 @@ Pages.receipts = async function(params = {}) {
           <table>
             <thead><tr><th>S.NO.</th><th>ENTRY NO.</th><th>DATE</th><th>TYPE</th><th>CONSUMER</th><th>DEBIT (₹)</th><th>CREDIT (₹)</th><th>REMARKS</th><th>STATUS</th><th>ACTION</th></tr></thead>
             <tbody id="rv-body">
-              <tr><td colspan="10" style="text-align:center;color:#888;padding:20px;">Select consumer and click FETCH ENTRIES</td></tr>
+              <tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px;">Select consumer and click FETCH ENTRIES</td></tr>
             </tbody>
           </table>
         </div>
-        <div style="margin-top:16px;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">
+        <div style="margin-top:16px;padding:12px 16px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;font-size:12px;color:var(--text2);">
           Only entries with status "Posted" can be reversed. Reversed entries cannot be reversed again.
         </div>
       </div>
