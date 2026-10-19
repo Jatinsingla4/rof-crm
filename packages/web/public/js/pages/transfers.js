@@ -2,78 +2,50 @@
 (() => {
 
   const TR_STYLES = `<style id="tr-styles">
-.tr-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.tr-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.tr-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.tr-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.tr-body { padding: 14px 16px 16px; }
-.tr-filter-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
-.tr-field { display: flex; flex-direction: column; gap: 3px; }
-.tr-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.tr-filter-row select,
-.tr-filter-row input[type="text"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; min-width: 160px;
-}
-.tr-btn {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 6px 18px; border-radius: 3px; font-size: 13px; font-weight: bold;
-  cursor: pointer; white-space: nowrap;
-}
-.tr-btn:hover { background: #16305c; }
-.tr-btn:disabled { opacity: .7; cursor: not-allowed; }
-.tr-btn-sm {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 4px 10px; border-radius: 3px; font-size: 12px; cursor: pointer;
-}
-.tr-btn-sm:hover { background: #16305c; }
-.tr-btn-back {
-  background: none; border: none; color: #fff; font-size: 18px;
-  cursor: pointer; padding: 0 6px 0 0; font-weight: bold; line-height: 1;
-}
-.tr-table-wrap { overflow-x: auto; }
-.tr-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.tr-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; white-space: nowrap; }
-.tr-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
-.tr-table tr:hover td { background: #f5f7ff; }
-.tr-section-title { font-size: 12px; font-weight: bold; color: #1d3a6e; margin: 12px 0 6px; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
-.tr-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px 18px;
-  margin-bottom: 10px;
-}
-.tr-grid input[type="text"],
-.tr-grid input[type="date"],
-.tr-grid input[type="number"],
-.tr-grid input[type="email"],
-.tr-grid select,
-.tr-grid textarea {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; width: 100%; box-sizing: border-box;
-}
-.tr-grid input[readonly],
-.tr-grid input:read-only { background: #f5f5f5; color: #666; }
-.tr-grid input:focus,
-.tr-grid select:focus,
-.tr-grid textarea:focus { outline: none; border-color: #337ab7; }
-.tr-radio-group { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 4px 0; }
-.tr-radio-group label { font-size: 13px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
-.tr-info-box { background: #f8f9fc; border: 1px solid #d8dff0; border-radius: 3px; padding: 10px 14px; margin-bottom: 10px; font-size: 12px; }
-.tr-info-row { display: flex; gap: 24px; flex-wrap: wrap; }
-.tr-info-item { display: flex; flex-direction: column; gap: 1px; }
-.tr-info-lbl { color: #888; font-size: 11px; }
-.tr-info-val { font-weight: bold; color: #222; }
-.tr-msg { margin-top: 8px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.tr-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.tr-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.tr-pagination { display: flex; gap: 6px; align-items: center; margin-top: 10px; font-size: 12px; }
-.tr-pagination button { padding: 3px 10px; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; background: #fff; }
-.tr-pagination button:disabled { opacity: .5; cursor: not-allowed; }
-.tr-history-section { margin-top: 18px; }
+.tr-page { padding:0; font-size:13px; max-width:1180px; margin:0 auto }
+.tr-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.tr-hdr { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.tr-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.tr-body { padding:18px }
+.tr-filter-row { display:flex; align-items:flex-end; gap:16px 18px; flex-wrap:wrap; margin-bottom:16px }
+.tr-field { display:flex; flex-direction:column; gap:6px }
+.tr-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px; white-space:nowrap }
+.tr-filter-row select, .tr-filter-row input[type="text"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box; min-width:180px; }
+.tr-filter-row select:focus, .tr-filter-row input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tr-btn { background:var(--teal); color:#fff; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:36px }
+.tr-btn:hover { filter:brightness(.92) }
+.tr-btn:disabled { opacity:.65; cursor:not-allowed }
+.tr-btn { white-space:nowrap }
+.tr-btn-sm { background:var(--teal); color:#fff; border:none; padding:5px 12px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:36px }
+.tr-btn-sm:hover { filter:brightness(.92) }
+.tr-btn-sm:disabled { opacity:.65; cursor:not-allowed }
+.tr-btn-sm { font-size:12px; min-height:30px; border-radius:6px }
+.tr-btn-back { background:none; border:none; color:var(--teal); font-size:20px; cursor:pointer; padding:0 8px 0 0; font-weight:bold; line-height:1 }
+.tr-table-wrap { overflow-x:auto; border:1px solid var(--border2); border-radius:10px }
+.tr-table { width:100%; border-collapse:collapse; font-size:12.5px }
+.tr-table th { background:var(--surface2); color:var(--text3); padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; border-bottom:1px solid var(--border2) }
+.tr-table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle; }
+.tr-table tbody tr:last-child td { border-bottom:none }
+.tr-table tbody tr:hover td { background:var(--surface2) }
+.tr-section-title { font-size:11px; font-weight:600; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; margin:18px 0 12px; border-bottom:1px solid var(--border); padding-bottom:6px }
+.tr-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px 20px; margin-bottom:16px }
+.tr-grid input[type="text"], .tr-grid input[type="date"], .tr-grid input[type="number"], .tr-grid input[type="email"], .tr-grid select, .tr-grid textarea { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box; width:100%; }
+.tr-grid input[type="text"]:focus, .tr-grid input[type="date"]:focus, .tr-grid input[type="number"]:focus, .tr-grid input[type="email"]:focus, .tr-grid select:focus, .tr-grid textarea:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tr-grid input[readonly], .tr-grid input:read-only { background:var(--surface2); color:var(--text2) }
+.tr-radio-group { display:flex; gap:16px; align-items:center; flex-wrap:wrap; padding:4px 0 }
+.tr-radio-group label { font-size:13px; display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--text) }
+.tr-info-box { background:var(--surface2); border:1px solid var(--border2); border-radius:10px; padding:14px 18px; margin-bottom:16px; font-size:12px }
+.tr-info-row { display:flex; gap:28px; flex-wrap:wrap }
+.tr-info-item { display:flex; flex-direction:column; gap:2px }
+.tr-info-lbl { color:var(--text3); font-size:11px }
+.tr-info-val { font-weight:600; color:var(--text) }
+.tr-msg { margin-top:12px; padding:8px 12px; border-radius:8px; font-size:12.5px; display:none; }
+.tr-msg-ok { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
+.tr-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
+.tr-pagination { display:flex; gap:8px; align-items:center; margin-top:14px; font-size:12px; color:var(--text2) }
+.tr-pagination button { padding:4px 12px; border:1px solid var(--border2); border-radius:6px; cursor:pointer; background:var(--surface); color:var(--text) }
+.tr-pagination button:disabled { opacity:.5; cursor:not-allowed }
+.tr-history-section { margin-top:18px }
 </style>`;
 
   // ── State ─────────────────────────────────────────────────────────────────
@@ -139,7 +111,7 @@
 
     const resultsDiv = document.getElementById('tr-search-results');
     const msgDiv = document.getElementById('tr-search-msg');
-    if (resultsDiv) resultsDiv.innerHTML = '<p style="color:#888;font-size:12px">Searching...</p>';
+    if (resultsDiv) resultsDiv.innerHTML = '<p style="color:var(--text3);font-size:12px">Searching...</p>';
     if (msgDiv) msgDiv.style.display = 'none';
 
     const token = localStorage.getItem('rof-jwt') || '';
@@ -158,7 +130,7 @@
       const data = await res.json();
       const rows = data.consumers || data.data || data || [];
       if (!rows.length) {
-        if (resultsDiv) resultsDiv.innerHTML = '<p style="color:#888;font-size:12px">No allotted consumers found.</p>';
+        if (resultsDiv) resultsDiv.innerHTML = '<p style="color:var(--text3);font-size:12px">No allotted consumers found.</p>';
         return;
       }
       if (resultsDiv) resultsDiv.innerHTML = _renderSearchTable(rows);
@@ -337,7 +309,7 @@
         <input type="number" id="tr-ugst-pct" min="0" step="0.01" value="0" oninput="TransferApp.calcTax()">
       </div>
     </div>
-    <div class="tr-grid" style="background:#f8f9fc;padding:8px;border-radius:3px;margin-bottom:10px">
+    <div class="tr-grid" style="background:var(--surface2);padding:14px;border-radius:10px;margin-bottom:16px">
       <div class="tr-field">
         <span class="tr-lbl">Service Tax Amt (Rs.)</span>
         <input type="number" id="tr-stax-amt" readonly>
@@ -371,7 +343,7 @@
       </div>
       <div class="tr-field" style="grid-column:span 2">
         <span class="tr-lbl">Remarks</span>
-        <textarea id="tr-remarks" rows="2" style="resize:vertical;width:100%;padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;box-sizing:border-box"></textarea>
+        <textarea id="tr-remarks" rows="2" style="resize:vertical;width:100%"></textarea>
       </div>
     </div>
 
@@ -751,7 +723,7 @@
     const histDiv = document.getElementById('tr-history-body');
     if (!histDiv) return;
 
-    histDiv.innerHTML = '<tr><td colspan="10" style="color:#888;padding:8px">Loading...</td></tr>';
+    histDiv.innerHTML = '<tr><td colspan="10" style="color:var(--text3);padding:12px">Loading...</td></tr>';
     const token = localStorage.getItem('rof-jwt') || '';
     const params = new URLSearchParams({ page: _histPage, pageSize: _HIST_PS });
 
@@ -767,7 +739,7 @@
       if (totalSpan) totalSpan.textContent = total;
 
       if (!rows.length) {
-        histDiv.innerHTML = '<tr><td colspan="10" style="color:#888;padding:8px">No transfer records.</td></tr>';
+        histDiv.innerHTML = '<tr><td colspan="10" style="color:var(--text3);padding:12px">No transfer records.</td></tr>';
         _updateHistPager(0);
         return;
       }
@@ -787,7 +759,7 @@
 
       _updateHistPager(total);
     } catch (e) {
-      histDiv.innerHTML = `<tr><td colspan="10" style="color:#a94442;padding:8px">Error: ${_esc(e.message)}</td></tr>`;
+      histDiv.innerHTML = `<tr><td colspan="10" style="color:var(--red);padding:12px">Error: ${_esc(e.message)}</td></tr>`;
     }
   }
 
@@ -814,7 +786,7 @@
   <div class="tr-history-section tr-card">
     <div class="tr-hdr">
       <span class="tr-hdr-title">TRANSFER HISTORY</span>
-      <span style="color:#fff;font-size:12px">Total: <span id="tr-hist-total">0</span></span>
+      <span style="color:var(--text2);font-size:12px">Total: <span id="tr-hist-total">0</span></span>
     </div>
     <div class="tr-body">
       <div class="tr-table-wrap">
@@ -824,7 +796,7 @@
             <th>Unit</th><th>Project</th><th>Type</th><th>Amount (Rs.)</th><th>Broker</th>
           </tr></thead>
           <tbody id="tr-history-body">
-            <tr><td colspan="10" style="color:#888;padding:8px">No records yet.</td></tr>
+            <tr><td colspan="10" style="color:var(--text3);padding:12px">No records yet.</td></tr>
           </tbody>
         </table>
       </div>

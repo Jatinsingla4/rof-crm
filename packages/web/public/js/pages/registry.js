@@ -7,6 +7,31 @@ Pages.registry = async function(params = {}) {
       <div class="breadcrumb">Application / <b>Registry</b></div>
     </div>
 
+    <style>
+      .rgn { max-width:1100px; margin-left:auto; margin-right:auto }
+      .rgn .sp, .rgn .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      .rgn .sp-hdr, .rgn .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .rgn .sp-title, .rgn .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .rgn .sp-body { padding:18px }
+      .rgn .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { .rgn .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } .rgn .fg { grid-column:auto !important } }
+      @media (max-width:640px) { .rgn .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      .rgn .fg { gap:6px }
+      .rgn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .rgn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .rgn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .rgn .btn-lg { padding:9px 24px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      .rgn #reg-list-body { overflow-x:auto }
+      .rgn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .rgn table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+      .rgn table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+      .rgn table tbody tr:hover td { background:var(--surface2) }
+      .rgn table tbody tr:last-child td { border-bottom:none }
+      .rgn .td-bold { font-weight:600 }
+      .rgn .rgn-link { color:var(--teal); text-decoration:none; font-weight:500 }
+      .rgn .rgn-link:hover { text-decoration:underline }
+    </style>
+    <div class="rgn">
     <div class="sp" style="margin-bottom:12px">
       <div class="sp-hdr"><div class="sp-title">Schedule Registry Appointment</div></div>
       <div class="sp-body">
@@ -31,6 +56,7 @@ Pages.registry = async function(params = {}) {
     <div class="tbl-wrap">
       <div class="tbl-hdr"><div class="tbl-title">Scheduled & Completed Registries</div></div>
       <div id="reg-list-body"><div class="page-loading"><div class="spinner"></div></div></div>
+    </div>
     </div>
   `;
 
@@ -92,7 +118,7 @@ const RegistryPage = {
         <thead><tr><th>Consumer</th><th>Unit</th><th>Appt. Date</th><th>Reg. Date</th><th>Status</th></tr></thead>
         <tbody>
           ${list.map(r => `<tr>
-            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name}</a></td>
+            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="rgn-link" title="View Applicant File">${r.consumer_name}</a></td>
             <td>${r.unit_number}</td>
             <td>${Utils.date(r.appointment_date)}</td>
             <td>${r.registry_date ? Utils.date(r.registry_date) : '—'}</td>
