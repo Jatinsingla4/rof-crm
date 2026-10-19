@@ -27,7 +27,7 @@ Pages.bookingPayment = async function(params = {}) {
     const gstDate = booking.booking_date || new Date().toISOString().split('T')[0];
     const [banksRes, empsRes, gstRes] = await Promise.all([
       Api.get('/master/banks'),
-      Api.get('/employees'),
+      Api.get('/employees/directory'),
       Api.get(`/gst-configuration/resolve?projectId=${booking.project_id}&chargeType=BASIC&date=${gstDate}`),
     ]);
     banks     = banksRes.data || [];

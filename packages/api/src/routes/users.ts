@@ -45,7 +45,7 @@ const HOME_PAGE_WIDGETS = [
   { key: 'unit_status',              label: 'Unit Status' },
 ];
 
-class Bad extends Error {
+export class Bad extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 const fail = (status: number, message: string): never => { throw new Bad(status, message); };
@@ -146,7 +146,7 @@ async function checkUserFields(body: any) {
   return set;
 }
 
-async function updateUser(req: AuthRequest, res: Response, id: string, body: any) {
+export async function updateUser(req: AuthRequest, res: Response, id: string, body: any) {
   if (!isUuid(id)) return fail(404, 'User not found');
   const set = await checkUserFields(body);
   const perms = body.processPermissions === undefined ? null : checkProcessPermissions(body.processPermissions);

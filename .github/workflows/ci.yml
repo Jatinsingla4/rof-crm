@@ -131,14 +131,10 @@ jobs:
         env:
           BASE: http://localhost:3002/api
         run: |
-          .github/scripts/run-api-tests.sh \
-            docs/set-master-setup/api-test-setup.mjs \
-            docs/set-master-setup/api-test-deep.mjs \
-            docs/set-projects-setup/api-test-project-setup.mjs \
-            docs/set-projects-setup/api-test-fixes.mjs \
-            docs/security-setup/api-test-security.mjs \
-            docs/security-setup/api-test-scope.mjs \
-            docs/documents-setup/api-test-documents.mjs
+          # Every docs/<module>/api-test-*.mjs runs, so a test added for a new module joins the pipeline by itself
+          scripts=$(ls docs/*/api-test-*.mjs | sort)
+          echo "Running: $(echo $scripts | wc -w) test scripts"
+          .github/scripts/run-api-tests.sh $scripts
 
       - name: Install the browser for the flow tests
         working-directory: e2e
@@ -188,6 +184,18 @@ jobs:
         with:
           node-version: 20
 
+      - name: Apply new database migrations
+        # Before the code goes out. A migration only adds things the running code does not mind (new tables, columns, indexes),
+        # so the old code keeps working until the new code is live. A failure stops here and nothing is deployed.
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error title=Missing secret::Add the DATABASE_URL secret (the direct Neon connection string). The pipeline applies new migrations before it deploys."
+            exit 1
+          fi
+          .github/scripts/apply-migrations.sh
+
       - name: Deploy to Vercel
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -216,16 +224,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: New database migrations in this push
-        env:
-          BEFORE: ${{ github.event.before }}
-        run: |
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
-          new=$(git diff --name-only --diff-filter=AM "$BEFORE" "$GITHUB_SHA" -- packages/api/src/db/migrations || true)
-          if [ -n "$new" ]; then
-            echo "::warning title=New database migrations::The deploy does not run migrations. Run the 'Run migrations' workflow now for: $(echo "$new" | xargs -n1 basename | tr '\n' ' ')"
-          fi
 
       - name: Wait until this commit is live
         run: |

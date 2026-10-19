@@ -454,7 +454,7 @@ app.use('/api/dashboard', exports.authenticateToken, dashboard_js_1.default);
 app.use('/api/master', exports.authenticateToken, master_js_1.default);
 app.use('/api/booking', exports.authenticateToken, booking_js_1.default);
 app.use('/api/booking-documents', exports.authenticateToken, booking_documents_js_1.default);
-app.use('/api/employees', exports.authenticateToken, employees_js_1.default);
+app.use('/api/employees', exports.authenticateToken, rbac('users'), employees_js_1.default);
 app.use('/api/operations', exports.authenticateToken, operations_js_1.default);
 app.use('/api/addon-charges', exports.authenticateToken, addon_charges_js_1.default);
 app.use('/api/charge-master', exports.authenticateToken, charge_master_js_1.default);

@@ -28,33 +28,43 @@ Only modules that have been checked one by one are covered. When a module is che
 
 | Module | Script | Checks |
 |---|---|---|
-| Menu, Set Up, Project Set Up, roles, Security (in the browser) | `e2e/flows.spec.ts` | 18 flows: the 4-group Set Master menu and its 22 entries, applicant lists, banks, locations, company with bank account and logo, project to unit and CSV upload, read-only and project-manager screens, Security (new login, sign in, edit and disable, custom role, role menu access grid, audit log) and Documents (checklist, dispatch log, Customized Letters) |
+| Menu, Set Up, Project Set Up, roles, Security (in the browser) | `e2e/flows.spec.ts` | 22 flows: the 4-group Set Master menu and its 22 entries, applicant lists, banks, locations, company with bank account and logo, project to unit and CSV upload, read-only and project-manager screens, Security (new login, sign in, edit and disable, custom role, role menu access grid, audit log) Documents (checklist, dispatch log, Customized Letters) and Employees (departments, employees, teams, org chart) |
 | Set Master: Set Up (lists, locations, banks, companies, bank accounts, logo) | `docs/set-master-setup/api-test-setup.mjs`, `api-test-deep.mjs` | 134 + 19 |
 | Set Projects: Project Set Up (project, towers, units, unit types, locations, reminders) and the fixes made on 2026-10-19 | `docs/set-projects-setup/api-test-project-setup.mjs`, `api-test-fixes.mjs` | 81 + 47 |
 | Security: roles, role menu access, logins, process rights, IP allow list, sessions, audit log | `docs/security-setup/api-test-security.mjs`, `api-test-scope.mjs` (project scope) | 155 + 34 |
-| Documents: checklist, dispatch log, Customized Letters (templates, letters made, reference numbers, register) | `docs/documents-setup/api-test-documents.mjs` | 131 |
+| Documents: checklist, dispatch log, Customized Letters (templates, letters made, reference numbers, register) | `docs/documents-setup/api-test-documents.mjs` | 132 |
+| Employees: departments, employee profiles, managers and the org chart, teams, an employee who leaves | `docs/employees-setup/api-test-employees.mjs` | 115 |
+
+## Adding a module to the pipeline (do this with every module that is checked)
+
+1. Write `docs/<module>-setup/api-test-<module>.mjs`. It is found by name: every `docs/*/api-test-*.mjs` runs in the `verify` job, no list to edit. It must print `PASS`/`FAIL` lines, end with `RESULT: n passed, m failed` and exit non-zero on a failure (copy the first lines of an existing one).
+2. Add the browser flow to `e2e/flows.spec.ts` (a new numbered section). It runs with the others.
+3. A new table with `project_id`, `consumer_id` or `unit_id` needs `SELECT rof_apply_project_scope();` in its migration, or `api-test-scope.mjs` fails and names the table.
+4. A new migration file is checked by the `verify` job (applied twice to a fresh database) and then applied to the live database by the `deploy` job before the code goes out. Nothing to do by hand.
+5. Update the table above.
 
 ## `deploy` job (after a push to `main`, once `verify` has passed)
 
-Publishes the commit to Vercel with `vercel deploy --prod` and the secret `VERCEL_TOKEN`. It works whoever wrote the commit. Vercel's own Git deploy is switched off in `vercel.json` (`git.deploymentEnabled: false`) because it refuses commits whose author is not a member of the Vercel team (the team is on the Hobby plan, which has no members), and because it deployed before `verify` finished. Now `verify` failing means nothing is deployed: this is the gate.
+First applies the database migrations that are not applied yet (`.github/scripts/apply-migrations.sh`, secret `DATABASE_URL`, each one recorded in `public.applied_migrations`; a failure stops here and names the file, and nothing is deployed). Then publishes the commit to Vercel with `vercel deploy --prod` and the secret `VERCEL_TOKEN`. It works whoever wrote the commit. Vercel's own Git deploy is switched off in `vercel.json` (`git.deploymentEnabled: false`) because it refuses commits whose author is not a member of the Vercel team (the team is on the Hobby plan, which has no members), and because it deployed before `verify` finished. Now `verify` failing means nothing is deployed: this is the gate.
 
 One deploy runs at a time and is never cancelled half way. On `main` a newer push waits for the running one instead of cancelling it.
 
 ## `live` job (after the deploy)
 
-1. Warns when the push adds database migrations (the deploy does not run them; see below).
-2. Waits up to 15 minutes until `<site>/api/health` reports this commit (`commit` is the first 7 characters of `DEPLOY_SHA`, which the deploy sets).
-3. Read-only checks on the real site: health, app page, login page, a script file, a request without login is refused (401), a wrong password is refused (401).
+1. Waits up to 15 minutes until `<site>/api/health` reports this commit (`commit` is the first 7 characters of `DEPLOY_SHA`, which the deploy sets).
+2. Read-only checks on the real site: health, app page, login page, a script file, a request without login is refused (401), a wrong password is refused (401).
 
 The site address comes from the repository variable `APP_URL` and defaults to `https://rof-crm-ten.vercel.app`.
 
-## Migrations on Vercel
+## Migrations
 
-The deploy only builds and publishes the code (`vercel.json`), so a new file in `packages/api/src/db/migrations` does not reach the live database by itself. Apply it with the **Run migrations** workflow (Actions tab, Run workflow, type `yes`). It runs every migration from the given number upward (default 96) against the secret `DATABASE_URL`; those files are safe to run again. Migration 098 repairs the live `booking_records.invoice_date_by` column (see below).
+New files in `packages/api/src/db/migrations` (number 096 or higher) are applied to the live database by the `deploy` job, before the code goes out, in number order, each only once. Write them so the old code keeps working until the new code is live: add tables, columns and indexes; do not drop or rename something the running code uses (do that in a later migration, after the code has stopped using it). A migration must also be safe to run twice (`IF NOT EXISTS`, guarded inserts). The `verify` job runs each one twice on a fresh database to check that.
+
+The **Run migrations** workflow (Actions tab) is only for running them again from a number (type `yes`), for example after a repair.
 
 ## One-time setup
 
-1. GitHub, Settings, Secrets and variables, Actions: add the secret `DATABASE_URL` (the direct Neon connection string of the live database) for the migration workflow. The workflow uses the `production` environment, so you can also require an approval there.
+1. GitHub, Settings, Secrets and variables, Actions: add the secret `DATABASE_URL` (the direct Neon connection string of the live database). The deploy job needs it to apply migrations.
 2. Vercel, Account Settings, Tokens: create a token (scope: the `threezinc` team). GitHub, Settings, Secrets and variables, Actions: store it as the secret `VERCEL_TOKEN`. Without it the `deploy` job fails with that message and nothing is published. (The Vercel team and project ids in `ci.yml` are not secret.)
 3. GitHub, Settings, Branches: add a rule for `main` that requires the `verify` check.
 4. Delete the old Render service in the Render dashboard (the repository no longer has `render.yaml`).
@@ -77,7 +87,7 @@ Start a Postgres, then from the repository root:
 export PGHOST=localhost PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=rof_ci PSQL=psql
 export DB_HOST=localhost DB_PORT=5432 DB_NAME=rof_ci DB_USER=postgres DB_PASSWORD=postgres JWT_SECRET=local NODE_ENV=development PORT=3002
 (cd packages/api && npm run build && scripts/make-test-db.sh rof_ci && node dist/index.js &)
-.github/scripts/run-api-tests.sh docs/set-master-setup/api-test-setup.mjs docs/set-master-setup/api-test-deep.mjs docs/set-projects-setup/api-test-project-setup.mjs docs/set-projects-setup/api-test-fixes.mjs docs/security-setup/api-test-security.mjs docs/security-setup/api-test-scope.mjs docs/documents-setup/api-test-documents.mjs
+for f in docs/*/api-test-*.mjs; do .github/scripts/run-api-tests.sh "$f"; done   # or all at once: .github/scripts/run-api-tests.sh docs/*/api-test-*.mjs
 ```
 
 ## Known limits

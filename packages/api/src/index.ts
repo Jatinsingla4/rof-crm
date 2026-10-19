@@ -545,7 +545,7 @@ app.use('/api/dashboard',     authenticateToken,                          dashbo
 app.use('/api/master',        authenticateToken,                          masterRoutes);
 app.use('/api/booking',           authenticateToken,                      bookingRoutes);
 app.use('/api/booking-documents', authenticateToken,                      bookingDocumentsRoutes);
-app.use('/api/employees', authenticateToken, employeesRoutes);
+app.use('/api/employees', authenticateToken, rbac('users'), employeesRoutes);
 app.use('/api/operations', authenticateToken, operationsRoutes);
 app.use('/api/addon-charges',       authenticateToken, addonChargesRoutes);
 app.use('/api/charge-master',       authenticateToken, chargeMasterRoutes);

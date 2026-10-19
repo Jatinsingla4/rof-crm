@@ -163,6 +163,7 @@ SM.openForm = ({ title, fields, values = {}, submit = 'Save', onSubmit }) => {
         `<option value="${esc(o.value)}"${String(o.value) === String(v) ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
     }
     if (f.type === 'textarea') return `<textarea ${common} rows="3">${esc(v)}</textarea>`;
+    if (f.type === 'date') return `<input ${common} type="date" value="${esc(v)}">`;
     return `<input ${common} type="text" value="${esc(v)}" autocomplete="off">`;
   };
   const host = document.createElement('div');

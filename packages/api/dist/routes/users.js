@@ -7,6 +7,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.Bad = void 0;
+exports.updateUser = updateUser;
 const express_1 = require("express");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const index_js_1 = require("../index.js");
@@ -55,6 +57,7 @@ class Bad extends Error {
         });
     }
 }
+exports.Bad = Bad;
 const fail = (status, message) => { throw new Bad(status, message); };
 // Sends Bad errors as client errors, everything else on to the next handler
 const guard = (fn) => async (req, res, next) => {

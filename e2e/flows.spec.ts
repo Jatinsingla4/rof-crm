@@ -2,7 +2,7 @@
 //   Set Master: Set Up (lists, banks, locations, companies and their bank accounts and logo)
 //   Set Projects: Project Set Up (project, tower, unit type, unit, CSV upload, unit location, reminder)
 //   the Set Master menu, what each role sees, Security (logins, roles, role menu access, audit log),
-//   and Documents (checklist, dispatch log, Customized Letters).
+//   Documents (checklist, dispatch log, Customized Letters), and Employees (departments, employees, teams, org chart).
 // Add a section here when another module has been checked.
 import { test, expect, Page } from '@playwright/test';
 
@@ -89,7 +89,7 @@ test('Set Master menu has four groups and every entry opens', async () => {
   const groups = await nav.locator('.dd > .dd-link.has-sub').evaluateAll(els => els.map(e => (e.childNodes[0].textContent || '').trim()));
   expect(groups).toEqual(['Set Up', 'Employees', 'Documents', 'Security']);
   const links = await nav.locator('a.dd-link').evaluateAll(els => els.map(e => ({ label: (e.textContent || '').trim(), onclick: e.getAttribute('onclick') || '' })));
-  expect(links.length).toBe(22);
+  expect(links.length).toBe(19);
   for (const link of links) {
     const standalone = link.onclick.match(/window\.location\.href='([^']+)'/);
     if (standalone) {
@@ -674,4 +674,129 @@ test('Customized Letters: roles see only what they may use', async () => {
   await go('#/custom-letters?tab=letters');
   await expect(content().getByRole('button', { name: 'New letter' })).toHaveCount(0);
   await expect(page.locator('#mk-go')).toHaveCount(0);
+});
+
+// ── 10. Employees ──────────────────────────────────────────────────────────
+const emp = { dept: `E2E Dept ${U}`, team: `E2E Team ${U}`, user: `e2e_emp_${U}`, code: `E2E-${U}`, boss: `e2e_boss_${U}`, member: `e2e_mem_${U}` };
+const mkLogin = (username: string) => page.evaluate(async ({ username, pw }) => {
+  const r = await fetch('/api/users/employee-login', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + Auth.getToken() },
+    body: JSON.stringify({ username, email: `${username}@example.com`, password: pw, confirmPassword: pw, role: 'sales_executive' }) });
+  return r.status;
+}, { username, pw: `Pass#${U}9` });
+
+test('Employees: department add, duplicate refused, edit, head kept', async () => {
+  await logout();
+  await login('super_admin');
+  expect(await mkLogin(emp.user)).toBe(201);
+  expect(await mkLogin(emp.boss)).toBe(201);
+  expect(await mkLogin(emp.member)).toBe(201);
+  await go('#/employees?tab=departments');
+  await content().getByRole('button', { name: 'New department' }).click();
+  await fillDrawer({ name: emp.dept });
+  await drawer().locator('[name=head_user_id]').selectOption({ label: emp.boss });
+  await saveDrawer();
+  await expect(toast('Department added')).toBeVisible();
+  await expect(smRow(emp.dept)).toContainText(emp.boss);
+  await content().getByRole('button', { name: 'New department' }).click();
+  await fillDrawer({ name: emp.dept.toUpperCase() });
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('already exists');
+  await drawer().getByRole('button', { name: 'Cancel' }).click();
+  await docRowAction(emp.dept, 'Edit');
+  await drawer().locator('[name=description]').fill('Sales and bookings');
+  await saveDrawer();
+  await expect(toast('Saved')).toBeVisible();
+  await expect(smRow(emp.dept)).toContainText('Sales and bookings');
+  await expect(smRow(emp.dept)).toContainText(emp.boss); // editing did not clear the head
+});
+
+test('Employees: add an employee, set the manager, a loop is refused, leaving switches the login off', async () => {
+  await go('#/employees?tab=employees');
+  await content().getByRole('button', { name: 'New employee' }).click();
+  await drawer().locator('[name=user_id]').selectOption({ label: emp.boss });
+  await drawer().locator('[name=employee_code]').fill(emp.code + 'B');
+  await drawer().locator('[name=designation]').fill('Sales Head');
+  await saveDrawer();
+  await expect(toast('Employee added')).toBeVisible();
+  await content().getByRole('button', { name: 'New employee' }).click();
+  await drawer().locator('[name=user_id]').selectOption({ label: emp.user });
+  await drawer().locator('[name=employee_code]').fill(emp.code);
+  await drawer().locator('[name=designation]').fill('Executive');
+  await drawer().locator('[name=department_id]').selectOption({ label: emp.dept });
+  await drawer().locator('[name=manager_id]').selectOption({ label: emp.boss });
+  await drawer().locator('[name=joining_date]').fill('2024-04-01');
+  await drawer().locator('[name=mobile_office]').fill('abc');
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText(/mobile/i);
+  await drawer().locator('[name=mobile_office]').fill('98765 43210');
+  await saveDrawer();
+  await expect(toast('Employee added')).toBeVisible();
+  await expect(smRow(emp.code)).toContainText(emp.boss);
+  // the boss cannot be made to report to the executive
+  await docRowAction(emp.code + 'B', 'Edit');
+  await drawer().locator('[name=manager_id]').selectOption({ label: emp.user });
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('loop');
+  await drawer().getByRole('button', { name: 'Cancel' }).click();
+  // the org chart shows the executive under the boss
+  await go('#/employees?tab=tree');
+  await expect(page.locator('.org-li', { hasText: emp.boss }).first().locator('.org-li', { hasText: emp.user })).toBeVisible();
+  // leaving: the employee is switched off and the login stops
+  await go('#/employees?tab=employees');
+  await docRowAction(emp.code, 'Edit');
+  await drawer().locator('[name=is_active]').selectOption('no');
+  await saveDrawer();
+  await expect(toast('Saved')).toBeVisible();
+  await expect(smRow(emp.code)).toContainText('Inactive');
+  await go('#/users?tab=permissions');
+  await expect(page.locator('#sm-main tr', { hasText: `${emp.user}@example.com` })).toContainText('Inactive');
+});
+
+test('Employees: team with a head and members, then delete', async () => {
+  await go('#/employees?tab=teams');
+  await content().getByRole('button', { name: 'New team' }).click();
+  await fillDrawer({ name: emp.team });
+  await drawer().locator('[name=department_id]').selectOption({ label: emp.dept });
+  await drawer().locator('[name=team_head_id]').selectOption({ label: emp.boss });
+  await saveDrawer();
+  await expect(toast('Team added')).toBeVisible();
+  await expect(smRow(emp.team)).toContainText(emp.boss);
+  await expect(smRow(emp.team)).toContainText('1'); // the head is a member
+  await smRow(emp.team).hover();
+  await smRow(emp.team).getByRole('button', { name: 'Members' }).click();
+  const dr = page.locator('#sec-drawer-host aside[role=dialog]');
+  await expect(dr).toContainText(emp.boss);
+  await dr.locator('#mb-user').selectOption({ label: emp.member });
+  await dr.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(toast('Added')).toBeVisible();
+  await expect(dr).toContainText(emp.member);
+  await dr.locator('tr', { hasText: emp.member }).getByRole('button', { name: 'Make head' }).click();
+  await expect(toast('Head set')).toBeVisible();
+  await expect(dr.locator('tr', { hasText: emp.member })).toContainText('Head');
+  await dr.getByRole('button', { name: 'Close' }).click();
+  // a department that has employees and teams cannot be deleted
+  await go('#/employees?tab=departments');
+  await docRowAction(emp.dept, 'Delete');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast(/use this department/)).toBeVisible();
+  await go('#/employees?tab=teams');
+  await docRowAction(emp.team, 'Delete');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast('Deleted')).toBeVisible();
+  await expect(smRow(emp.team)).toHaveCount(0);
+});
+
+test('Employees: project_manager can look but not change; others cannot open it', async () => {
+  await logout();
+  await login('project_manager');
+  await go('#/employees?tab=employees');
+  await expect(content()).toContainText('Employees');
+  await expect(content().getByRole('button', { name: 'New employee' })).toHaveCount(0);
+  await expect(content().getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+  await go('#/employees?tab=departments');
+  await expect(content().getByRole('button', { name: 'New department' })).toHaveCount(0);
+  await logout();
+  await login('sales_executive');
+  await go('#/employees?tab=employees');
+  await expect(content()).toContainText('Access Denied');
 });

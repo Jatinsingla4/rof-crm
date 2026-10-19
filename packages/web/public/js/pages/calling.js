@@ -155,7 +155,7 @@ const CallingPage = {
       const [pr, sc, ur] = await Promise.all([
         Api.get('/units/projects'),
         Api.get('/communications/status-codes'),
-        Api.get('/employees')
+        Api.get('/employees/directory')
       ]);
 
       this._projects = pr.data || [];
