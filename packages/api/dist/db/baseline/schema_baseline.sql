@@ -556,7 +556,7 @@ CREATE TABLE public.booking_records (
     has_plc boolean,
     interest_amount numeric(14,2),
     interest_type character varying(255),
-    invoice_date_by uuid,
+    invoice_date_by character varying(50),
     mailing_address_type text,
     main_broker_id uuid,
     on_account_of character varying(255),

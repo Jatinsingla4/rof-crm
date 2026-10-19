@@ -70,7 +70,7 @@ if (!JWT_SECRET)
     throw new Error('JWT_SECRET is not set. Refusing to start.');
 // Dev shortcuts (mock token, passwordless login) need an explicit opt-in on top of a non-production NODE_ENV.
 const DEV_AUTH = isDev && process.env.ALLOW_DEV_AUTH === 'true';
-// Behind Render's proxy, req.ip must be the client address or every user shares one rate-limit bucket.
+// Behind the host's proxy (Vercel), req.ip must be the client address or every user shares one rate-limit bucket.
 if (!isDev)
     app.set('trust proxy', 1);
 const pool_1 = require("./db/pool");
@@ -229,7 +229,8 @@ app.use('/uploads', express_1.default.static(uploadsDir));
 // HEALTH CHECK
 // ============================================
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    // commit lets the deploy pipeline confirm which version is live (Vercel sets VERCEL_GIT_COMMIT_SHA)
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null });
 });
 // ============================================
 // PUBLIC ENDPOINTS (No Auth Required)
@@ -465,11 +466,11 @@ app.use((err, req, res, next) => {
 // SERVER STARTUP
 // ============================================
 (async () => {
-    // Migrations run during build phase (npm run db:migrate in render.yaml buildCommand).
-    // Awaiting runMigrations() here caused Neon cold-start hangs on Render free tier —
-    // 80+ sequential DB queries blocked app.listen(), server never bound to port.
-    lastMigrationLog = ['[STARTUP] Migrations skipped at runtime — applied during build phase'];
-    console.log('[STARTUP] Skipping runtime migrations (already applied during build)');
+    // Migrations are not run at startup: awaiting runMigrations() here blocked app.listen() on Neon cold starts
+    // (80+ sequential queries). Vercel only builds the code, so new migrations are applied with the
+    // "Run migrations" workflow (.github/workflows/migrate.yml) or `npm run db:migrate`.
+    lastMigrationLog = ['[STARTUP] Migrations are not run at startup; see .github/workflows/migrate.yml'];
+    console.log('[STARTUP] Skipping runtime migrations (applied separately)');
     // On Vercel the exported app is the request handler; only bind a port elsewhere
     if (!process.env.VERCEL) {
         app.listen(Number(PORT), '0.0.0.0', () => {

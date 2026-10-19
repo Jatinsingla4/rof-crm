@@ -85,7 +85,7 @@ Risk: building the schema from guesses gives results that do not match productio
 | DT-031 | No seed data for `nav_pages`, so the role page access screens are empty (super_admin is not affected) | No | Yes | List of pages, taken from the navigation menu |
 | DT-032 | Write paths (POST, PUT, PATCH, DELETE) and GET endpoints that need parameters were not exercised against the baseline. Missing columns may remain | Yes, per module | No | Found during each module verification |
 | DT-033 | Uploads (`/uploads/*`) do not persist on Vercel (no writable disk). Needs object storage for booking documents, consumer photos and company logos | Yes, for any upload feature on Vercel | Yes | Choice of storage (Vercel Blob, S3, Neon object storage) |
-| DT-034 | Vercel is the new host. `render.yaml` and the Render service still exist; delete the Render service after Vercel is confirmed working (dashboard action) | No | Yes | Render dashboard access |
+| DT-034 | Vercel is the new host. `render.yaml` was deleted from the repository on 2026-10-19; still to do: delete the Render service in the Render dashboard | No | Yes | Render dashboard access |
 
 ### 2.5 Local environment only
 

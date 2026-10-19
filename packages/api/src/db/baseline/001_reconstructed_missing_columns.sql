@@ -28,7 +28,7 @@ ALTER TABLE booking_records
   ADD COLUMN IF NOT EXISTS has_plc BOOLEAN,
   ADD COLUMN IF NOT EXISTS interest_amount NUMERIC(14,2),
   ADD COLUMN IF NOT EXISTS interest_type VARCHAR(255),
-  ADD COLUMN IF NOT EXISTS invoice_date_by UUID,
+  ADD COLUMN IF NOT EXISTS invoice_date_by VARCHAR(50),
   ADD COLUMN IF NOT EXISTS mailing_address_type TEXT,
   ADD COLUMN IF NOT EXISTS main_broker_id UUID,
   ADD COLUMN IF NOT EXISTS on_account_of VARCHAR(255),

@@ -1,43 +1,58 @@
 # CI / CD pipeline
 
-File: `.github/workflows/ci.yml`. Runs on every push to `main` and on every pull request. The `deploy` job runs only on `main`, only after `verify` has passed.
+Hosting is Vercel (project `rof-crm`, `https://rof-crm-ten.vercel.app`) with a Neon database. Render is no longer used.
 
-## What `verify` checks, in order
+Files: `.github/workflows/ci.yml` (runs on every push to `main` and every pull request) and `.github/workflows/migrate.yml` (run by hand).
 
-Every step stops the pipeline when it fails and says what is wrong. Failures show up as red error lines on the run page (Annotations) and in the job summary.
+## `verify` job (every push and pull request)
+
+Every step stops the pipeline when it fails and says what is wrong. Failures appear as red error lines on the run page (Annotations) and in the job summary.
 
 | Step | Fails when | What you see |
 |---|---|---|
 | No database URLs or keys in the repository | a Neon connection string or `npg_…` password is committed | error naming the problem; also rotate the password |
 | Install | `npm install` fails | npm log |
 | Build | `tsc` finds a type error | file, line and message from `tsc` |
-| Committed `dist` matches the source | `packages/api/dist` differs from a fresh build | error with the files that differ and the fix: run `npm run build` in `packages/api` and commit `dist` |
+| Committed `dist` matches the source | `packages/api/dist` differs from a fresh build | the files that differ and the fix: run `npm run build` in `packages/api` and commit `dist` |
 | Frontend files have valid syntax | any `packages/web/public/**/*.js` has a syntax error | one error per file with the file name and message |
 | Fresh test database from the baseline | the baseline schema or seed cannot be loaded | the psql error |
-| Migrations after the baseline (096 onward), twice | a new migration fails, or is not safe to run a second time | error with the migration file name and the psql message |
-| Start the API | the built server does not answer `/api/health` in 60 s | the server log |
-| API tests | any check fails | one error per failed check, named (for example `api-test-fixes.mjs: project: same name other case -> 409`). All four scripts always run, so one run shows every failure. A script that crashes is reported with its last lines |
-| Dependency audit | never blocks; lists known high-severity packages for information | npm audit output |
+| Migrations after the baseline (096 onward), twice | a new migration fails, or is not safe to run a second time | the migration file name and the psql message |
+| Start the API | the built server does not answer `/api/health` within 60 s | the server log |
+| API flow tests | any check fails | one error per failed check, by name. All scripts always run, so one run shows every failure. A script that crashes is reported with its last lines |
+| Dependency audit | never blocks; lists known high-severity packages | npm audit output |
 
-The API tests are the four scripts in `docs/set-master-setup` and `docs/set-projects-setup`: 134 + 19 + 81 + 47 checks on a database built from the baseline with six role users (see `packages/api/scripts/make-test-db.sh`).
+### Flow coverage
 
-## What `deploy` does
+Only modules that have been checked one by one are covered. When a module is checked, add its flow script to the list in `ci.yml`.
 
-1. Calls the Render deploy hook (repository secret `RENDER_DEPLOY_HOOK`).
-2. Waits up to about 12 minutes for `<APP_URL>/api/health` to answer `ok` (repository variable `APP_URL`).
+| Module | Script | Checks |
+|---|---|---|
+| Set Master: Set Up (lists, locations, banks, companies, bank accounts, logo) | `docs/set-master-setup/api-test-setup.mjs`, `api-test-deep.mjs` | 134 + 19 |
+| Set Projects: Project Set Up (project, towers, units, unit types, locations, reminders) and the fixes made on 2026-10-19 | `docs/set-projects-setup/api-test-project-setup.mjs`, `api-test-fixes.mjs` | 81 + 47 |
 
-Without the secret the job only prints a notice and does nothing.
+## `live` job (after a push to `main`, once `verify` has passed)
 
-## One-time setup in the GitHub and Render dashboards
+1. Warns when the push adds database migrations (Vercel does not run them; see below).
+2. If the secret `VERCEL_DEPLOY_HOOK` exists, calls it to request a deploy. Without it, Vercel's own Git deploy is expected.
+3. Waits up to 15 minutes until `<site>/api/health` reports this commit (`commit` is the first 7 characters of `VERCEL_GIT_COMMIT_SHA`).
+4. Read-only checks on the real site: health, app page, login page, a script file, a request without login is refused (401), a wrong password is refused (401).
 
-1. Render: Settings, Deploy hook. Copy the URL.
-2. GitHub: Settings, Secrets and variables, Actions. Add the secret `RENDER_DEPLOY_HOOK` with that URL, and the variable `APP_URL` with the site address (for example `https://rof-crm.onrender.com`).
-3. Render: turn Auto-Deploy off (or set it to "After CI checks pass"). Otherwise Render deploys on every push before the checks have finished.
-4. GitHub: Settings, Branches, add a rule for `main` that requires the `verify` check, so a red run cannot be merged.
+The site address comes from the repository variable `APP_URL` and defaults to `https://rof-crm-ten.vercel.app`.
+
+## Migrations on Vercel
+
+Vercel only builds the code (`vercel.json`), so a new file in `packages/api/src/db/migrations` does not reach the live database by itself. Apply it with the **Run migrations** workflow (Actions tab, Run workflow, type `yes`). It runs every migration from the given number upward (default 96) against the secret `DATABASE_URL`; those files are safe to run again. Migration 098 repairs the live `booking_records.invoice_date_by` column (see below).
+
+## One-time setup
+
+1. GitHub, Settings, Secrets and variables, Actions: add the secret `DATABASE_URL` (the direct Neon connection string of the live database) for the migration workflow. The workflow uses the `production` environment, so you can also require an approval there.
+2. Optional, to make CI a real gate: in Vercel, Settings, Git, turn off automatic deploys for `main`, create a Deploy Hook, and store its URL as the secret `VERCEL_DEPLOY_HOOK`. Then Vercel deploys only after `verify` has passed.
+3. GitHub, Settings, Branches: add a rule for `main` that requires the `verify` check.
+4. Delete the old Render service in the Render dashboard (the repository no longer has `render.yaml`).
 
 ## Running the same checks on your machine
 
-Start a Postgres, then (from the repository root):
+Start a Postgres, then from the repository root:
 
 ```bash
 export PGHOST=localhost PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=rof_ci PSQL=psql
@@ -48,6 +63,7 @@ export DB_HOST=localhost DB_PORT=5432 DB_NAME=rof_ci DB_USER=postgres DB_PASSWOR
 
 ## Known limits
 
-- The full `npm run db:migrate` cannot rebuild a database from the baseline: migration 040 needs the `seed_flags` table, which the migrations never create (production already has it). So the pipeline runs only the migrations after the baseline (096 onward). New migrations are picked up automatically by their number.
+- The full `npm run db:migrate` cannot rebuild a database from the baseline: migration 040 needs the `seed_flags` table, which the migrations never create (the live database already has it). So the pipeline runs only the migrations after the baseline (096 onward).
 - `typescript` and the other dependencies are not pinned and there is no valid lock file, so a new TypeScript release could change the built `dist` and make the dist check fail. The fix is the build command above.
-- The pipeline tests the API and syntax; it does not open the web pages in a browser.
+- The pipeline tests the API, syntax and the live site; it does not open the web pages in a browser.
+- Found while building the flow tests: the reconstructed baseline made `booking_records.invoice_date_by` a `uuid`, but the code saves a word there, so saving any booking failed with "invalid input syntax for type uuid". The baseline is fixed and migration 098 repairs a database that was built from the old baseline. Run it on the live database.

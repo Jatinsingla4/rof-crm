@@ -1,0 +1,47 @@
+name: Run migrations
+
+# Vercel only builds the code, so database changes are applied here, by hand, on purpose.
+# Needs the repository secret DATABASE_URL (the direct Neon connection string of the live database).
+# The migrations from the number given upward are safe to run again; older ones belong to the baseline.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type yes to apply the migrations to the live database"
+        required: true
+      from_number:
+        description: "First migration number to apply"
+        required: true
+        default: "96"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ inputs.confirm == 'yes' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          FROM: ${{ inputs.from_number }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error title=Missing secret::Add the DATABASE_URL secret (Settings, Secrets and variables, Actions) and run again."
+            exit 1
+          fi
+          case "$FROM" in ''|*[!0-9]*) echo "::error::from_number must be a number"; exit 1;; esac
+          for f in $(ls packages/api/src/db/migrations | awk -F_ -v n="$FROM" '$1+0>=n+0'); do
+            echo "Applying $f"
+            if ! err=$(psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 -f "packages/api/src/db/migrations/$f" 2>&1 >/dev/null); then
+              echo "::error file=packages/api/src/db/migrations/$f,title=Migration $f failed::$(echo "$err" | head -4 | tr '\\n' ' ')"
+              exit 1
+            fi
+          done
+          echo "Done"

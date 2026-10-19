@@ -5,8 +5,8 @@ yarn.lock
 package-lock.json
 
 # Build output
-# packages/api/dist is committed for local runs (node dist/index.js). Render rebuilds it
-# on every deploy via `npm run build` (tsc && node copy-files.js), so keep it in sync before commits.
+# packages/api/dist is committed for local runs (node dist/index.js). Vercel rebuilds it on every
+# deploy (tsc && node copy-files.js, see vercel.json), so keep it in sync before commits; CI checks this.
 packages/web/dist/
 packages/design-system/dist/
 build/

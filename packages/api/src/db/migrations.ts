@@ -240,7 +240,6 @@ async function runTemplateStorageMigration(
       path.join(__dirname, '../templates/legal'),
       path.join(process.cwd(), 'src/templates/legal'),
       path.join(process.cwd(), 'packages/api/src/templates/legal'),
-      '/app/packages/api/src/templates/legal', // Render Alpine path
     ];
 
     let atsHtml = '';
