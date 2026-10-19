@@ -253,8 +253,8 @@ app.use('/uploads', express_1.default.static(uploadsDir));
 // HEALTH CHECK
 // ============================================
 app.get('/api/health', (req, res) => {
-    // commit lets the deploy pipeline confirm which version is live (Vercel sets VERCEL_GIT_COMMIT_SHA)
-    res.json({ status: 'ok', timestamp: new Date().toISOString(), commit: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null });
+    // commit lets the deploy pipeline confirm which version is live (DEPLOY_SHA is set by the pipeline's deploy)
+    res.json({ status: 'ok', timestamp: new Date().toISOString(), commit: (process.env.DEPLOY_SHA || process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null });
 });
 // ============================================
 // PUBLIC ENDPOINTS (No Auth Required)

@@ -2,7 +2,9 @@ name: CI
 
 # Runs on every push to main and on every pull request.
 # verify: build, syntax, fresh database, recent migrations twice, API tests with a real server.
-# deploy: only after verify passes on main. Needs the RENDER_DEPLOY_HOOK secret (see docs/PIPELINE.md).
+# deploy: only after verify passes on main. Publishes to Vercel with the VERCEL_TOKEN secret, so it works whoever
+#         wrote the commit (Vercel's own Git deploy blocks commits by people outside its team).
+# live:   waits until that commit answers on the real site, then runs read-only checks.
 
 on:
   push:
@@ -10,9 +12,11 @@ on:
   pull_request:
     branches: [main]
 
+# A new pull request push replaces the old run. On main every run is kept (one waits, an older waiting one is replaced),
+# so a teammate's quick pushes cannot cancel a run that is verifying or deploying.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -165,10 +169,44 @@ jobs:
         working-directory: packages/api
         run: npm audit --omit=dev --audit-level=high || echo "::warning title=Dependency audit::High-severity advisories exist, see this step's log. This does not block the pipeline."
 
-  live:
-    # Runs after a push to main when verify has passed. Vercel deploys from Git on its own (or from the deploy hook
-    # below); this job waits until this commit is live and then runs read-only checks on the real site.
+  deploy:
+    # Publishes this commit to Vercel once verify has passed. One deploy at a time, never cancelled half way.
     needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      VERCEL_ORG_ID: team_cmBMBhDmj95c1wJxiGHLxRGa
+      VERCEL_PROJECT_ID: prj_e4jsJ8wvrAbIXhDrlczW1ncXiOAs
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error title=Missing secret::Add the VERCEL_TOKEN secret (GitHub: Settings, Secrets and variables, Actions). Vercel's own Git deploy is switched off in vercel.json, so nothing is published until it exists."
+            exit 1
+          fi
+          # DEPLOY_SHA lets /api/health report which commit is live (Vercel does not set its Git variables for CLI deploys)
+          if ! out=$(npx --yes vercel@59.15.1 deploy --prod --yes --token "$VERCEL_TOKEN" -e DEPLOY_SHA="$GITHUB_SHA" -b DEPLOY_SHA="$GITHUB_SHA" 2>&1); then
+            echo "$out" | tail -25
+            echo "::error title=Vercel deploy failed::$(echo "$out" | grep -iE 'error|failed' | head -3 | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "$out" | tail -5
+
+  live:
+    # Runs after the deploy. Waits until this commit is live and then runs read-only checks on the real site.
+    needs: deploy
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -186,19 +224,8 @@ jobs:
           if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then exit 0; fi
           new=$(git diff --name-only --diff-filter=AM "$BEFORE" "$GITHUB_SHA" -- packages/api/src/db/migrations || true)
           if [ -n "$new" ]; then
-            echo "::warning title=New database migrations::Vercel does not run migrations. Run the 'Run migrations' workflow before relying on: $(echo "$new" | xargs -n1 basename | tr '\n' ' ')"
+            echo "::warning title=New database migrations::The deploy does not run migrations. Run the 'Run migrations' workflow now for: $(echo "$new" | xargs -n1 basename | tr '\n' ' ')"
           fi
-
-      - name: Trigger the Vercel deploy (only if a deploy hook is configured)
-        env:
-          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
-        run: |
-          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
-            echo "::notice::No VERCEL_DEPLOY_HOOK secret. Vercel's own Git deploy is expected to publish this commit."
-            exit 0
-          fi
-          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK" > /dev/null
-          echo "Deploy requested"
 
       - name: Wait until this commit is live
         run: |

@@ -1,4 +1,5 @@
 {
+  "git": { "deploymentEnabled": false },
   "installCommand": "cd packages/api && npm install --include=dev",
   "buildCommand": "cd packages/api && npx tsc && node copy-files.js",
   "outputDirectory": "packages/web/public",

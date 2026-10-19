@@ -34,23 +34,28 @@ Only modules that have been checked one by one are covered. When a module is che
 | Security: roles, role menu access, logins, process rights, IP allow list, sessions, audit log | `docs/security-setup/api-test-security.mjs`, `api-test-scope.mjs` (project scope) | 155 + 34 |
 | Documents: checklist, dispatch log, Customized Letters (templates, letters made, reference numbers, register) | `docs/documents-setup/api-test-documents.mjs` | 131 |
 
-## `live` job (after a push to `main`, once `verify` has passed)
+## `deploy` job (after a push to `main`, once `verify` has passed)
 
-1. Warns when the push adds database migrations (Vercel does not run them; see below).
-2. If the secret `VERCEL_DEPLOY_HOOK` exists, calls it to request a deploy. Without it, Vercel's own Git deploy is expected.
-3. Waits up to 15 minutes until `<site>/api/health` reports this commit (`commit` is the first 7 characters of `VERCEL_GIT_COMMIT_SHA`).
-4. Read-only checks on the real site: health, app page, login page, a script file, a request without login is refused (401), a wrong password is refused (401).
+Publishes the commit to Vercel with `vercel deploy --prod` and the secret `VERCEL_TOKEN`. It works whoever wrote the commit. Vercel's own Git deploy is switched off in `vercel.json` (`git.deploymentEnabled: false`) because it refuses commits whose author is not a member of the Vercel team (the team is on the Hobby plan, which has no members), and because it deployed before `verify` finished. Now `verify` failing means nothing is deployed: this is the gate.
+
+One deploy runs at a time and is never cancelled half way. On `main` a newer push waits for the running one instead of cancelling it.
+
+## `live` job (after the deploy)
+
+1. Warns when the push adds database migrations (the deploy does not run them; see below).
+2. Waits up to 15 minutes until `<site>/api/health` reports this commit (`commit` is the first 7 characters of `DEPLOY_SHA`, which the deploy sets).
+3. Read-only checks on the real site: health, app page, login page, a script file, a request without login is refused (401), a wrong password is refused (401).
 
 The site address comes from the repository variable `APP_URL` and defaults to `https://rof-crm-ten.vercel.app`.
 
 ## Migrations on Vercel
 
-Vercel only builds the code (`vercel.json`), so a new file in `packages/api/src/db/migrations` does not reach the live database by itself. Apply it with the **Run migrations** workflow (Actions tab, Run workflow, type `yes`). It runs every migration from the given number upward (default 96) against the secret `DATABASE_URL`; those files are safe to run again. Migration 098 repairs the live `booking_records.invoice_date_by` column (see below).
+The deploy only builds and publishes the code (`vercel.json`), so a new file in `packages/api/src/db/migrations` does not reach the live database by itself. Apply it with the **Run migrations** workflow (Actions tab, Run workflow, type `yes`). It runs every migration from the given number upward (default 96) against the secret `DATABASE_URL`; those files are safe to run again. Migration 098 repairs the live `booking_records.invoice_date_by` column (see below).
 
 ## One-time setup
 
 1. GitHub, Settings, Secrets and variables, Actions: add the secret `DATABASE_URL` (the direct Neon connection string of the live database) for the migration workflow. The workflow uses the `production` environment, so you can also require an approval there.
-2. Optional, to make CI a real gate: in Vercel, Settings, Git, turn off automatic deploys for `main`, create a Deploy Hook, and store its URL as the secret `VERCEL_DEPLOY_HOOK`. Then Vercel deploys only after `verify` has passed.
+2. Vercel, Account Settings, Tokens: create a token (scope: the `threezinc` team). GitHub, Settings, Secrets and variables, Actions: store it as the secret `VERCEL_TOKEN`. Without it the `deploy` job fails with that message and nothing is published. (The Vercel team and project ids in `ci.yml` are not secret.)
 3. GitHub, Settings, Branches: add a rule for `main` that requires the `verify` check.
 4. Delete the old Render service in the Render dashboard (the repository no longer has `render.yaml`).
 
@@ -80,5 +85,5 @@ export DB_HOST=localhost DB_PORT=5432 DB_NAME=rof_ci DB_USER=postgres DB_PASSWOR
 - The full `npm run db:migrate` cannot rebuild a database from the baseline: migration 040 needs the `seed_flags` table, which the migrations never create (the live database already has it). So the pipeline runs only the migrations after the baseline (096 onward).
 - `typescript` and the other dependencies are not pinned and there is no valid lock file, so a new TypeScript release could change the built `dist` and make the dist check fail. The fix is the build command above.
 - The browser tests cover the verified modules only; the live site is checked with plain HTTP requests, not in a browser.
-- Vercel publishes a commit from Git on its own, usually before `verify` has finished, so CI is a check, not a gate, until automatic deploys are turned off and the deploy hook is used (see One-time setup).
+- The `deploy` job is the only way a commit reaches the live site. If GitHub Actions is down, deploy by hand with `vercel deploy --prod` from a logged-in terminal.
 - Found while building the flow tests: the reconstructed baseline made `booking_records.invoice_date_by` a `uuid`, but the code saves a word there, so saving any booking failed with "invalid input syntax for type uuid". The baseline is fixed and migration 098 repairs a database that was built from the old baseline. Run it on the live database.
