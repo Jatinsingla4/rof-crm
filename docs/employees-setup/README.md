@@ -61,7 +61,6 @@ Before this check every signed-in user, including a viewer, could read salary gr
 | Gap | Note |
 |---|---|
 | An employee profile needs a login. Staff who never log in cannot be recorded. | Matches how the CRM uses people today. Change only if HR records for non-users are needed. |
-| "Create Login" in Security can still link a login to an existing profile (`employee_id`). | Rarely useful; the normal order is login first, profile second. |
 | Deactivating a manager leaves their reportees pointing at an inactive manager (shown at the top of the chart). | Reassign them from Employees. |
 | Departments and teams are not used elsewhere yet (reports, assignment of applicants). | Booking uses the directory only. |
 

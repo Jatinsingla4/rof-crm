@@ -15,6 +15,8 @@ const PW = 'Sec#Pass' + U.replace(/\D/g, '') + '1';
 let r;
 
 // ---------- Roles ----------
+r = await SE('POST', '/master/not-listed-anywhere', { name: 'x' }); t('master: a write on a path nobody listed is refused for sales_executive -> 403', r.s === 403, r.s);
+r = await A('POST', '/master/not-listed-anywhere', { name: 'x' }); t('master: same path for super_admin is just not found -> 404', r.s === 404, r.s);
 r = await A('GET', '/roles'); t('roles: super_admin lists roles', r.s === 200 && r.j.data.length >= 6, r.s);
 t('roles: the six system roles are marked system', ['super_admin', 'project_manager', 'sales_executive', 'accounts_finance', 'support_agent', 'read_only_viewer'].every(n => r.j.data.find(x => x.name === n)?.is_system === true));
 r = await SE('GET', '/roles'); t('roles: sales_executive cannot list roles -> 403', r.s === 403, r.s);
@@ -90,7 +92,6 @@ await bad('unknown company', { companyIds: [NIL] }, /compan/i);
 await bad('unknown project', { assignedProjectIds: [NIL] }, /project/i);
 await bad('bad unit status access', { unitStatusAccess: 'everything' });
 await bad('unknown home widget', { homePageWidgets: ['nope'] });
-await bad('unknown employee', { employeeId: NIL }, /Employee/);
 const proj = form.projects[0].id, comp = form.companies[0]?.id;
 r = await A('POST', '/users/employee-login', { ...base, assignedProjectIds: [proj], companyIds: comp ? [comp] : [], unitStatusAccess: 'available', homePageWidgets: ['enquiry'], authorizedPrint: true,
   processPermissions: [{ processName: 'receipt', isMaker: true, isChecker: false }, { processName: 'new_applicant', isMaker: false }] });

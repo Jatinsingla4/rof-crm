@@ -318,11 +318,7 @@ router.get('/activity', guard(async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/users/employee-login/form-data
 router.get('/employee-login/form-data', guard(async (_req, res) => {
-    const [employees, companies, roles, projects] = await Promise.all([
-        index_js_1.db.query(`SELECT ep.id, u.name, ep.designation, d.name AS department,
-                     EXISTS (SELECT 1 FROM users l WHERE l.employee_id = ep.id) AS has_login
-              FROM employee_profiles ep LEFT JOIN users u ON u.id = ep.user_id LEFT JOIN departments d ON d.id = ep.department_id
-              WHERE ep.is_active = true OR ep.is_active IS NULL ORDER BY u.name`),
+    const [companies, roles, projects] = await Promise.all([
         index_js_1.db.query(`SELECT id, name FROM companies ORDER BY name`),
         index_js_1.db.query(`SELECT name AS value, label FROM roles WHERE is_active = true ORDER BY is_system DESC, label ASC`),
         index_js_1.db.query(`SELECT id, name FROM projects ORDER BY name`),
@@ -330,7 +326,7 @@ router.get('/employee-login/form-data', guard(async (_req, res) => {
     res.json({
         success: true,
         data: {
-            employees: employees.rows, companies: companies.rows, roles: roles.rows, projects: projects.rows,
+            companies: companies.rows, roles: roles.rows, projects: projects.rows,
             processes: PROCESSES, homePageWidgets: HOME_PAGE_WIDGETS, unitStatusOptions: Object.keys(unitStatusAccess_js_1.UNIT_STATUS_MAP),
         },
     });
@@ -342,20 +338,7 @@ router.post('/employee-login', guard(async (req, res) => {
         return fail(400, 'Username, email, password and role are required');
     if (b.password !== b.confirmPassword)
         return fail(400, 'Passwords do not match');
-    let employeeId = null;
-    let name = str(b.name) || str(b.username);
-    if (b.employeeId) {
-        if (!(0, security_js_1.isUuid)(b.employeeId))
-            return fail(400, 'Invalid employeeId');
-        const emp = await index_js_1.db.query(`SELECT u.name, EXISTS (SELECT 1 FROM users l WHERE l.employee_id = ep.id) AS has_login
-       FROM employee_profiles ep JOIN users u ON u.id = ep.user_id WHERE ep.id = $1`, [b.employeeId]);
-        if (!emp.rows[0])
-            return fail(400, 'Employee not found');
-        if (emp.rows[0].has_login)
-            return fail(409, 'This employee already has a login');
-        employeeId = b.employeeId;
-        name = emp.rows[0].name;
-    }
+    const name = str(b.name) || str(b.username);
     const fields = await checkUserFields({ ...b, name });
     const perms = checkProcessPermissions(b.processPermissions ?? []);
     const companyIds = await checkIds('companies', b.companyIds ?? [], 'companyIds');
@@ -367,9 +350,9 @@ router.post('/employee-login', guard(async (req, res) => {
         const dup = await client.query(`SELECT 1 FROM users WHERE lower(email) = $1 OR lower(username) = lower($2)`, [fields.email, fields.username]);
         if (dup.rowCount)
             fail(409, 'Username or email already exists');
-        const created = await client.query(`INSERT INTO users (email, name, username, employee_id, role, password_hash, authorized_print, authorized_download,
+        const created = await client.query(`INSERT INTO users (email, name, username, role, password_hash, authorized_print, authorized_download,
                           unit_status_access, home_page_widgets, assigned_project_ids, is_active, created_by_user_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,true,$12,NOW()) RETURNING id`, [fields.email, name, fields.username, employeeId, fields.role, fields.password_hash,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,NOW()) RETURNING id`, [fields.email, name, fields.username, fields.role, fields.password_hash,
             fields.authorized_print ?? false, fields.authorized_download ?? false, fields.unit_status_access ?? 'all',
             fields.home_page_widgets ?? '[]', fields.assigned_project_ids ?? '[]', req.userId]);
         const userId = created.rows[0].id;

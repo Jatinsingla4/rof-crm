@@ -16,12 +16,11 @@ const router = Router();
 
 // ─── Access control ──────────────────────────────────────────────────────────
 // Reading masters is open to every signed-in user (booking, brokers and payments use these lists as dropdowns).
-// Changing the Set Master lists, and the Set Projects lists that share this file (unit types, floors, tax slabs,
-// reminders), needs the master_data permission.
-const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch|unit-types|floors|tax-slabs|reminder-master)(\/|$)/i;
+// Every change under /master, including a path added later, needs the master_data permission. Nothing is allow-listed
+// by path, so a new write route cannot be left open by forgetting to list it.
 const actionByMethod: Record<string, string> = { POST: 'create', PUT: 'edit', PATCH: 'edit', DELETE: 'delete' };
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.method === 'GET' || req.method === 'HEAD' || !SET_MASTER_PATH.test(req.path)) return next();
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
   if (hasPermission(req.userRole, 'master_data', actionByMethod[req.method] || 'edit')) return next();
   return res.status(403).json({ error: 'You do not have permission to change master data' });
 });

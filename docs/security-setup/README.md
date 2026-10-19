@@ -109,3 +109,8 @@ Live database: run migration 100 as the database owner (it creates the `rof_app`
 - `e2e/flows.spec.ts`, section 8: new login with a weak then a matching password, sign in with the email in capitals, edit and disable and refused sign in, bad IP in the list, custom role created, grid ticked and saved, role deleted, a role given a screen and losing it again, audit log.
 - `api-test-scope.mjs`: 34 checks. Two projects with a unit, applicant and receipt each; a login limited to one project, one with two, one with none, a limited project manager: lists, details, edits, adds, receipts, dashboard, routes that hold their own database connection, connections going back to the pool clean, changes applying at once, super admin unaffected, a deleted project, and the policy coverage guard.
 - Run locally: see `docs/PIPELINE.md`.
+
+## Update: master data guard and Create Login
+
+- Every add, change and delete under `/api/master` needs the `master_data` right. Before, only paths on a list were checked, so a write route added later (or left off the list) was open to every signed-in user. Now nothing is allow-listed by path. Reading stays open for dropdowns.
+- Create Login no longer has the optional "Employee" link. The profile is made after the login (Employees, Employee Information), which is the one order the CRM uses.

@@ -162,11 +162,9 @@ SEC.openLogin = (u) => {
   const edit = !!u;
   const have = Object.fromEntries((u?.process_permissions || []).map((p) => [p.process_name, p]));
   const picked = (u?.home_page_widgets && (Array.isArray(u.home_page_widgets) ? u.home_page_widgets : [])) || [];
-  const free = m.employees.filter((x) => !x.has_login);
   SEC.ip = [];
   const body = `
     <div class="sm-section"><h3 class="sec-h">Account</h3>
-      ${edit ? '' : SEC.field('sf-employee', 'Employee (optional)', `<select class="sm-input" id="sf-employee" name="employeeId"><option value="">Not linked to an employee</option>${free.map((x) => `<option value="${sesc(x.id)}">${sesc(x.name)}${x.designation ? ' · ' + sesc(x.designation) : ''}</option>`).join('')}</select>`, 'The login takes the employee\'s name. Each employee can have one login.')}
       <div class="sm-grid2">
         ${SEC.field('sf-name', edit ? 'Name <i>*</i>' : 'Name', `<input class="sm-input" id="sf-name" name="name" maxlength="255" value="${sesc(u?.name || '')}" ${edit ? '' : 'placeholder="Taken from the employee, or type it"'}>`)}
         ${SEC.field('sf-username', 'Username <i>*</i>', `<input class="sm-input" id="sf-username" name="username" maxlength="50" value="${sesc(u?.username || '')}" ${edit ? 'disabled' : ''} autocomplete="off">`, 'Letters, digits, dot, dash, underscore.')}
@@ -227,7 +225,7 @@ SEC.openLogin = (u) => {
       };
       if (pw) body.password = pw;
       if (!edit) {
-        Object.assign(body, { username: v('username'), employeeId: v('employeeId') || undefined, confirmPassword: f.querySelector('#sf-pw2').value });
+        Object.assign(body, { username: v('username'), confirmPassword: f.querySelector('#sf-pw2').value });
         if (!body.password) throw new Error('Enter a password');
         await Api.post('/users/employee-login', body);
       } else {

@@ -17,12 +17,11 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const router = (0, express_1.Router)();
 // ─── Access control ──────────────────────────────────────────────────────────
 // Reading masters is open to every signed-in user (booking, brokers and payments use these lists as dropdowns).
-// Changing the Set Master lists, and the Set Projects lists that share this file (unit types, floors, tax slabs,
-// reminders), needs the master_data permission.
-const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch|unit-types|floors|tax-slabs|reminder-master)(\/|$)/i;
+// Every change under /master, including a path added later, needs the master_data permission. Nothing is allow-listed
+// by path, so a new write route cannot be left open by forgetting to list it.
 const actionByMethod = { POST: 'create', PUT: 'edit', PATCH: 'edit', DELETE: 'delete' };
 router.use((req, res, next) => {
-    if (req.method === 'GET' || req.method === 'HEAD' || !SET_MASTER_PATH.test(req.path))
+    if (req.method === 'GET' || req.method === 'HEAD')
         return next();
     if ((0, rbac_js_1.hasPermission)(req.userRole, 'master_data', actionByMethod[req.method] || 'edit'))
         return next();
