@@ -1,43 +1,44 @@
 (() => {
 
   const GSTC_STYLES = `<style id="gstc-styles">
-.gstc-page { display:flex; min-height:calc(100vh - 60px); font-family:Arial,sans-serif; font-size:13px; background:#f0f2f5; }
-.gstc-sidebar { width:200px; min-width:200px; background:#fff; border-right:1px solid #ddd; padding:8px 0; }
-.gstc-tab-btn { display:block; width:100%; padding:10px 14px; text-align:left; border:none; background:#fff; color:#333; font-size:12px; font-weight:600; cursor:pointer; border-bottom:1px solid #e8e8e8; transition:all .15s; text-transform:uppercase; letter-spacing:0.3px; }
-.gstc-tab-btn:hover { background:#e8f5f0; color:#17a2b8; }
-.gstc-tab-btn.gstc-active { background:#17a2b8; color:#fff; border-left:4px solid #117a8b; }
-.gstc-content { flex:1; padding:16px 20px; overflow-x:auto; }
-.gstc-card { background:#fff; border:1px solid #ddd; border-radius:3px; margin-bottom:14px; }
-.gstc-card-title { font-size:13px; font-weight:bold; color:#333; padding:10px 16px; border-bottom:1px solid #eee; background:#f9f9f9; text-transform:uppercase; letter-spacing:0.3px; }
-.gstc-card-body { padding:14px 16px; }
-.gstc-form-row { display:flex; flex-wrap:wrap; gap:12px 20px; align-items:flex-end; margin-bottom:12px; }
-.gstc-field { display:flex; flex-direction:column; gap:4px; min-width:140px; }
-.gstc-field label { font-size:11px; color:#555; font-weight:600; }
-.gstc-field input, .gstc-field select { padding:5px 8px; border:1px solid #ccc; border-radius:3px; font-size:12px; min-width:130px; }
-.gstc-field input:focus, .gstc-field select:focus { outline:none; border-color:#17a2b8; }
-.gstc-toggle-group { display:flex; flex-wrap:wrap; gap:4px; }
-.gstc-toggle-btn { padding:5px 12px; border:1px solid #17a2b8; background:#fff; color:#17a2b8; font-size:11px; font-weight:bold; cursor:pointer; border-radius:3px; transition:all .15s; }
-.gstc-toggle-btn.gstc-selected { background:#17a2b8; color:#fff; }
+.gstc-page { display:flex; gap:16px; align-items:flex-start; max-width:1500px; margin:0 auto; font-size:13px; color:var(--text) }
+.gstc-sidebar { width:220px; min-width:220px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:8px 0; position:sticky; top:0; overflow:hidden }
+.gstc-tab-btn { display:block; width:calc(100% - 16px); margin:1px 8px; padding:8px 12px; text-align:left; border:none; border-radius:8px; background:transparent; color:var(--text2); font-size:11.5px; font-weight:500; cursor:pointer; transition:all .15s; text-transform:uppercase; letter-spacing:0.3px; }
+.gstc-tab-btn:hover { background:var(--surface2); color:var(--text); }
+.gstc-tab-btn.gstc-active { background:var(--teal-bg); color:var(--teal); font-weight:600; }
+.gstc-content { flex:1; min-width:0; overflow-x:auto; }
+.gstc-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+.gstc-card-title { font-size:12px; font-weight:600; color:var(--text); padding:14px 18px; border-bottom:1px solid var(--border); background:var(--teal-bg); text-transform:uppercase; letter-spacing:0.6px; }
+.gstc-card-body { padding:18px; }
+.gstc-form-row { display:flex; flex-wrap:wrap; gap:14px 20px; align-items:flex-end; margin-bottom:14px; }
+.gstc-field { display:flex; flex-direction:column; gap:6px; min-width:140px; }
+.gstc-field label { font-size:11px; color:var(--text2); font-weight:500; letter-spacing:.3px; }
+.gstc-field input, .gstc-field select { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; min-width:130px; background:var(--surface); color:var(--text); }
+.gstc-field input:focus, .gstc-field select:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.gstc-toggle-group { display:flex; flex-wrap:wrap; gap:6px; }
+.gstc-toggle-btn { padding:6px 14px; border:1px solid var(--border2); background:var(--surface); color:var(--text2); font-size:12px; font-weight:500; cursor:pointer; border-radius:999px; transition:all .15s; }
+.gstc-toggle-btn:hover { border-color:var(--teal); color:var(--teal); }
+.gstc-toggle-btn.gstc-selected { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600; }
 .gstc-type-toggle { display:flex; }
-.gstc-type-btn { padding:5px 14px; border:1px solid #17a2b8; background:#fff; color:#17a2b8; font-size:12px; font-weight:bold; cursor:pointer; transition:all .15s; }
-.gstc-type-btn:first-child { border-radius:3px 0 0 3px; }
-.gstc-type-btn:last-child { border-radius:0 3px 3px 0; }
-.gstc-type-btn.gstc-type-active { background:#17a2b8; color:#fff; }
-.gstc-btn-save { background:#17a2b8; color:#fff; border:none; padding:6px 20px; border-radius:3px; font-size:13px; font-weight:bold; cursor:pointer; }
-.gstc-btn-save:hover { background:#138496; }
-.gstc-btn-view { background:#dc3545; color:#fff; border:none; padding:6px 20px; border-radius:3px; font-size:13px; font-weight:bold; cursor:pointer; }
-.gstc-btn-view:hover { background:#c82333; }
-.gstc-btn-track { background:#17a2b8; color:#fff; border:none; padding:6px 18px; border-radius:3px; font-size:13px; cursor:pointer; }
-.gstc-btn-edit { background:#17a2b8; color:#fff; border:none; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer; margin-right:4px; }
-.gstc-btn-delete { background:#dc3545; color:#fff; border:none; padding:3px 10px; border-radius:3px; font-size:11px; cursor:pointer; }
-.gstc-table { width:100%; border-collapse:collapse; font-size:12px; }
-.gstc-table th { background:#17a2b8; color:#fff; padding:7px 10px; text-align:center; font-weight:bold; white-space:nowrap; }
-.gstc-table td { padding:6px 10px; border-bottom:1px solid #eee; text-align:center; vertical-align:middle; }
-.gstc-table tr:nth-child(even) td { background:#f9fbff; }
-.gstc-table tr:hover td { background:#eef4ff; }
+.gstc-type-btn { padding:8px 18px; border:1px solid var(--border2); background:var(--surface); color:var(--text2); font-size:12px; font-weight:500; cursor:pointer; transition:all .15s; }
+.gstc-type-btn:first-child { border-radius:8px 0 0 8px; }
+.gstc-type-btn:last-child { border-radius:0 8px 8px 0; border-left:none; }
+.gstc-type-btn.gstc-type-active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600; }
+.gstc-btn-save, .gstc-btn-view, .gstc-btn-track { color:#fff; border:none; padding:9px 24px; min-height:38px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; }
+.gstc-btn-save, .gstc-btn-track { background:var(--teal); }
+.gstc-btn-view { background:var(--red); }
+.gstc-btn-save:hover, .gstc-btn-view:hover, .gstc-btn-track:hover { filter:brightness(.92); }
+.gstc-btn-edit, .gstc-btn-delete { color:#fff; border:none; padding:4px 12px; border-radius:6px; font-size:11.5px; font-weight:600; cursor:pointer; margin-right:4px; }
+.gstc-btn-edit { background:var(--teal); }
+.gstc-btn-delete { background:var(--red); }
+.gstc-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.gstc-table th { background:var(--surface2); color:var(--text3); padding:10px 12px; text-align:center; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; border-bottom:1px solid var(--border2); }
+.gstc-table td { padding:9px 12px; border-bottom:1px solid var(--border); text-align:center; vertical-align:middle; color:var(--text); }
+.gstc-table tr:hover td { background:var(--surface2); }
 .gstc-table td.gstc-left { text-align:left; }
-.gstc-msg-success { background:#d4edda; border:1px solid #c3e6cb; color:#155724; padding:8px 12px; border-radius:3px; margin-bottom:10px; font-size:12px; font-weight:bold; }
-.gstc-msg-error { background:#f8d7da; border:1px solid #f5c6cb; color:#721c24; padding:8px 12px; border-radius:3px; margin-bottom:10px; font-size:12px; }
+.gstc-msg-success { background:var(--teal-bg); border:1px solid var(--teal); color:var(--teal); padding:9px 14px; border-radius:8px; margin-bottom:10px; font-size:12.5px; font-weight:600; }
+.gstc-msg-error { background:var(--red-bg); border:1px solid var(--red); color:var(--red); padding:9px 14px; border-radius:8px; margin-bottom:10px; font-size:12.5px; }
+@media (max-width:900px) { .gstc-page { flex-direction:column } .gstc-sidebar { width:100%; min-width:0; position:static; display:flex; flex-wrap:wrap; padding:6px } .gstc-tab-btn { width:auto; margin:2px } }
 </style>`;
 
   // ── STATE ──────────────────────────────────────────────────────────────────
@@ -106,7 +107,7 @@
     <div class="gstc-page">
       <div class="gstc-sidebar" id="gstc-sidebar">${_renderSidebar()}</div>
       <div class="gstc-content" id="gstc-content">
-        <div style="padding:40px;text-align:center;color:#888">Loading...</div>
+        <div style="padding:40px;text-align:center;color:var(--text3)">Loading...</div>
       </div>
     </div>`;
   }
@@ -139,7 +140,7 @@
 
     const content = document.getElementById('gstc-content');
     if (!content) return;
-    content.innerHTML = '<div style="padding:30px;text-align:center;color:#888">Loading...</div>';
+    content.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text3)">Loading...</div>';
 
     switch (tab) {
       case 'financial-year':
@@ -197,7 +198,7 @@
         <td>${fy.is_active ? 'Yes' : 'No'}</td>
         <td><button class="gstc-btn-edit" onclick="GSTConfig.editFY('${fy.id}')">Edit</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="6" style="text-align:center;color:#888;padding:20px">No financial years found.</td></tr>`;
+      || `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No financial years found.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -286,7 +287,7 @@
           <button class="gstc-btn-delete" onclick="GSTConfig.deleteHSN('${h.id}')">Delete</button>
         </td>
       </tr>`).join('')
-      || `<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No HSN/SAC codes found.</td></tr>`;
+      || `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">No HSN/SAC codes found.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -382,7 +383,7 @@
         <td>${_esc(a.charge_type)}</td>
         <td><button class="gstc-btn-delete" onclick="GSTConfig.deleteAssign('${a.id}')">Delete</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No assignments found.</td></tr>`;
+      || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No assignments found.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -458,7 +459,7 @@
         <td>${_esc(a.charge_type)}</td>
         <td><button class="gstc-btn-delete" onclick="GSTConfig.deleteAssign('${a.id}')">Delete</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No assignments for this project.</td></tr>`;
+      || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No assignments for this project.</td></tr>`;
   }
 
   async function _saveAssign() {
@@ -509,7 +510,7 @@
         <td>${_fmtDate(s.to_date)}</td>
         <td><button class="gstc-btn-delete" onclick="GSTConfig.deleteSlab('${s.id}')">Delete</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No slabs found.</td></tr>`;
+      || `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">No slabs found.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -601,7 +602,7 @@
           <button class="gstc-btn-delete" onclick="GSTConfig.deleteTax('${t.id}')">Delete</button>
         </td>
       </tr>`).join('')
-      || `<tr><td colspan="9" style="text-align:center;color:#888;padding:20px">No tax setup found.</td></tr>`;
+      || `<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">No tax setup found.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -700,7 +701,7 @@
           <button class="gstc-btn-delete" onclick="GSTConfig.deleteTax('${t.id}')">Delete</button>
         </td>
       </tr>`).join('')
-      || `<tr><td colspan="9" style="color:#888;text-align:center;padding:16px">No entries for this slab.</td></tr>`;
+      || `<tr><td colspan="9" style="color:var(--text3);text-align:center;padding:16px">No entries for this slab.</td></tr>`;
   }
 
   async function _saveTax() {
@@ -783,7 +784,7 @@
         <td>${m.sgst_pct || 0}</td>
         <td><button class="gstc-btn-delete" onclick="GSTConfig.deleteChargeMap('${m.id}')">Delete</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px">Click FETCH to load mappings.</td></tr>`;
+      || `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">Click FETCH to load mappings.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -973,7 +974,7 @@
         <td>${_esc(g.gstin)}</td>
         <td><button class="gstc-btn-edit" onclick="GSTConfig.editGstin('${g.id}')">Edit</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="4" style="text-align:center;color:#888;padding:20px">No GSTIN configured.</td></tr>`;
+      || `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:20px">No GSTIN configured.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -1061,7 +1062,7 @@
         <td class="gstc-left">${_esc(r.rera_number)}</td>
         <td><button class="gstc-btn-edit" onclick="GSTConfig.editRera('${r.id}')">Edit</button></td>
       </tr>`).join('')
-      || `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No RERA numbers configured.</td></tr>`;
+      || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No RERA numbers configured.</td></tr>`;
 
     return `
       <div class="gstc-card">
@@ -1130,7 +1131,7 @@
             <td class="gstc-left">${_esc(r.rera_number)}</td>
             <td><button class="gstc-btn-edit" onclick="GSTConfig.editRera('${r.id}')">Edit</button></td>
           </tr>`).join('')
-          || `<tr><td colspan="5" style="text-align:center;color:#888;padding:20px">No RERA numbers for this project.</td></tr>`;
+          || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:20px">No RERA numbers for this project.</td></tr>`;
       }
     } catch (e) {}
   }
