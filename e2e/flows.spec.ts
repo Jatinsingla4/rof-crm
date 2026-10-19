@@ -631,17 +631,17 @@ test('Customized Letters: make a template, make a numbered letter for an applica
   await page.locator('#mk-go').click();
   await expect(page.locator('#mk-err')).toContainText('applicant');
   // an applicant with no project yet, so the letter's project does not matter
-  const who = await page.evaluate(async () => {
-    const r = await (await fetch('/api/consumers?search=Raj&pageSize=50', { headers: { authorization: 'Bearer ' + Auth.getToken() } })).json();
-    const c = (r.data || []).find((x: any) => !x.project_id);
-    return c ? { id: c.id, name: c.name } : null;
-  });
-  expect(who, 'the test database needs an applicant called Raj with no project').not.toBeNull();
-  await page.locator('#mk-cons').fill('Raj');
-  await page.locator(`#mk-sug [data-id="${who!.id}"]`).click();
+  const who = await page.evaluate(async (nm) => {
+    const r = await fetch('/api/consumers', { method: 'POST', headers: { authorization: 'Bearer ' + Auth.getToken(), 'content-type': 'application/json' }, body: JSON.stringify({ name: nm, mobile: '9' + String(Date.now()).slice(-9) }) });
+    const j = await r.json();
+    return { ok: r.ok, id: j.id || (j.data && j.data.id), name: nm, err: j.error };
+  }, `Raj Letter ${U}`);
+  expect(who.ok, `test applicant not created: ${who.err}`).toBe(true);
+  await page.locator('#mk-cons').fill(`Raj Letter ${U}`);
+  await page.locator(`#mk-sug [data-id="${who.id}"]`).click();
   await page.locator('#mk-go').click();
   const frame = page.frameLocator('#mk-frame');
-  await expect(frame.locator('body')).toContainText(`Dear ${who!.name}, welcome.`);
+  await expect(frame.locator('body')).toContainText(`Dear ${who.name}, welcome.`);
   await expect(frame.locator('body')).toContainText(new RegExp(`Ref\\. No\\.: E2E/W${U}/\\d{4}-\\d{2}/0001`));
   // a second letter runs on to 0002
   await page.locator('#mk-go').click();
