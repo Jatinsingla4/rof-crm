@@ -75,8 +75,6 @@
 
       <div class="dd-link has-sub">Employees <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:220px">
-          <a class="dd-link" onclick="window.location.href='/pages/employee-login.html'">Create Login</a>
-          <a class="dd-link" onclick="window.location.href='/pages/employee-login.html'">View Logins</a>
           <a class="dd-link" onclick="Router.navigate('/employees',{tab:'department'})">Department</a>
           <a class="dd-link" onclick="Router.navigate('/employees',{tab:'info'})">Employee Information</a>
           <a class="dd-link" onclick="Router.navigate('/employees',{tab:'report'})">Report</a>
@@ -98,9 +96,10 @@
 
       <div class="dd-link has-sub">Security <span class="arr">▶</span>
         <div class="sub-dd" style="min-width:220px">
-          <a class="dd-link" onclick="Router.navigate('/users',{tab:'permissions'})">User Permissions</a>
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'permissions'})">Logins and Permissions</a>
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'roles'})">Roles</a>
           <a class="dd-link" onclick="Router.navigate('/users',{tab:'role-menu'})">Role Menu Access</a>
+          <a class="dd-link" onclick="Router.navigate('/users',{tab:'audit'})">Audit Log</a>
         </div>
       </div>
 

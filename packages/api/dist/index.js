@@ -8,7 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = exports.invalidateAuthUser = exports.db = void 0;
+exports.authenticateToken = exports.clearAuthUserCache = exports.invalidateAuthUser = exports.db = void 0;
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
@@ -130,17 +130,26 @@ const AUTH_CACHE_MS = 15000;
 const authUserCache = new Map();
 const invalidateAuthUser = (userId) => { authUserCache.delete(userId); };
 exports.invalidateAuthUser = invalidateAuthUser;
+const clearAuthUserCache = () => authUserCache.clear(); // after a role definition changes
+exports.clearAuthUserCache = clearAuthUserCache;
 const loadAuthUser = async (userId) => {
     const hit = authUserCache.get(userId);
     if (hit && Date.now() - hit.at < AUTH_CACHE_MS)
         return hit.user;
-    const r = await pool_1.db.query(`SELECT role, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE id = $1`, [userId]);
+    const r = await pool_1.db.query(`SELECT u.role, COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role) AS eff_role,
+            u.is_active, COALESCE(u.token_version, 0) AS token_version,
+            CASE WHEN u.ip_security_enabled IS TRUE
+                 THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules
+       FROM users u WHERE u.id = $1`, [userId]);
     const user = r.rows[0] || null;
     authUserCache.set(userId, { at: Date.now(), user });
     if (authUserCache.size > 2000)
         authUserCache.clear();
     return user;
 };
+// IP security: a user with it switched on may only work from the addresses on their allow list
+const clientIp = (req) => (req.ip || '').replace(/^::ffff:/, '');
+const ipBlocked = (user, req) => !!user?.ip_rules && !user.ip_rules.includes(clientIp(req));
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     // ?token= is accepted for GET only (window.open() navigations such as letters and receipts)
@@ -154,6 +163,7 @@ const authenticateToken = async (req, res, next) => {
         req.userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
         req.userName = 'Test User';
         req.userRole = 'super_admin';
+        req.roleName = 'super_admin';
         req.userPermissions = [];
         return next();
     }
@@ -169,9 +179,12 @@ const authenticateToken = async (req, res, next) => {
         if (!user || user.is_active === false || user.token_version !== (decoded.tv ?? 0)) {
             return res.status(401).json({ error: 'Session is no longer valid. Please sign in again.' });
         }
+        if (ipBlocked(user, req))
+            return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
         req.userId = decoded.userId;
         req.userName = decoded.name || decoded.email || 'Unknown';
-        req.userRole = user.role;
+        req.userRole = user.eff_role;
+        req.roleName = user.role;
         req.userPermissions = decoded.permissions || [];
         next();
     }
@@ -189,6 +202,9 @@ const rbac = (resource) => (req, res, next) => {
         GET: 'view', POST: 'create', PATCH: 'edit', PUT: 'edit', DELETE: 'delete',
     };
     const action = methodToAction[req.method] || 'view';
+    // Every signed-in user may read the name list used by pick lists
+    if (resource === 'users' && req.method === 'GET' && req.path === '/directory')
+        return next();
     // Every signed-in user may read their own profile and process permissions
     if (resource === 'users' && req.method === 'GET' && req.path === '/me')
         return next();
@@ -275,7 +291,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     if (loginFailures.size > 5000)
         loginFailures.clear();
     try {
-        const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE email = $1 LIMIT 1`, [email.toLowerCase().trim()]);
+        const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE lower(email) = $1 LIMIT 1`, [email.toLowerCase().trim()]);
         const user = result.rows[0];
         // Always return same error to prevent email enumeration
         if (!user || user.is_active === false) {
@@ -310,6 +326,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             return res.status(401).json({ error: 'Invalid email or password' });
         }
         loginFailures.delete(failKey);
+        if (ipBlocked(await loadAuthUser(user.id), req)) {
+            return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
+        }
+        pool_1.db.query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]).catch(() => { });
+        (0, auditLogger_js_1.logAudit)(pool_1.db, user.id, 'login', 'auth', user.id, {}, { ip: clientIp(req) }).catch(() => { });
         const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email, name: user.name, role: user.role, tv: user.token_version }, JWT_SECRET, { expiresIn: '8h', algorithm: 'HS256' });
         return res.json({
             success: true,

@@ -141,7 +141,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 export interface AuthRequest extends Request {
   userId?: string;
   userName?: string;
-  userRole?: string;
+  userRole?: string;   // role the API checks permissions against (a custom role resolves to its base role)
+  roleName?: string;   // the role name stored on the user
   userPermissions?: string[];
   unitStatusFilter?: string[] | null;
 }
@@ -181,15 +182,20 @@ export interface DocumentVersion {
 // Role, active flag and token_version are read from the DB (cached briefly) so that
 // deactivation, role changes and logout take effect without waiting for the JWT to expire.
 const AUTH_CACHE_MS = 15_000;
-const authUserCache = new Map<string, { at: number; user: { role: string; is_active: boolean; token_version: number } | null }>();
+const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string; is_active: boolean; token_version: number; ip_rules: string[] | null } | null }>();
 
 export const invalidateAuthUser = (userId: string) => { authUserCache.delete(userId); };
+export const clearAuthUserCache = () => authUserCache.clear(); // after a role definition changes
 
 const loadAuthUser = async (userId: string) => {
   const hit = authUserCache.get(userId);
   if (hit && Date.now() - hit.at < AUTH_CACHE_MS) return hit.user;
   const r = await db.query(
-    `SELECT role, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE id = $1`,
+    `SELECT u.role, COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role) AS eff_role,
+            u.is_active, COALESCE(u.token_version, 0) AS token_version,
+            CASE WHEN u.ip_security_enabled IS TRUE
+                 THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules
+       FROM users u WHERE u.id = $1`,
     [userId]
   );
   const user = r.rows[0] || null;
@@ -197,6 +203,10 @@ const loadAuthUser = async (userId: string) => {
   if (authUserCache.size > 2000) authUserCache.clear();
   return user;
 };
+
+// IP security: a user with it switched on may only work from the addresses on their allow list
+const clientIp = (req: Request) => (req.ip || '').replace(/^::ffff:/, '');
+const ipBlocked = (user: { ip_rules: string[] | null } | null, req: Request) => !!user?.ip_rules && !user.ip_rules.includes(clientIp(req));
 
 export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
@@ -213,6 +223,7 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     req.userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     req.userName = 'Test User';
     req.userRole = 'super_admin';
+    req.roleName = 'super_admin';
     req.userPermissions = [];
     return next();
   }
@@ -229,9 +240,11 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     if (!user || user.is_active === false || user.token_version !== (decoded.tv ?? 0)) {
       return res.status(401).json({ error: 'Session is no longer valid. Please sign in again.' });
     }
+    if (ipBlocked(user, req)) return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
     req.userId = decoded.userId;
     req.userName = decoded.name || decoded.email || 'Unknown';
-    req.userRole = user.role;
+    req.userRole = user.eff_role;
+    req.roleName = user.role;
     req.userPermissions = decoded.permissions || [];
     next();
   } catch (err) {
@@ -249,6 +262,8 @@ const rbac = (resource: string) => (req: AuthRequest, res: Response, next: NextF
     GET: 'view', POST: 'create', PATCH: 'edit', PUT: 'edit', DELETE: 'delete',
   };
   const action = methodToAction[req.method] || 'view';
+  // Every signed-in user may read the name list used by pick lists
+  if (resource === 'users' && req.method === 'GET' && req.path === '/directory') return next();
   // Every signed-in user may read their own profile and process permissions
   if (resource === 'users' && req.method === 'GET' && req.path === '/me') return next();
   // Every signed-in user may change their own password (the route itself checks the current password)
@@ -348,7 +363,7 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
 
   try {
     const result = await db.query(
-      `SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE email = $1 LIMIT 1`,
+      `SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE lower(email) = $1 LIMIT 1`,
       [email.toLowerCase().trim()]
     );
 
@@ -388,6 +403,11 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     }
 
     loginFailures.delete(failKey);
+    if (ipBlocked(await loadAuthUser(user.id), req)) {
+      return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
+    }
+    db.query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]).catch(() => {});
+    logAudit(db, user.id, 'login', 'auth', user.id, {}, { ip: clientIp(req) }).catch(() => {});
     const token = jwt.sign(
       { userId: user.id, email: user.email, name: user.name, role: user.role, tv: user.token_version },
       JWT_SECRET!,

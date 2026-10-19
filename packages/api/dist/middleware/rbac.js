@@ -4,7 +4,7 @@
  * Enforces role-based permissions across all API routes
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requirePermission = exports.hasPermission = void 0;
+exports.requirePermission = exports.hasPermission = exports.BASE_ROLES = exports.SYSTEM_ROLES = void 0;
 const rolePermissions = {
     super_admin: {
         consumers: ['view', 'create', 'edit', 'delete'],
@@ -78,6 +78,9 @@ const rolePermissions = {
         users: [],
     },
 };
+exports.SYSTEM_ROLES = Object.keys(rolePermissions);
+// A custom role may borrow the API permissions of any system role except super_admin
+exports.BASE_ROLES = exports.SYSTEM_ROLES.filter((r) => r !== 'super_admin');
 const hasPermission = (role, resource, action) => !!(role && rolePermissions[role]?.[resource]?.includes(action));
 exports.hasPermission = hasPermission;
 const requirePermission = (resource, action) => {

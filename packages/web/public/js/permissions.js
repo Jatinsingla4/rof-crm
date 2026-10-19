@@ -40,7 +40,27 @@ const Permissions = (() => {
     if (isSuperAdmin()) return true;
     // Not loaded, or no pages are configured yet (empty nav_pages): allow. The server still enforces every role.
     if (!_pageAccess || Object.keys(_pageAccess).length === 0) return true;
+    // A screen that is not on the page list (for example an applicant detail) is not controlled here
+    if (!(route in _pageAccess)) return true;
     return _pageAccess[route] === true;
+  }
+
+  // Hide menu links to screens the role cannot open, then groups and buttons left empty
+  function applyMenu() {
+    if (isSuperAdmin()) return;
+    const hidden = (el) => el.style.display === 'none';
+    document.querySelectorAll('#navbar .dd-link[onclick*="Router.navigate("]').forEach(a => {
+      const m = a.getAttribute('onclick').match(/Router\.navigate\('([^']+)'/);
+      if (m && !canAccessPage(m[1])) a.style.display = 'none';
+    });
+    document.querySelectorAll('#navbar .dd-link.has-sub').forEach(g => {
+      const kids = [...g.querySelectorAll('.sub-dd > .dd-link')];
+      if (kids.length && kids.every(hidden)) g.style.display = 'none';
+    });
+    document.querySelectorAll('#navbar .nav-item').forEach(n => {
+      const kids = [...n.querySelectorAll('.dd > .dd-link')];
+      if (kids.length && kids.every(hidden)) n.style.display = 'none';
+    });
   }
 
   function clear() {
@@ -96,5 +116,5 @@ const Permissions = (() => {
     }
   }
 
-  return { load, loadPageAccess, clear, role, isSuperAdmin, can, canMake, canCheck, canApprove, canAccessPage, guard, guardDisable };
+  return { load, loadPageAccess, clear, role, isSuperAdmin, can, canMake, canCheck, canApprove, canAccessPage, applyMenu, guard, guardDisable };
 })();

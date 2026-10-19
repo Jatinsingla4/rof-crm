@@ -87,7 +87,7 @@ const TasksPage = {
 
   async loadUsers() {
     try {
-      const res = await Api.get('/users', { params: { pageSize: 100 } });
+      const res = await Api.get('/users/directory');
       const list = res.data || res || [];
       const sel = document.getElementById('task-assign');
       if (sel) sel.innerHTML = '<option value="">— Self —</option>' +

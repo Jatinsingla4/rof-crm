@@ -1,7 +1,7 @@
 // Browser flow checks for the modules that have been verified one by one:
 //   Set Master: Set Up (lists, banks, locations, companies and their bank accounts and logo)
 //   Set Projects: Project Set Up (project, tower, unit type, unit, CSV upload, unit location, reminder)
-//   the Set Master menu, and what each role sees.
+//   the Set Master menu, what each role sees, and Security (logins, roles, role menu access, audit log).
 // Add a section here when another module has been checked.
 import { test, expect, Page } from '@playwright/test';
 
@@ -87,7 +87,7 @@ test('Set Master menu has four groups and every entry opens', async () => {
   const groups = await nav.locator('.dd > .dd-link.has-sub').evaluateAll(els => els.map(e => (e.childNodes[0].textContent || '').trim()));
   expect(groups).toEqual(['Set Up', 'Employees', 'Documents', 'Security']);
   const links = await nav.locator('a.dd-link').evaluateAll(els => els.map(e => ({ label: (e.textContent || '').trim(), onclick: e.getAttribute('onclick') || '' })));
-  expect(links.length).toBe(23);
+  expect(links.length).toBe(22);
   for (const link of links) {
     const standalone = link.onclick.match(/window\.location\.href='([^']+)'/);
     if (standalone) {
@@ -313,21 +313,19 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
 // ── 7. roles ───────────────────────────────────────────────────────────────
 const WRITE = /^(Add|Edit|Delete|New company|Upload logo|Save changes|Set as active)/;
 
-test('read_only_viewer: no write controls in Set Master, writes refused in Set Projects', async () => {
+test('read_only_viewer: Set Master and Set Projects are closed, writes are refused by the server', async () => {
   await logout();
   await login('read_only_viewer');
-  for (const hash of ['locations', 'lists&list=professions', 'banks', 'companies']) {
-    await go(`#/set-master?screen=${hash}`);
-    await expect(content().locator('.sm-rail, .sm-nav, [data-screen], button').first()).toBeVisible();
-    await expect(content().getByRole('button', { name: WRITE }), `write buttons on ${hash}`).toHaveCount(0);
+  for (const hash of ['#/set-master?screen=banks', '#/set-projects?tab=add-tower']) {
+    await go(hash);
+    await expect(content()).toContainText('Access Denied');
   }
-  // The page may open (page access is not configured in the test database), but the server refuses every write
-  await go('#/set-projects?tab=add-tower');
-  const tf = page.locator('#spj-tower-form');
-  await tf.locator('#spj-tower-project').selectOption({ label: names.project });
-  await tf.locator('[name=towerName]').fill('RO-try');
-  await tf.getByRole('button', { name: 'Add Tower' }).click();
-  await expect(toast(/permission|forbidden|denied/i)).toBeVisible();
+  // the menu does not offer them either
+  await expect(page.locator('#navbar .dd-link', { hasText: /^Banks/ })).toHaveCSS('display', 'none');
+  const status = await page.evaluate(async () => (await fetch('/api/master/banks', {
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + Auth.getToken() }, body: JSON.stringify({ name: 'x' }),
+  })).status);
+  expect(status).toBe(403);
 });
 
 test('project_manager: can add and edit, cannot delete, no company editing', async () => {
@@ -345,4 +343,170 @@ test('project_manager: can add and edit, cannot delete, no company editing', asy
   await page.locator('#spj-tower-list-project').selectOption({ label: names.project });
   await expect(page.locator('#spj-towers-list tr', { hasText: names.tower })).toBeVisible();
   await expect(page.locator('#spj-towers-list').getByRole('button', { name: '✕' })).toHaveCount(0);
+});
+
+// ── 8. Security ────────────────────────────────────────────────────────────
+const sec = { role: `e2e_role_${U}`, label: `E2E Role ${U}`, user: `e2e_${U}`, name: `E2E Person ${U}`, email: `e2e.${U}@example.com`, pw: `Pass#${U}9` };
+const secDrawer = () => page.locator('#sec-drawer-host aside[role=dialog]');
+const userRow = () => page.locator('#sm-main tr', { hasText: sec.email });
+const roleRow = () => page.locator('#sm-main tr', { hasText: sec.role });
+async function signInAs(email: string, password: string) {
+  await page.goto('/pages/login.html');
+  await page.locator('input[type=email]').fill(email);
+  await page.locator('input[type=password]').fill(password);
+  await page.locator('button[type=submit]').click();
+}
+
+test('security: create a login with process rights, weak password refused', async () => {
+  await logout();
+  await login('super_admin');
+  await go('#/users?tab=permissions');
+  await content().getByRole('button', { name: 'New login' }).click();
+  await expect(secDrawer()).toBeVisible();
+  await secDrawer().locator('[name=username]').fill(sec.user);
+  await secDrawer().locator('[name=name]').fill(sec.name);
+  await secDrawer().locator('[name=email]').fill(sec.email.toUpperCase());
+  await secDrawer().locator('[name=role]').selectOption('accounts_finance');
+  await secDrawer().locator('input[name=mk][value=receipt]').check();
+  await secDrawer().locator('input[name=ck][value=receipt]').check();
+  await secDrawer().locator('[name=password]').fill('short');
+  await secDrawer().locator('#sf-pw2').fill('short');
+  await secDrawer().getByRole('button', { name: 'Create login' }).click();
+  await expect(secDrawer().locator('#sec-form-err')).toContainText('at least 8');
+  await secDrawer().locator('[name=password]').fill(sec.pw);
+  await secDrawer().locator('#sf-pw2').fill('Different#1');
+  await secDrawer().getByRole('button', { name: 'Create login' }).click();
+  await expect(secDrawer().locator('#sec-form-err')).toContainText('do not match');
+  await secDrawer().locator('#sf-pw2').fill(sec.pw);
+  await secDrawer().getByRole('button', { name: 'Create login' }).click();
+  await expect(toast('Login created')).toBeVisible();
+  await expect(userRow()).toContainText('Receipt MC');
+  await expect(userRow()).toContainText('Active');
+});
+
+test('security: the new login signs in (email in any letter case) and has only its rights', async () => {
+  await logout();
+  await signInAs(sec.email.toUpperCase(), sec.pw);
+  await page.waitForURL(/#\/dashboard/);
+  const me = await page.evaluate(async () => (await (await fetch('/api/users/me', { headers: { authorization: 'Bearer ' + Auth.getToken() } })).json()).data);
+  expect(me.role).toBe('accounts_finance');
+  expect(me.processPermissions.receipt).toEqual(['maker', 'checker']);
+  // not a super admin: no Security menu, and the page itself is closed
+  await go('#/users?tab=permissions');
+  await expect(content()).toContainText('Access Denied');
+  await expect(page.locator('#navbar .dd-link', { hasText: /^Logins and Permissions/ })).toHaveCSS('display', 'none');
+});
+
+test('security: edit a login, disable it, and it cannot sign in', async () => {
+  await logout();
+  await login('super_admin');
+  await go('#/users?tab=permissions');
+  await userRow().hover();
+  await userRow().getByRole('button', { name: 'Edit' }).click();
+  await expect(secDrawer()).toBeVisible();
+  await secDrawer().locator('[name=mobile]').fill('98765 43210');
+  await secDrawer().locator('input[name=mk][value=receipt]').uncheck();
+  await secDrawer().locator('input[name=ck][value=receipt]').uncheck();
+  await secDrawer().locator('input[name=mk][value=jv_refund_drcr]').check();
+  await secDrawer().getByRole('button', { name: 'Save changes' }).click();
+  await expect(toast('Login updated')).toBeVisible();
+  await expect(userRow()).toContainText('JV/Refund/DrCr M');
+  await expect(userRow()).not.toContainText('Receipt');
+  // a bad IP address is refused in the IP list
+  await userRow().hover();
+  await userRow().getByRole('button', { name: 'Edit' }).click();
+  await secDrawer().locator('#sec-ip-new').fill('999.1.1.1');
+  await secDrawer().getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(toast('valid IPv4 or IPv6')).toBeVisible();
+  await secDrawer().getByRole('button', { name: 'Cancel' }).click();
+  // disable with a confirm
+  await userRow().hover();
+  await userRow().getByRole('button', { name: 'Disable' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Disable' }).click();
+  await expect(toast('Login disabled')).toBeVisible();
+  await expect(userRow()).toContainText('Inactive');
+  await logout();
+  await signInAs(sec.email, sec.pw);
+  await expect(page.locator('body')).toContainText(/Invalid email or password/i);
+  await page.goto('/');
+});
+
+test('security: create a role, give it menu access in the grid, see it persist, delete it', async () => {
+  await login('super_admin');
+  await go('#/users?tab=roles');
+  await content().getByRole('button', { name: 'New role' }).click();
+  await expect(secDrawer()).toBeVisible();
+  await secDrawer().locator('[name=name]').fill('Bad Name');
+  await secDrawer().locator('[name=label]').fill(sec.label);
+  await secDrawer().getByRole('button', { name: 'Create role' }).click();
+  await expect(secDrawer().locator('#sec-form-err')).toContainText('lowercase');
+  await secDrawer().locator('[name=name]').fill(sec.role);
+  await secDrawer().locator('[name=baseRole]').selectOption('support_agent');
+  await secDrawer().locator('[name=copy]').selectOption('read_only_viewer');
+  await secDrawer().getByRole('button', { name: 'Create role' }).click();
+  await expect(toast('Role created')).toBeVisible();
+  await expect(roleRow()).toContainText('Custom');
+  await expect(roleRow()).toContainText('Support Agent');
+  // the same name again is refused
+  await content().getByRole('button', { name: 'New role' }).click();
+  await secDrawer().locator('[name=name]').fill(sec.role);
+  await secDrawer().locator('[name=label]').fill('Again');
+  await secDrawer().getByRole('button', { name: 'Create role' }).click();
+  await expect(secDrawer().locator('#sec-form-err')).toContainText('already exists');
+  await secDrawer().getByRole('button', { name: 'Cancel' }).click();
+  // menu access: open the grid from the role row, tick Set Master, save
+  await roleRow().hover();
+  await roleRow().getByRole('button', { name: 'Menu access' }).click();
+  await expect(page.locator('#sec-grid')).toBeVisible();
+  const box = page.getByRole('checkbox', { name: `${sec.label}: Set Master`, exact: true });
+  await expect(box).not.toBeChecked();
+  await expect(content().getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  await box.check();
+  await expect(content().locator('#sec-dirty')).toContainText('1 change');
+  await content().getByRole('button', { name: 'Save changes' }).click();
+  await expect(toast('Menu access saved')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: `${sec.label}: Set Master`, exact: true })).toBeChecked();
+  // delete
+  await go('#/users?tab=roles');
+  await roleRow().hover();
+  await roleRow().getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast('Role deleted')).toBeVisible();
+  await expect(roleRow()).toHaveCount(0);
+});
+
+test('security: giving a role a screen in the grid opens it for that role, taking it away closes it', async () => {
+  const cb = () => page.getByRole('checkbox', { name: 'Read Only Viewer: Set Master', exact: true });
+  const setGrid = async (on: boolean) => {
+    await go('#/users?tab=role-menu');
+    await expect(cb()).toBeVisible();
+    await (on ? cb().check() : cb().uncheck());
+    await content().getByRole('button', { name: 'Save changes' }).click();
+    await expect(toast('Menu access saved')).toBeVisible();
+  };
+  await setGrid(true);
+  await logout();
+  await login('read_only_viewer');
+  await go('#/set-master?screen=banks');
+  await expect(content()).not.toContainText('Access Denied');
+  await expect(content().getByRole('button', { name: WRITE })).toHaveCount(0); // opened, but still read only
+  await logout();
+  await login('super_admin');
+  await setGrid(false);
+  await logout();
+  await login('read_only_viewer');
+  await go('#/set-master?screen=banks');
+  await expect(content()).toContainText('Access Denied');
+});
+
+test('security: the audit log shows sign ins and the changes made above', async () => {
+  await logout();
+  await login('super_admin');
+  await go('#/users?tab=audit');
+  await expect(page.locator('#au-body table')).toBeVisible();
+  await expect(page.locator('#au-body tr', { hasText: 'sign in' }).first()).toBeVisible();
+  await page.locator('#au-type').selectOption('role');
+  await page.locator('#au-go').click();
+  await expect(page.locator('#au-body tr', { hasText: 'delete' }).first()).toBeVisible();
+  await expect(page.locator('#au-body')).not.toContainText(sec.pw);
 });

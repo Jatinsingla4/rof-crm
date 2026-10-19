@@ -80,6 +80,10 @@ const rolePermissions: Record<string, Record<string, string[]>> = {
   },
 };
 
+export const SYSTEM_ROLES = Object.keys(rolePermissions);
+// A custom role may borrow the API permissions of any system role except super_admin
+export const BASE_ROLES = SYSTEM_ROLES.filter((r) => r !== 'super_admin');
+
 export const hasPermission = (role: string | undefined, resource: string, action: string) =>
   !!(role && rolePermissions[role]?.[resource]?.includes(action));
 

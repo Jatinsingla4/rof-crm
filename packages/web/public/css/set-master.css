@@ -133,3 +133,17 @@
   .sm-rail-item.on { border-bottom-color: var(--accent); }
   .sm-grid2, .sm-grid3, .sm-addrow.multi, .sm-addrow.two { grid-template-columns: 1fr; }
 }
+
+/* Security screens */
+.sm-drawer.sec-wide { width: min(640px, 100vw); }
+.sec-h { font-size: 12.5px; font-weight: 650; color: var(--text); margin: 0 0 10px; letter-spacing: .2px; }
+.sm-drawer-b .sm-section { padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.sec-check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text); padding: 3px 0; cursor: pointer; }
+.sec-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; max-height: 160px; overflow: auto; border: 1px solid var(--border2); border-radius: 6px; padding: 6px 10px; }
+.sec-proc th, .sec-proc td { padding: 6px 10px; }
+.sec-grid th.sec-col { text-align: center; min-width: 96px; vertical-align: bottom; }
+.sec-grid th.sec-col .sm-btn { padding: 1px 5px; font-size: 11px; }
+.sec-grid th.sec-pick { box-shadow: inset 0 -2px 0 var(--accent); }
+.sec-grid .sec-cell { text-align: center; }
+.sec-grid tr.sec-cat td { background: var(--surface2); border-top: 1px solid var(--border2); }
+@media (max-width: 720px) { .sec-list { grid-template-columns: 1fr; } }

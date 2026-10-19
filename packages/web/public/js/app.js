@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!isLoginPage) {
     await Permissions.load();
     await Permissions.loadPageAccess();
+    Permissions.applyMenu();
   }
 
   // ── 3. TOPBAR ─────────────────────────────────

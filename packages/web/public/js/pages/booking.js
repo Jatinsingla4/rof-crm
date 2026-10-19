@@ -11,7 +11,7 @@ Pages.booking = async function(params = {}) {
     Api.get('/master/professions'),
     Api.get('/master/nationalities'),
     Api.get('/brokers'),
-    Api.get('/users'),
+    Api.get('/users/directory'),
   ]);
 
   const projects     = projectsRes.status==='fulfilled'  ? (projectsRes.value.data||projectsRes.value||[])  : [];
