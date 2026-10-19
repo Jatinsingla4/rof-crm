@@ -17,6 +17,43 @@ Pages.allotment = async function(params = {}) {
       <button class="tab-line" data-group="allot" data-tab="edraw" onclick="switchTab('allot','edraw')">E-Draw Import</button>
     </div>
 
+    <style>
+      [data-panel-group="allot"] { max-width:1180px; margin-left:auto; margin-right:auto }
+      [data-panel-group="allot"] .sp, [data-panel-group="allot"] .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      [data-panel-group="allot"] .sp-hdr, [data-panel-group="allot"] .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      [data-panel-group="allot"] .sp-title, [data-panel-group="allot"] .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      [data-panel-group="allot"] .sp-body { padding:18px }
+      [data-panel-group="allot"] .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { [data-panel-group="allot"] .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } [data-panel-group="allot"] .fg { grid-column:auto !important } }
+      @media (max-width:640px) { [data-panel-group="allot"] .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      [data-panel-group="allot"] .fg { gap:6px }
+      [data-panel-group="allot"] .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      [data-panel-group="allot"] .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      [data-panel-group="allot"] .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      [data-panel-group="allot"] .btn-lg, [data-panel-group="allot"] .btn-fetch { padding:9px 24px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      [data-panel-group="allot"] .btn-fetch, [data-panel-group="allot"] .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none }
+      [data-panel-group="allot"] .alert { border-radius:8px; margin-bottom:16px !important }
+      [data-panel-group="allot"] #letter-search-body, [data-panel-group="allot"] #allot-search-body, [data-panel-group="allot"] #cancel-list-body,
+      [data-panel-group="allot"] #shifting-report-body, [data-panel-group="allot"] #allot-list-body, [data-panel-group="allot"] #waitlist-body { overflow-x:auto }
+      [data-panel-group="allot"] #letter-search-body, [data-panel-group="allot"] #allot-search-body, [data-panel-group="allot"] #cancel-list-body, [data-panel-group="allot"] #shifting-report-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px }
+      [data-panel-group="allot"] #letter-search-body:empty { display:none }
+      [data-panel-group="allot"] table { width:100%; border-collapse:collapse; font-size:12.5px }
+      [data-panel-group="allot"] table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+      [data-panel-group="allot"] table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+      [data-panel-group="allot"] table tbody tr:hover td { background:var(--surface2) }
+      [data-panel-group="allot"] table tbody tr:last-child td { border-bottom:none }
+      [data-panel-group="allot"] table .td-bold { font-weight:600 }
+      [data-panel-group="allot"] .aln-sub { font-size:11px; font-weight:600; color:var(--teal); text-transform:uppercase; letter-spacing:.5px; margin:2px 0 12px }
+      [data-panel-group="allot"] .aln-bar { display:flex; align-items:flex-end; flex-wrap:wrap; gap:16px 18px }
+      [data-panel-group="allot"] .aln-bar .fg { flex:1 1 170px; min-width:150px }
+      [data-panel-group="allot"] .aln-dates { display:flex; align-items:center; gap:8px }
+      [data-panel-group="allot"] .aln-dates .fc { flex:1; min-width:130px }
+      [data-panel-group="allot"] .aln-proj { display:flex; align-items:center; padding:10px 18px; background:var(--surface2); border-bottom:1px solid var(--border2); font-size:12px; font-weight:600; color:var(--text) }
+      [data-panel-group="allot"] .aln-link { color:var(--teal); text-decoration:none; font-weight:500 }
+      [data-panel-group="allot"] .aln-link:hover { text-decoration:underline }
+      [data-panel-group="allot"] .aln-empty { padding:36px 18px; text-align:center; color:var(--text3); font-size:13px }
+    </style>
+
     <!-- ALLOTMENT TAB -->
     <div data-panel-group="allot" data-panel="allot">
       <div class="sp" style="margin-bottom:12px">
@@ -78,53 +115,32 @@ Pages.allotment = async function(params = {}) {
 
     <!-- SEARCH ALLOTMENT TAB -->
     <div data-panel-group="allot" data-panel="search" style="display:none">
-      <div style="background:#fff;border:1px solid #dde1e7;border-radius:4px;margin-bottom:12px">
-        <div style="background:#e8f0fe;border-bottom:1px solid #dde1e7;padding:8px 14px;display:flex;align-items:center;justify-content:space-between">
-          <span style="font-weight:700;font-size:13px;color:var(--primary,#1a73e8);letter-spacing:.5px">SEARCH ALLOTMENT</span>
-        </div>
-        <div style="padding:14px 16px 10px">
-          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-
-            <div style="display:flex;flex-direction:column;gap:3px;min-width:160px;flex:1">
-              <label style="font-size:11.5px;color:#555;font-weight:600"><span style="color:var(--red,#d32f2f)">*</span>Project:</label>
-              <select class="fc" id="search-project" style="height:32px;font-size:12.5px;padding:0 8px">
+      <div class="sp">
+        <div class="sp-hdr"><div class="sp-title">Search Allotment</div></div>
+        <div class="sp-body">
+          <div class="aln-bar">
+            <div class="fg"><label class="fl"><span class="r">*</span>Project</label>
+              <select class="fc" id="search-project">
                 <option value="">--Select--</option>
               </select>
             </div>
-
-            <div style="display:flex;flex-direction:column;gap:3px;min-width:140px;flex:1">
-              <label style="font-size:11.5px;color:#555;font-weight:600">Registration No.:</label>
-              <input class="fc" id="searchRegNo" placeholder="Registration No." style="height:32px;font-size:12.5px;padding:0 8px">
+            <div class="fg"><label class="fl">Registration No.</label>
+              <input class="fc" id="searchRegNo" placeholder="Registration No.">
             </div>
-
-            <div style="display:flex;flex-direction:column;gap:3px;min-width:130px;flex:1">
-              <label style="font-size:11.5px;color:#555;font-weight:600">First Name:</label>
-              <input class="fc" id="searchFirstName" placeholder="First Name" style="height:32px;font-size:12.5px;padding:0 8px">
+            <div class="fg"><label class="fl">First Name</label>
+              <input class="fc" id="searchFirstName" placeholder="First Name">
             </div>
-
-            <div style="display:flex;flex-direction:column;gap:3px;min-width:130px;flex:1">
-              <label style="font-size:11.5px;color:#555;font-weight:600">Unit Address:</label>
-              <input class="fc" id="searchUnitAddress" placeholder="Unit Address" style="height:32px;font-size:12.5px;padding:0 8px">
+            <div class="fg"><label class="fl">Unit Address</label>
+              <input class="fc" id="searchUnitAddress" placeholder="Unit Address">
             </div>
-
-            <div style="display:flex;flex-direction:column;gap:3px;min-width:220px;flex:1.4">
-              <label style="font-size:11.5px;color:#555;font-weight:600">Allotment Date:</label>
-              <div style="display:flex;align-items:center;gap:5px">
-                <div style="position:relative;flex:1">
-                  <span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;pointer-events:none">📅</span>
-                  <input type="date" class="fc" id="searchDateFrom" placeholder="From Date" style="height:32px;font-size:12px;padding:0 8px 0 26px">
-                </div>
-                <span style="color:#555;font-size:13px;flex-shrink:0">-</span>
-                <div style="position:relative;flex:1">
-                  <span style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#888;font-size:13px;pointer-events:none">📅</span>
-                  <input type="date" class="fc" id="searchDateTo" placeholder="To Date" style="height:32px;font-size:12px;padding:0 8px 0 26px">
-                </div>
+            <div class="fg" style="flex:1.6 1 300px"><label class="fl">Allotment Date</label>
+              <div class="aln-dates">
+                <input type="date" class="fc" id="searchDateFrom" placeholder="From Date">
+                <span style="color:var(--text3)">–</span>
+                <input type="date" class="fc" id="searchDateTo" placeholder="To Date">
               </div>
             </div>
-
-          </div>
-          <div style="margin-top:12px">
-            <button class="btn btn-fetch" style="background:#1a73e8;color:#fff;border:none;padding:6px 22px;border-radius:3px;font-size:13px;font-weight:600;cursor:pointer;letter-spacing:.3px" onclick="AllotmentPage.loadAllotmentList('allot-search-body')">FETCH</button>
+            <button class="btn btn-fetch" onclick="AllotmentPage.loadAllotmentList('allot-search-body')">FETCH</button>
           </div>
         </div>
       </div>
@@ -473,55 +489,49 @@ const AllotmentPage = {
         const headerLabel = projectName && allSameProject ? `PROJECT: ${projectName}` : (list.length > 0 ? 'ALL PROJECTS' : '');
 
         el.innerHTML = list.length === 0
-          ? '<div style="padding:16px;color:#555">No allotments found.</div>'
-          : `<div style="background:#e8f0fe;border:1px solid #c5cfe8;border-bottom:none;padding:7px 14px;display:flex;align-items:center;justify-content:space-between">
-               <span style="font-weight:700;font-size:12.5px;color:#1a4a8a">${headerLabel}</span>
-             </div>
-             <div style="overflow-x:auto;border:1px solid #c5cfe8">
-               <table style="width:100%;border-collapse:collapse;min-width:1100px;font-size:12px">
+          ? '<div class="aln-empty">No allotments found.</div>'
+          : `<div class="aln-proj">${headerLabel}</div>
+             <div style="overflow-x:auto">
+               <table style="min-width:1100px">
                  <thead>
-                   <tr style="background:#1a5276;color:#fff">
-                     <th style="padding:7px 6px;text-align:center;white-space:nowrap;font-weight:700;border:1px solid #154360">S.NO.</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">REGISTRATION NO</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">FIRST APPLICANT NAME</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">SECOND APPLICANT NAME</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">UNIT ADDRESS</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">BROKER COMPANY</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">UNIT TYPE</th>
-                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">AREA</th>
-                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">RATE</th>
-                     <th style="padding:7px 6px;text-align:right;white-space:nowrap;font-weight:700;border:1px solid #154360">BASIC PRICE</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">ALLOTMENT DATE</th>
-                     <th style="padding:7px 6px;white-space:nowrap;font-weight:700;border:1px solid #154360">ALLOTMENT LETTER TYPE1</th>
+                   <tr>
+                     <th>S.NO.</th>
+                     <th>REGISTRATION NO</th>
+                     <th>FIRST APPLICANT NAME</th>
+                     <th>SECOND APPLICANT NAME</th>
+                     <th>UNIT ADDRESS</th>
+                     <th>BROKER COMPANY</th>
+                     <th>UNIT TYPE</th>
+                     <th class="txt-right" style="text-align:right">AREA</th>
+                     <th class="txt-right" style="text-align:right">RATE</th>
+                     <th class="txt-right" style="text-align:right">BASIC PRICE</th>
+                     <th>ALLOTMENT DATE</th>
+                     <th>ALLOTMENT LETTER TYPE1</th>
                    </tr>
                  </thead>
                  <tbody>
                    ${list.map((a, i) => `
-                     <tr style="background:${i%2===0?'#fff':'#f4f8fc'}">
-                       <td style="padding:6px;text-align:center;border:1px solid #dde4ee">${i+1}</td>
-                       <td style="padding:6px;border:1px solid #dde4ee">${a.registration_no||'—'}</td>
-                       <td style="padding:6px;border:1px solid #dde4ee">
-                         <a href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}"
+                     <tr>
+                       <td>${i+1}</td>
+                       <td>${a.registration_no||'—'}</td>
+                       <td class="td-bold">
+                         <a class="aln-link" href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}"
                             target="_blank"
-                            style="color:var(--primary);text-decoration:underline;cursor:pointer"
                             title="View Applicant File">
                            ${a.first_name||a.consumer_name||'—'}
                          </a>
                        </td>
-                       <td style="padding:6px;border:1px solid #dde4ee;color:#555">${a.co_applicant_name||'N/A'}</td>
-                       <td style="padding:6px;border:1px solid #dde4ee">${a.unit_number||'—'}</td>
-                       <td style="padding:6px;border:1px solid #dde4ee">${a.broker_company||'Direct'}</td>
-                       <td style="padding:6px;border:1px solid #dde4ee">${a.bhk_type||'N/A'}</td>
-                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmtDec(a.carpet_area_sqft||a.super_area_sqft)}</td>
-                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmtDec(a.base_price_inr)}</td>
-                       <td style="padding:6px;text-align:right;border:1px solid #dde4ee">${fmt(a.total_price_inr)}</td>
-                       <td style="padding:6px;white-space:nowrap;border:1px solid #dde4ee">${fmtDate(a.allotment_date||a.allocated_date)}</td>
-                       <td style="padding:6px;text-align:center;border:1px solid #dde4ee">
-                         <a href="javascript:void(0)"
-                            onclick="AllotmentPage.openAllotmentLetter('${a.consumer_id}','${a.id}')"
-                            style="color:#1a6fc4;text-decoration:none;cursor:pointer"
-                            onmouseover="this.style.textDecoration='underline'"
-                            onmouseout="this.style.textDecoration='none'">
+                       <td style="color:var(--text2)">${a.co_applicant_name||'N/A'}</td>
+                       <td>${a.unit_number||'—'}</td>
+                       <td>${a.broker_company||'Direct'}</td>
+                       <td>${a.bhk_type||'N/A'}</td>
+                       <td style="text-align:right">${fmtDec(a.carpet_area_sqft||a.super_area_sqft)}</td>
+                       <td style="text-align:right">${fmtDec(a.base_price_inr)}</td>
+                       <td style="text-align:right">${fmt(a.total_price_inr)}</td>
+                       <td style="white-space:nowrap">${fmtDate(a.allotment_date||a.allocated_date)}</td>
+                       <td>
+                         <a class="aln-link" href="javascript:void(0)"
+                            onclick="AllotmentPage.openAllotmentLetter('${a.consumer_id}','${a.id}')">
                            Allotment Letter
                          </a>
                        </td>
@@ -538,7 +548,7 @@ const AllotmentPage = {
               <tbody>
                 ${list.map((a,i) => `<tr>
                   <td>${i+1}</td>
-                  <td class="td-bold"><a href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${a.consumer_name||a.consumerName||'—'}</a></td>
+                  <td class="td-bold"><a href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${a.consumer_name||a.consumerName||'—'}</a></td>
                   <td>${a.unit_number||a.unitNumber||'—'}</td>
                   <td style="font-size:10.5px">${a.project_name||a.projectName||'—'}</td>
                   <td style="font-size:10.5px">${Utils.date(a.allotment_date||a.allocated_date||a.allotmentDate||a.created_at)}</td>
@@ -622,7 +632,7 @@ const AllotmentPage = {
             <thead><tr><th>Consumer</th><th>From Unit</th><th>To Unit</th><th>Date</th><th>Reason</th></tr></thead>
             <tbody>
               ${list.map(s => `<tr>
-                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${s.consumer_name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
                 <td>${s.old_unit_number||'—'}</td>
                 <td>${s.new_unit_number||'—'}</td>
                 <td>${Utils.date(s.shift_date||s.created_at)}</td>
@@ -655,7 +665,7 @@ const AllotmentPage = {
             <tbody>
               ${list.map((s,i) => `<tr>
                 <td>${i+1}</td>
-                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${s.consumer_name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
                 <td>${s.mobile||'—'}</td>
                 <td>${s.old_unit_number||'—'}</td>
                 <td>${s.new_unit_number||'—'}</td>
@@ -699,7 +709,7 @@ const AllotmentPage = {
             <tbody>
               ${list.map(w => `<tr>
                 <td style="font-weight:700;color:var(--teal)">#${w.position||w.waitlist_position||'—'}</td>
-                <td class="td-bold"><a href="/api/consumers/${w.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${w.consumer_name||w.consumerName||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${w.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${w.consumer_name||w.consumerName||'—'}</a></td>
                 <td>${w.consumer_mobile||w.mobile||'—'}</td>
                 <td>${w.project_name||w.projectName||'—'}</td>
                 <td>${Utils.date(w.applied_date||w.created_at)}</td>
