@@ -3,6 +3,47 @@
 Pages.leads = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .lds { --bg2:var(--surface2); --text1:var(--text); max-width:1360px; margin-left:auto; margin-right:auto }
+      .lds .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .lds .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .lds .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .lds .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .lds .sp { border-radius:10px; overflow:hidden }
+      .lds .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .lds .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .lds .sp-body { padding:18px }
+      .lds .fg { gap:6px }
+      .lds .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .lds .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .lds .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .lds .btn-teal, .lds .btn-fetch { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .lds .btn-teal:hover, .lds .btn-fetch:hover { filter:brightness(.92) }
+      .lds .btn-teal.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+      .lds .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      .lds .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .lds .btn-ghost.active { background:var(--teal-bg); color:var(--teal); border-color:var(--teal) }
+      .lds .tbl-hdr { background:var(--teal-bg); border:1px solid var(--border2); border-radius:10px; padding:12px 18px; flex-wrap:wrap }
+      .lds .tbl-wrap > .tbl-hdr { border:none; border-bottom:1px solid var(--border); border-radius:0 }
+      .lds .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .lds .tbl-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap }
+      .lds .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .lds table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .lds table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .lds table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .lds table tbody tr:hover td { background:var(--surface2) }
+      .lds .kpi { border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px }
+      .lds .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .lds .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .lds .btg-item { border-radius:8px }
+    </style>
+    <style>
+      .lds #leads-kpis .kpi { cursor:pointer }
+      .lds #leads-body .sp { border-radius:10px }
+      #leads-body .lds-col { background:var(--surface2) }
+      .lds #leads-body .tbl-wrap { margin-top:0 }
+    </style>
+    <div class="lds">
     <div class="page-hdr">
       <h1>Leads Pipeline</h1>
       <div class="breadcrumb">CRM / <b>Leads</b></div>
@@ -64,6 +105,7 @@ Pages.leads = async function(params = {}) {
 
     <!-- Pipeline view -->
     <div id="leads-body"><div class="page-loading"><div class="spinner"></div> Loading pipeline…</div></div>
+    </div>
   `;
 
   await LeadsPage.loadProjects();
@@ -160,7 +202,7 @@ const LeadsPage = {
         const leads = list.filter(c => (c.lead_stage||c.leadStage||'enquiry') === stage.key);
         return `
           <div style="min-width:200px;flex:1;max-width:240px">
-            <div style="background:var(--bg2);border-radius:8px;padding:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
+            <div style="background:var(--teal-bg);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
               <span style="font-weight:600;font-size:12px">${stage.label}</span>
               <span class="chip ${stage.cls}">${leads.length}</span>
             </div>

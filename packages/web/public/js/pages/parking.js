@@ -4,6 +4,40 @@ Pages.parking = async function(params = {}) {
   const tab = params.tab || 'type-master';
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .pkn { max-width:1360px; margin-left:auto; margin-right:auto }
+      .pkn .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .pkn .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .pkn .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .pkn .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .pkn .sp { border-radius:10px; overflow:hidden }
+      .pkn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .pkn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .pkn .sp-body { padding:18px }
+      .pkn .fg { gap:6px }
+      .pkn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .pkn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .pkn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .pkn .btn-primary, .pkn .btn-teal { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .pkn .btn-primary:hover, .pkn .btn-teal:hover { filter:brightness(.92) }
+      .pkn .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      .pkn .btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .pkn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .pkn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .pkn table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .pkn table tbody tr:hover td { background:var(--surface2) }
+      .pkn .tfoot-total td { background:var(--surface2); font-weight:700; border-top:1px solid var(--border2) }
+      .pkn #ptm-list-body, .pkn #pas-recent-body { padding:0; overflow:auto }
+      .pkn #pim-slot-list, .pkn #pir-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .pkn #pir-kpis { grid-template-columns:repeat(auto-fit,minmax(170px,1fr)) !important }
+      .pkn .kpi-card { background:var(--surface); border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px; padding:12px 16px }
+      .pkn .kpi-label { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:.5px }
+      .pkn .kpi-value { font-size:20px; font-weight:700; margin-top:4px }
+      .pkn .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .pkn .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      @media (max-width:900px) { .pkn .pkn-cols { grid-template-columns:minmax(0,1fr) !important } }
+    </style>
+    <div class="pkn">
     <div class="page-hdr">
       <h1>Parking Management</h1>
       <div class="breadcrumb">Application / <b>Parking</b></div>
@@ -21,7 +55,7 @@ Pages.parking = async function(params = {}) {
 
     <!-- TYPE MASTER -->
     <div data-panel-group="park" data-panel="type-master"${tab!=='type-master'?' style="display:none"':''}>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="pkn-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
         <!-- Add / Edit Type -->
         <div class="sp">
           <div class="sp-hdr"><div class="sp-title">Add Parking Type</div></div>
@@ -61,7 +95,7 @@ Pages.parking = async function(params = {}) {
 
     <!-- INVENTORY MASTER -->
     <div data-panel-group="park" data-panel="inventory-master"${tab!=='inventory-master'?' style="display:none"':''}>
-      <div style="display:grid;grid-template-columns:1fr 2fr;gap:14px">
+      <div class="pkn-cols" style="display:grid;grid-template-columns:1fr 2fr;gap:14px;align-items:start">
         <!-- Add Slot Form -->
         <div class="sp">
           <div class="sp-hdr"><div class="sp-title">Add Parking Slot</div></div>
@@ -123,7 +157,7 @@ Pages.parking = async function(params = {}) {
 
     <!-- ASSIGN PARKING -->
     <div data-panel-group="park" data-panel="assign"${tab!=='assign'?' style="display:none"':''}>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div class="pkn-cols" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start">
         <!-- Assign Form -->
         <div class="sp">
           <div class="sp-hdr"><div class="sp-title">Assign Parking to Consumer</div></div>
@@ -170,8 +204,8 @@ Pages.parking = async function(params = {}) {
     <div data-panel-group="park" data-panel="inventory-report"${tab!=='inventory-report'?' style="display:none"':''}>
       <!-- Filters -->
       <div class="sp" style="margin-bottom:12px">
-        <div class="sp-body" style="padding:10px 14px">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+        <div class="sp-body">
+          <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
             <div class="fg" style="min-width:200px;flex:1">
               <label class="fl">Project</label>
               <select class="fc" id="pir-project"></select>
@@ -203,6 +237,7 @@ Pages.parking = async function(params = {}) {
       <div id="pir-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px"></div>
       <!-- Table -->
       <div id="pir-body"><div class="page-loading"><div class="spinner"></div></div></div>
+    </div>
     </div>
   `;
 

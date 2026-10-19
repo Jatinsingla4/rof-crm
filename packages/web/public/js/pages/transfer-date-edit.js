@@ -1,64 +1,39 @@
 (() => {
 
   const TDE_STYLES = `<style id="tde-styles">
-.tde-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.tde-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.tde-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.tde-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.tde-body { padding: 14px 16px 16px; }
-.tde-filter-row {
-  display: flex; align-items: flex-end; gap: 16px;
-  margin-bottom: 16px; flex-wrap: wrap;
-}
-.tde-field { display: flex; flex-direction: column; gap: 3px; }
-.tde-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.tde-field select,
-.tde-field input[type="text"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; box-sizing: border-box;
-}
-.tde-field select           { min-width: 200px; }
-.tde-field input[type="text"] { min-width: 150px; }
-.tde-btn-fetch {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 7px 22px; border-radius: 3px; font-size: 13px;
-  font-weight: bold; cursor: pointer; align-self: flex-end;
-}
-.tde-btn-fetch:hover    { background: #16305c; }
-.tde-btn-fetch:disabled { opacity: .7; cursor: not-allowed; }
-.tde-msg { margin-top: 8px; font-size: 13px; padding: 6px 10px; border-radius: 3px; }
-.tde-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.tde-table-wrap { overflow-x: auto; }
-table.tde-tbl {
-  width: 100%; border-collapse: collapse; font-size: 12px;
-}
-table.tde-tbl th {
-  background: #1d3a6e; color: #fff; padding: 7px 8px; text-align: left;
-  font-size: 11px; white-space: nowrap; border: 1px solid #14306a;
-}
-table.tde-tbl td {
-  padding: 6px 8px; border: 1px solid #e0e0e0;
-  white-space: nowrap; vertical-align: middle;
-}
-table.tde-tbl tr:nth-child(even) td { background: #f9f9f9; }
-table.tde-tbl tr:hover td { background: #eef4ff; }
-.tde-date-input {
-  width: 140px; padding: 4px 6px; border: 1px solid #ccc;
-  border-radius: 3px; font-size: 12px; box-sizing: border-box;
-}
-.tde-btn-save {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 4px 14px; border-radius: 3px; font-size: 12px;
-  cursor: pointer; font-weight: bold;
-}
-.tde-btn-save:hover    { background: #16305c; }
-.tde-btn-save:disabled { opacity: .7; cursor: not-allowed; }
-.tde-inline-msg { font-size: 11px; margin-left: 6px; }
-.tde-msg-ok  { color: #3c763d; }
-.tde-msg-err-inline { color: #a94442; }
+.tde-page { padding:0; font-size:13px; max-width:1180px; margin:0 auto }
+.tde-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.tde-hdr { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.tde-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.tde-body { padding:18px }
+.tde-filter-row { display:flex; align-items:flex-end; gap:16px 18px; margin-bottom:16px; flex-wrap:wrap }
+.tde-field { display:flex; flex-direction:column; gap:6px }
+.tde-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px; white-space:nowrap }
+.tde-field select, .tde-field input[type="text"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box;  }
+.tde-field select:focus, .tde-field input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tde-field select { min-width:220px }
+.tde-field input[type="text"] { min-width:170px }
+.tde-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 26px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:36px }
+.tde-btn-fetch:hover { filter:brightness(.92) }
+.tde-btn-fetch:disabled { opacity:.65; cursor:not-allowed }
+.tde-btn-fetch { align-self:flex-end }
+.tde-msg { margin-top:12px; padding:8px 12px; border-radius:8px; font-size:12.5px;  }
+.tde-msg-ok-box { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
+.tde-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
+.tde-table-wrap { overflow-x:auto; border:1px solid var(--border2); border-radius:10px }
+table.tde-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+table.tde-tbl th { background:var(--surface2); color:var(--text3); padding:10px 14px; text-align:left; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; border-bottom:1px solid var(--border2) }
+table.tde-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); white-space:nowrap; vertical-align:middle; }
+table.tde-tbl tbody tr:last-child td { border-bottom:none }
+table.tde-tbl tbody tr:hover td { background:var(--surface2) }
+.tde-date-input { padding:6px 10px; border:1px solid var(--border2); border-radius:8px; font-size:12.5px; background:var(--surface); color:var(--text); width:150px; box-sizing:border-box }
+.tde-date-input:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tde-btn-save { background:var(--teal); color:#fff; border:none; padding:5px 16px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:36px }
+.tde-btn-save:hover { filter:brightness(.92) }
+.tde-btn-save:disabled { opacity:.65; cursor:not-allowed }
+.tde-inline-msg { font-size:11px; margin-left:6px }
+.tde-msg-ok { color:var(--teal) }
+.tde-msg-err-inline { color:var(--red) }
 </style>`;
 
   let _transfers = [];
@@ -98,7 +73,7 @@ table.tde-tbl tr:hover td { background: #eef4ff; }
       <span class="tde-hdr-title">RESULTS</span>
     </div>
     <div class="tde-body">
-      <div id="tde-count" style="font-size:13px;font-weight:bold;color:#333;margin-bottom:10px;"></div>
+      <div id="tde-count" style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;"></div>
       <div class="tde-table-wrap">
         <table class="tde-tbl">
           <thead>
@@ -142,7 +117,7 @@ table.tde-tbl tr:hover td { background: #eef4ff; }
     var tbody = document.getElementById('tde-tbody');
     if (!tbody) return;
     if (!_transfers.length) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:36px">No records found.</td></tr>';
       return;
     }
     tbody.innerHTML = _transfers.map(function(r, i) {

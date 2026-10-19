@@ -8,8 +8,22 @@ Pages.analytics = async function(params = {}) {
       <div class="breadcrumb">Reports / <b>Analytics</b></div>
     </div>
 
+    <style>
+      .anl-sp { border-radius:10px; overflow:hidden }
+      .anl-sp .sp-hdr { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .anl-sp .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .anl-sp .sp-body { padding:18px }
+      .anl-sp .fc { padding:8px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .anl-sp .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .anl-sp .btn-fetch, .anl-sp .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none; border-radius:8px; min-height:38px; padding:8px 22px; font-weight:600 }
+      .anl-sp .btg { border-radius:8px }
+      .anl-sp .btg-item { padding:7px 14px; font-size:12px }
+      #an-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px }
+      @media (max-width:800px) { #content > div[style*="grid-template-columns:1fr 1fr"] { grid-template-columns:minmax(0,1fr) !important } }
+    </style>
+
     <!-- Date range filter -->
-    <div class="sp" style="margin-bottom:16px">
+    <div class="sp anl-sp" style="margin-bottom:16px">
       <div class="sp-body" style="padding:10px 14px">
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <div class="btg">
@@ -32,11 +46,11 @@ Pages.analytics = async function(params = {}) {
 
     <!-- Charts row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-      <div class="sp">
+      <div class="sp anl-sp">
         <div class="sp-hdr"><div class="sp-title">Leads by Stage</div></div>
         <div class="sp-body" id="an-stage-chart"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
-      <div class="sp">
+      <div class="sp anl-sp">
         <div class="sp-hdr"><div class="sp-title">Collection Trend</div></div>
         <div class="sp-body" id="an-collection-chart"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
@@ -44,18 +58,18 @@ Pages.analytics = async function(params = {}) {
 
     <!-- Second row -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
-      <div class="sp">
+      <div class="sp anl-sp">
         <div class="sp-hdr"><div class="sp-title">Lead Sources</div></div>
         <div class="sp-body" id="an-source-chart"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
-      <div class="sp">
+      <div class="sp anl-sp">
         <div class="sp-hdr"><div class="sp-title">Unit Status Distribution</div></div>
         <div class="sp-body" id="an-unit-chart"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
     </div>
 
     <!-- Payment ageing -->
-    <div class="sp" style="margin-top:16px">
+    <div class="sp anl-sp" style="margin-top:16px">
       <div class="sp-hdr"><div class="sp-title">Payment Ageing</div></div>
       <div class="sp-body" id="an-ageing"><div class="page-loading"><div class="spinner"></div></div></div>
     </div>

@@ -16,7 +16,7 @@
 .gp-field { display:flex; flex-direction:column; gap:6px }
 .gp-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px; white-space:nowrap }
 .gp-filter-body select, .gp-filter-body input[type="text"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
-.gp-filter-body select, .gp-filter-body input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.gp-filter-body select:focus, .gp-filter-body input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
 .gp-filter-body select, .gp-filter-body input[type="text"] { min-width:170px }
 .gp-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
 .gp-btn-fetch:hover { filter:brightness(.92) }

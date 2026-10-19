@@ -16,154 +16,157 @@
 
   // ── STYLES ─────────────────────────────────────────────────────────────────
   const SUR_STYLES = `<style id="sur-styles">
-.sur-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; background: #f0f2f5; }
-.sur-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
+.sur-page { padding: 0; font-size: 13px; max-width: 1180px; margin: 0 auto; }
+.sur-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
 .sur-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: var(--teal-bg); padding: 14px 18px; border-bottom: 1px solid var(--border);
 }
-.sur-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.sur-body { padding: 14px 16px 16px; }
+.sur-hdr-title { color: var(--text); font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+.sur-body { padding: 18px; }
 .sur-filter-grid {
-  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 14px;
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px 18px;
   margin-bottom: 10px;
 }
-#sur-project { min-width: 200px; }
-#sur-regno, #sur-name, #sur-unit { min-width: 150px; }
-.sur-field { display: flex; flex-direction: column; gap: 3px; }
-.sur-lbl { font-size: 11px; color: #555; white-space: nowrap; }
+#sur-project { min-width: 220px; }
+#sur-regno, #sur-name, #sur-unit { min-width: 160px; }
+.sur-field { display: flex; flex-direction: column; gap: 6px; }
+.sur-lbl { font-size: 11px; color: var(--text2); letter-spacing: .3px; white-space: nowrap; }
 .sur-field select, .sur-field input {
-  padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 12px; width: 100%; box-sizing: border-box;
+  padding: 9px 12px; border: 1px solid var(--border2); border-radius: 8px; min-height: 38px;
+  font-size: 13px; width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text);
 }
-.sur-field select:focus, .sur-field input:focus { outline: none; border-color: #337ab7; }
+.sur-field select:focus, .sur-field input:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-bg); }
 .sur-btn-fetch {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 6px 20px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
+  background: var(--teal); color: #fff; border: none; min-height: 38px;
+  padding: 9px 26px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
-.sur-btn-fetch:hover { background: #16305c; }
+.sur-btn-fetch:hover { filter: brightness(.92); }
 .sur-btn-fetch:disabled { opacity: .7; cursor: not-allowed; }
-.sur-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.sur-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: center; font-weight: bold; font-size: 12px; white-space: nowrap; }
-.sur-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; text-align: center; }
-.sur-table tr:nth-child(even) td { background: #f9fbff; }
-.sur-table tr:hover td { background: #eef4ff; }
+.sur-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sur-table th { background: var(--surface2); color: var(--text3); padding: 10px 14px; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap; border-bottom: 1px solid var(--border2); }
+.sur-table td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: center; color: var(--text); }
+.sur-table tbody tr:hover td { background: var(--surface2); }
+.sur-table tbody tr:last-child td { border-bottom: none; }
 .sur-table td.sur-left { text-align: left; }
 .sur-table td.sur-right { text-align: right; }
-.sur-link { color: #337ab7; cursor: pointer; text-decoration: underline; font-size: 12px; }
-.sur-link:hover { color: #1d3a6e; }
+.sur-link { color: var(--teal); cursor: pointer; text-decoration: none; font-weight: 500; font-size: 12.5px; }
+.sur-link:hover { text-decoration: underline; }
 /* FORM */
-.sur-form-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
+.sur-form-page { padding: 0; font-size: 13px; max-width: 1180px; margin: 0 auto; }
 .sur-form-topbar {
   display: flex; align-items: center; justify-content: space-between;
-  background: #fff; padding: 8px 14px; border-bottom: 1px solid #ddd; margin-bottom: 10px;
+  background: var(--surface); padding: 12px 18px; border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 16px;
 }
 .sur-back-btn {
-  background: none; border: none; cursor: pointer; font-size: 18px; color: #1d3a6e;
-  display: flex; align-items: center; gap: 6px; font-weight: bold;
+  background: none; border: none; cursor: pointer; font-size: 20px; color: var(--teal);
+  display: flex; align-items: center; gap: 6px; font-weight: bold; border-radius: 8px; padding: 0 8px;
 }
-.sur-back-btn:hover { color: #337ab7; }
-.sur-form-title { font-size: 14px; font-weight: bold; color: #1d3a6e; }
+.sur-back-btn:hover { background: var(--teal-bg); }
+.sur-form-title { font-size: 14px; font-weight: 600; color: var(--text); }
 .sur-type-toggle { display: flex; gap: 0; }
 .sur-type-btn {
-  padding: 6px 18px; border: 2px solid #17a2b8; border-radius: 0; font-size: 13px;
-  font-weight: bold; cursor: pointer; background: #fff; color: #17a2b8; transition: all .15s;
+  padding: 7px 20px; border: 1px solid var(--border2); border-radius: 0; font-size: 12.5px;
+  font-weight: 600; cursor: pointer; background: var(--surface); color: var(--text2); transition: all .15s;
 }
-.sur-type-btn:first-child { border-radius: 3px 0 0 3px; }
-.sur-type-btn:last-child { border-radius: 0 3px 3px 0; }
-.sur-type-btn.sur-active { background: #17a2b8; color: #fff; }
-.sur-type-btn:hover:not(.sur-active) { background: #e8f9fb; }
-.sur-section { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
+.sur-type-btn:first-child { border-radius: 8px 0 0 8px; }
+.sur-type-btn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+.sur-type-btn.sur-active { background: var(--teal); color: #fff; border-color: var(--teal); }
+.sur-type-btn:hover:not(.sur-active) { background: var(--surface2); }
+.sur-section { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
 .sur-section-title {
-  font-size: 12px; font-weight: bold; color: #333; padding: 8px 14px;
-  border-bottom: 2px solid #1d3a6e; background: #f7f9fc; text-transform: uppercase;
+  font-size: 12px; font-weight: 600; color: var(--text); padding: 12px 18px; letter-spacing: .6px;
+  border-bottom: 1px solid var(--border); background: var(--surface2); text-transform: uppercase;
 }
-.sur-section-body { padding: 10px 14px; }
-.sur-info-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.sur-info-table td { padding: 4px 8px; border: 1px solid #ddd; vertical-align: top; }
-.sur-info-table td.sur-info-lbl { color: #555; width: 130px; white-space: nowrap; }
-.sur-info-table td.sur-info-val { font-weight: 600; color: #222; }
+.sur-section-body { padding: 14px 18px; }
+.sur-info-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sur-info-table td { padding: 6px 10px; border: 1px solid var(--border); vertical-align: top; color: var(--text); }
+.sur-info-table td.sur-info-lbl { color: var(--text2); width: 130px; white-space: nowrap; }
+.sur-info-table td.sur-info-val { font-weight: 600; color: var(--text); }
 .sur-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
-.sur-two-col .sur-info-table td { border-color: #ddd; }
+@media (max-width: 760px) { .sur-two-col { grid-template-columns: 1fr; } }
+.sur-two-col .sur-info-table td { border-color: var(--border); }
 .sur-col-head {
-  background: #1d3a6e; color: #fff; font-size: 12px; font-weight: bold;
-  padding: 5px 8px;
+  background: var(--surface2); color: var(--text); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+  padding: 8px 10px; border: 1px solid var(--border);
 }
 .sur-dates-table { border-collapse: collapse; }
-.sur-dates-table th { background: #1d3a6e; color: #fff; padding: 6px 20px; text-align: center; font-size: 12px; }
-.sur-dates-table td { padding: 6px 20px; text-align: center; font-size: 12px; border: 1px solid #ddd; }
+.sur-dates-table th { background: var(--surface2); color: var(--text3); padding: 8px 20px; text-align: center; font-size: 11px; text-transform: uppercase; border: 1px solid var(--border); }
+.sur-dates-table td { padding: 8px 20px; text-align: center; font-size: 12.5px; border: 1px solid var(--border); color: var(--text); }
 /* Financial section */
-.sur-fin-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 12px; }
-.sur-fin-lbl { color: #333; }
+.sur-fin-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12.5px; color: var(--text); }
+.sur-fin-lbl { color: var(--text); }
 .sur-fin-amt { text-align: right; min-width: 100px; font-weight: 500; }
 .sur-fin-indent { padding-left: 20px; }
-.sur-fin-sep { border: none; border-top: 1px solid #999; margin: 3px 0; }
+.sur-fin-sep { border: none; border-top: 1px solid var(--border2); margin: 4px 0; }
 .sur-fin-total { font-weight: bold; font-size: 13px; }
-.sur-fin-balance { font-weight: bold; font-size: 14px; color: #1d3a6e; }
-.sur-fin-words { font-size: 11px; color: #555; font-style: italic; margin: 2px 0 4px; }
-.sur-interest-box { border: 1px solid #ddd; border-radius: 3px; margin-top: 8px; }
+.sur-fin-balance { font-weight: bold; font-size: 14px; color: var(--teal); }
+.sur-fin-words { font-size: 11px; color: var(--text3); font-style: italic; margin: 2px 0 4px; }
+.sur-interest-box { border: 1px solid var(--border2); border-radius: 10px; margin-top: 10px; overflow: hidden; }
 .sur-interest-box table { width: 100%; border-collapse: collapse; }
-.sur-interest-box table th { background: #1d3a6e; color: #fff; padding: 6px 10px; text-align: center; font-size: 12px; }
-.sur-interest-box table td { padding: 6px 10px; text-align: center; font-size: 12px; border: 1px solid #ddd; }
-.sur-addon-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
-.sur-addon-table th { background: #1d3a6e; color: #fff; padding: 5px 8px; text-align: center; font-size: 11px; }
-.sur-addon-table td { padding: 4px 8px; text-align: center; border: 1px solid #ddd; }
+.sur-interest-box table th { background: var(--surface2); color: var(--text3); padding: 8px 10px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border2); }
+.sur-interest-box table td { padding: 8px 10px; text-align: center; font-size: 12.5px; border-bottom: 1px solid var(--border); color: var(--text); }
+.sur-addon-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.sur-addon-table th { background: var(--surface2); color: var(--text3); padding: 8px; text-align: center; font-size: 11px; text-transform: uppercase; border-bottom: 1px solid var(--border2); }
+.sur-addon-table td { padding: 7px 8px; text-align: center; border-bottom: 1px solid var(--border); color: var(--text); }
 /* Action form */
-.sur-action-section { background: #fff; border: 1px solid #1d3a6e; border-radius: 3px; margin-bottom: 10px; }
-.sur-action-hdr { background: #1d3a6e; color: #fff; padding: 7px 14px; font-weight: bold; font-size: 13px; }
-.sur-action-body { padding: 14px 16px; }
-.sur-action-row { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 12px; align-items: flex-end; }
-.sur-toggle-group { display: flex; flex-direction: column; gap: 4px; }
-.sur-toggle-lbl { font-size: 11px; color: #555; }
+.sur-action-section { background: var(--surface); border: 1px solid var(--teal); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.sur-action-hdr { background: var(--teal-bg); color: var(--text); padding: 14px 18px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .6px; border-bottom: 1px solid var(--border); }
+.sur-action-body { padding: 18px; }
+.sur-action-row { display: flex; flex-wrap: wrap; gap: 16px 24px; margin-bottom: 14px; align-items: flex-end; }
+.sur-toggle-group { display: flex; flex-direction: column; gap: 6px; }
+.sur-toggle-lbl { font-size: 11px; color: var(--text2); }
 .sur-toggle-btns { display: flex; }
 .sur-tbtn {
-  padding: 4px 12px; border: 1px solid #17a2b8; font-size: 12px; cursor: pointer;
-  background: #fff; color: #17a2b8; transition: all .15s;
+  padding: 7px 14px; border: 1px solid var(--border2); font-size: 12px; cursor: pointer;
+  background: var(--surface); color: var(--text2); transition: all .15s;
 }
-.sur-tbtn:first-child { border-radius: 3px 0 0 3px; }
-.sur-tbtn:last-child { border-radius: 0 3px 3px 0; }
-.sur-tbtn.sur-ton { background: #17a2b8; color: #fff; }
-.sur-action-field { display: flex; flex-direction: column; gap: 3px; min-width: 130px; }
-.sur-action-field label { font-size: 11px; color: #555; }
+.sur-tbtn:first-child { border-radius: 8px 0 0 8px; }
+.sur-tbtn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+.sur-tbtn.sur-ton { background: var(--teal); color: #fff; border-color: var(--teal); }
+.sur-action-field { display: flex; flex-direction: column; gap: 6px; min-width: 130px; }
+.sur-action-field label { font-size: 11px; color: var(--text2); letter-spacing: .3px; }
 .sur-action-field input, .sur-action-field select, .sur-action-field textarea {
-  padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px;
+  padding: 9px 12px; border: 1px solid var(--border2); border-radius: 8px; font-size: 13px; min-height: 38px;
+  background: var(--surface); color: var(--text); box-sizing: border-box;
 }
-.sur-action-field textarea { min-height: 60px; resize: vertical; }
-.sur-action-field input[readonly] { background: #f5f5f5; color: #333; }
+.sur-action-field input:focus, .sur-action-field select:focus, .sur-action-field textarea:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-bg); }
+.sur-action-field textarea { min-height: 70px; resize: vertical; }
+.sur-action-field input[readonly] { background: var(--surface2); color: var(--text2); }
 .sur-mode-btns { display: flex; }
 .sur-mode-btn {
-  padding: 5px 12px; border: 1px solid #ccc; font-size: 12px; cursor: pointer;
-  background: #fff; color: #555; transition: all .15s;
+  padding: 7px 14px; border: 1px solid var(--border2); font-size: 12px; cursor: pointer;
+  background: var(--surface); color: var(--text2); transition: all .15s;
 }
-.sur-mode-btn:first-child { border-radius: 3px 0 0 3px; }
-.sur-mode-btn:last-child { border-radius: 0 3px 3px 0; }
-.sur-mode-btn.sur-mactive { background: #17a2b8; color: #fff; border-color: #17a2b8; }
-.sur-submit-row { display: flex; gap: 10px; margin-top: 14px; }
+.sur-mode-btn:first-child { border-radius: 8px 0 0 8px; }
+.sur-mode-btn:last-child { border-radius: 0 8px 8px 0; }
+.sur-mode-btn.sur-mactive { background: var(--teal); color: #fff; border-color: var(--teal); }
+.sur-submit-row { display: flex; gap: 10px; margin-top: 16px; }
 .sur-btn-surrender {
-  background: #1d3a6e; color: #fff; border: none; padding: 8px 28px;
-  border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
+  background: var(--red); color: #fff; border: none; padding: 9px 28px; min-height: 38px;
+  border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
-.sur-btn-surrender:hover { background: #16305c; }
+.sur-btn-surrender:hover { filter: brightness(.92); }
 .sur-btn-close {
-  background: #6c757d; color: #fff; border: none; padding: 8px 20px;
-  border-radius: 3px; font-size: 13px; cursor: pointer;
+  background: var(--surface); color: var(--text2); border: 1px solid var(--border2); padding: 9px 22px; min-height: 38px;
+  border-radius: 8px; font-size: 12.5px; cursor: pointer;
 }
-.sur-btn-close:hover { background: #5a6268; }
-.sur-success-msg { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; padding: 10px 14px; border-radius: 3px; margin-bottom: 10px; font-weight: bold; }
-.sur-error-msg { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 10px 14px; border-radius: 3px; margin-bottom: 10px; }
-.sur-spinner { text-align: center; padding: 40px; color: #888; font-size: 13px; }
+.sur-btn-close:hover { background: var(--surface2); }
+.sur-success-msg { background: var(--teal-bg); border: 1px solid var(--teal); color: var(--teal); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-weight: 600; }
+.sur-error-msg { background: var(--red-bg); border: 1px solid var(--red); color: var(--red); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; }
+.sur-spinner { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; }
 .sur-customer-row { display: flex; gap: 0; margin-bottom: 2px; }
-.sur-cust-id { font-size: 12px; color: #555; }
-.sur-cust-date { font-size: 12px; color: #555; }
-.sur-topinfo { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #eee; margin-bottom: 8px; }
+.sur-cust-id { font-size: 12px; color: var(--text2); }
+.sur-cust-date { font-size: 12px; color: var(--text2); }
+.sur-topinfo { display: flex; justify-content: space-between; padding: 8px 0; font-size: 12px; border-bottom: 1px solid var(--border); margin-bottom: 10px; color: var(--text2); }
 .sur-tab-btn {
-  padding: 8px 22px; border: 1px solid #1d3a6e; background: #fff;
-  color: #1d3a6e; font-size: 13px; font-weight: bold; cursor: pointer; transition: all .15s;
+  padding: 8px 22px; border: 1px solid var(--border2); background: var(--surface);
+  color: var(--text2); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: all .15s;
 }
-.sur-tab-btn:first-child { border-radius: 3px 0 0 3px; }
-.sur-tab-btn:last-child { border-radius: 0 3px 3px 0; }
-.sur-tab-btn.sur-tab-active { background: #1d3a6e; color: #fff; }
-.sur-tab-btn:hover:not(.sur-tab-active) { background: #eef4ff; }
+.sur-tab-btn:first-child { border-radius: 8px 0 0 8px; }
+.sur-tab-btn:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+.sur-tab-btn.sur-tab-active { background: var(--teal); color: #fff; border-color: var(--teal); }
+.sur-tab-btn:hover:not(.sur-tab-active) { background: var(--surface2); }
 </style>`;
 
   // ── HELPERS ────────────────────────────────────────────────────────────────
@@ -225,7 +228,7 @@
         <div class="sur-card">
           <div class="sur-hdr">
             <span class="sur-hdr-title">SURRENDER APPLICANT</span>
-            <span style="color:#aad4ff;font-size:18px;cursor:pointer">&#8722;</span>
+            <span style="color:var(--text3);font-size:18px;cursor:pointer">&#8722;</span>
           </div>
           <div class="sur-body">
             <div class="sur-filter-grid">
@@ -388,7 +391,7 @@
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
               <div style="display:flex;align-items:center;gap:10px">
                 <button class="sur-back-btn" onclick="SurrenderApp.back()">&#8592;</button>
-                <span style="font-size:14px;font-weight:bold;color:#1d3a6e">Surrender/Cancellation</span>
+                <span style="font-size:14px;font-weight:600;color:var(--text)">Surrender/Cancellation</span>
               </div>
               <div class="sur-type-toggle">
                 <button class="sur-type-btn sur-active" data-type="surrender" onclick="SurrenderApp.toggleType('surrender')">Surrender</button>
@@ -458,10 +461,10 @@
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <tr>
-              <td style="width:50%;border:1px solid #ddd;padding:0;vertical-align:top">
+              <td style="width:50%;border:1px solid var(--border2);padding:0;vertical-align:top">
                 <div class="sur-col-head">First Applicant</div>
                 <table style="width:100%;border-collapse:collapse">
-                  ${_infoRow('Name:', nameStr + (fatherStr ? '<br><span style="font-weight:normal;color:#555">' + fatherStr + '</span>' : ''))}
+                  ${_infoRow('Name:', nameStr + (fatherStr ? '<br><span style="font-weight:normal;color:var(--text2)">' + fatherStr + '</span>' : ''))}
                   ${_infoRow('Address:', addrStr || 'N/A')}
                   ${_infoRow('Contact No.:', _v(c.mobile))}
                   ${_infoRow('LandLine No.:', 'N/A')}
@@ -470,10 +473,10 @@
                   ${_infoRow('Aadhar No.:', _v(c.aadhaar_no))}
                 </table>
               </td>
-              <td style="width:50%;border:1px solid #ddd;padding:0;vertical-align:top">
+              <td style="width:50%;border:1px solid var(--border2);padding:0;vertical-align:top">
                 <div class="sur-col-head">Co Applicant</div>
                 <table style="width:100%;border-collapse:collapse">
-                  ${_infoRow('Name:', coNameStr + (coFatherStr ? '<br><span style="font-weight:normal;color:#555">' + coFatherStr + '</span>' : ''))}
+                  ${_infoRow('Name:', coNameStr + (coFatherStr ? '<br><span style="font-weight:normal;color:var(--text2)">' + coFatherStr + '</span>' : ''))}
                   ${_infoRow('Address:', coAddrStr)}
                   ${_infoRow('Contact No.:', _v(co.mobile))}
                   ${_infoRow('LandLine No.:', 'N/A')}
@@ -490,8 +493,8 @@
 
   function _infoRow(lbl, val) {
     return `<tr>
-      <td style="padding:4px 8px;border:1px solid #ddd;color:#555;width:130px;white-space:nowrap;font-size:12px">${lbl}</td>
-      <td style="padding:4px 8px;border:1px solid #ddd;font-weight:600;color:#222;font-size:12px">${val || 'N/A'}</td>
+      <td style="padding:4px 8px;border:1px solid var(--border2);color:var(--text2);width:130px;white-space:nowrap;font-size:12px">${lbl}</td>
+      <td style="padding:4px 8px;border:1px solid var(--border2);font-weight:600;color:var(--text);font-size:12px">${val || 'N/A'}</td>
     </tr>`;
   }
 
@@ -504,7 +507,7 @@
         <td>1.00</td><td>0.00</td><td>1.00</td>
         <td class="sur-right">${_fmt(a.total_amount)}</td>
         <td>—</td>
-      </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:#888">No addon charges</td></tr>`;
+      </tr>`).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text3)">No addon charges</td></tr>`;
 
     const addonTotal = addons.reduce((s, a) => s + parseFloat(a.total_amount || 0), 0);
 
@@ -513,7 +516,7 @@
         <div class="sur-section-body">
           <table style="width:100%;border-collapse:collapse;font-size:12px">
             <tr>
-              <td style="width:50%;border:1px solid #ddd;padding:0;vertical-align:top">
+              <td style="width:50%;border:1px solid var(--border2);padding:0;vertical-align:top">
                 <table style="width:100%;border-collapse:collapse">
                   ${_infoRow('Project:', _v(p.name))}
                   ${_infoRow('Tower:', _v(t.tower_name))}
@@ -524,7 +527,7 @@
                   ${_infoRow('Loan Information:', 'N/A')}
                 </table>
               </td>
-              <td style="width:50%;border:1px solid #ddd;padding:0;vertical-align:top">
+              <td style="width:50%;border:1px solid var(--border2);padding:0;vertical-align:top">
                 <table style="width:100%;border-collapse:collapse">
                   ${_infoRow('Payment Plan:', _v(bk.selected_plan_name))}
                   ${_infoRow('Broker Code:', _v(br.firm_name))}
@@ -555,7 +558,7 @@
                 <thead><tr><th>S.NO</th><th>OTHER CHARGE</th><th>PAID QTY</th><th>FREE QTY</th><th>TOTAL QTY</th><th>AMOUNT</th><th>DESCRIPTION</th></tr></thead>
                 <tbody>
                   ${addonRows}
-                  <tr style="font-weight:bold;background:#f5f5f5">
+                  <tr style="font-weight:bold;background:var(--surface2)">
                     <td colspan="5" style="text-align:right;padding-right:8px">Total:</td>
                     <td style="text-align:right">${_fmt(addonTotal)}</td>
                     <td></td>
@@ -580,17 +583,17 @@
             <div style="flex:1;font-size:12px">
               <div class="sur-fin-row"><span class="sur-fin-lbl">Carpet Area (Sq. Ft.):</span><span class="sur-fin-amt">${_fmt(fin.carpetArea)}</span></div>
               <div class="sur-fin-row"><span class="sur-fin-lbl">Rate (Rs./Sq. Ft.):</span><span class="sur-fin-amt">${_fmt(fin.basicRate)}</span></div>
-              <div style="margin:4px 0 2px;font-size:11px;color:#555">Less:</div>
+              <div style="margin:4px 0 2px;font-size:11px;color:var(--text2)">Less:</div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Dis. by Company (0.00%):</span><span class="sur-fin-amt">0</span></div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Dis. by Broker:</span><span class="sur-fin-amt">0</span></div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Rebate by Company (Rs.):</span><span class="sur-fin-amt">0</span></div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Rebate by Broker (Rs.):</span><span class="sur-fin-amt">0</span></div>
-              <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Inaugural Discount (Rs.):</span><span style="display:flex;gap:30px"><span>0</span><span style="border-top:1px solid #333;min-width:80px;text-align:right">0</span></span></div>
+              <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Inaugural Discount (Rs.):</span><span style="display:flex;gap:30px"><span>0</span><span style="border-top:1px solid var(--text2);min-width:80px;text-align:right">0</span></span></div>
               <div class="sur-fin-row sur-fin-total"><span class="sur-fin-lbl">Net Basic Price (Carpet Area×Rate):</span><span class="sur-fin-amt">${_fmt(fin.netBasicPrice)}</span></div>
-              <div style="margin:4px 0 2px;font-size:11px;color:#555">Add:</div>
+              <div style="margin:4px 0 2px;font-size:11px;color:var(--text2)">Add:</div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">PLC (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.plcAmount)}</span></div>
               <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">Other Charges (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.otherCharge)}</span></div>
-              <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">(Rs.):</span><span style="display:flex;gap:30px"><span></span><span style="border-top:1px solid #333;min-width:80px;text-align:right">${_fmt((fin.plcAmount||0)+(fin.otherCharge||0))}</span></span></div>
+              <div class="sur-fin-row sur-fin-indent"><span class="sur-fin-lbl">(Rs.):</span><span style="display:flex;gap:30px"><span></span><span style="border-top:1px solid var(--text2);min-width:80px;text-align:right">${_fmt((fin.plcAmount||0)+(fin.otherCharge||0))}</span></span></div>
               <div class="sur-fin-row sur-fin-total"><span class="sur-fin-lbl">Total Consideration (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.totalConsideration)}</span></div>
               <div class="sur-fin-words">(In words: ${_amtWords(fin.totalConsideration)})</div>
               <hr class="sur-fin-sep">
@@ -600,15 +603,15 @@
               <div class="sur-fin-row sur-fin-total"><span class="sur-fin-lbl">Total Receivables (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.totalReceivables)}</span></div>
               <hr class="sur-fin-sep">
               <div class="sur-fin-row"><span class="sur-fin-lbl">Less Receipt (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.totalReceived)}</span></div>
-              <div class="sur-fin-row sur-fin-indent" style="font-size:11px;color:#666"><span>(Paid Amount ${pct} %)</span></div>
+              <div class="sur-fin-row sur-fin-indent" style="font-size:11px;color:var(--text3)"><span>(Paid Amount ${pct} %)</span></div>
               <div class="sur-fin-row"><span class="sur-fin-lbl">Less Interest (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.totalInterestPaid)}</span></div>
-              <div class="sur-fin-row sur-fin-indent" style="font-size:11px;color:#666"><span>(Paid Interest)</span></div>
+              <div class="sur-fin-row sur-fin-indent" style="font-size:11px;color:var(--text3)"><span>(Paid Interest)</span></div>
               <div class="sur-fin-row"><span class="sur-fin-lbl">Credit Note (Rs.):</span><span class="sur-fin-amt">0</span></div>
               <div class="sur-fin-row"><span class="sur-fin-lbl">Debit Note (Rs.):</span><span class="sur-fin-amt">0</span></div>
-              <div class="sur-fin-row"><span class="sur-fin-lbl">Payment Refund (Rs.):</span><span style="display:flex;gap:30px"><span>0</span><span style="border-top:1px solid #333;min-width:80px;text-align:right">${_fmt((fin.totalReceived||0)+(fin.totalInterestPaid||0))}</span></span></div>
+              <div class="sur-fin-row"><span class="sur-fin-lbl">Payment Refund (Rs.):</span><span style="display:flex;gap:30px"><span>0</span><span style="border-top:1px solid var(--text2);min-width:80px;text-align:right">${_fmt((fin.totalReceived||0)+(fin.totalInterestPaid||0))}</span></span></div>
               <hr class="sur-fin-sep">
               <div class="sur-fin-row sur-fin-balance"><span>Balance (Rs.):</span><span class="sur-fin-amt">${_fmt(fin.balance)}</span></div>
-              <div style="font-size:11px;color:#555">(To be Paid)</div>
+              <div style="font-size:11px;color:var(--text2)">(To be Paid)</div>
             </div>
             <div style="width:340px">
               <div class="sur-interest-box">
@@ -664,7 +667,7 @@
         <td class="sur-right">${_fmt(amtRecd)}</td>
         <td class="sur-right">${_fmt(amtOS)}</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="12" style="text-align:center;color:#888">No schedule data</td></tr>`;
+    }).join('') || `<tr><td colspan="12" style="text-align:center;color:var(--text3)">No schedule data</td></tr>`;
 
     return `
       <div class="sur-section">
@@ -679,7 +682,7 @@
             </tr></thead>
             <tbody>
               ${rows}
-              <tr style="font-weight:bold;background:#f5f5f5">
+              <tr style="font-weight:bold;background:var(--surface2)">
                 <td colspan="3" style="text-align:right;padding-right:10px">Total</td>
                 <td class="sur-right">${_fmt(totalBP)}</td>
                 <td class="sur-right">${_fmt(totalOC)}</td>
@@ -732,7 +735,7 @@
         <td class="sur-right">${_fmt(net)}</td>
         <td>${bounced ? 'Bounced' : pending ? 'Pending' : 'Cleared'}</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="17" style="text-align:center;color:#888">No receipts</td></tr>`;
+    }).join('') || `<tr><td colspan="17" style="text-align:center;color:var(--text3)">No receipts</td></tr>`;
 
     return `
       <div class="sur-section">
@@ -752,7 +755,7 @@
             </tr></thead>
             <tbody>
               ${rows}
-              <tr style="font-weight:bold;background:#f0f4ff;font-size:11px">
+              <tr style="font-weight:bold;background:var(--surface2);font-size:11px">
                 <td colspan="9" style="text-align:right;padding-right:8px">Received Amt.</td>
                 <td class="sur-right">${_fmt(totAmt)}</td>
                 <td class="sur-right">${_fmt(totST)}</td>
@@ -763,11 +766,11 @@
                 <td class="sur-right">${_fmt(totNet)}</td>
                 <td></td>
               </tr>
-              <tr style="font-weight:bold;background:#f0f4ff;font-size:11px">
+              <tr style="font-weight:bold;background:var(--surface2);font-size:11px">
                 <td colspan="9" style="text-align:right;padding-right:8px">Pending Amt.</td>
                 <td colspan="7" class="sur-right">0</td><td></td>
               </tr>
-              <tr style="font-weight:bold;background:#f0f4ff;font-size:11px">
+              <tr style="font-weight:bold;background:var(--surface2);font-size:11px">
                 <td colspan="9" style="text-align:right;padding-right:8px">Cleared Amt.</td>
                 <td class="sur-right">${_fmt(totAmt)}</td>
                 <td class="sur-right">${_fmt(totST)}</td>
@@ -805,7 +808,7 @@
         <td class="sur-right">${roi}%</td>
         <td class="sur-right">0</td>
       </tr>`;
-    }).join('') || `<tr><td colspan="12" style="text-align:center;color:#888">No data</td></tr>`;
+    }).join('') || `<tr><td colspan="12" style="text-align:center;color:var(--text3)">No data</td></tr>`;
 
     return `
       <div class="sur-section">
@@ -834,7 +837,7 @@
         <td>${_v(d.tracking_no)}</td>
         <td>${_fmtDate(d.dispatched_at)}</td>
         <td>—</td>
-      </tr>`).join('') || `<tr><td colspan="6" style="text-align:center;color:#888">No document dispatches</td></tr>`;
+      </tr>`).join('') || `<tr><td colspan="6" style="text-align:center;color:var(--text3)">No document dispatches</td></tr>`;
 
     return `
       <div class="sur-section">
@@ -910,7 +913,7 @@
             </div>
             <div class="sur-action-field" style="min-width:160px">
               <label>Total Amount (Rs.):</label>
-              <input type="number" id="sur-total-amt" readonly value="${(fin.balance||0).toFixed(2)}" style="background:#f5f5f5;font-weight:bold">
+              <input type="number" id="sur-total-amt" readonly value="${(fin.balance||0).toFixed(2)}" style="background:var(--surface2);font-weight:bold">
             </div>
             <div class="sur-toggle-group">
               <span class="sur-toggle-lbl">Bank NOC:</span>
@@ -967,7 +970,7 @@
             </div>
             <div class="sur-action-field">
               <label>Document:</label>
-              <span style="color:#337ab7;cursor:pointer;text-decoration:underline;font-size:12px">Document required</span>
+              <span style="color:var(--teal);cursor:pointer;text-decoration:underline;font-size:12px">Document required</span>
             </div>
           </div>
 
@@ -1137,7 +1140,7 @@
         </td>
         <td>${_fmtDate(r.created_at)}</td>
       </tr>`).join('')
-      || `<tr><td colspan="10" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>`;
+      || `<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">No records found.</td></tr>`;
 
     return `
       <div class="sur-card">
@@ -1291,15 +1294,15 @@
         <td>
           ${canRestore
             ? `<button onclick="SurrenderApp.restore('${r.id}','${_restoreType}','${r.consumer_id}','${r.allocation_id}','${r.unit_id}','${r.booking_record_id||''}')"
-                style="background:#1d3a6e;color:#fff;border:none;padding:4px 14px;border-radius:3px;font-size:12px;cursor:pointer">
+                style="background:var(--teal);color:#fff;border:none;padding:5px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">
                 Restore
                </button>`
-            : '<span style="color:#888;font-size:12px">Restored</span>'
+            : '<span style="color:var(--text3);font-size:12px">Restored</span>'
           }
         </td>
       </tr>`;
     }).join('')
-    || `<tr><td colspan="8" style="text-align:center;color:#888;padding:20px">No surrendered/cancelled records found.</td></tr>`;
+    || `<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">No surrendered/cancelled records found.</td></tr>`;
 
     return `
       <div class="sur-card">

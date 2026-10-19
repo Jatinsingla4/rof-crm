@@ -3,11 +3,52 @@
 Pages.campaigns = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .cmp { --bg2:var(--surface2); --text1:var(--text); max-width:1360px; margin-left:auto; margin-right:auto }
+      .cmp .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .cmp .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .cmp .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .cmp .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .cmp .sp { border-radius:10px; overflow:hidden }
+      .cmp .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .cmp .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .cmp .sp-body { padding:18px }
+      .cmp .fg { gap:6px }
+      .cmp .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .cmp .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .cmp .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .cmp .btn-teal, .cmp .btn-fetch { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .cmp .btn-teal:hover, .cmp .btn-fetch:hover { filter:brightness(.92) }
+      .cmp .btn-teal.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+      .cmp .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      .cmp .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .cmp .btn-ghost.active { background:var(--teal-bg); color:var(--teal); border-color:var(--teal) }
+      .cmp .tbl-hdr { background:var(--teal-bg); border:1px solid var(--border2); border-radius:10px; padding:12px 18px; flex-wrap:wrap }
+      .cmp .tbl-wrap > .tbl-hdr { border:none; border-bottom:1px solid var(--border); border-radius:0 }
+      .cmp .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .cmp .tbl-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap }
+      .cmp .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .cmp table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .cmp table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .cmp table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .cmp table tbody tr:hover td { background:var(--surface2) }
+      .cmp .kpi { border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px }
+      .cmp .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .cmp .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .cmp .btg-item { border-radius:8px }
+    </style>
+    <style>
+      .cmp .btg { display:flex; gap:6px; flex-wrap:wrap }
+      .cmp .modal { display:none }
+      .cmp .modal[style*="display: block"] { display:block; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:601 }
+      #camp-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+    </style>
+    <div class="cmp">
     <div class="page-hdr">
       <h1>Campaigns</h1>
       <div class="breadcrumb">CRM / <b>Campaigns</b></div>
     </div>
-    <div class="tbl-hdr" style="margin-bottom:12px">
+    <div class="tbl-hdr" style="margin-bottom:14px">
       <div class="tbl-title">Marketing Campaigns</div>
       <div class="tbl-actions">
         <button class="btn btn-teal btn-sm" onclick="CampaignsPage.showCreateModal()">+ Create Campaign</button>
@@ -65,6 +106,7 @@ Pages.campaigns = async function(params = {}) {
         </div>
         <button class="btn btn-teal" style="width:100%" onclick="CampaignsPage.create()">Launch Campaign</button>
       </div>
+    </div>
     </div>
   `;
 
@@ -125,7 +167,7 @@ const CampaignsPage = {
                   <td>${total}</td>
                   <td>
                     <div style="display:flex;align-items:center;gap:6px">
-                      <div style="flex:1;background:var(--bg2);border-radius:3px;height:6px"><div style="background:var(--teal);border-radius:3px;width:${pct}%;height:100%"></div></div>
+                      <div style="flex:1;background:var(--surface2);border-radius:3px;height:6px"><div style="background:var(--teal);border-radius:3px;width:${pct}%;height:100%"></div></div>
                       <span style="font-size:10px">${pct}%</span>
                     </div>
                   </td>

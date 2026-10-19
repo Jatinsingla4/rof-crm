@@ -15,7 +15,7 @@
 .cwi-lbl { font-size:11px; color:var(--text2); font-weight:500; letter-spacing:.3px }
 .cwi-req { color:var(--red) }
 .cwi-filter-body select, .cwi-filter-body input[type="text"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
-.cwi-filter-body select, .cwi-filter-body input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.cwi-filter-body select:focus, .cwi-filter-body input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
 .cwi-filter-body select, .cwi-filter-body input[type="text"] { min-width:170px }
 .cwi-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
 .cwi-btn-fetch:hover { filter:brightness(.92) }

@@ -3,6 +3,47 @@
 Pages.emailTemplates = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .emt { --bg2:var(--surface2); --text1:var(--text); max-width:1360px; margin-left:auto; margin-right:auto }
+      .emt .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .emt .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .emt .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .emt .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .emt .sp { border-radius:10px; overflow:hidden }
+      .emt .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .emt .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .emt .sp-body { padding:18px }
+      .emt .fg { gap:6px }
+      .emt .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .emt .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .emt .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .emt .btn-teal, .emt .btn-fetch { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .emt .btn-teal:hover, .emt .btn-fetch:hover { filter:brightness(.92) }
+      .emt .btn-teal.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+      .emt .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      .emt .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .emt .btn-ghost.active { background:var(--teal-bg); color:var(--teal); border-color:var(--teal) }
+      .emt .tbl-hdr { background:var(--teal-bg); border:1px solid var(--border2); border-radius:10px; padding:12px 18px; flex-wrap:wrap }
+      .emt .tbl-wrap > .tbl-hdr { border:none; border-bottom:1px solid var(--border); border-radius:0 }
+      .emt .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .emt .tbl-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap }
+      .emt .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .emt table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .emt table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .emt table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .emt table tbody tr:hover td { background:var(--surface2) }
+      .emt .kpi { border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px }
+      .emt .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .emt .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .emt .btg-item { border-radius:8px }
+    </style>
+    <style>
+      .emt code { background:var(--surface2); color:var(--teal); padding:1px 6px; border-radius:4px; font-size:11px }
+      .emt #et-list { background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:8px }
+      .emt .emt-cols { display:grid; grid-template-columns:280px 1fr; gap:16px; align-items:start }
+      @media (max-width:900px) { .emt .emt-cols { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="emt">
     <div class="page-hdr">
       <h1>Email Templates</h1>
       <div class="breadcrumb">CRM / <b>Email Templates</b></div>
@@ -15,7 +56,7 @@ Pages.emailTemplates = async function(params = {}) {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:280px 1fr;gap:16px">
+    <div class="emt-cols">
       <!-- Template list -->
       <div>
         <div id="et-list"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -60,6 +101,7 @@ Pages.emailTemplates = async function(params = {}) {
         </div>
       </div>
     </div>
+    </div>
   `;
 
   await EmailTemplatesPage.load();
@@ -84,7 +126,7 @@ const EmailTemplatesPage = {
       ];
 
       el.innerHTML = display.map(t => `
-        <div style="padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px;margin-bottom:4px;background:${this._activeId===t.id?'var(--bg2)':''}"
+        <div style="padding:10px 12px;border:1px solid ${this._activeId===t.id?'var(--teal)':'var(--border)'};cursor:pointer;border-radius:8px;margin-bottom:6px;background:${this._activeId===t.id?'var(--teal-bg)':'var(--surface)'}"
           onclick="EmailTemplatesPage.select('${t.id}','${(t.name||'').replace(/'/g,'\\x27')}','${t.document_type||t.documentType||'general'}')">
           <div style="font-weight:600;font-size:12px">${t.name||'—'}</div>
           <div style="margin-top:3px">${Utils.chip(t.document_type||t.documentType||'general')}</div>

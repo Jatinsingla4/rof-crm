@@ -21,6 +21,35 @@ Pages.gstInvoicing = async function(params = {}) {
       <button class="tab-line" data-group="gst" data-tab="user-rights" onclick="switchTab('gst','user-rights')">User Rights</button>
     </div>
 
+    <style>
+      [data-panel-group="gst"] { max-width:1180px; margin-left:auto; margin-right:auto }
+      [data-panel-group="gst"] .sp, [data-panel-group="gst"] .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      [data-panel-group="gst"] .sp-hdr, [data-panel-group="gst"] .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      [data-panel-group="gst"] .sp-title, [data-panel-group="gst"] .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      [data-panel-group="gst"] .sp-body { padding:18px }
+      [data-panel-group="gst"] .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { [data-panel-group="gst"] .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } [data-panel-group="gst"] .fg { grid-column:auto !important } }
+      @media (max-width:640px) { [data-panel-group="gst"] .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      [data-panel-group="gst"] .fg { gap:6px }
+      [data-panel-group="gst"] .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      [data-panel-group="gst"] .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      [data-panel-group="gst"] .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      [data-panel-group="gst"] .btn-lg, [data-panel-group="gst"] .btn-fetch { padding:9px 24px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      [data-panel-group="gst"] .btn-fetch, [data-panel-group="gst"] .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none }
+      [data-panel-group="gst"] .btg-item { padding:7px 16px; font-size:12px; border-radius:8px; border:1px solid var(--border2) }
+      [data-panel-group="gst"] .alert { border-radius:8px; margin-bottom:16px !important }
+      [data-panel-group="gst"] #gst-rate-preview, [data-panel-group="gst"] [id$="-calc"], [data-panel-group="gst"] #rev-invoice-detail .sp, [data-panel-group="gst"] #can-invoice-detail .sp { border-radius:10px !important; background:var(--surface2) !important }
+      [data-panel-group="gst"] .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin-bottom:16px }
+      [data-panel-group="gst"] #pending-body, [data-panel-group="gst"] #gst-reports-body, [data-panel-group="gst"] #cdn-list, [data-panel-group="gst"] #gst-rights-body { overflow-x:auto }
+      [data-panel-group="gst"] #pending-body, [data-panel-group="gst"] #gst-reports-body, [data-panel-group="gst"] #cdn-list:not(:empty) { background:var(--surface); border:1px solid var(--border2); border-radius:10px }
+      [data-panel-group="gst"] table { width:100%; border-collapse:collapse; font-size:12.5px }
+      [data-panel-group="gst"] table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+      [data-panel-group="gst"] table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+      [data-panel-group="gst"] table tbody tr:hover td { background:var(--surface2) }
+      [data-panel-group="gst"] table tbody tr:last-child td { border-bottom:none }
+      [data-panel-group="gst"] table .td-bold { font-weight:600 }
+    </style>
+
     <!-- SETUP TAB -->
     <div data-panel-group="gst" data-panel="setup">
       <div class="sp" style="margin-bottom:12px">

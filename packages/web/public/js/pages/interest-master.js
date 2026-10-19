@@ -13,7 +13,7 @@
 .im-lbl { width:148px; font-size:12px; color:var(--text2); flex-shrink:0 }
 .im-req { color:var(--red) }
 .im-row select, .im-row input[type="text"], .im-row input[type="number"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
-.im-row select, .im-row input[type="text"], .im-row input[type="number"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.im-row select:focus, .im-row input[type="text"]:focus, .im-row input[type="number"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
 .im-row select, .im-row input[type="text"], .im-row input[type="number"] { width:230px; max-width:100% }
 .im-date-wrap { display:flex; align-items:center; width:230px; max-width:100%; border:1px solid var(--border2); border-radius:8px; background:var(--surface); padding:0 10px; min-height:38px; box-sizing:border-box }
 .im-date-wrap:focus-within { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }

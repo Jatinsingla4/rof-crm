@@ -3,12 +3,54 @@
 Pages.tasks = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .tsk { --bg2:var(--surface2); --text1:var(--text); max-width:1360px; margin-left:auto; margin-right:auto }
+      .tsk .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .tsk .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .tsk .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .tsk .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .tsk .sp { border-radius:10px; overflow:hidden }
+      .tsk .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .tsk .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .tsk .sp-body { padding:18px }
+      .tsk .fg { gap:6px }
+      .tsk .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .tsk .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .tsk .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .tsk .btn-teal, .tsk .btn-fetch { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .tsk .btn-teal:hover, .tsk .btn-fetch:hover { filter:brightness(.92) }
+      .tsk .btn-teal.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+      .tsk .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      .tsk .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .tsk .btn-ghost.active { background:var(--teal-bg); color:var(--teal); border-color:var(--teal) }
+      .tsk .tbl-hdr { background:var(--teal-bg); border:1px solid var(--border2); border-radius:10px; padding:12px 18px; flex-wrap:wrap }
+      .tsk .tbl-wrap > .tbl-hdr { border:none; border-bottom:1px solid var(--border); border-radius:0 }
+      .tsk .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .tsk .tbl-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap }
+      .tsk .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .tsk table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .tsk table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .tsk table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .tsk table tbody tr:hover td { background:var(--surface2) }
+      .tsk .kpi { border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px }
+      .tsk .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .tsk .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .tsk .btg-item { border-radius:8px }
+    </style>
+    <style>
+      .tsk .tsk-cols { display:grid; grid-template-columns:340px 1fr; gap:16px; align-items:start }
+      .tsk .btg { display:flex; gap:6px; flex-wrap:wrap }
+      .tsk input[type=checkbox] { accent-color:var(--teal) }
+      #tasks-list-all .sp, #tasks-list-today .sp, #tasks-list-pending .sp, #tasks-list-completed .sp { padding:14px 16px !important; margin-bottom:8px !important }
+      @media (max-width:900px) { .tsk .tsk-cols { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="tsk">
     <div class="page-hdr">
       <h1>Tasks</h1>
       <div class="breadcrumb">CRM / <b>Tasks</b></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:340px 1fr;gap:16px;margin-top:4px">
+    <div class="tsk-cols">
       <!-- Create Task Panel -->
       <div>
         <div class="sp">
@@ -48,7 +90,7 @@ Pages.tasks = async function(params = {}) {
       <!-- Task List -->
       <div>
         <!-- Filter tabs -->
-        <div class="tabs-line" style="margin-bottom:12px">
+        <div class="tabs-line">
           <button class="tab-line active" data-group="tasks" data-tab="all" onclick="switchTab('tasks','all');TasksPage.load('all')">All</button>
           <button class="tab-line" data-group="tasks" data-tab="today" onclick="switchTab('tasks','today');TasksPage.load('today')">Due Today</button>
           <button class="tab-line" data-group="tasks" data-tab="pending" onclick="switchTab('tasks','pending');TasksPage.load('pending')">Pending</button>
@@ -68,6 +110,7 @@ Pages.tasks = async function(params = {}) {
           <div id="tasks-list-completed"></div>
         </div>
       </div>
+    </div>
     </div>
   `;
 

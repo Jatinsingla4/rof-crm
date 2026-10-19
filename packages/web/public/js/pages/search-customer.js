@@ -23,49 +23,79 @@ const SearchCustomerPage = {
 
   render() {
     const tabPills = this.TABS.map(t => `
-      <button id="sc-tab-${t.id}" onclick="SearchCustomerPage.setTab('${t.id}')"
-        style="padding:4px 9px;border:1px solid #0d9488;border-radius:3px;cursor:pointer;font-size:11px;white-space:nowrap;
-               background:${t.id === this._activeTab ? '#0d9488' : 'white'};
-               color:${t.id === this._activeTab ? 'white' : '#0d9488'};
-               font-weight:${t.id === this._activeTab ? 'bold' : 'normal'};">
+      <button id="sc-tab-${t.id}" class="scn-pill${t.id === this._activeTab ? ' on' : ''}" onclick="SearchCustomerPage.setTab('${t.id}')">
         ${t.label}
       </button>`).join('');
 
     return `
-      <div style="font-family:Arial,sans-serif;font-size:13px;">
+      <style>
+        .scn { max-width:1180px; margin-left:auto; margin-right:auto; font-size:13px }
+        .scn-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden; margin-bottom:16px }
+        .scn-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+        .scn-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+        .scn-hint { font-size:11px; color:var(--text3) }
+        .scn-pills { padding:16px 18px 4px; display:flex; flex-wrap:wrap; gap:8px }
+        .scn-pill { padding:6px 14px; border:1px solid var(--border2); border-radius:999px; cursor:pointer; font-size:12px; white-space:nowrap; background:var(--surface); color:var(--text2); transition:.15s }
+        .scn-pill:hover { border-color:var(--teal); color:var(--teal) }
+        .scn-pill.on { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+        .scn-input { padding:12px 18px 18px }
+        .scn-row { display:flex; align-items:center; gap:14px; flex-wrap:wrap }
+        .scn-lbl { font-size:12px; font-weight:500; color:var(--text2); min-width:140px; white-space:nowrap }
+        .scn-fc { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; min-width:300px; min-height:38px; background:var(--surface); color:var(--text); box-sizing:border-box }
+        .scn-fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+        .scn-bar { padding:14px 18px; background:var(--surface2); border-top:1px solid var(--border2); display:flex; align-items:center; gap:12px; flex-wrap:wrap }
+        .scn-btn { background:var(--teal); color:#fff; border:none; padding:9px 26px; border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:600; min-height:38px }
+        .scn-btn:hover { filter:brightness(.92) }
+        .scn-btn:disabled { opacity:.65; cursor:default }
+        .scn-btn-ghost { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:9px 18px; border-radius:8px; cursor:pointer; font-size:12.5px; min-height:38px }
+        .scn-btn-ghost:hover { background:var(--surface2) }
+        .scn-count { font-size:12px; color:var(--text2) }
+        .scn-res-hdr { display:flex; justify-content:space-between; align-items:center; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+        .scn-scroll { overflow-x:auto }
+        .scn-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+        .scn-tbl th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+        .scn-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+        .scn-tbl tbody tr:hover td { background:var(--surface2) }
+        .scn-tbl tbody tr:last-child td { border-bottom:none }
+        .scn-tbl td.scn-reg { font-weight:600; color:var(--teal) }
+        .scn-tbl td.scn-sub { font-size:11px; color:var(--text2) }
+        .scn-badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:10px; font-weight:700 }
+        .scn-badge.allotted { background:#c8e6c9; color:#2e7d32 }
+        .scn-badge.booked { background:#fff9c4; color:#f57f17 }
+        .scn-badge.other { background:var(--surface2); color:var(--text2); border:1px solid var(--border2) }
+        .scn-act { border:none; padding:4px 12px; border-radius:6px; cursor:pointer; font-size:11.5px; font-weight:600; margin-right:4px }
+        .scn-act.view { background:var(--teal); color:#fff }
+        .scn-act.file { background:var(--surface); color:var(--teal); border:1px solid var(--teal) }
+        .scn-empty { padding:36px 18px; text-align:center; color:var(--text3); font-size:13px }
+      </style>
+      <div class="scn">
 
-        <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:8px;">
+        <div class="scn-card">
 
           <!-- Header + tab pills -->
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#0d9488;border-left:4px solid #065f46;">
-            <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px;">SEARCH CUSTOMER</span>
-            <span style="font-size:11px;color:#ffe0e0;">Press Alt+C to open anytime</span>
+          <div class="scn-hdr">
+            <span class="scn-title">Search Customer</span>
+            <span class="scn-hint">Press Alt+C to open anytime</span>
           </div>
-          <div style="padding:8px 12px;background:#f8f9fa;border-bottom:1px solid #ddd;display:flex;flex-wrap:wrap;gap:3px;">
+          <div class="scn-pills">
             ${tabPills}
           </div>
 
           <!-- Active tab input -->
-          <div style="padding:12px 16px;background:#f0f8ff;border-bottom:1px solid #ddd;">
+          <div class="scn-input">
             <div id="sc-input-area">${this._renderInput()}</div>
           </div>
 
           <!-- Fetch bar -->
-          <div style="padding:8px 16px;background:#e9ecef;display:flex;align-items:center;gap:10px;">
-            <button id="sc-fetch-btn" onclick="SearchCustomerPage.fetch()"
-              style="background:#1976D2;color:white;border:none;padding:6px 22px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:0.5px;">
-              FETCH
-            </button>
-            <button onclick="SearchCustomerPage.clearSearch()"
-              style="background:#6b7280;color:white;border:none;padding:6px 14px;border-radius:2px;cursor:pointer;font-size:12px;">
-              Clear
-            </button>
-            <span id="sc-result-count" style="font-size:12px;color:#555;margin-left:6px;"></span>
+          <div class="scn-bar">
+            <button id="sc-fetch-btn" class="scn-btn" onclick="SearchCustomerPage.fetch()">FETCH</button>
+            <button class="scn-btn-ghost" onclick="SearchCustomerPage.clearSearch()">Clear</button>
+            <span id="sc-result-count" class="scn-count"></span>
           </div>
         </div>
 
         <!-- Results -->
-        <div id="sc-results" style="background:white;border:1px solid #e0e0e0;border-radius:4px;display:none;"></div>
+        <div id="sc-results" class="scn-card" style="display:none;"></div>
 
       </div>`;
   },
@@ -74,10 +104,9 @@ const SearchCustomerPage = {
     const tab = this.TABS.find(t => t.id === this._activeTab);
     if (!tab) return '';
     return `
-      <div style="display:flex;align-items:center;gap:12px;">
-        <label style="font-size:12px;font-weight:600;color:#333;min-width:140px;white-space:nowrap;">${tab.label}:</label>
-        <input type="${tab.type}" id="sc-search-input" placeholder="${tab.placeholder}"
-          style="padding:6px 10px;border:1px solid #999;border-radius:2px;font-size:13px;min-width:280px;"
+      <div class="scn-row">
+        <label class="scn-lbl">${tab.label}:</label>
+        <input type="${tab.type}" id="sc-search-input" class="scn-fc" placeholder="${tab.placeholder}"
           onkeydown="if(event.key==='Enter') SearchCustomerPage.fetch()">
       </div>`;
   },
@@ -86,11 +115,7 @@ const SearchCustomerPage = {
     this._activeTab = tabId;
     this.TABS.forEach(t => {
       const btn = document.getElementById(`sc-tab-${t.id}`);
-      if (!btn) return;
-      const active = t.id === tabId;
-      btn.style.background  = active ? '#0d9488' : 'white';
-      btn.style.color       = active ? 'white' : '#0d9488';
-      btn.style.fontWeight  = active ? 'bold' : 'normal';
+      if (btn) btn.classList.toggle('on', t.id === tabId);
     });
     const area = document.getElementById('sc-input-area');
     if (area) area.innerHTML = this._renderInput();
@@ -141,55 +166,46 @@ const SearchCustomerPage = {
     container.style.display = 'block';
 
     if (!consumers.length) {
-      container.innerHTML = `<div style="padding:30px;text-align:center;color:#999;font-size:13px;">No customers found matching your search criteria.</div>`;
+      container.innerHTML = `<div class="scn-empty">No customers found matching your search criteria.</div>`;
       return;
     }
 
     const rows = consumers.map((c, i) => {
       const name = c.name || `${c.first_name||''} ${c.last_name||''}`.trim() || '—';
-      const even = i % 2 === 0;
-      return `<tr style="background:${even?'white':'#f9f9f9'};border-bottom:1px solid #e8e8e8;"
-                onmouseover="this.style.background='#e8eaf6'" onmouseout="this.style.background='${even?'white':'#f9f9f9'}'">
-        <td style="padding:7px 10px;">${i+1}</td>
-        <td style="padding:7px 10px;font-weight:500;color:#1a237e;">${c.registration_no||'—'}</td>
-        <td style="padding:7px 10px;">${name}</td>
-        <td style="padding:7px 10px;">${c.mobile||'—'}</td>
-        <td style="padding:7px 10px;font-size:11px;color:#555;">${c.email||'—'}</td>
-        <td style="padding:7px 10px;font-weight:500;">${c.unit_number||'—'}</td>
-        <td style="padding:7px 10px;font-size:11px;">${c.project_name||'—'}</td>
-        <td style="padding:7px 10px;">
-          <span style="padding:2px 8px;border-radius:10px;font-size:10px;font-weight:bold;
-                       background:${c.lead_stage==='allotted'?'#c8e6c9':c.lead_stage==='booked'?'#fff9c4':'#f3f4f6'};
-                       color:${c.lead_stage==='allotted'?'#2e7d32':c.lead_stage==='booked'?'#f57f17':'#374151'};">
-            ${(c.lead_stage||'—').toUpperCase()}
-          </span>
-        </td>
-        <td style="padding:7px 10px;text-align:center;white-space:nowrap;">
-          <button onclick="SearchCustomerPage.openConsumer('${c.id}')"
-            style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px;margin-right:3px;">View</button>
-          <button onclick="SearchCustomerPage.openApplicantFile('${c.id}')"
-            style="background:#0d9488;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:11px;">File</button>
+      const badge = c.lead_stage === 'allotted' ? 'allotted' : c.lead_stage === 'booked' ? 'booked' : 'other';
+      return `<tr>
+        <td>${i+1}</td>
+        <td class="scn-reg">${c.registration_no||'—'}</td>
+        <td>${name}</td>
+        <td>${c.mobile||'—'}</td>
+        <td class="scn-sub">${c.email||'—'}</td>
+        <td style="font-weight:600">${c.unit_number||'—'}</td>
+        <td class="scn-sub">${c.project_name||'—'}</td>
+        <td><span class="scn-badge ${badge}">${(c.lead_stage||'—').toUpperCase()}</span></td>
+        <td style="text-align:center;white-space:nowrap;">
+          <button class="scn-act view" onclick="SearchCustomerPage.openConsumer('${c.id}')">View</button>
+          <button class="scn-act file" onclick="SearchCustomerPage.openApplicantFile('${c.id}')">File</button>
         </td>
       </tr>`;
     }).join('');
 
     container.innerHTML = `
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:#1a237e;color:white;">
-        <span style="font-weight:bold;font-size:13px;">Search Results (${consumers.length})</span>
-        <button onclick="window.print()" style="background:white;color:#1a237e;border:none;padding:4px 12px;border-radius:2px;cursor:pointer;font-size:12px;">🖨️ Print</button>
+      <div class="scn-res-hdr">
+        <span class="scn-title">Search Results (${consumers.length})</span>
+        <button class="scn-btn-ghost" onclick="window.print()">🖨️ Print</button>
       </div>
-      <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:12px;">
-          <thead><tr style="background:#e8eaf6;">
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;">S.No</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;white-space:nowrap;">Reg. No.</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;">Name</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;white-space:nowrap;">Mobile</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;">Email</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;white-space:nowrap;">Unit No.</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;">Project</th>
-            <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #1a237e;">Status</th>
-            <th style="padding:8px 10px;text-align:center;border-bottom:2px solid #1a237e;">Action</th>
+      <div class="scn-scroll">
+        <table class="scn-tbl">
+          <thead><tr>
+            <th>S.No</th>
+            <th>Reg. No.</th>
+            <th>Name</th>
+            <th>Mobile</th>
+            <th>Email</th>
+            <th>Unit No.</th>
+            <th>Project</th>
+            <th>Status</th>
+            <th style="text-align:center">Action</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>

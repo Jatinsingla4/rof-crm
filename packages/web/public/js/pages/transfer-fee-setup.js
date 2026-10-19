@@ -5,42 +5,28 @@
 (() => {
 
   const TFS_STYLES = `<style id="tfs-styles">
-.tfs-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.tfs-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.tfs-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.tfs-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.tfs-body { padding: 14px 16px 16px; }
-.tfs-project-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.tfs-field { display: flex; flex-direction: column; gap: 3px; }
-.tfs-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.tfs-project-row select { padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; min-width: 200px; }
-.tfs-divider { border: none; border-top: 1px solid #e0e0e0; margin: 4px 0 14px; }
-.tfs-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px 20px;
-  margin-bottom: 14px;
-}
-.tfs-grid input[type="number"],
-.tfs-grid input[type="date"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; width: 100%; box-sizing: border-box;
-}
-.tfs-grid input:focus { outline: none; border-color: #337ab7; }
-.tfs-foc-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 13px; }
-.tfs-foc-row input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
-.tfs-btn-save {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 7px 22px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
-}
-.tfs-btn-save:hover { background: #16305c; }
-.tfs-btn-save:disabled { opacity: .7; cursor: not-allowed; }
-.tfs-msg { margin-top: 10px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.tfs-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.tfs-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+.tfs-page { padding:0; font-size:13px; max-width:1000px; margin:0 auto }
+.tfs-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.tfs-hdr { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.tfs-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.tfs-body { padding:18px }
+.tfs-project-row { display:flex; align-items:flex-end; gap:16px; margin-bottom:16px; flex-wrap:wrap }
+.tfs-field { display:flex; flex-direction:column; gap:6px }
+.tfs-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px; white-space:nowrap }
+.tfs-project-row select { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box; min-width:240px; }
+.tfs-project-row select:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tfs-divider { border:none; border-top:1px solid var(--border); margin:4px 0 18px }
+.tfs-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px 20px; margin-bottom:16px }
+.tfs-grid input[type="number"], .tfs-grid input[type="date"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box; width:100%; }
+.tfs-grid input[type="number"]:focus, .tfs-grid input[type="date"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.tfs-foc-row { display:flex; align-items:center; gap:8px; margin-bottom:16px; font-size:13px; color:var(--text) }
+.tfs-foc-row input[type="checkbox"] { width:16px; height:16px; cursor:pointer; accent-color:var(--teal) }
+.tfs-btn-save { background:var(--teal); color:#fff; border:none; padding:9px 26px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:36px }
+.tfs-btn-save:hover { filter:brightness(.92) }
+.tfs-btn-save:disabled { opacity:.65; cursor:not-allowed }
+.tfs-msg { margin-top:12px; padding:8px 12px; border-radius:8px; font-size:12.5px; display:none; }
+.tfs-msg-ok { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
+.tfs-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
 </style>`;
 
   function render() {
