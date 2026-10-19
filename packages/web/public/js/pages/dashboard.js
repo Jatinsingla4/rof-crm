@@ -3,6 +3,24 @@
 Pages.dashboard = async function() {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .dbn { max-width:1500px; margin-left:auto; margin-right:auto }
+      .dbn .tbl-wrap { border:1px solid var(--border2); border-radius:10px }
+      .dbn .tbl-hdr { padding:12px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); flex-wrap:wrap }
+      .dbn .tbl-title { font-size:12px; letter-spacing:.6px }
+      .dbn .tbl-actions { margin-left:auto; display:flex; align-items:center; gap:8px }
+      .dbn .btn-ghost.btn-sm { min-height:28px; padding:4px 12px; font-size:12px; border-radius:6px }
+      .dbn .dash-tbl { font-size:12.5px }
+      .dbn .dash-tbl th { padding:9px 12px; background:var(--surface2); color:var(--text3); font-size:11px; letter-spacing:.4px }
+      .dbn .dash-tbl td { padding:8px 12px }
+      .dbn .dash-tbl .grp-hdr { background:var(--surface2); color:var(--text2) }
+      .dbn .dash-tbl .sub-hdr { background:var(--surface2); color:var(--text3) }
+      .dbn .btn-teal.btn-sm { background:var(--teal); color:#fff; border:none; border-radius:6px; min-height:28px; padding:4px 12px; font-size:12px; font-weight:600 }
+      .dbn .empty-state { padding:36px 18px }
+      .dbn .kpi { border-radius:10px }
+      @media (max-width:900px) { .dbn .g2 { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="dbn">
     <div class="page-hdr">
       <h1>Dashboard</h1>
       <div class="breadcrumb">Home / <b>Dashboard</b></div>
@@ -89,6 +107,7 @@ Pages.dashboard = async function() {
         </div>
         <div id="dash-forthcoming-due"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
+    </div>
     </div>
   `;
 
@@ -193,7 +212,7 @@ Pages.dashboard = async function() {
           ${chequeRows.map((r, i) => `<tr>
             <td>${i + 1}</td>
             <td class="td-bold">${r.project || '—'}</td>
-            <td class="txt-right" style="color:var(--warn)"><a href="/pending-cheques.html?project_id=${r.project_id}" style="color:#2563eb;font-weight:600;text-decoration:none;">${r.pending || 0}</a></td>
+            <td class="txt-right" style="color:var(--warn)"><a href="/pending-cheques.html?project_id=${r.project_id}" style="color:var(--teal);font-weight:600;text-decoration:none;">${r.pending || 0}</a></td>
             <td class="txt-right" style="color:var(--teal)">${r.deposite || 0}</td>
             <td class="txt-right">${r.total || 0}</td>
             <td class="txt-right" style="color:var(--blue)">${r.pdc || 0}</td>
