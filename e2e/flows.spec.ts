@@ -1,7 +1,8 @@
 // Browser flow checks for the modules that have been verified one by one:
 //   Set Master: Set Up (lists, banks, locations, companies and their bank accounts and logo)
 //   Set Projects: Project Set Up (project, tower, unit type, unit, CSV upload, unit location, reminder)
-//   the Set Master menu, what each role sees, and Security (logins, roles, role menu access, audit log).
+//   the Set Master menu, what each role sees, Security (logins, roles, role menu access, audit log),
+//   and Documents (checklist, dispatch log, Customized Letters).
 // Add a section here when another module has been checked.
 import { test, expect, Page } from '@playwright/test';
 
@@ -34,7 +35,8 @@ test.beforeAll(async ({ browser }) => {
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => {
     // a 4xx the test expects shows up here as "Failed to load resource"; real script errors do not
-    if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) problems.push(`Console error: ${m.text()}`);
+    // The letter preview frame cannot run scripts on purpose; the browser logs that when the test tool reads the frame
+    if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`);
   });
   page.on('response', r => {
     if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`);
@@ -509,4 +511,167 @@ test('security: the audit log shows sign ins and the changes made above', async 
   await page.locator('#au-go').click();
   await expect(page.locator('#au-body tr', { hasText: 'delete' }).first()).toBeVisible();
   await expect(page.locator('#au-body')).not.toContainText(sec.pw);
+});
+
+// ── 9. Documents ───────────────────────────────────────────────────────────
+const doc = { name: `E2E Doc ${U}`, letter: `E2E Letter ${U}`, track: `E2E-TRK-${U}` };
+const smRow = (text: string) => page.locator('#sm-main tr[data-row], #sm-main tbody tr', { hasText: text }).last();
+async function docRowAction(text: string, action: 'Edit' | 'Delete') {
+  const r = smRow(text);
+  await expect(r).toBeVisible();
+  await r.hover();
+  await r.getByRole('button', { name: action, exact: true }).click();
+}
+
+test('Document checklist: add, duplicate refused, edit, delete', async () => {
+  await logout();
+  await login('super_admin');
+  await go('#/set-master?screen=checklist');
+  await content().getByRole('button', { name: 'Add document' }).click();
+  await fillDrawer({ name: doc.name });
+  await drawer().locator('[name=required_at]').selectOption('On Agreement');
+  await drawer().locator('[name=is_mandatory]').selectOption('yes');
+  await saveDrawer();
+  await expect(toast('Document added')).toBeVisible();
+  await expect(smRow(doc.name)).toContainText('On Agreement');
+  await expect(smRow(doc.name)).toContainText('Mandatory');
+  await content().getByRole('button', { name: 'Add document' }).click();
+  await fillDrawer({ name: doc.name.toLowerCase() });
+  await drawer().locator('[name=required_at]').selectOption('On Booking');
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('already exists');
+  await drawer().getByRole('button', { name: 'Cancel' }).click();
+  await docRowAction(doc.name, 'Edit');
+  await drawer().locator('[name=is_mandatory]').selectOption('no');
+  await saveDrawer();
+  await expect(toast('Saved')).toBeVisible();
+  await expect(smRow(doc.name)).toContainText('Optional');
+});
+
+test('Dispatch log: log, search, edit, bad date refused, delete', async () => {
+  await go('#/set-master?screen=dispatch');
+  const form = page.locator('#sm-dispatch-form');
+  await form.locator('[name=document_type]').fill(doc.name);
+  await form.getByRole('button', { name: 'Log dispatch' }).click();
+  await expect(form.locator('#dd-err')).toContainText('required');
+  await form.locator('[name=dispatch_mode]').selectOption('Courier');
+  await form.locator('[name=tracking_no]').fill(doc.track);
+  await form.getByRole('button', { name: 'Log dispatch' }).click();
+  await expect(toast('Dispatch logged')).toBeVisible();
+  await expect(smRow(doc.track)).toContainText('Courier');
+  // search
+  await page.locator('#df-q').fill('no-such-' + U);
+  await page.locator('#df-go').click();
+  await expect(content()).toContainText('No dispatches found');
+  await page.locator('#df-q').fill(doc.track);
+  await page.locator('#df-go').click();
+  await expect(smRow(doc.track)).toBeVisible();
+  // edit
+  await docRowAction(doc.track, 'Edit');
+  await drawer().locator('[name=dispatch_mode]').selectOption('Speed Post');
+  await drawer().locator('[name=dispatched_at]').fill('2999-01-01');
+  await saveDrawer();
+  await expect(drawer().locator('#sm-form-err')).toContainText('future');
+  await drawer().locator('[name=dispatched_at]').fill('');
+  await saveDrawer();
+  await expect(toast('Saved')).toBeVisible();
+  await expect(smRow(doc.track)).toContainText('Speed Post');
+  // a document that the log uses cannot be deleted from the checklist
+  await go('#/set-master?screen=checklist');
+  await docRowAction(doc.name, 'Delete');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast(/cannot be deleted|used in/i)).toBeVisible();
+  // delete the dispatch entry, then the document
+  await go('#/set-master?screen=dispatch');
+  await page.locator('#df-q').fill(doc.track);
+  await page.locator('#df-go').click();
+  await docRowAction(doc.track, 'Delete');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast('Deleted')).toBeVisible();
+  await go('#/set-master?screen=checklist');
+  await docRowAction(doc.name, 'Delete');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast('Deleted')).toBeVisible();
+  await expect(smRow(doc.name)).toHaveCount(0);
+});
+
+test('Customized Letters: make a template, make a numbered letter for an applicant, see it in the register, delete', async () => {
+  await go('#/custom-letters?tab=letters');
+  await expect(content()).toContainText('Customized Letters');
+  await content().getByRole('button', { name: 'New letter' }).click();
+  await expect(page.locator('#cle-save')).toBeVisible();
+  await page.locator('#cle-project').selectOption({ label: names.project });
+  await page.locator('#cle-name').fill(doc.letter);
+  await page.locator('#cle-subject').fill('Welcome to {{projectName}}');
+  await page.locator('[data-seg=is_ref_no] button', { hasText: 'Yes' }).click();
+  await page.locator('#cle-prefix').fill(`E2E/W${U}`);
+  // empty letter is refused
+  await page.locator('#cle-save').click();
+  await expect(page.locator('#cle-err')).toContainText(/content/i);
+  // the letter text: the rich editor when it loaded, else the plain box
+  const rich = page.locator('.ck-editor__editable');
+  if (await rich.count()) { await rich.click(); await page.keyboard.type('Dear '); } else { await page.locator('#cle-body').fill('Dear '); }
+  await page.locator('#cle-vars [data-var=consumerName]').click();
+  if (await rich.count()) await page.keyboard.type(', welcome.'); else await page.locator('#cle-body').pressSequentially(', welcome.');
+  await page.locator('#cle-save').click();
+  await expect(toast('Letter created')).toBeVisible();
+  await expect(smRow(doc.letter)).toContainText('Ref. no.');
+  // the same name again is refused
+  await content().getByRole('button', { name: 'New letter' }).click();
+  await page.locator('#cle-project').selectOption({ label: names.project });
+  await page.locator('#cle-name').fill(doc.letter);
+  await page.locator('#cle-subject').fill('x');
+  if (await page.locator('.ck-editor__editable').count()) { await page.locator('.ck-editor__editable').click(); await page.keyboard.type('Hello'); } else { await page.locator('#cle-body').fill('Hello'); }
+  await page.locator('#cle-save').click();
+  await expect(page.locator('#cle-err')).toContainText('already exists');
+  await page.locator('#cle-cancel').click();
+  // make the letter for the seeded applicant
+  await smRow(doc.letter).getByRole('button', { name: 'Make letter' }).click();
+  await expect(page.locator('#mk-letter')).toHaveValue(/.+/);
+  await page.locator('#mk-go').click();
+  await expect(page.locator('#mk-err')).toContainText('applicant');
+  // an applicant with no project yet, so the letter's project does not matter
+  const who = await page.evaluate(async () => {
+    const r = await (await fetch('/api/consumers?search=Raj&pageSize=50', { headers: { authorization: 'Bearer ' + Auth.getToken() } })).json();
+    const c = (r.data || []).find((x: any) => !x.project_id);
+    return c ? { id: c.id, name: c.name } : null;
+  });
+  expect(who, 'the test database needs an applicant called Raj with no project').not.toBeNull();
+  await page.locator('#mk-cons').fill('Raj');
+  await page.locator(`#mk-sug [data-id="${who!.id}"]`).click();
+  await page.locator('#mk-go').click();
+  const frame = page.frameLocator('#mk-frame');
+  await expect(frame.locator('body')).toContainText(`Dear ${who!.name}, welcome.`);
+  await expect(frame.locator('body')).toContainText(new RegExp(`Ref\\. No\\.: E2E/W${U}/\\d{4}-\\d{2}/0001`));
+  // a second letter runs on to 0002
+  await page.locator('#mk-go').click();
+  await expect(frame.locator('body')).toContainText(/\/0002/);
+  // register
+  await go('#/custom-letters?tab=register');
+  await page.locator('#rg-q').fill(`E2E/W${U}`);
+  await page.locator('#rg-go').click();
+  await expect(page.locator('#rg-body tr', { hasText: doc.letter })).toHaveCount(2);
+  // delete the template; the register keeps its rows
+  await go('#/custom-letters?tab=letters');
+  await smRow(doc.letter).getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(toast('Letter deleted')).toBeVisible();
+  await go('#/custom-letters?tab=register');
+  await page.locator('#rg-q').fill(`E2E/W${U}`);
+  await page.locator('#rg-go').click();
+  await expect(page.locator('#rg-body tr', { hasText: doc.letter })).toHaveCount(2);
+});
+
+test('Customized Letters: roles see only what they may use', async () => {
+  await logout();
+  await login('support_agent');
+  await go('#/custom-letters?tab=letters');
+  await expect(content().getByRole('button', { name: 'New letter' })).toHaveCount(0);
+  await go('#/custom-letters?tab=make');
+  await expect(content()).toContainText('cannot make letters');
+  await logout();
+  await login('sales_executive');
+  await go('#/custom-letters?tab=letters');
+  await expect(content().getByRole('button', { name: 'New letter' })).toHaveCount(0);
+  await expect(page.locator('#mk-go')).toHaveCount(0);
 });

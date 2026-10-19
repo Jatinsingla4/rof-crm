@@ -81,17 +81,30 @@ SM.docAction = async (kind, id, act) => {
 // ---------------------------------------------------------------------------
 // Dispatch log
 // ---------------------------------------------------------------------------
+SM.dispatchQuery = SM.dispatchQuery || { q: '', from: '', to: '' };
+
 SM.screens.dispatch = async (root) => {
-  const canAdd = SM.can('create'), canDel = SM.can('delete');
+  const canAdd = SM.can('create'), canEdit = SM.can('edit'), canDel = SM.can('delete');
   root.innerHTML = '<div class="sm-panel"><div class="sm-empty">Loading...</div></div>';
-  const rows = (await SM.get('/master/document-dispatch')) || [];
+  const fq = SM.dispatchQuery;
+  const load = async (page) => {
+    const res = await Api.get('/master/document-dispatch', { params: { ...fq, page, pageSize: 50 } });
+    return { rows: res.data || [], more: !!res.has_more };
+  };
+  let first;
+  try { first = await load(1); } catch (e) { root.innerHTML = SM.empty('Could not load', e.message); return; }
   if (SM.screen !== 'dispatch') return;
+  let rows = first.rows, more = first.more, page = 1;
   SM.d.dispatch = rows;
   const names = [...new Set([...(SM.d.doctypes || []).map((t) => t.name)])];
+  const rowHtml = (r) => `<tr data-row><td class="mono">${esc(Utils.date(r.dispatched_at || r.created_at))}</td><td>${esc(r.document_type || '-')}</td>
+        <td><span class="sm-tag">${esc(r.dispatch_mode || '-')}</span></td><td class="mono">${esc(r.tracking_no || '-')}</td>
+        <td>${esc(r.consumer_name || '-')}</td>
+        <td class="act">${canEdit ? `<button class="sm-btn sm-btn--quiet" data-act="edit" data-kind="dispatch" data-id="${esc(r.id)}">Edit</button>` : ''}
+          ${canDel ? `<button class="sm-btn sm-btn--quiet sm-btn--danger" data-act="del" data-kind="dispatch" data-id="${esc(r.id)}">Delete</button>` : ''}</td></tr>`;
   root.innerHTML = `<div class="sm-panel">
     <div class="sm-panel-h"><div><div class="sm-panel-t">Dispatch log</div>
-      <div class="sm-panel-s">Proof that a notice or letter was sent. Latest 100 entries.</div></div>
-      <div class="sm-tools">${SM.search('dispatch', 'Search')}</div></div>
+      <div class="sm-panel-s">Proof that a notice or letter was sent, newest first.</div></div></div>
     ${canAdd ? `<form id="sm-dispatch-form" class="sm-panel-b" style="border-bottom:1px solid var(--border);background:var(--surface2)" novalidate>
       <div class="sm-grid3">
         <div class="sm-field"><label class="sm-label" for="dd-doc">Document <i>*</i></label>
@@ -106,22 +119,48 @@ SM.screens.dispatch = async (root) => {
           <input type="hidden" name="consumer_id">
           <div id="dd-sug" style="position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--surface);border:1px solid var(--border3);border-radius:6px;display:none;max-height:200px;overflow:auto"></div></div>
         <div class="sm-field"><label class="sm-label" for="dd-date">Date dispatched</label>
-          <input class="sm-input" id="dd-date" name="dispatched_at" type="date" value="${esc(Utils.today())}"></div>
+          <input class="sm-input" id="dd-date" name="dispatched_at" type="date" max="${esc(Utils.today())}" value="${esc(Utils.today())}"></div>
         <div class="sm-field" style="align-self:end"><button class="sm-btn sm-btn--primary" type="submit">Log dispatch</button></div>
       </div><div class="sm-err" id="dd-err" role="alert"></div></form>` : ''}
-    ${rows.length ? `<table class="sm-tbl"><thead><tr><th>Date</th><th>Document</th><th>Mode</th><th>Tracking</th><th>Consumer</th><th></th></tr></thead><tbody>
-      ${rows.map((r) => `<tr data-row><td class="mono">${esc(Utils.date(r.dispatched_at || r.created_at))}</td><td>${esc(r.document_type || '-')}</td>
-        <td><span class="sm-tag">${esc(r.dispatch_mode || '-')}</span></td><td class="mono">${esc(r.tracking_no || '-')}</td>
-        <td>${esc(r.consumer_name || '-')}</td>
-        <td class="act">${canDel ? `<button class="sm-btn sm-btn--quiet sm-btn--danger" data-act="del" data-kind="dispatch" data-id="${esc(r.id)}">Delete</button>` : ''}</td></tr>`).join('')}
-      </tbody></table>` : SM.empty('No dispatches logged', 'Log the first one above.')}
+    <div class="sm-addrow multi" style="grid-template-columns:2fr 1fr 1fr auto;align-items:end">
+      <div><label class="sm-label" for="df-q">Search</label><input class="sm-input" id="df-q" value="${esc(fq.q)}" placeholder="Document, tracking number or consumer"></div>
+      <div><label class="sm-label" for="df-from">From</label><input class="sm-input" type="date" id="df-from" value="${esc(fq.from)}"></div>
+      <div><label class="sm-label" for="df-to">To</label><input class="sm-input" type="date" id="df-to" value="${esc(fq.to)}"></div>
+      <button class="sm-btn" id="df-go">Search</button></div>
+    <div id="dd-list">${rows.length ? `<table class="sm-tbl"><thead><tr><th>Date</th><th>Document</th><th>Mode</th><th>Tracking</th><th>Consumer</th><th></th></tr></thead><tbody id="dd-rows">${rows.map(rowHtml).join('')}</tbody></table>
+      ${more ? '<div style="padding:12px 16px"><button class="sm-btn" id="dd-more">Load more</button></div>' : ''}` : SM.empty('No dispatches found', canAdd ? 'Log the first one above.' : 'Nothing matches.')}</div>
   </div>`;
+  const go = () => { Object.assign(fq, { q: root.querySelector('#df-q').value.trim(), from: root.querySelector('#df-from').value, to: root.querySelector('#df-to').value }); SM.paint(); };
+  root.querySelector('#df-go').onclick = go;
+  root.querySelector('#df-q').onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  const moreBtn = root.querySelector('#dd-more');
+  if (moreBtn) moreBtn.onclick = async () => {
+    moreBtn.disabled = true;
+    try {
+      const next = await load(++page);
+      rows = rows.concat(next.rows); SM.d.dispatch = rows;
+      root.querySelector('#dd-rows').insertAdjacentHTML('beforeend', next.rows.map(rowHtml).join(''));
+      if (!next.more) moreBtn.remove(); else moreBtn.disabled = false;
+    } catch (e) { Utils.error(e.message); moreBtn.disabled = false; }
+  };
   SM.wire(root, async (kind, id, act) => {
-    if (act !== 'del') return;
-    const yes = await SM.ask({ title: 'Delete this dispatch entry?', text: 'This cannot be undone. The change is recorded in the audit log.' });
-    if (yes && await SM.run(() => Api.delete(`/master/document-dispatch/${id}`), 'Deleted')) SM.paint();
+    const row = rows.find((r) => r.id === id);
+    if (act === 'del') {
+      const yes = await SM.ask({ title: 'Delete this dispatch entry?', text: 'This cannot be undone. The change is recorded in the audit log.' });
+      if (yes && await SM.run(() => Api.delete(`/master/document-dispatch/${id}`), 'Deleted')) SM.paint();
+    }
+    if (act === 'edit') SM.openForm({
+      title: 'Edit dispatch', submit: 'Save changes',
+      values: { document_type: row.document_type, dispatch_mode: row.dispatch_mode, tracking_no: row.tracking_no || '', dispatched_at: String(row.dispatched_at || '').slice(0, 10) },
+      fields: [
+        { key: 'document_type', label: 'Document', required: true, maxlength: 150 },
+        { key: 'dispatch_mode', label: 'Mode', type: 'select', required: true, options: MODES.map((m) => ({ value: m, label: m })) },
+        { key: 'tracking_no', label: 'Tracking number', maxlength: 100 },
+        { key: 'dispatched_at', label: 'Date dispatched', placeholder: 'YYYY-MM-DD' },
+      ],
+      onSubmit: async (v) => { await Api.put(`/master/document-dispatch/${id}`, { ...v, tracking_no: v.tracking_no || null, dispatched_at: v.dispatched_at || null }); Utils.success('Saved'); SM.paint(); },
+    });
   });
-  root.querySelectorAll('.sm-search').forEach((i) => { i.value = SM.q[i.dataset.q] || ''; if (i.value) SM.filter(i); });
   SM.initDispatchForm(root.querySelector('#sm-dispatch-form'));
 };
 

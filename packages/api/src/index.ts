@@ -560,7 +560,7 @@ app.use('/api/payments', authenticateToken, outgoingPaymentsRoutes);
 app.use('/api/test-data', authenticateToken, testDataImportRoutes);
 app.use('/api/roles',          authenticateToken, rolesRoutes);
 app.use('/api/companies',      authenticateToken, companiesRoutes);
-app.use('/api/custom-letters', authenticateToken, customLettersRoutes);
+app.use('/api/custom-letters', authenticateToken, rbac('documents'), customLettersRoutes);
 
 // ============================================
 // SPA FALLBACK

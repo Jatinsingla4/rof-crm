@@ -432,16 +432,67 @@ router.delete('/document-types/:id', deleteRoute('document_types', {
     },
 }));
 // ─── DOCUMENT DISPATCH ────────────────────────────────────────────────────────
+const DISPATCH_MODES = ['Courier', 'Speed Post', 'Registered Post', 'Hand Delivery', 'Email', 'Other'];
+// Shared checks for create and update. Returns an error message or null.
+async function dispatchError(v) {
+    if ('document_type' in v && !v.document_type)
+        return 'Document type required';
+    if (typeof v.document_type === 'string' && v.document_type.length > 150)
+        return 'Document type is longer than 150 characters';
+    if ('dispatch_mode' in v && !v.dispatch_mode)
+        return 'Dispatch mode required';
+    if (v.dispatch_mode != null && !DISPATCH_MODES.includes(v.dispatch_mode))
+        return 'Invalid dispatch mode';
+    if (typeof v.tracking_no === 'string' && v.tracking_no.length > 100)
+        return 'Tracking number is longer than 100 characters';
+    if (v.dispatched_at != null) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v.dispatched_at)) || Number.isNaN(Date.parse(String(v.dispatched_at))))
+            return 'Date dispatched must be a date like 2026-01-31';
+        if (String(v.dispatched_at) > new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+            return 'Date dispatched cannot be in the future';
+    }
+    if (v.consumer_id != null) {
+        if (!/^[0-9a-f-]{36}$/i.test(String(v.consumer_id)))
+            return 'Consumer not found';
+        if (!(await index_js_1.db.query('SELECT 1 FROM consumers WHERE id = $1', [v.consumer_id])).rows.length)
+            return 'Consumer not found';
+    }
+    return null;
+}
+const DISPATCH_FIELDS = ['document_type', 'dispatch_mode', 'tracking_no', 'consumer_id', 'dispatched_at'];
+// Search (document, tracking number, consumer), consumer, date range; newest first; 50 per page
 router.get('/document-dispatch', async (req, res, next) => {
     try {
+        const { q, consumer_id, from, to } = req.query;
+        const size = Math.min(Math.max(Math.floor(Number(req.query.pageSize)) || 50, 1), 200);
+        const page = Math.max(Math.floor(Number(req.query.page)) || 1, 1);
+        const where = [];
+        const params = [];
+        const add = (sql, v) => { params.push(v); where.push(sql.split('?').join(`$${params.length}`)); };
+        if (consumer_id) {
+            if (!/^[0-9a-f-]{36}$/i.test(String(consumer_id)))
+                return res.status(400).json({ error: 'Invalid consumer_id' });
+            add('dd.consumer_id = ?', consumer_id);
+        }
+        if (q)
+            add('(dd.document_type ILIKE ? OR dd.tracking_no ILIKE ? OR c.name ILIKE ?)', `%${String(q).replace(/[\\%_]/g, (m) => '\\' + m)}%`);
+        for (const [name, v, sql] of [['from', from, 'COALESCE(dd.dispatched_at, dd.created_at) >= ?::date'], ['to', to, 'COALESCE(dd.dispatched_at, dd.created_at) < (?::date + 1)']]) {
+            if (!v)
+                continue;
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(String(v))))
+                return res.status(400).json({ error: `${name} must be a date like 2026-01-31` });
+            add(sql, v);
+        }
+        params.push(size + 1, (page - 1) * size);
         const result = await index_js_1.db.query(`
       SELECT dd.*, c.name as consumer_name
       FROM document_dispatch dd
       LEFT JOIN consumers c ON c.id = dd.consumer_id
-      ORDER BY dd.created_at DESC
-      LIMIT 100
-    `);
-        res.json({ success: true, data: result.rows });
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY COALESCE(dd.dispatched_at, dd.created_at) DESC, dd.created_at DESC
+      LIMIT $${params.length - 1} OFFSET $${params.length}
+    `, params);
+        res.json({ success: true, data: result.rows.slice(0, size), has_more: result.rows.length > size });
     }
     catch (err) {
         next(err);
@@ -449,7 +500,7 @@ router.get('/document-dispatch', async (req, res, next) => {
 });
 router.post('/document-dispatch', async (req, res, next) => {
     try {
-        const cleaned = cleanBody(req.body, ['document_type', 'dispatch_mode', 'tracking_no', 'consumer_id', 'dispatched_at']);
+        const cleaned = cleanBody(req.body, DISPATCH_FIELDS);
         if ('error' in cleaned)
             return res.status(400).json({ error: cleaned.error });
         const v = cleaned.values;
@@ -457,15 +508,40 @@ router.post('/document-dispatch', async (req, res, next) => {
             return res.status(400).json({ error: 'Document type required' });
         if (!v.dispatch_mode)
             return res.status(400).json({ error: 'Dispatch mode required' });
-        if (v.consumer_id) {
-            const found = await index_js_1.db.query('SELECT 1 FROM consumers WHERE id = $1', [v.consumer_id]);
-            if (!found.rows.length)
-                return res.status(400).json({ error: 'Consumer not found' });
-        }
+        const invalid = await dispatchError(v);
+        if (invalid)
+            return res.status(400).json({ error: invalid });
         const result = await index_js_1.db.query(`INSERT INTO document_dispatch (document_type, dispatch_mode, tracking_no, consumer_id, dispatched_at, created_by)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`, [v.document_type, v.dispatch_mode, v.tracking_no ?? null, v.consumer_id ?? null, v.dispatched_at ?? null, req.userId]);
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'master.document_dispatch', result.rows[0].id, undefined, result.rows[0]);
         res.status(201).json({ success: true, data: result.rows[0] });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// Correct a typing mistake (tracking number, mode, date) without deleting the entry
+router.put('/document-dispatch/:id', async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        if (!/^[0-9a-f-]{36}$/i.test(id))
+            return res.status(404).json({ error: 'Dispatch entry not found' });
+        const cleaned = cleanBody(req.body, DISPATCH_FIELDS);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const v = cleaned.values;
+        const keys = Object.keys(v);
+        if (!keys.length)
+            return res.status(400).json({ error: 'Nothing to update' });
+        const invalid = await dispatchError(v);
+        if (invalid)
+            return res.status(400).json({ error: invalid });
+        const old = (await index_js_1.db.query('SELECT * FROM document_dispatch WHERE id = $1', [id])).rows[0];
+        if (!old)
+            return res.status(404).json({ error: 'Dispatch entry not found' });
+        const result = await index_js_1.db.query(`UPDATE document_dispatch SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')} WHERE id = $${keys.length + 1} RETURNING *`, [...keys.map((k) => v[k]), id]);
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'master.document_dispatch', id, old, result.rows[0]);
+        res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
         next(err);

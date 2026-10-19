@@ -469,7 +469,7 @@ app.use('/api/payments', exports.authenticateToken, outgoing_payments_js_1.defau
 app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);
 app.use('/api/roles', exports.authenticateToken, roles_js_1.default);
 app.use('/api/companies', exports.authenticateToken, companies_js_1.default);
-app.use('/api/custom-letters', exports.authenticateToken, custom_letters_js_1.default);
+app.use('/api/custom-letters', exports.authenticateToken, rbac('documents'), custom_letters_js_1.default);
 // ============================================
 // SPA FALLBACK
 // ============================================
