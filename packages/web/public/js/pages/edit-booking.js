@@ -18,109 +18,119 @@
   let _users = [];
 
   const EB_STYLES = `<style id="eb-styles">
-.eb-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.eb-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
+.eb-page { padding: 0; max-width: 1100px; margin: 0 auto; font-size: 13px; }
+.eb-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 14px; overflow: hidden; }
 .eb-hdr {
   display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
+  background: var(--teal-bg); padding: 14px 18px; border-bottom: 1px solid var(--border);
 }
-.eb-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.eb-body { padding: 14px 16px 16px; }
+.eb-hdr-title { color: var(--text); font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; }
+.eb-body { padding: 18px; }
 .eb-filter-row {
   display: flex; align-items: flex-end; gap: 16px;
-  margin-bottom: 16px; flex-wrap: wrap;
+  margin-bottom: 4px; flex-wrap: wrap;
 }
-.eb-field { display: flex; flex-direction: column; gap: 3px; }
-.eb-lbl { font-size: 11px; color: #555; white-space: nowrap; }
+.eb-field { display: flex; flex-direction: column; gap: 6px; }
+.eb-lbl { font-size: 11px; color: var(--text2); letter-spacing: .3px; white-space: nowrap; }
 .eb-field select,
 .eb-field input[type="text"],
 .eb-field input[type="date"],
 .eb-field input[type="number"],
 .eb-field textarea {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; box-sizing: border-box;
+  padding: 9px 12px; border: 1px solid var(--border2); border-radius: 8px;
+  font-size: 13px; box-sizing: border-box; min-height: 38px;
+  background: var(--surface); color: var(--text);
 }
-.eb-field select           { min-width: 180px; }
+.eb-field select:focus, .eb-field input:focus, .eb-field textarea:focus,
+.eb-fc:focus { outline: none; border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-bg); }
+.eb-field select           { min-width: 200px; }
 .eb-field input[type="text"],
-.eb-field input[type="date"] { min-width: 150px; }
+.eb-field input[type="date"] { min-width: 170px; }
 .eb-btn {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 7px 22px; border-radius: 3px; font-size: 13px;
-  font-weight: bold; cursor: pointer; align-self: flex-end;
+  background: var(--teal); color: #fff; border: none;
+  padding: 9px 26px; border-radius: 8px; font-size: 12.5px;
+  font-weight: 600; cursor: pointer; align-self: flex-end; min-height: 38px;
 }
-.eb-btn:hover    { background: #16305c; }
+.eb-btn:hover    { filter: brightness(.92); }
 .eb-btn:disabled { opacity: .7; cursor: not-allowed; }
 .eb-btn-sec {
-  background: #6c757d; color: #fff; border: none;
-  padding: 7px 22px; border-radius: 3px; font-size: 13px;
-  font-weight: bold; cursor: pointer;
+  background: var(--surface); color: var(--text2); border: 1px solid var(--border2);
+  padding: 9px 26px; border-radius: 8px; font-size: 12.5px;
+  font-weight: 600; cursor: pointer; min-height: 38px;
 }
-.eb-btn-sec:hover { background: #5a6268; }
-.eb-msg { margin-top: 8px; font-size: 13px; padding: 6px 10px; border-radius: 3px; }
-.eb-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.eb-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.eb-table-wrap { overflow-x: auto; }
-table.eb-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.eb-btn-sec:hover { background: var(--surface2); }
+.eb-msg { margin-top: 12px; font-size: 13px; padding: 8px 12px; border-radius: 8px; }
+.eb-msg-err { background: var(--red-bg); color: var(--red); border: 1px solid var(--red); }
+.eb-msg-ok  { background: var(--teal-bg); color: var(--teal); border: 1px solid var(--teal); }
+.eb-table-wrap { overflow-x: auto; border: 1px solid var(--border2); border-radius: 10px; }
+table.eb-tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.eb-tbl th {
-  background: #1d3a6e; color: #fff; padding: 7px 8px; text-align: left;
-  font-size: 11px; white-space: nowrap; border: 1px solid #14306a;
+  background: var(--surface2); color: var(--text3); padding: 10px 14px; text-align: left;
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+  white-space: nowrap; border-bottom: 1px solid var(--border2);
 }
 table.eb-tbl td {
-  padding: 6px 8px; border: 1px solid #e0e0e0;
-  white-space: nowrap; vertical-align: middle;
+  padding: 10px 14px; border-bottom: 1px solid var(--border);
+  color: var(--text); white-space: nowrap; vertical-align: middle;
 }
-table.eb-tbl tr:nth-child(even) td { background: #f9f9f9; }
-table.eb-tbl tr:hover td { background: #eef4ff; }
+table.eb-tbl tbody tr:last-child td { border-bottom: none; }
+table.eb-tbl tbody tr:hover td { background: var(--surface2); }
 .eb-edit-link {
-  color: #1d3a6e; cursor: pointer; text-decoration: underline;
-  font-weight: bold; font-size: 11px;
+  color: var(--teal); cursor: pointer; text-decoration: none;
+  font-weight: 600; font-size: 12px; padding: 3px 10px; border-radius: 6px;
+  border: 1px solid var(--teal); display: inline-block;
 }
+.eb-edit-link:hover { background: var(--teal-bg); }
 .eb-back {
-  color: #fff; cursor: pointer; font-size: 16px;
-  font-weight: bold; margin-right: 8px; vertical-align: middle;
-  text-decoration: none;
+  color: var(--teal); cursor: pointer; font-size: 18px;
+  font-weight: bold; margin-right: 10px; vertical-align: middle;
+  text-decoration: none; display: inline-block; width: 28px; height: 28px; line-height: 26px;
+  text-align: center; border-radius: 8px;
 }
+.eb-back:hover { background: var(--teal-bg); }
 .eb-sec-hdr {
-  background: #1d3a6e; color: #fff; padding: 6px 12px;
-  font-size: 12px; font-weight: bold;
-  border-radius: 3px 3px 0 0; margin: 0;
+  background: var(--surface2); color: var(--text); padding: 12px 18px;
+  font-size: 12px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase;
+  border: 1px solid var(--border2); border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0; margin: 0;
 }
 .eb-sec-body {
-  background: #fff; border: 1px solid #ddd; border-top: none;
-  padding: 12px 14px 14px; border-radius: 0 0 3px 3px; margin-bottom: 12px;
+  background: var(--surface); border: 1px solid var(--border2); border-top: none;
+  padding: 18px; border-radius: 0 0 10px 10px; margin-bottom: 14px;
 }
 .eb-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px 18px;
 }
-.eb-fg { display: flex; flex-direction: column; gap: 3px; }
-.eb-fl { font-size: 11px; color: #555; }
+.eb-fg { display: flex; flex-direction: column; gap: 6px; }
+.eb-fl { font-size: 11px; color: var(--text2); letter-spacing: .3px; }
 .eb-fc {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; box-sizing: border-box; width: 100%;
+  padding: 9px 12px; border: 1px solid var(--border2); border-radius: 8px;
+  font-size: 13px; box-sizing: border-box; width: 100%; min-height: 38px;
+  background: var(--surface); color: var(--text);
 }
 .eb-fc-ro {
-  padding: 5px 8px; border: 1px solid #e0e0e0; border-radius: 3px;
-  font-size: 13px; box-sizing: border-box; width: 100%;
-  background: #f5f5f5; color: #666; cursor: default;
+  padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px;
+  font-size: 13px; box-sizing: border-box; width: 100%; min-height: 38px;
+  background: var(--surface2); color: var(--text2); cursor: default;
 }
 .eb-btn-row {
-  display: flex; gap: 10px; margin-top: 16px;
-  padding-top: 12px; border-top: 1px solid #eee;
+  display: flex; gap: 10px; margin-top: 18px;
+  padding: 14px 0 0; border-top: 1px solid var(--border);
 }
 .eb-banner {
-  border-radius: 3px; padding: 8px 12px; margin-bottom: 12px;
-  font-size: 13px; font-weight: bold; display: none;
+  border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+  font-size: 13px; font-weight: 600; display: none;
 }
-.eb-banner-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; display: block; }
-.eb-banner-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; display: block; }
-.eb-btg { display: flex; border: 1px solid #ccc; border-radius: 3px; overflow: hidden; width: 200px; }
+.eb-banner-ok  { background: var(--teal-bg); color: var(--teal); border: 1px solid var(--teal); display: block; }
+.eb-banner-err { background: var(--red-bg); color: var(--red); border: 1px solid var(--red); display: block; }
+.eb-btg { display: flex; border: 1px solid var(--border2); border-radius: 8px; overflow: hidden; width: 220px; }
 .eb-btg-item {
-  flex: 1; padding: 5px 10px; background: #fff;
+  flex: 1; padding: 8px 10px; background: var(--surface); color: var(--text2);
   border: none; cursor: pointer; font-size: 12px;
 }
-.eb-btg-item.on { background: #1d3a6e; color: #fff; font-weight: bold; }
+.eb-btg-item.on { background: var(--teal); color: #fff; font-weight: 600; }
 </style>`;
 
   function _esc(s) {
@@ -180,7 +190,7 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
     </div>
     <div class="eb-body">
       <div id="eb-count"
-           style="font-size:13px;font-weight:bold;color:#333;margin-bottom:10px;"></div>
+           style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:12px;"></div>
       <div class="eb-table-wrap">
         <table class="eb-tbl">
           <thead>
@@ -295,15 +305,15 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
           <label class="eb-fl">Basic Price Rs./SqFt</label>
           <input type="number" id="eb-basic-rate" class="eb-fc"
                  value="${_val(b.basic_rate_inr_sqft)}" min="0" step="0.01"
-                 readonly style="background:#f5f5f5;color:#666;">
-          <small style="color:#888;font-size:10px">Locked after booking. Contact admin for revision.</small>
+                 readonly style="background:var(--surface2);color:var(--text2);">
+          <small style="color:var(--text3);font-size:10px">Locked after booking. Contact admin for revision.</small>
         </div>
         <div class="eb-fg">
           <label class="eb-fl">Carpet Area (SqFt)</label>
           <input type="number" id="eb-carpet-area" class="eb-fc"
                  value="${_val(b.carpet_area_sqft)}" min="0" step="0.01"
-                 readonly style="background:#f5f5f5;color:#666;">
-          <small style="color:#888;font-size:10px">Locked after booking. Contact admin for revision.</small>
+                 readonly style="background:var(--surface2);color:var(--text2);">
+          <small style="color:var(--text3);font-size:10px">Locked after booking. Contact admin for revision.</small>
         </div>
         <div class="eb-fg">
           <label class="eb-fl">Form No</label>
@@ -348,7 +358,7 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
     <div class="eb-sec-hdr">BROKER</div>
     <div class="eb-sec-body">
       <div style="margin-bottom:10px">
-        <span style="font-size:11px;color:#555;margin-right:8px">Booking Type:</span>
+        <span style="font-size:11px;color:var(--text2);margin-right:8px">Booking Type:</span>
         <div class="eb-btg" style="display:inline-flex">
           <button type="button" class="eb-btg-item${isBroker ? ' on' : ''}"
                   id="eb-type-broker"
@@ -643,7 +653,7 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
     var tbody = document.getElementById('eb-tbody');
     if (!tbody) return;
     if (!_bookings.length) {
-      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;padding:20px">No records found.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:30px">No records found.</td></tr>';
       return;
     }
     tbody.innerHTML = _bookings.map(function(r, i) {
@@ -707,7 +717,7 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
 
     var container = document.getElementById('content') || document.body;
     container.innerHTML = EB_STYLES
-      + '<div style="padding:20px;color:#555;font-size:13px">Loading booking data...</div>';
+      + '<div style="padding:20px;color:var(--text2);font-size:13px">Loading booking data...</div>';
 
     var token = localStorage.getItem('rof-jwt') || '';
     try {
@@ -735,7 +745,7 @@ table.eb-tbl tr:hover td { background: #eef4ff; }
       container.innerHTML = _renderPage();
     } catch(e) {
       container.innerHTML = EB_STYLES
-        + '<div style="padding:20px;color:#a94442;font-size:13px">Error loading data: '
+        + '<div style="padding:20px;color:var(--red);font-size:13px">Error loading data: '
         + _esc(e.message)
         + ' &mdash; <a href="#" onclick="EditBooking.back();return false">Go Back</a></div>';
     }

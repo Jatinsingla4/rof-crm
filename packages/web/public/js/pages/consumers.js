@@ -17,11 +17,51 @@ Pages.consumers = async function(params = {}) {
       <div class="breadcrumb">Application / Booking / <b>Customer Register</b></div>
     </div>
 
-    <!-- LEGACY SEARCH CUSTOMER 1:1 REPLICA -->
-    <div class="sp legacy-search">
-      <div class="sp-hdr"><div class="sp-title">SEARCH CUSTOMER</div></div>
-      <div class="sp-body">
-        <!-- Search Criteria Tabs -->
+    <style>
+      .cgn { max-width:1180px; margin-left:auto; margin-right:auto }
+      .cgn-intro { display:flex; align-items:center; gap:12px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .cgn-intro-ico { width:36px; height:36px; border-radius:10px; background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0 }
+      .cgn-intro-t { font-size:14px; font-weight:600; color:var(--text) }
+      .cgn-intro-s { font-size:12px; color:var(--text2); margin-top:2px }
+      .cgn-body { padding:18px }
+      .cgn-lbl { font-size:11px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.5px; margin-bottom:10px }
+      .search-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:18px }
+      .s-tab { padding:6px 14px; border:1px solid var(--border2); background:var(--surface); font-size:12px; cursor:pointer; transition:.15s; color:var(--text2); border-radius:999px }
+      .s-tab:hover { border-color:var(--teal); color:var(--teal) }
+      .s-tab.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .cgn-input { display:flex; align-items:flex-end; flex-wrap:wrap; gap:14px; padding:16px; background:var(--surface2); border:1px solid var(--border); border-radius:10px }
+      .cgn-input .fg { flex:1 1 260px; max-width:360px; gap:6px }
+      .cgn-input .fl { font-size:11px; letter-spacing:.3px; color:var(--text2) }
+      .cgn-input .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .cgn-input .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .cgn-input .btn { padding:9px 28px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      .cgn-input .btn-fetch, .cgn-input .btn-fetch:hover { background:var(--teal) !important; color:#fff }
+      .cgn-res { margin-top:18px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .cgn-res-h { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:12px 18px; background:var(--surface2); border-bottom:1px solid var(--border) }
+      .cgn-res-t { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .cgn-res-a { display:flex; gap:10px; align-items:center }
+      .cgn-res-a .btn { padding:6px 12px; border-radius:6px }
+      .horizontal-scroll { overflow-x:auto }
+      .legacy-table table { width:100%; min-width:1500px; border-collapse:collapse; font-size:12.5px }
+      .legacy-table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+      .legacy-table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+      .legacy-table tbody tr { cursor:pointer }
+      .legacy-table tbody tr:hover td { background:var(--surface2) }
+      .legacy-table tbody tr:last-child td { border-bottom:none }
+      .legacy-table .td-bold { font-weight:600 }
+      @media (max-width:640px) { .cgn-input .fg { max-width:none } }
+    </style>
+
+    <div class="sp cgn legacy-search">
+      <div class="cgn-intro">
+        <div class="cgn-intro-ico">🔍</div>
+        <div>
+          <div class="cgn-intro-t">Search Customer</div>
+          <div class="cgn-intro-s">Pick a search field, enter the value and fetch matching customers.</div>
+        </div>
+      </div>
+      <div class="cgn-body">
+        <div class="cgn-lbl">Search by</div>
         <div class="search-tabs">
           <button class="s-tab active" data-key="unitNo">Unit No.</button>
           <button class="s-tab" data-key="regNo">Reg. No.</button>
@@ -39,42 +79,29 @@ Pages.consumers = async function(params = {}) {
           <button class="s-tab" data-key="secondApplicantPan">Second Applicant PAN</button>
         </div>
 
-        <!-- Dynamic Input Area -->
-        <div class="search-input-area" style="margin-top:20px; padding: 15px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px;">
-          <div class="fg" style="max-width: 300px;">
+        <div class="search-input-area cgn-input">
+          <div class="fg">
             <label class="fl" id="search-label">Unit No. :</label>
             <input class="fc" id="search-value" placeholder="e.g. b-706" style="text-transform: uppercase;">
           </div>
-          <button class="btn btn-fetch" style="margin-top:15px; width: 100px; background: #0056b3; font-weight: bold;" onclick="ConsumersPage.fetchLegacy()">FETCH</button>
+          <button class="btn btn-teal btn-fetch" onclick="ConsumersPage.fetchLegacy()">FETCH</button>
         </div>
       </div>
     </div>
 
-    <div class="tbl-wrap legacy-table" id="cons-tbl" style="display:none; margin-top:20px;">
-      <div class="tbl-hdr" style="background: #0056b3; color: white;">
-        <div class="tbl-title" style="color:white">SEARCH CUSTOMER</div>
-        <div class="tbl-actions" style="display:flex;gap:10px;align-items:center">
-          <div style="font-size:11px; color: #e0e0e0; margin-right:20px">
-            <span class="status-box" style="background:#00bcd4;width:12px;height:12px;display:inline-block;margin-right:5px"></span> Surrender/Cancellation Unit
+    <div class="cgn cgn-res legacy-table" id="cons-tbl" style="display:none">
+      <div class="cgn-res-h">
+        <div class="cgn-res-t">Search Results</div>
+        <div class="cgn-res-a">
+          <div style="font-size:11px;color:var(--text3)">
+            <span style="background:#00bcd4;width:10px;height:10px;display:inline-block;margin-right:5px;border-radius:2px"></span>Surrender/Cancellation Unit
           </div>
-          <button class="btn btn-ghost btn-sm" style="color:white; border-color:rgba(255,255,255,0.3)" onclick="ConsumersPage.exportExcel()"><i class="fas fa-file-excel"></i></button>
-          <button class="btn btn-ghost btn-sm" style="color:white; border-color:rgba(255,255,255,0.3)" onclick="window.print()"><i class="fas fa-print"></i></button>
+          <button class="btn btn-ghost btn-sm" onclick="ConsumersPage.exportExcel()"><i class="fas fa-file-excel"></i></button>
+          <button class="btn btn-ghost btn-sm" onclick="window.print()"><i class="fas fa-print"></i></button>
         </div>
       </div>
       <div id="cons-table-body" class="horizontal-scroll"></div>
     </div>
-
-    <style>
-      .search-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid #ddd; padding-bottom: 2px; }
-      .s-tab { padding: 6px 12px; border: 1px solid #ccc; background: #f0f0f0; font-size: 11px; cursor: pointer; transition: 0.2s; color: #333; }
-      .s-tab:hover { background: #e0e0e0; }
-      .s-tab.active { background: #0056b3; color: white; border-color: #004494; font-weight: bold; }
-      .legacy-table table { font-size: 11px; border-collapse: collapse; width: 100%; min-width: 1500px; }
-      .legacy-table th { background: #f2f2f2; border: 1px solid #ddd; padding: 8px; text-align: left; color: #333; font-weight: 600; text-transform: uppercase; }
-      .legacy-table td { border: 1px solid #ddd; padding: 8px; background: white; }
-      .horizontal-scroll { overflow-x: auto; border: 1px solid #ddd; }
-      .btn-fetch:hover { background: #004494 !important; }
-    </style>
   `;
 
   // Setup Tab Listeners
@@ -140,7 +167,7 @@ const ConsumersPage = {
           <td>${c.bhk_type || 'Type-C'}</td>
           <td class="td-mono">${c.unit_area || '—'}</td>
           <td>${c.tower_name || '—'}</td>
-          <td class="td-bold" style="color:#0056b3">${c.unit_no || '—'}</td>
+          <td class="td-bold" style="color:var(--teal)">${c.unit_no || '—'}</td>
           <td>${c.broker_name || 'Direct'}</td>
           <td>${Utils.date(c.dob) || '30/08/1984'}</td>
           <td>${c.address || 'Gurugram, HR'}</td>
