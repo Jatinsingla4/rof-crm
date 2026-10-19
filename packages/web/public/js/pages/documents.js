@@ -22,6 +22,59 @@ Pages.documents = async function(params = {}) {
       <button class="tab-line" data-group="docs" data-tab="vault" onclick="switchTab('docs','vault');DocsPage.loadVault()">Vault</button>
     </div>
 
+    <style>
+      [data-panel-group="docs"] { max-width:1180px; margin-left:auto; margin-right:auto }
+      [data-panel-group="docs"] .sp, [data-panel-group="docs"] .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      [data-panel-group="docs"] .sp-hdr, [data-panel-group="docs"] .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      [data-panel-group="docs"] .sp-title, [data-panel-group="docs"] .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      [data-panel-group="docs"] .sp-body { padding:18px }
+      [data-panel-group="docs"] .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { [data-panel-group="docs"] .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } [data-panel-group="docs"] .fg { grid-column:auto !important } }
+      @media (max-width:640px) { [data-panel-group="docs"] .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      [data-panel-group="docs"] .fg { gap:6px }
+      [data-panel-group="docs"] .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      [data-panel-group="docs"] .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      [data-panel-group="docs"] .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      [data-panel-group="docs"] .btn-lg, [data-panel-group="docs"] .btn-fetch { padding:9px 24px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      [data-panel-group="docs"] .btn-fetch, [data-panel-group="docs"] .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none; width:auto !important }
+      [data-panel-group="docs"] .alert { border-radius:8px; margin-bottom:16px !important }
+      [data-panel-group="docs"] .tbl-wrap, [data-panel-group="docs"] #doc-history-body, [data-panel-group="docs"] #doc-vault-body, [data-panel-group="docs"] #ul-templates-body { overflow-x:auto }
+      [data-panel-group="docs"] #doc-history-body, [data-panel-group="docs"] #doc-vault-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px }
+      [data-panel-group="docs"] table { width:100%; border-collapse:collapse; font-size:12.5px }
+      [data-panel-group="docs"] table th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap; border-left:none; border-right:none; border-top:none }
+      [data-panel-group="docs"] table td { padding:10px 14px; border:none; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle; background:transparent }
+      [data-panel-group="docs"] table tbody tr:hover td { background:var(--surface2) }
+      [data-panel-group="docs"] table tbody tr:last-child td { border-bottom:none }
+      [data-panel-group="docs"] table .td-bold { font-weight:600 }
+      [data-panel-group="docs"] .doc-action-link, [data-panel-group="docs"] .legacy-link { color:var(--teal); text-decoration:none; font-weight:500; cursor:pointer }
+      [data-panel-group="docs"] .doc-action-link:hover, [data-panel-group="docs"] .legacy-link:hover { text-decoration:underline }
+      /* Demand Printing */
+      [data-panel-group="docs"] .dpr-types { display:flex; gap:6px; flex-wrap:wrap }
+      [data-panel-group="docs"] .dpr-type-btn { padding:5px 12px; border:1px solid var(--border2); background:var(--surface); color:var(--text2); border-radius:999px; cursor:pointer; font-size:11.5px }
+      [data-panel-group="docs"] .dpr-type-btn:hover { border-color:var(--teal); color:var(--teal) }
+      [data-panel-group="docs"] .dpr-type-btn.on { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      [data-panel-group="docs"] .dpr-row { display:flex; align-items:flex-end; flex-wrap:wrap; gap:14px 16px; margin-bottom:16px }
+      [data-panel-group="docs"] .dpr-row .fg { min-width:120px }
+      [data-panel-group="docs"] .dpr-seg { display:flex; border:1px solid var(--border2); border-radius:8px; overflow:hidden; height:38px }
+      [data-panel-group="docs"] .dpr-seg button { padding:0 16px; border:none; background:var(--surface); color:var(--text2); font-size:12px; cursor:pointer }
+      [data-panel-group="docs"] .dpr-seg button.on { background:var(--teal); color:#fff; font-weight:600 }
+      [data-panel-group="docs"] .dpr-actions { border-top:1px solid var(--border); padding-top:16px; display:flex; align-items:center; gap:12px }
+      [data-panel-group="docs"] .dpr-count { font-size:12px; color:var(--text2) }
+      [data-panel-group="docs"] .dpr-legend { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:14px; padding:4px 4px 12px; font-size:11.5px; color:var(--text2) }
+      [data-panel-group="docs"] .dpr-legend span { display:flex; align-items:center; gap:5px }
+      [data-panel-group="docs"] .dpr-legend i { width:13px; height:13px; display:inline-block; border-radius:3px }
+      [data-panel-group="docs"] .dpr-ico { background:none; border:none; cursor:pointer; font-size:16px }
+      [data-panel-group="docs"] .dpr-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      [data-panel-group="docs"] .dpr-tbl td.dpr-link { color:var(--teal); font-weight:500; cursor:pointer }
+      [data-panel-group="docs"] .dpr-tbl tr.dpr-sent td { background:var(--surface2) }
+      [data-panel-group="docs"] .dpr-tbl tr.dpr-rem td { background:rgba(250,204,21,.12) }
+      [data-panel-group="docs"] .dpr-btn-d { background:var(--teal); color:#fff; border:none; padding:3px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600 }
+      [data-panel-group="docs"] .dpr-pag { padding:12px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-top:1px solid var(--border); font-size:12px; color:var(--text2) }
+      [data-panel-group="docs"] .dpr-pag button { padding:3px 8px; cursor:pointer; border:1px solid var(--border2); background:var(--surface); color:var(--text); border-radius:6px }
+      [data-panel-group="docs"] .dpr-prints { margin-top:16px; display:flex; gap:10px; flex-wrap:wrap }
+      [data-panel-group="docs"] .dpr-prints .btn { padding:9px 18px; font-size:12px; border-radius:8px; font-weight:600 }
+    </style>
+
     <!-- GENERATE (all doc types) -->
     <div data-panel-group="docs" data-panel="generate">
       ${DocsPage._printPanel({
@@ -79,7 +132,7 @@ Pages.documents = async function(params = {}) {
               </div>
             </div>
           </div>
-          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchATS()">FETCH</button>
+          <button class="btn btn-fetch" style="margin-top:16px" onclick="DocsPage.fetchATS()">FETCH</button>
         </div>
       </div>
       <div id="ats-results-body"></div>
@@ -110,7 +163,7 @@ Pages.documents = async function(params = {}) {
               <input class="fc" id="al-address" placeholder="Unit Address">
             </div>
           </div>
-          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchApplicantLedger()">FETCH</button>
+          <button class="btn btn-fetch" style="margin-top:16px" onclick="DocsPage.fetchApplicantLedger()">FETCH</button>
         </div>
       </div>
       <div id="al-results-body"></div>
@@ -149,7 +202,7 @@ Pages.documents = async function(params = {}) {
               </div>
             </div>
           </div>
-          <button class="btn btn-fetch" style="margin-top:15px; width: 100px;" onclick="DocsPage.fetchDemandLetters()">FETCH</button>
+          <button class="btn btn-fetch" style="margin-top:16px" onclick="DocsPage.fetchDemandLetters()">FETCH</button>
         </div>
       </div>
       <div id="dem-results-body"></div>
@@ -925,95 +978,91 @@ const DocsPage = {
 
   _demandPrintingPanel() {
     const tb = (id, label, active) =>
-      `<button class="dpr-type-btn" data-type="${id}" onclick="DocsPage.setDprType(this,'${id}')"
-        style="padding:4px 10px;border:1px solid #0d9488;border-radius:3px;cursor:pointer;font-size:11px;
-               background:${active?'#0d9488':'white'};color:${active?'white':'#0d9488'};font-weight:${active?'bold':'normal'}">${label}</button>`;
+      `<button class="dpr-type-btn${active?' on':''}" data-type="${id}" onclick="DocsPage.setDprType(this,'${id}')">${label}</button>`;
     return `
-    <div style="font-family:Arial,sans-serif;font-size:13px;">
-      <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;">
-        <div style="background:#0d9488;border-left:4px solid #065f46;border-bottom:2px solid #0d9488;padding:8px 12px;display:flex;justify-content:space-between;align-items:center;">
-          <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px;">DEMAND STATUS</span>
-          <div style="display:flex;gap:3px;">${tb('all','All',true)}${tb('demanded','Demand',false)}${tb('pending','Reminder',false)}${tb('paid','Cancellation Letter',false)}${tb('final','Final Opportunity Letter',false)}</div>
+    <div class="sp">
+      <div class="sp-hdr">
+        <div class="sp-title">Demand Status</div>
+        <div class="dpr-types">${tb('all','All',true)}${tb('demanded','Demand',false)}${tb('pending','Reminder',false)}${tb('paid','Cancellation Letter',false)}${tb('final','Final Opportunity Letter',false)}</div>
+      </div>
+      <div class="sp-body">
+        <div class="dpr-row">
+          <div class="dpr-seg">
+            <button id="dpr-all-btn" class="on" onclick="DocsPage.setDprScope('all')">All</button>
+            <button id="dpr-allotted-btn" onclick="DocsPage.setDprScope('allotted')">Allotted</button>
+          </div>
+          <div class="fg"><label class="fl"><span class="r">*</span>Project</label>
+            <select class="fc" id="dpr-project" onchange="DocsPage.loadDprTowers()"><option value="">&lt;--Select--&gt;</option></select></div>
+          <div class="fg"><label class="fl">Tower</label>
+            <select class="fc" id="dpr-tower"><option value="">&lt;--All--&gt;</option></select></div>
+          <div class="fg"><label class="fl">Floor</label>
+            <input class="fc" type="text" id="dpr-floor" placeholder="--All--" style="width:90px"></div>
+          <div class="fg"><label class="fl">Registration No.</label>
+            <input class="fc" type="text" id="dpr-reg-no" placeholder="Reg No"></div>
+          <div class="fg"><label class="fl">First Name</label>
+            <input class="fc" type="text" id="dpr-name" placeholder="First Name"></div>
+          <div class="fg"><label class="fl">City</label>
+            <input class="fc" type="text" id="dpr-city" placeholder="City"></div>
         </div>
-        <div style="padding:12px 14px;">
-          <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-            <div style="display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;height:28px;">
-              <button id="dpr-all-btn" onclick="DocsPage.setDprScope('all')" style="padding:4px 12px;border:none;background:#0d9488;color:white;font-size:12px;cursor:pointer;font-weight:bold;">All</button>
-              <button id="dpr-allotted-btn" onclick="DocsPage.setDprScope('allotted')" style="padding:4px 12px;border:none;background:white;color:#0d9488;font-size:12px;cursor:pointer;">Allotted</button>
-            </div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;color:#333;">*Project:</label>
-              <select id="dpr-project" onchange="DocsPage.loadDprTowers()" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:160px;"><option value="">&lt;--Select--&gt;</option></select></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Tower:</label>
-              <select id="dpr-tower" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:110px;"><option value="">&lt;--All--&gt;</option></select></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Floor:</label>
-              <input type="text" id="dpr-floor" placeholder="--All--" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:72px;"></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Registration No.:</label>
-              <input type="text" id="dpr-reg-no" placeholder="Reg No" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:130px;"></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">First Name:</label>
-              <input type="text" id="dpr-name" placeholder="First Name" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:110px;"></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">City:</label>
-              <input type="text" id="dpr-city" placeholder="City" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;width:90px;"></div>
+        <div class="dpr-row">
+          <div class="fg"><label class="fl">Send/Unsend Status</label>
+            <div style="display:flex;gap:8px;">
+              <select class="fc" id="dpr-send-status1"><option value="">&lt;--All--&gt;</option><option value="sent">Sent</option><option value="unsent">Unsent</option></select>
+              <select class="fc" id="dpr-send-status2"><option value="">&lt;--All--&gt;</option><option value="pending">Pending</option><option value="queued">Queued</option><option value="paid">Delivered</option></select>
+            </div></div>
+          <div class="fg"><label class="fl">Due Date</label>
+            <input class="fc" type="date" id="dpr-due-date"></div>
+          <div class="fg"><label class="fl">Print Date</label>
+            <input class="fc" type="date" id="dpr-print-date"></div>
+          <div class="dpr-seg">
+            <button id="dpr-gst-btn" class="on" onclick="DocsPage.setDprGst('gst')">GST</button>
+            <button id="dpr-pregst-btn" onclick="DocsPage.setDprGst('before')">Before GST</button>
           </div>
-          <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Send/Unsend Status:</label>
-              <div style="display:flex;gap:4px;">
-                <select id="dpr-send-status1" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:85px;"><option value="">&lt;--All--&gt;</option><option value="sent">Sent</option><option value="unsent">Unsent</option></select>
-                <select id="dpr-send-status2" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;min-width:85px;"><option value="">&lt;--All--&gt;</option><option value="pending">Pending</option><option value="queued">Queued</option><option value="paid">Delivered</option></select>
-              </div></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Due Date:</label>
-              <input type="date" id="dpr-due-date" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;"></div>
-            <div><label style="display:block;font-size:11px;margin-bottom:2px;">Print Date:</label>
-              <input type="date" id="dpr-print-date" style="padding:4px 8px;border:1px solid #999;border-radius:2px;font-size:12px;"></div>
-            <div style="align-self:flex-end;display:flex;border:1px solid #0d9488;border-radius:4px;overflow:hidden;height:28px;">
-              <button id="dpr-gst-btn" onclick="DocsPage.setDprGst('gst')" style="padding:4px 12px;border:none;background:#0d9488;color:white;font-size:12px;cursor:pointer;font-weight:bold;">GST</button>
-              <button id="dpr-pregst-btn" onclick="DocsPage.setDprGst('before')" style="padding:4px 12px;border:none;background:white;color:#0d9488;font-size:12px;cursor:pointer;">Before GST</button>
-            </div>
-          </div>
-          <div style="border-top:1px solid #e0e0e0;padding-top:10px;display:flex;align-items:center;gap:10px;">
-            <button onclick="DocsPage.fetchDpr()" style="background:#1976D2;color:white;border:none;padding:6px 20px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:0.5px;">FETCH</button>
-            <button onclick="DocsPage.clearDpr()" style="background:#6b7280;color:white;border:none;padding:6px 14px;border-radius:2px;cursor:pointer;font-size:12px;">Clear</button>
-            <span id="dpr-count" style="font-size:12px;color:#555;"></span>
-          </div>
+        </div>
+        <div class="dpr-actions">
+          <button class="btn btn-fetch" onclick="DocsPage.fetchDpr()">FETCH</button>
+          <button class="btn btn-ghost" onclick="DocsPage.clearDpr()">Clear</button>
+          <span id="dpr-count" class="dpr-count"></span>
         </div>
       </div>
-      <div id="dpr-results" style="display:none;margin-top:0;">
-        <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:8px 4px;font-size:11px;">
-          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#e0e0e0;border:1px solid #999;"></span>Sent</span>
-          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:white;border:1px solid #999;"></span>Demand</span>
-          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#FFF59D;border:1px solid #F9A825;"></span>Reminder</span>
-          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#A5D6A7;border:1px solid #388E3C;"></span>Cancellation Letter</span>
-          <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#EF9A9A;border:1px solid #C62828;"></span>Final Opportunity Letter</span>
-          <button onclick="window.print()" style="background:none;border:none;cursor:pointer;font-size:16px;">🖨️</button>
-          <button onclick="DocsPage.dprExport()" style="background:none;border:none;cursor:pointer;font-size:16px;">⬇️</button>
+    </div>
+    <div id="dpr-results" style="display:none;">
+      <div class="dpr-legend">
+        <span><i style="background:var(--surface2);border:1px solid var(--border2)"></i>Sent</span>
+        <span><i style="background:var(--surface);border:1px solid var(--border2)"></i>Demand</span>
+        <span><i style="background:#FFF59D;border:1px solid #F9A825"></i>Reminder</span>
+        <span><i style="background:#A5D6A7;border:1px solid #388E3C"></i>Cancellation Letter</span>
+        <span><i style="background:#EF9A9A;border:1px solid #C62828"></i>Final Opportunity Letter</span>
+        <button class="dpr-ico" onclick="window.print()">🖨️</button>
+        <button class="dpr-ico" onclick="DocsPage.dprExport()">⬇️</button>
+      </div>
+      <div class="dpr-card">
+        <div style="overflow-x:auto;">
+          <table class="dpr-tbl">
+            <thead><tr>
+              <th style="text-align:center;width:36px;"><input type="checkbox" id="dpr-select-all" onchange="DocsPage.dprSelectAll(this)"></th>
+              <th style="text-align:center;width:46px;">S. NO.</th>
+              <th>REGISTRATION NO.</th>
+              <th>BOOKING DATE</th>
+              <th>NAME</th>
+              <th>BROKER NAME</th>
+              <th>TYPE</th>
+              <th>UNIT ADDRESS</th>
+              <th>TOWER NAME</th>
+              <th>FLOOR NAME</th>
+              <th>MOBILE NO.</th>
+              <th style="text-align:center;width:40px;">D</th>
+            </tr></thead>
+            <tbody id="dpr-tbody"></tbody>
+          </table>
         </div>
-        <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;overflow:hidden;">
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead><tr style="background:#1a237e;color:white;">
-                <th style="padding:8px 6px;text-align:center;width:36px;"><input type="checkbox" id="dpr-select-all" onchange="DocsPage.dprSelectAll(this)"></th>
-                <th style="padding:8px 6px;text-align:center;width:46px;">S. NO.</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">REGISTRATION NO.</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">BOOKING DATE</th>
-                <th style="padding:8px 6px;text-align:left;">NAME</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">BROKER NAME</th>
-                <th style="padding:8px 6px;text-align:left;">TYPE</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">UNIT ADDRESS</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">TOWER NAME</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">FLOOR NAME</th>
-                <th style="padding:8px 6px;text-align:left;white-space:nowrap;">MOBILE NO.</th>
-                <th style="padding:8px 6px;text-align:center;width:40px;">D</th>
-              </tr></thead>
-              <tbody id="dpr-tbody"></tbody>
-            </table>
-          </div>
-          <div id="dpr-pagination" style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e0e0e0;font-size:12px;"></div>
-        </div>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
-          <button onclick="DocsPage.dprPrintSelected('demand')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT DEMAND</button>
-          <button onclick="DocsPage.dprPrintSelected('reminder')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT REMINDER</button>
-          <button onclick="DocsPage.dprPrintSelected('cancellation')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT CANCELLATION LETTER</button>
-          <button onclick="DocsPage.dprPrintSelected('final')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT FINAL OPPORTUNITY LETTER</button>
-        </div>
+        <div id="dpr-pagination" class="dpr-pag"></div>
+      </div>
+      <div class="dpr-prints">
+        <button class="btn btn-teal" onclick="DocsPage.dprPrintSelected('demand')">PRINT DEMAND</button>
+        <button class="btn btn-teal" onclick="DocsPage.dprPrintSelected('reminder')">PRINT REMINDER</button>
+        <button class="btn btn-teal" onclick="DocsPage.dprPrintSelected('cancellation')">PRINT CANCELLATION LETTER</button>
+        <button class="btn btn-teal" onclick="DocsPage.dprPrintSelected('final')">PRINT FINAL OPPORTUNITY LETTER</button>
       </div>
     </div>`;
   },
@@ -1021,22 +1070,20 @@ const DocsPage = {
   _dprType:'all', _dprScope:'all', _dprGst:'gst', _dprPage:1, _dprLimit:50, _dprSelected:new Set(),
 
   setDprType(btn,type) {
-    document.querySelectorAll('.dpr-type-btn').forEach(b=>{b.style.background='white';b.style.color='#0d9488';b.style.fontWeight='normal';});
-    btn.style.background='#0d9488'; btn.style.color='white'; btn.style.fontWeight='bold'; this._dprType=type;
+    document.querySelectorAll('.dpr-type-btn').forEach(b=>b.classList.remove('on'));
+    btn.classList.add('on'); this._dprType=type;
   },
   setDprScope(scope) {
     this._dprScope=scope;
     const a=document.getElementById('dpr-all-btn'),al=document.getElementById('dpr-allotted-btn');
     if(!a||!al)return;
-    if(scope==='all'){a.style.background='#0d9488';a.style.color='white';al.style.background='white';al.style.color='#0d9488';}
-    else{al.style.background='#0d9488';al.style.color='white';a.style.background='white';a.style.color='#0d9488';}
+    a.classList.toggle('on',scope==='all'); al.classList.toggle('on',scope!=='all');
   },
   setDprGst(type) {
     this._dprGst=type;
     const g=document.getElementById('dpr-gst-btn'),b=document.getElementById('dpr-pregst-btn');
     if(!g||!b)return;
-    g.style.background=type==='gst'?'#0d9488':'white'; g.style.color=type==='gst'?'white':'#0d9488';
-    b.style.background=type==='before'?'#0d9488':'white'; b.style.color=type==='before'?'white':'#0d9488';
+    g.classList.toggle('on',type==='gst'); b.classList.toggle('on',type==='before');
   },
   async initDemandPrinting() {
     const today=new Date().toISOString().split('T')[0];
@@ -1072,41 +1119,41 @@ const DocsPage = {
     Object.entries(map).forEach(([id,key])=>{const v=g(id);if(v)params.set(key,v);});
     if(this._dprType!=='all')params.set('demand_status',this._dprType);
     const tbody=document.getElementById('dpr-tbody');
-    if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:20px;color:#999;">Loading…</td></tr>';
+    if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text3);">Loading…</td></tr>';
     try {
       const token=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';
       const res=await fetch(`/api/payments/demand-status?${params}`,{headers:{Authorization:`Bearer ${token}`}});
       const json=await res.json(); const rows=json.data||[],total=json.total||0;
       const cnt=document.getElementById('dpr-count');if(cnt)cnt.textContent=`${total} record(s) found`;
       const results=document.getElementById('dpr-results');if(results)results.style.display='block';
-      if(!rows.length){if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:20px;color:#999;">No records found</td></tr>';return;}
+      if(!rows.length){if(tbody)tbody.innerHTML='<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--text3);">No records found</td></tr>';return;}
       if(tbody)tbody.innerHTML=rows.map((r,i)=>{
-        const bg=r.delivery_status==='paid'?'#f0f0f0':r.active_demands>0?'white':'#FFFDE7';
-        return `<tr style="background:${bg};border-bottom:1px solid #e8e8e8;">
-          <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="dpr-row-cb" value="${r.consumer_id}" onchange="DocsPage.dprToggleSelect('${r.consumer_id}',this.checked)"></td>
-          <td style="padding:7px 6px;text-align:center;">${(this._dprPage-1)*this._dprLimit+i+1}</td>
-          <td style="padding:7px 6px;color:#1a237e;font-weight:500;cursor:pointer;" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
-          <td style="padding:7px 6px;font-size:11px;">${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
-          <td style="padding:7px 6px;color:#1976D2;cursor:pointer;" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.name||'—'}</td>
-          <td style="padding:7px 6px;">Direct</td>
-          <td style="padding:7px 6px;">${r.bhk_type||'—'}</td>
-          <td style="padding:7px 6px;font-weight:500;">${r.unit_number||'—'}</td>
-          <td style="padding:7px 6px;">${r.tower_name||'—'}</td>
-          <td style="padding:7px 6px;">${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
-          <td style="padding:7px 6px;">${r.mobile||'—'}</td>
-          <td style="padding:7px 6px;text-align:center;"><button onclick="DocsPage.dprGenerateLetter('${r.consumer_id}')" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">D</button></td>
+        const rowCls=r.delivery_status==='paid'?'dpr-sent':r.active_demands>0?'':'dpr-rem';
+        return `<tr class="${rowCls}">
+          <td style="text-align:center"><input type="checkbox" class="dpr-row-cb" value="${r.consumer_id}" onchange="DocsPage.dprToggleSelect('${r.consumer_id}',this.checked)"></td>
+          <td style="text-align:center">${(this._dprPage-1)*this._dprLimit+i+1}</td>
+          <td class="dpr-link" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
+          <td>${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
+          <td class="dpr-link" onclick="DocsPage.openConsumer('${r.consumer_id}')">${r.name||'—'}</td>
+          <td>Direct</td>
+          <td>${r.bhk_type||'—'}</td>
+          <td class="td-bold">${r.unit_number||'—'}</td>
+          <td>${r.tower_name||'—'}</td>
+          <td>${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
+          <td>${r.mobile||'—'}</td>
+          <td style="text-align:center"><button onclick="DocsPage.dprGenerateLetter('${r.consumer_id}')" class="dpr-btn-d">D</button></td>
         </tr>`;
       }).join('');
       const totalPages=Math.ceil(total/this._dprLimit);
       const pag=document.getElementById('dpr-pagination');
-      if(pag)pag.innerHTML=`<span>Records Per Page: <select onchange="DocsPage.setDprLimit(+this.value)" style="padding:2px;font-size:12px;"><option value="50" ${this._dprLimit===50?'selected':''}>50</option><option value="100" ${this._dprLimit===100?'selected':''}>100</option></select></span>
-        <span style="font-weight:bold;">Page No: ${this._dprPage} of ${totalPages||1}</span>
+      if(pag)pag.innerHTML=`<span>Records Per Page: <select onchange="DocsPage.setDprLimit(+this.value)" style="padding:3px 6px;border-radius:6px;"><option value="50" ${this._dprLimit===50?'selected':''}>50</option><option value="100" ${this._dprLimit===100?'selected':''}>100</option></select></span>
+        <span style="font-weight:600;color:var(--text);">Page No: ${this._dprPage} of ${totalPages||1}</span>
         <span>Records ${(this._dprPage-1)*this._dprLimit+1}–${Math.min(this._dprPage*this._dprLimit,total)} of ${total}
-          <button onclick="DocsPage.dprGoPage(1)" style="padding:2px 5px;cursor:pointer;">&#8676;</button>
-          <button onclick="DocsPage.dprGoPage(${this._dprPage-1})" style="padding:2px 5px;cursor:pointer;">&#8249;</button>
-          <button onclick="DocsPage.dprGoPage(${this._dprPage+1})" style="padding:2px 5px;cursor:pointer;">&#8250;</button>
-          <button onclick="DocsPage.dprGoPage(${totalPages})" style="padding:2px 5px;cursor:pointer;">&#8677;</button></span>`;
-    } catch(err){if(tbody)tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:20px;color:#c62828;">Failed: ${err.message}</td></tr>`;}
+          <button onclick="DocsPage.dprGoPage(1)" >&#8676;</button>
+          <button onclick="DocsPage.dprGoPage(${this._dprPage-1})" >&#8249;</button>
+          <button onclick="DocsPage.dprGoPage(${this._dprPage+1})" >&#8250;</button>
+          <button onclick="DocsPage.dprGoPage(${totalPages})" >&#8677;</button></span>`;
+    } catch(err){if(tbody)tbody.innerHTML=`<tr><td colspan="12" style="text-align:center;padding:30px;color:var(--red);">Failed: ${err.message}</td></tr>`;}
   },
   dprGoPage(p){if(p>=1){this._dprPage=p;this._loadDprData();}},
   setDprLimit(l){this._dprLimit=l;this._dprPage=1;this._loadDprData();},
