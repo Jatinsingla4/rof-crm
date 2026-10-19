@@ -62,3 +62,7 @@ Customized Letters used to be a separate page outside the CRM (own header, own s
 
 - `api-test-documents.mjs`: 132 checks. Checklist (validation, duplicates, roles, project lists, rename, delete in use), dispatch (validation, search, paging, edit, roles), letter templates (every validation, roles, partial edit, delete), making letters (variables, escaping, project, Loan and Self, cancelled booking), reference numbers (series, 8 at once, duplicate copy, shared prefix, no number twice), headers, register, project scope.
 - `e2e/flows.spec.ts` section 9: checklist add, duplicate, edit; dispatch log, search, edit, bad date, delete; Customized Letters from template to numbered letter to register to delete; what support_agent and sales_executive see.
+
+## Update: editor served from our own server
+
+The letter editor (CKEditor 5, classic build 41.4.2) is now `packages/web/public/vendor/ckeditor5/ckeditor.js`, not the internet CDN. Letters no longer depend on cdn.ckeditor.com being reachable. If the file ever fails to load, the plain text box still works. To upgrade, replace that one file and change nothing else.

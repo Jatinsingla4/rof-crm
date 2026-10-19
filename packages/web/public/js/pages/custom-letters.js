@@ -90,7 +90,7 @@ CLX.seg = (key, options, value) => `<div class="sm-seg" role="group" aria-label=
 CLX.loadEditorScript = () => new Promise((resolve) => {
   if (window.ClassicEditor) return resolve(true);
   const s = document.createElement('script');
-  s.src = 'https://cdn.ckeditor.com/ckeditor5/41.4.2/classic/ckeditor.js';
+  s.src = '/vendor/ckeditor5/ckeditor.js';
   s.onload = () => resolve(true); s.onerror = () => resolve(false);
   document.head.appendChild(s);
 });
