@@ -1,9 +1,12 @@
 import { execSync } from 'child_process';
-const B='http://localhost:3002/api', PW='Test#Pass1234';
-const sql = q => execSync(`/Library/PostgreSQL/18/bin/psql -h localhost -p 5433 -U postgres -d rof_crm_test -Atq -c "${q.replace(/"/g,'\\"')}"`).toString().trim();
+const B=process.env.BASE||'http://localhost:3002/api', PW='Test#Pass1234';
+// psql reads PGHOST, PGPORT, PGUSER, PGPASSWORD and PGDATABASE from the environment; PSQL can point to the binary
+const PSQL = process.env.PSQL || 'psql';
+const sql = q => execSync(`${PSQL} -Atq -c "${q.replace(/"/g,'\\"')}"`).toString().trim();
 const tok=(await (await fetch(B+'/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'super_admin@test.local',password:PW})})).json()).token;
 const A=async(m,p,b)=>{const r=await fetch(B+p,{method:m,headers:{'content-type':'application/json',authorization:'Bearer '+tok},body:b===undefined?undefined:JSON.stringify(b)});let j=null;try{j=await r.json()}catch{}return{s:r.status,j}};
-const ok=(n,c,x='')=>console.log((c?'PASS ':'FAIL ')+n+(c?'':' -> '+x));
+let pass=0,fail=0;
+const ok=(n,c,x='')=>{c?pass++:fail++;console.log((c?'PASS ':'FAIL ')+n+(c?'':' -> '+x));};
 const U=Date.now().toString(36);
 const cid=sql("select id from consumers limit 1");
 // in-use guards for the 4 text lists + source
@@ -35,3 +38,5 @@ r=await A('GET',"/master/states?country_id=' OR '1'='1"); ok('filter with inject
 const un=await fetch(B+'/master/countries'); ok('no token -> 401/403', [401,403].includes(un.status), un.status);
 // logo endpoint guards
 const lg=await fetch(B+'/companies/not-a-uuid/logo',{method:'POST',headers:{authorization:'Bearer '+tok}}); ok('logo: bad company id -> 400', lg.status===400, lg.status);
+console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

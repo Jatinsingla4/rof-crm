@@ -83,3 +83,4 @@ r = await A('DELETE',`/companies/${coid}/bank-accounts/${b1}`); t('bank acct: no
 // ---- audit
 r = await A('GET','/master/countries'); 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); if (fails.length) console.log('FAILED:\n' + fails.join('\n'));
+process.exit(fail ? 1 : 0);

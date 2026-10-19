@@ -1,0 +1,173 @@
+name: CI
+
+# Runs on every push to main and on every pull request.
+# verify: build, syntax, fresh database, recent migrations twice, API tests with a real server.
+# deploy: only after verify passes on main. Needs the RENDER_DEPLOY_HOOK secret (see docs/PIPELINE.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        # The baseline schema was dumped from Postgres 18
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # psql reads these; the test scripts and make-test-db.sh use psql
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: rof_ci
+      PSQL: psql
+      # The API reads these
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: rof_ci
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      JWT_SECRET: ci-only-secret
+      NODE_ENV: development
+      PORT: 3002
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: No database URLs or keys in the repository
+        run: |
+          if git grep -nE "npg_[A-Za-z0-9]{10,}|postgres(ql)?://[^[:space:]:@/]+:[^[:space:]@]{6,}@[A-Za-z0-9.-]+\.neon\.tech" -- . ':!.github'; then
+            echo "::error::A Neon connection string or password is committed. Remove it and rotate the password."
+            exit 1
+          fi
+
+      - name: Install (same as Render)
+        working-directory: packages/api
+        run: npm install --no-audit --no-fund
+
+      - name: Build (tsc and copy files)
+        working-directory: packages/api
+        run: npm run build
+
+      - name: Committed dist matches the source
+        run: |
+          changed=$(git status --porcelain -- packages/api/dist ':!*.map')
+          if [ -n "$changed" ]; then
+            echo "$changed" | head -30
+            echo "::error title=dist is out of date::Run 'npm run build' in packages/api and commit packages/api/dist. Files that differ: $(echo "$changed" | awk '{print $2}' | head -8 | tr '\n' ' ')"
+            exit 1
+          fi
+
+      - name: Frontend files have valid syntax
+        run: |
+          status=0
+          while IFS= read -r -d '' f; do
+            if ! msg=$(node --check "$f" 2>&1); then
+              echo "::error file=$f,title=JavaScript syntax error::$(echo "$msg" | head -4 | tr '\n' ' ')"
+              status=1
+            fi
+          done < <(find packages/web/public -name '*.js' -print0)
+          exit $status
+
+      - name: Fresh test database from the baseline
+        working-directory: packages/api
+        run: scripts/make-test-db.sh rof_ci
+
+      - name: Migrations after the baseline (096 onward), run twice
+        working-directory: packages/api
+        run: |
+          for f in $(ls src/db/migrations | awk -F_ '$1+0>=96'); do
+            for run in 1 2; do
+              echo "$f (run $run)"
+              if ! err=$(psql -q -v ON_ERROR_STOP=1 -f "src/db/migrations/$f" 2>&1 >/dev/null); then
+                echo "::error file=packages/api/src/db/migrations/$f,title=Migration $f failed on run $run::$(echo "$err" | head -4 | tr '\n' ' ')"
+                exit 1
+              fi
+            done
+          done
+
+      - name: Start the API
+        working-directory: packages/api
+        run: |
+          node dist/index.js > /tmp/api.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3002/api/health > /dev/null; then echo "API is up"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::The API did not start"; cat /tmp/api.log; exit 1
+
+      - name: API tests (all scripts run, every failed check is named)
+        env:
+          BASE: http://localhost:3002/api
+        run: |
+          .github/scripts/run-api-tests.sh \
+            docs/set-master-setup/api-test-setup.mjs \
+            docs/set-master-setup/api-test-deep.mjs \
+            docs/set-projects-setup/api-test-project-setup.mjs \
+            docs/set-projects-setup/api-test-fixes.mjs
+
+      - name: API log (on failure)
+        if: failure()
+        run: tail -n 80 /tmp/api.log || true
+
+      - name: Dependency audit (information only)
+        continue-on-error: true
+        working-directory: packages/api
+        run: npm audit --omit=dev --audit-level=high
+
+  deploy:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Trigger the Render deploy
+        env:
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "::notice::RENDER_DEPLOY_HOOK is not set, so no deploy was triggered from here."
+            exit 0
+          fi
+          curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
+          echo "Deploy requested"
+
+      - name: Check the live site after the deploy
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ] || [ -z "$APP_URL" ]; then echo "::notice::Skipping the live check (needs both RENDER_DEPLOY_HOOK and the APP_URL variable)."; exit 0; fi
+          # The free plan sleeps and a deploy takes a few minutes, so wait up to about 12 minutes
+          for i in $(seq 1 48); do
+            if curl -fsS "$APP_URL/api/health" | grep -q '"status":"ok"'; then echo "Live site is healthy"; exit 0; fi
+            sleep 15
+          done
+          echo "::error::The live site did not become healthy after the deploy"; exit 1

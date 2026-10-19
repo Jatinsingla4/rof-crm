@@ -109,3 +109,4 @@ r=await A('DELETE','/master/reminder-master/'+rid); t('reminder: delete',r.s===2
 r=await A('DELETE','/master/reminder-master/'+rid); t('reminder: delete again -> 404',r.s===404,r.s);
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); if(fails.length)console.log('FAILED:\n'+fails.join('\n'));
+process.exit(fail ? 1 : 0);

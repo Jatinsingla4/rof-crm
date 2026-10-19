@@ -99,3 +99,4 @@ r = await fetch(B.replace('/api', '') + url); t('logo: the old .png file was rem
 r = await PM('POST', `/companies/${co}/logo`); t('logo: project_manager still blocked', r.s === 403, r.s);
 
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); if (fails.length) console.log('FAILED:\n' + fails.join('\n'));
+process.exit(fail ? 1 : 0);
