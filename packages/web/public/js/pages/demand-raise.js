@@ -220,26 +220,26 @@ Pages.demandRaise = async function(params = {}) {
       <div class="sp-hdr"><div class="sp-title">${title.toUpperCase()}</div></div>
       <div class="sp-body">
         ${filterPanels[view] || filterPanels.customer}
-        <div style="margin-top:15px; display:flex; align-items:center; gap:12px">
-          <button class="btn btn-fetch" onclick="DemandRaisePage.fetch()" style="width:100px;background:#0056b3;font-weight:bold">FETCH</button>
-          ${(isRaiseView && !isStageView) ? `<span id="dr-sel-count" style="font-size:12px;color:#555">0 demands selected</span>` : ''}
+        <div class="dr-fetch-row">
+          <button class="btn btn-fetch" onclick="DemandRaisePage.fetch()">FETCH</button>
+          ${(isRaiseView && !isStageView) ? `<span id="dr-sel-count" class="dr-count">0 demands selected</span>` : ''}
         </div>
       </div>
     </div>
 
     ${isStageView ? `
     <!-- STAGE WISE NESTED RESULTS -->
-    <div id="sw-results" style="display:none;margin-top:20px;border:1px solid #dee2e6;border-radius:4px;overflow:hidden">
-      <div style="background:#f0f4f8;border-bottom:2px solid #dee2e6;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">
-        <span id="sw-project-label" style="color:#1a56db;font-size:13px;font-weight:bold;text-transform:uppercase;letter-spacing:.3px"></span>
-        <span style="color:#e05a1f;font-size:14px;cursor:pointer">&#128438;&nbsp;&nbsp;&#11123;</span>
+    <div id="sw-results" class="dr-sw-wrap">
+      <div class="dr-sw-hdr">
+        <span id="sw-project-label"></span>
+        <span style="color:var(--text3);font-size:14px;cursor:pointer">&#128438;&nbsp;&nbsp;&#11123;</span>
       </div>
       <div id="sw-body"></div>
     </div>` : `
     <!-- STANDARD RESULTS TABLE -->
-    <div class="tbl-wrap legacy-table" id="dr-results-wrap" style="display:none;margin-top:20px">
-      <div class="tbl-hdr" style="background:#0056b3;color:white">
-        <div class="tbl-title" style="color:white">${title.toUpperCase()}</div>
+    <div class="tbl-wrap legacy-table" id="dr-results-wrap" style="display:none">
+      <div class="tbl-hdr">
+        <div class="tbl-title">${title.toUpperCase()}</div>
       </div>
       <div class="horizontal-scroll">
         <table id="dr-table">
@@ -248,9 +248,9 @@ Pages.demandRaise = async function(params = {}) {
         </table>
       </div>
       ${isRaiseView ? `
-      <div style="padding:15px;background:#f8f9fa;border-top:1px solid #ddd;display:flex;align-items:center;gap:12px">
-        <button class="btn btn-proceed" onclick="DemandRaisePage.openModal()" style="background:#dc3545;color:white;font-weight:bold;border-radius:2px">PROCEED</button>
-        <span id="dr-sel-count2" style="font-size:12px;color:#555"></span>
+      <div class="dr-foot">
+        <button class="btn btn-proceed" onclick="DemandRaisePage.openModal()">PROCEED</button>
+        <span id="dr-sel-count2" class="dr-count"></span>
       </div>` : ''}
     </div>`}
 
@@ -259,16 +259,16 @@ Pages.demandRaise = async function(params = {}) {
       <div class="dr-modal-box">
         <div class="dr-modal-hdr">
           <span style="font-weight:bold;font-size:12px">RAISE / SET DEMAND DATE</span>
-          <span onclick="DemandRaisePage.closeModal()" style="cursor:pointer;font-size:22px;line-height:1">&times;</span>
+          <span onclick="DemandRaisePage.closeModal()" class="dr-x">&times;</span>
         </div>
-        <div style="padding:20px">
+        <div class="dr-modal-body">
           <div class="fg">
             <label class="fl">Due Date</label>
             <input type="date" id="m-inst-date" class="fc" value="${Utils.today()}">
           </div>
-          <div style="margin-top:20px;display:flex;gap:10px">
-            <button class="btn" style="background:#0056b3;color:white;font-weight:bold;flex:1" onclick="DemandRaisePage.submit()">UPDATE</button>
-            <button class="btn" style="background:#888;color:white;font-weight:bold;flex:1" onclick="DemandRaisePage.closeModal()">BACK</button>
+          <div class="dr-modal-act">
+            <button class="btn dr-btn dr-btn-primary" onclick="DemandRaisePage.submit()">UPDATE</button>
+            <button class="btn dr-btn dr-btn-grey" onclick="DemandRaisePage.closeModal()">BACK</button>
           </div>
         </div>
       </div>
@@ -277,15 +277,15 @@ Pages.demandRaise = async function(params = {}) {
     <!-- UNRAISE CONFIRM MODAL -->
     <div id="ur-modal" class="dr-modal">
       <div class="dr-modal-box">
-        <div class="dr-modal-hdr" style="background:#dc3545">
+        <div class="dr-modal-hdr dr-hdr-danger">
           <span style="font-weight:bold;font-size:12px">CONFIRM DEMAND UNRAISE</span>
-          <span onclick="document.getElementById('ur-modal').style.display='none'" style="cursor:pointer;font-size:22px;line-height:1">&times;</span>
+          <span onclick="document.getElementById('ur-modal').style.display='none'" class="dr-x">&times;</span>
         </div>
-        <div style="padding:20px">
+        <div class="dr-modal-body">
           <p id="ur-confirm-text" style="font-size:13px;margin-bottom:16px;line-height:1.6"></p>
-          <div style="display:flex;gap:10px">
-            <button class="btn" style="background:#dc3545;color:white;font-weight:bold;flex:1" onclick="DemandRaisePage.confirmUnraise()">YES, UNRAISE</button>
-            <button class="btn" style="background:#888;color:white;font-weight:bold;flex:1" onclick="document.getElementById('ur-modal').style.display='none'">CANCEL</button>
+          <div class="dr-modal-act" style="margin-top:0">
+            <button class="btn dr-btn dr-btn-danger" onclick="DemandRaisePage.confirmUnraise()">YES, UNRAISE</button>
+            <button class="btn dr-btn dr-btn-grey" onclick="document.getElementById('ur-modal').style.display='none'">CANCEL</button>
           </div>
         </div>
       </div>
@@ -296,18 +296,18 @@ Pages.demandRaise = async function(params = {}) {
       <div class="dr-modal-box">
         <div class="dr-modal-hdr">
           <span style="font-weight:bold;font-size:12px">RAISE DEMAND</span>
-          <span onclick="StageWisePage.closeRaiseModal()" style="cursor:pointer;font-size:22px;line-height:1">&times;</span>
+          <span onclick="StageWisePage.closeRaiseModal()" class="dr-x">&times;</span>
         </div>
-        <div style="padding:20px">
-          <p id="sw-raise-label" style="font-size:13px;font-weight:600;margin-bottom:12px;color:#0056b3"></p>
+        <div class="dr-modal-body">
+          <p id="sw-raise-label" style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--teal)"></p>
           <div class="fg">
             <label class="fl">Due Date</label>
             <input type="date" id="sw-inst-date" class="fc">
           </div>
-          <p id="sw-raise-summary" style="font-size:11px;color:#555;margin-top:8px"></p>
-          <div style="margin-top:20px;display:flex;gap:10px">
-            <button class="btn" style="background:#007bff;color:white;font-weight:bold;flex:1" onclick="StageWisePage.confirmRaise()">CONFIRM RAISE</button>
-            <button class="btn" style="background:#888;color:white;font-weight:bold;flex:1" onclick="StageWisePage.closeRaiseModal()">CANCEL</button>
+          <p id="sw-raise-summary" style="font-size:11px;color:var(--text3);margin-top:8px"></p>
+          <div class="dr-modal-act">
+            <button class="btn dr-btn dr-btn-primary" onclick="StageWisePage.confirmRaise()">CONFIRM RAISE</button>
+            <button class="btn dr-btn dr-btn-grey" onclick="StageWisePage.closeRaiseModal()">CANCEL</button>
           </div>
         </div>
       </div>
@@ -316,56 +316,91 @@ Pages.demandRaise = async function(params = {}) {
     <!-- STAGE WISE CANCEL CONFIRM MODAL -->
     <div id="sw-cancel-modal" class="dr-modal">
       <div class="dr-modal-box">
-        <div class="dr-modal-hdr" style="background:#dc3545">
+        <div class="dr-modal-hdr dr-hdr-danger">
           <span style="font-weight:bold;font-size:12px">CONFIRM CANCEL DEMAND</span>
-          <span onclick="StageWisePage.closeCancelModal()" style="cursor:pointer;font-size:22px;line-height:1">&times;</span>
+          <span onclick="StageWisePage.closeCancelModal()" class="dr-x">&times;</span>
         </div>
-        <div style="padding:20px">
+        <div class="dr-modal-body">
           <p id="sw-cancel-text" style="font-size:13px;margin-bottom:16px;line-height:1.6"></p>
-          <div style="display:flex;gap:10px">
-            <button class="btn" style="background:#dc3545;color:white;font-weight:bold;flex:1" onclick="StageWisePage.confirmCancel()">YES, CANCEL</button>
-            <button class="btn" style="background:#888;color:white;font-weight:bold;flex:1" onclick="StageWisePage.closeCancelModal()">BACK</button>
+          <div class="dr-modal-act" style="margin-top:0">
+            <button class="btn dr-btn dr-btn-danger" onclick="StageWisePage.confirmCancel()">YES, CANCEL</button>
+            <button class="btn dr-btn dr-btn-grey" onclick="StageWisePage.closeCancelModal()">BACK</button>
           </div>
         </div>
       </div>
     </div>
 
     <style>
-      .dr-tabs { display:flex; gap:4px; margin-bottom:16px; flex-wrap:wrap; }
-      .dr-tab { padding:7px 14px; border:1px solid #0056b3; background:white; color:#0056b3; cursor:pointer; border-radius:3px; font-size:12px; font-weight:600; }
-      .dr-tab:hover { background:#e8f0fe; }
-      .dr-tab-active { background:#0056b3; color:white; }
-      .legacy-search .fl { font-weight:600; font-size:11px; color:#333; margin-bottom:4px; }
-      .legacy-table table { font-size:11px; border-collapse:collapse; width:100%; min-width:900px; }
-      .legacy-table th { background:#f2f2f2; border:1px solid #ddd; padding:8px; text-align:left; color:#333; font-weight:600; text-transform:uppercase; }
-      .legacy-table td { border:1px solid #ddd; padding:8px; background:white; }
-      .horizontal-scroll { overflow-x:auto; border:1px solid #ddd; }
-      .dr-modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.4); }
-      .dr-modal-box { position:relative; margin:10% auto; background:white; border-radius:4px; box-shadow:0 5px 15px rgba(0,0,0,0.3); max-width:420px; }
-      .dr-modal-hdr { background:#0056b3; color:white; padding:10px 15px; display:flex; justify-content:space-between; align-items:center; border-radius:4px 4px 0 0; }
-      .row-greyed td { background:#f5f5f5 !important; color:#999; }
-      .badge-raised { display:inline-block; background:#856404; color:#fff; font-size:10px; padding:2px 6px; border-radius:3px; }
-      .badge-pending { display:inline-block; background:#0d6efd; color:#fff; font-size:10px; padding:2px 6px; border-radius:3px; }
-      .btn-unraise { background:#dc3545; color:white; border:none; padding:4px 10px; border-radius:3px; cursor:pointer; font-size:11px; font-weight:600; }
-      .btn-unraise:hover { background:#b02a37; }
+      .dr-tabs { display:flex; gap:8px; margin-bottom:18px; flex-wrap:wrap; max-width:1180px; margin-left:auto; margin-right:auto }
+      .dr-tab { padding:7px 16px; border:1px solid var(--border2); background:var(--surface); color:var(--text2); cursor:pointer; border-radius:999px; font-size:12px; font-weight:500; transition:.15s }
+      .dr-tab:hover { border-color:var(--teal); color:var(--teal) }
+      .dr-tab-active, .dr-tab-active:hover { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      #content > .sp, #content > .tbl-wrap, #content > #sw-results { max-width:1180px; margin-left:auto; margin-right:auto }
+      #content > .sp, #content > .tbl-wrap { border-radius:10px; overflow:hidden; margin-bottom:16px }
+      .legacy-search .sp-hdr, .legacy-table .tbl-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .legacy-search .sp-title, .legacy-table .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .legacy-search .sp-body { padding:18px }
+      .legacy-search .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { .legacy-search .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } .legacy-search .fg { grid-column:auto !important } }
+      @media (max-width:640px) { .legacy-search .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      .legacy-search .fg, .dr-modal .fg { gap:6px }
+      .legacy-search .fl, .dr-modal .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2); margin-bottom:0 }
+      .legacy-search .fc, .dr-modal .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .legacy-search .fc:focus, .dr-modal .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .dr-fetch-row { margin-top:18px; display:flex; align-items:center; gap:14px }
+      .legacy-search .btn-fetch, .legacy-search .btn-fetch:hover { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 28px; font-size:12.5px; border-radius:8px; min-height:38px; font-weight:600 }
+      .dr-count { font-size:12px; color:var(--text2) }
+      .legacy-table table { font-size:12.5px; border-collapse:collapse; width:100%; min-width:900px }
+      .legacy-table th { background:var(--surface2); border-bottom:1px solid var(--border2); padding:10px 14px; text-align:left; color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap }
+      .legacy-table td { border-bottom:1px solid var(--border); padding:10px 14px; background:transparent; color:var(--text); vertical-align:middle }
+      .legacy-table tbody tr:hover td { background:var(--surface2) }
+      .legacy-table tbody tr:last-child td { border-bottom:none }
+      .legacy-table .td-bold { font-weight:600 }
+      .horizontal-scroll { overflow-x:auto }
+      .dr-link { color:var(--teal); text-decoration:none; font-weight:500; cursor:pointer }
+      .dr-link:hover { text-decoration:underline }
+      .dr-foot { padding:14px 18px; background:var(--surface2); border-top:1px solid var(--border2); display:flex; align-items:center; gap:14px }
+      .btn-proceed { background:var(--red); color:#fff; font-weight:600; border-radius:8px; padding:9px 24px; font-size:12.5px; border:none; cursor:pointer }
+      .btn-proceed:hover { filter:brightness(.92) }
+      .dr-modal { display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.45); }
+      .dr-modal-box { position:relative; margin:10% auto; background:var(--surface); color:var(--text); border:1px solid var(--border2); border-radius:14px; box-shadow:0 20px 60px rgba(0,0,0,.4); max-width:440px; width:92vw; overflow:hidden }
+      .dr-modal-hdr { background:var(--teal-bg); color:var(--text); padding:16px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); letter-spacing:.5px; text-transform:uppercase }
+      .dr-modal-hdr.dr-hdr-danger { background:var(--red-bg); color:var(--red) }
+      .dr-modal-body { padding:20px }
+      .dr-modal-body p { color:var(--text2) }
+      .dr-x { cursor:pointer; font-size:22px; line-height:1; color:var(--text2) }
+      .dr-x:hover { color:var(--text) }
+      .dr-modal-act { margin-top:20px; display:flex; gap:10px }
+      .dr-btn { flex:1; padding:9px 16px; font-size:12.5px; font-weight:600; border-radius:8px; border:1px solid transparent; cursor:pointer }
+      .dr-btn-primary { background:var(--teal); color:#fff }
+      .dr-btn-danger { background:var(--red); color:#fff }
+      .dr-btn-grey { background:var(--surface); color:var(--text2); border-color:var(--border2) }
+      .dr-btn:hover { filter:brightness(.94) }
+      .row-greyed td { background:var(--surface2) !important; color:var(--text3) !important }
+      .badge-raised { display:inline-block; background:#d97706; color:#fff; font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:999px; }
+      .badge-pending { display:inline-block; background:var(--teal-bg); color:var(--teal); font-size:10.5px; font-weight:600; padding:2px 9px; border-radius:999px; }
+      .btn-unraise { background:transparent; color:var(--red); border:1px solid var(--red); padding:4px 12px; border-radius:6px; cursor:pointer; font-size:11.5px; font-weight:600 }
+      .btn-unraise:hover { background:var(--red-bg) }
       /* Stage Wise nested grid */
-      .sw-outer-table { width:100%; border-collapse:collapse; border:1px solid #dee2e6; }
-      .sw-stage-row { border-bottom:2px solid #dee2e6; }
-      .sw-stage-row:nth-child(odd)  .sw-stage-name { background:#ffffff; }
-      .sw-stage-row:nth-child(even) .sw-stage-name { background:#fef9f0; }
-      .sw-stage-no  { width:55px; background:#f8f9fa !important; border-right:1px solid #dee2e6; font-weight:bold; color:#495057; text-align:center; vertical-align:middle; padding:8px; }
-      .sw-stage-name { min-width:180px; max-width:200px; padding:12px 16px; font-size:13px; color:#212529; vertical-align:middle; border-right:1px solid #dee2e6; }
+      .dr-sw-wrap { display:none; border:1px solid var(--border2); border-radius:10px; overflow:hidden; background:var(--surface); margin-bottom:16px }
+      .dr-sw-hdr { background:var(--teal-bg); border-bottom:1px solid var(--border); padding:14px 18px; display:flex; align-items:center; justify-content:space-between }
+      .dr-sw-hdr span:first-child { color:var(--text); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.6px }
+      #sw-body { overflow-x:auto }
+      .sw-outer-table { width:100%; border-collapse:collapse }
+      .sw-stage-row { border-bottom:1px solid var(--border2) }
+      .sw-stage-no  { width:55px; background:var(--surface2) !important; border-right:1px solid var(--border2); font-weight:600; color:var(--text2); text-align:center; vertical-align:middle; padding:8px; }
+      .sw-stage-name { min-width:180px; max-width:200px; padding:12px 16px; font-size:13px; font-weight:500; color:var(--text); vertical-align:middle; border-right:1px solid var(--border2); background:var(--surface); }
       .sw-tower-cell  { padding:0; vertical-align:top; }
-      .sw-raise-cell  { width:130px; text-align:center; vertical-align:middle; padding:8px; border-left:1px solid #dee2e6; }
+      .sw-raise-cell  { width:130px; text-align:center; vertical-align:middle; padding:8px; border-left:1px solid var(--border2); background:var(--surface) }
       .sw-inner-table { width:100%; border-collapse:collapse; }
-      .sw-inner-table thead th { background:#4a7db5; color:#fff; font-size:11px; font-weight:bold; text-transform:uppercase; padding:7px 12px; text-align:left; letter-spacing:.3px; }
-      .sw-inner-table tbody tr.sw-tower-row { border-bottom:1px solid #f0f0f0; }
-      .sw-inner-table tbody tr.sw-tower-row:hover td { background:#f5f8ff; }
-      .sw-inner-table tbody td { padding:8px 12px; font-size:13px; color:#212529; background:white; }
-      .sw-raise-link  { color:#1a56db; font-weight:600; font-size:13px; cursor:pointer; text-decoration:none; background:none; border:none; padding:4px 8px; }
-      .sw-raise-link:hover { text-decoration:underline; color:#0d3d8c; }
-      .sw-raised-badge { color:#28a745; font-weight:600; font-size:13px; }
-      .lnk-sw-cancel  { color:#dc3545; text-decoration:none; font-size:12px; cursor:pointer; background:none; border:none; padding:2px 4px; }
+      .sw-inner-table thead th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; padding:9px 14px; text-align:left; letter-spacing:.4px; border-bottom:1px solid var(--border2) }
+      .sw-inner-table tbody tr.sw-tower-row { border-bottom:1px solid var(--border); }
+      .sw-inner-table tbody tr.sw-tower-row:hover td { background:var(--surface2); }
+      .sw-inner-table tbody td { padding:9px 14px; font-size:12.5px; color:var(--text); background:var(--surface); }
+      .sw-raise-link  { color:var(--teal); font-weight:600; font-size:12.5px; cursor:pointer; text-decoration:none; background:none; border:none; padding:4px 8px; }
+      .sw-raise-link:hover { text-decoration:underline; }
+      .sw-raised-badge { color:var(--teal); font-weight:600; font-size:12.5px; }
+      .lnk-sw-cancel  { color:var(--red); text-decoration:none; font-size:12px; cursor:pointer; background:none; border:none; padding:2px 4px; }
       .lnk-sw-cancel:hover { text-decoration:underline; }
     </style>
   `;
@@ -414,13 +449,13 @@ function showDemandRaiseResultModal(raised, skipped, skippedIds) {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-family: Arial, sans-serif;
+    font-family: inherit;
   `;
 
   if (raised === 0 && skipped > 0) {
     // ALL SKIPPED (0 raised)
     modal.innerHTML = `
-      <div style="background:white;border-radius:8px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:14px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
         <div style="background:#dc2626;padding:20px 24px;display:flex;align-items:center;gap:12px;">
           <div style="width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⚠️</div>
           <div>
@@ -429,10 +464,10 @@ function showDemandRaiseResultModal(raised, skipped, skippedIds) {
           </div>
         </div>
         <div style="padding:24px;">
-          <p style="font-size:14px;color:#374151;margin-bottom:16px;line-height:1.6;">
+          <p style="font-size:14px;color:var(--text2);margin-bottom:16px;line-height:1.6;">
             The selected demand(s) could <strong>not</strong> be raised because one or more <strong>prior installments</strong> have not been raised yet.
           </p>
-          <p style="font-size:13px;color:#6b7280;margin-bottom:12px;">
+          <p style="font-size:13px;color:var(--text3);margin-bottom:12px;">
             You must raise installments <strong>in order</strong>. Please raise the earlier installment(s) first, then come back to raise this one.
           </p>
           <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;margin-bottom:16px;">
@@ -455,7 +490,7 @@ function showDemandRaiseResultModal(raised, skipped, skippedIds) {
   } else if (raised > 0 && skipped > 0) {
     // SOME RAISED, SOME SKIPPED
     modal.innerHTML = `
-      <div style="background:white;border-radius:8px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:14px;width:520px;max-width:90vw;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
         <div style="background:#d97706;padding:20px 24px;display:flex;align-items:center;gap:12px;">
           <div style="width:36px;height:36px;background:white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">⚠️</div>
           <div>
@@ -464,7 +499,7 @@ function showDemandRaiseResultModal(raised, skipped, skippedIds) {
           </div>
         </div>
         <div style="padding:24px;">
-          <p style="font-size:14px;color:#374151;margin-bottom:16px;">
+          <p style="font-size:14px;color:var(--text2);margin-bottom:16px;">
             <strong>${raised}</strong> demand(s) were raised successfully, but <strong>${skipped}</strong> could not be raised because prior installments are still pending.
           </p>
           <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 16px;margin-bottom:20px;">
@@ -665,7 +700,7 @@ const DemandRaisePage = {
       this._renderTable(this._data, view);
     } catch (err) {
       document.getElementById('dr-table-body').innerHTML =
-        `<tr><td colspan="${colspan}" style="text-align:center;padding:20px;color:#dc3545">Error: ${err.message}</td></tr>`;
+        `<tr><td colspan="${colspan}" style="text-align:center;padding:20px;color:var(--red)">Error: ${err.message}</td></tr>`;
       Utils.error(err.message);
     }
   },
@@ -716,7 +751,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.tower_name || '—'}</td>
           <td>${instName}</td>
@@ -729,7 +764,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.floor !== null && d.floor !== undefined ? d.floor : '—'}</td>
           <td>${instName || d.demand_type || '—'}</td>
@@ -742,7 +777,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_type || '—'}</td>
           <td class="td-bold">${d.unit_address || '—'}</td>
           <td>${instName}</td>
@@ -762,7 +797,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.tower_name || '—'}</td>
           <td>${instName}</td>
@@ -777,7 +812,7 @@ const DemandRaisePage = {
         <tr${raisedClass}>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.floor !== null && d.floor !== undefined ? d.floor : '—'}</td>
           <td>${d.tower_name || '—'}</td>
@@ -793,7 +828,7 @@ const DemandRaisePage = {
         <tr>
           <td>${i+1}</td>
           <td class="td-mono">${d.registration_no || '—'}</td>
-          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name || '—'}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="dr-link" title="View Applicant File">${d.consumer_name || '—'}</a></td>
           <td>${d.unit_address || '—'}</td>
           <td>${d.demand_type || ('Index ' + d.installment_index)}</td>
           <td class="td-bold">${amt}</td>
@@ -934,7 +969,7 @@ const StageWisePage = {
       this._stages = res.stages || [];
       this._render();
     } catch (err) {
-      body.innerHTML = `<div style="padding:20px;color:#dc3545;text-align:center">Error: ${err.message}</div>`;
+      body.innerHTML = `<div style="padding:20px;color:var(--red);text-align:center">Error: ${err.message}</div>`;
     }
   },
 
@@ -949,7 +984,7 @@ const StageWisePage = {
     if (!body) return;
 
     if (this._stages.length === 0) {
-      body.innerHTML = '<div style="padding:20px;color:#dc3545;text-align:center">No demand records found for this project.</div>';
+      body.innerHTML = '<div style="padding:20px;color:var(--red);text-align:center">No demand records found for this project.</div>';
       return;
     }
 

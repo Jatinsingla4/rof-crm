@@ -36,7 +36,26 @@ Pages.booking = async function(params = {}) {
       <div class="breadcrumb">Application / Booking / <b>New Booking</b></div>
     </div>
 
-    <form id="booking-form" onsubmit="BookingPage.preview(event)">
+    <style>
+      .bkn { max-width:1100px; margin-left:auto; margin-right:auto; counter-reset:bks }
+      .bkn > .sp { border-radius:10px; overflow:hidden; margin-bottom:16px !important }
+      .bkn .sp-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .bkn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .bkn > .sp > .sp-hdr .sp-title::before { counter-increment:bks; content:counter(bks); display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; margin-right:10px; border-radius:50%; background:var(--surface); color:var(--teal); font-size:11px; font-weight:700; letter-spacing:0 }
+      .bkn .sp-body { padding:18px }
+      .bkn .sp-grid { gap:16px 18px }
+      @media (max-width:900px) { .bkn .sp-grid { grid-template-columns:repeat(2,minmax(0,1fr)) !important } }
+      @media (max-width:640px) { .bkn .sp-grid { grid-template-columns:minmax(0,1fr) !important } }
+      .bkn .fg, #bk-addl-modal-overlay .fg { gap:6px }
+      .bkn .fl, #bk-addl-modal-overlay .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .bkn .fc, #bk-addl-modal-overlay .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .bkn .fc:focus, #bk-addl-modal-overlay .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .bkn .btg { border-radius:8px }
+      .bkn .btg-item { padding:7px 14px; font-size:12px }
+      .bkn .btn-lg { padding:10px 26px; font-size:13px; border-radius:8px }
+      #bk-addl-modal-overlay .modal { border-radius:14px; border:1px solid var(--border2); box-shadow:0 20px 60px rgba(0,0,0,.4) }
+    </style>
+    <form id="booking-form" class="bkn" onsubmit="BookingPage.preview(event)">
 
     <!-- ── SECTION 1: UNIT INFORMATION ──────────────────────── -->
     <div class="sp" style="margin-bottom:14px">

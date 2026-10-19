@@ -9,129 +9,166 @@ const DS = {
 
   render() {
     const typeBtn = (id, label, active) =>
-      `<button id="ds-type-${id}" onclick="DS.setType('${id}')"
-        style="padding:4px 12px;border:1px solid #0d9488;cursor:pointer;font-size:12px;
-               background:${active?'#0d9488':'white'};color:${active?'white':'#0d9488'};
-               font-weight:${active?'bold':'normal'}">${label}</button>`;
+      `<button id="ds-type-${id}" class="ds-type-btn${active?' on':''}" onclick="DS.setType('${id}')">${label}</button>`;
 
     return `
-      <div style="font-family:Arial,sans-serif;font-size:13px;">
+      <style>
+        .dsn { max-width:1180px; margin-left:auto; margin-right:auto }
+        .dsn .sp { border-radius:10px; overflow:hidden; margin-bottom:16px }
+        .dsn .sp-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+        .dsn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+        .dsn .sp-body { padding:18px }
+        .ds-types { display:flex; gap:6px; flex-wrap:wrap }
+        .ds-type-btn { padding:5px 14px; border:1px solid var(--border2); background:var(--surface); color:var(--text2); border-radius:999px; cursor:pointer; font-size:11.5px }
+        .ds-type-btn:hover { border-color:var(--teal); color:var(--teal) }
+        .ds-type-btn.on { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+        .ds-grid { display:grid; gap:16px 18px; margin-bottom:16px }
+        .ds-grid-6 { grid-template-columns:repeat(6,minmax(0,1fr)) }
+        .ds-grid-5 { grid-template-columns:repeat(4,minmax(0,1fr)) auto; align-items:flex-end }
+        @media (max-width:900px) { .ds-grid-6, .ds-grid-5 { grid-template-columns:repeat(2,minmax(0,1fr)) } }
+        @media (max-width:640px) { .ds-grid-6, .ds-grid-5 { grid-template-columns:minmax(0,1fr) } }
+        .dsn .fg { display:flex; flex-direction:column; gap:6px }
+        .dsn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+        .dsn .fc { width:100%; padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+        .dsn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+        .ds-seg { display:flex; border:1px solid var(--border2); border-radius:8px; overflow:hidden; height:38px }
+        .ds-seg button { padding:0 16px; border:none; background:var(--surface); color:var(--text2); font-size:12px; cursor:pointer }
+        .ds-seg button.on { background:var(--teal); color:#fff; font-weight:600 }
+        .ds-actions { border-top:1px solid var(--border); padding-top:16px; display:flex; align-items:center; gap:12px }
+        .ds-fetch { background:var(--teal); color:#fff; border:none; padding:9px 26px; border-radius:8px; cursor:pointer; font-size:12.5px; font-weight:600; min-height:38px }
+        .ds-fetch:hover { filter:brightness(.92) }
+        .ds-count { font-size:12px; color:var(--text2) }
+        .ds-legend { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:14px; padding:0 4px 12px; font-size:11.5px; color:var(--text2) }
+        .ds-legend span { display:flex; align-items:center; gap:5px }
+        .ds-legend i { width:13px; height:13px; display:inline-block; border-radius:3px }
+        .ds-print-btn { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:5px 14px; border-radius:8px; cursor:pointer; font-size:12px }
+        .ds-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+        .ds-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+        .ds-tbl th { text-align:left; padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--text3); background:var(--surface2); border-bottom:1px solid var(--border2); white-space:nowrap }
+        .ds-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); vertical-align:middle }
+        .ds-tbl tbody tr:hover td { background:var(--surface2) }
+        .ds-tbl tbody tr:last-child td { border-bottom:none }
+        .ds-tbl tr.ds-sent td { background:var(--surface2) }
+        .ds-tbl tr.ds-rem td { background:rgba(250,204,21,.12) }
+        .ds-tbl td.ds-link { color:var(--teal); font-weight:500; cursor:pointer }
+        .ds-tbl a { color:var(--teal); text-decoration:none; font-weight:500 }
+        .ds-tbl a:hover { text-decoration:underline }
+        .ds-btn-d { background:var(--teal); color:#fff; border:none; padding:3px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600 }
+        .ds-pag { padding:12px 18px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; border-top:1px solid var(--border); font-size:12px; color:var(--text2) }
+        .ds-pag button { padding:3px 8px; cursor:pointer; border:1px solid var(--border2); background:var(--surface); color:var(--text); border-radius:6px }
+        .ds-prints { margin-top:16px; display:flex; gap:10px; flex-wrap:wrap }
+        .ds-prints button { background:var(--teal); color:#fff; border:none; padding:9px 18px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600 }
+        .ds-prints button:hover { filter:brightness(.92) }
+      </style>
+      <div class="dsn">
 
         <!-- Filter Panel -->
-        <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;margin-bottom:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0d9488;border-left:4px solid #065f46;">
-            <span style="font-weight:bold;color:white;font-size:14px;letter-spacing:0.5px;">DEMAND STATUS</span>
-            <div style="display:flex;gap:0;border-radius:4px;overflow:hidden;">
+        <div class="sp">
+          <div class="sp-hdr">
+            <div class="sp-title">Demand Status</div>
+            <div class="ds-types">
               ${typeBtn('all','All',true)}${typeBtn('demanded','Demanded',false)}${typeBtn('pending','Pending',false)}${typeBtn('paid','Paid',false)}
             </div>
           </div>
 
-          <div style="padding:12px 14px;">
-            <!-- Row 1 -->
-            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:8px;">
-              ${this._fld('ds-project','*Project:','select')}
-              ${this._fld('ds-tower','Tower:','select')}
-              ${this._fld('ds-floor','Floor:','text','--All--')}
-              ${this._fld('ds-reg-no','Registration No.:','text','Registration No.')}
-              ${this._fld('ds-name','First Name:','text','First Name')}
-              ${this._fld('ds-city','City:','text','City')}
+          <div class="sp-body">
+            <div class="ds-grid ds-grid-6">
+              ${this._fld('ds-project','*Project','select')}
+              ${this._fld('ds-tower','Tower','select')}
+              ${this._fld('ds-floor','Floor','text','--All--')}
+              ${this._fld('ds-reg-no','Registration No.','text','Registration No.')}
+              ${this._fld('ds-name','First Name','text','First Name')}
+              ${this._fld('ds-city','City','text','City')}
             </div>
-            <!-- Row 2 -->
-            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;align-items:flex-end;margin-bottom:8px;">
-              <div>
-                <label style="display:block;font-size:11px;margin-bottom:3px;">Send/Unsend Status:</label>
-                <select id="ds-delivery" style="width:100%;padding:5px;border:1px solid #999;border-radius:2px;font-size:12px;">
+            <div class="ds-grid ds-grid-5">
+              <div class="fg">
+                <label class="fl">Send/Unsend Status</label>
+                <select id="ds-delivery" class="fc">
                   <option value="">&lt;--All--&gt;</option>
                   <option value="paid">Sent (Paid)</option>
                   <option value="queued">Queued</option>
                   <option value="pending">Unsent (Pending)</option>
                 </select>
               </div>
-              <div>
-                <label style="display:block;font-size:11px;margin-bottom:3px;">Due Date From:</label>
-                <input type="date" id="ds-due-from" style="width:100%;padding:5px;border:1px solid #999;border-radius:2px;font-size:12px;">
+              <div class="fg">
+                <label class="fl">Due Date From</label>
+                <input type="date" id="ds-due-from" class="fc">
               </div>
-              <div>
-                <label style="display:block;font-size:11px;margin-bottom:3px;">Due Date To:</label>
-                <input type="date" id="ds-due-to" style="width:100%;padding:5px;border:1px solid #999;border-radius:2px;font-size:12px;">
+              <div class="fg">
+                <label class="fl">Due Date To</label>
+                <input type="date" id="ds-due-to" class="fc">
               </div>
-              <div>
-                <label style="display:block;font-size:11px;margin-bottom:3px;">GST:</label>
-                <div style="display:flex;border-radius:4px;overflow:hidden;border:1px solid #0d9488;">
-                  <button id="ds-gst-btn" onclick="DS.setGst('gst')" style="padding:5px 12px;border:none;background:#0d9488;color:white;font-size:12px;cursor:pointer;font-weight:bold;">GST</button>
-                  <button id="ds-pregst-btn" onclick="DS.setGst('before')" style="padding:5px 12px;border:none;background:white;color:#0d9488;font-size:12px;cursor:pointer;">Before GST</button>
+              <div class="fg">
+                <label class="fl">GST</label>
+                <div class="ds-seg">
+                  <button id="ds-gst-btn" class="on" onclick="DS.setGst('gst')">GST</button>
+                  <button id="ds-pregst-btn" onclick="DS.setGst('before')">Before GST</button>
                 </div>
               </div>
               <div></div>
             </div>
-            <!-- Fetch -->
-            <div style="border-top:1px solid #e0e0e0;padding-top:10px;display:flex;align-items:center;gap:12px;">
-              <button onclick="DS.fetch()" style="background:#1976D2;color:white;border:none;padding:6px 22px;border-radius:2px;cursor:pointer;font-size:13px;font-weight:bold;letter-spacing:0.5px;">FETCH</button>
-              <span id="ds-count" style="font-size:12px;color:#555;"></span>
+            <div class="ds-actions">
+              <button class="ds-fetch" onclick="DS.fetch()">FETCH</button>
+              <span id="ds-count" class="ds-count"></span>
             </div>
           </div>
         </div>
 
         <!-- Results -->
         <div id="ds-results" style="display:none;">
-          <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;margin-bottom:6px;font-size:11px;">
-            <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#e0e0e0;border:1px solid #999;"></span>Sent</span>
-            <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:white;border:1px solid #999;"></span>Demand</span>
-            <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#FFF59D;border:1px solid #F9A825;"></span>Reminder</span>
-            <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#C8E6C9;border:1px solid #388E3C;"></span>Cancellation Letter</span>
-            <span style="display:flex;align-items:center;gap:3px;"><span style="width:13px;height:13px;display:inline-block;background:#FFCDD2;border:1px solid #C62828;"></span>Final Opp. Letter</span>
-            <button onclick="window.print()" style="background:#1976D2;color:white;border:none;padding:4px 12px;border-radius:2px;cursor:pointer;font-size:12px;">🖨️ Print</button>
+          <div class="ds-legend">
+            <span><i style="background:var(--surface2);border:1px solid var(--border2)"></i>Sent</span>
+            <span><i style="background:var(--surface);border:1px solid var(--border2)"></i>Demand</span>
+            <span><i style="background:#FFF59D;border:1px solid #F9A825"></i>Reminder</span>
+            <span><i style="background:#C8E6C9;border:1px solid #388E3C"></i>Cancellation Letter</span>
+            <span><i style="background:#FFCDD2;border:1px solid #C62828"></i>Final Opp. Letter</span>
+            <button class="ds-print-btn" onclick="window.print()">🖨️ Print</button>
           </div>
 
-          <div style="background:white;border:1px solid #e0e0e0;border-radius:4px;overflow:hidden;">
+          <div class="ds-card">
             <div style="overflow-x:auto;">
-              <table style="width:100%;border-collapse:collapse;font-size:12px;">
-                <thead><tr style="background:#1a237e;color:white;">
-                  <th style="padding:8px 6px;text-align:center;width:38px;"><input type="checkbox" id="ds-select-all" onchange="DS.selectAll(this)"></th>
-                  <th style="padding:8px 6px;text-align:left;width:45px;">S.NO</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">REG. NO.</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">BOOKING DATE</th>
-                  <th style="padding:8px 6px;text-align:left;">NAME</th>
-                  <th style="padding:8px 6px;text-align:left;">TYPE</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">UNIT ADDRESS</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">TOWER NAME</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">FLOOR NAME</th>
-                  <th style="padding:8px 6px;text-align:left;white-space:nowrap;">MOBILE NO.</th>
-                  <th style="padding:8px 6px;text-align:center;width:40px;">D</th>
+              <table class="ds-tbl">
+                <thead><tr>
+                  <th style="text-align:center;width:38px;"><input type="checkbox" id="ds-select-all" onchange="DS.selectAll(this)"></th>
+                  <th style="width:45px;">S.NO</th>
+                  <th>REG. NO.</th>
+                  <th>BOOKING DATE</th>
+                  <th>NAME</th>
+                  <th>TYPE</th>
+                  <th>UNIT ADDRESS</th>
+                  <th>TOWER NAME</th>
+                  <th>FLOOR NAME</th>
+                  <th>MOBILE NO.</th>
+                  <th style="text-align:center;width:40px;">D</th>
                 </tr></thead>
                 <tbody id="ds-tbody"></tbody>
               </table>
             </div>
-            <div id="ds-pagination" style="padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-top:1px solid #e0e0e0;font-size:12px;"></div>
+            <div id="ds-pagination" class="ds-pag"></div>
           </div>
 
-          <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
-            <button onclick="DS.printSelected('demand')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT DEMAND</button>
-            <button onclick="DS.printSelected('reminder')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT REMINDER</button>
-            <button onclick="DS.printSelected('cancellation')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT CANCELLATION LETTER</button>
-            <button onclick="DS.printSelected('final')" style="background:#1976D2;color:white;border:none;padding:7px 16px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">PRINT FINAL OPPORTUNITY LETTER</button>
+          <div class="ds-prints">
+            <button onclick="DS.printSelected('demand')">PRINT DEMAND</button>
+            <button onclick="DS.printSelected('reminder')">PRINT REMINDER</button>
+            <button onclick="DS.printSelected('cancellation')">PRINT CANCELLATION LETTER</button>
+            <button onclick="DS.printSelected('final')">PRINT FINAL OPPORTUNITY LETTER</button>
           </div>
         </div>
       </div>`;
   },
 
   _fld(id, label, type, placeholder) {
-    const style = 'width:100%;padding:5px;border:1px solid #999;border-radius:2px;font-size:12px;';
     const input = type === 'select'
-      ? `<select id="${id}" style="${style}"><option value="">&lt;--All--&gt;</option></select>`
-      : `<input type="text" id="${id}" placeholder="${placeholder||''}" style="${style}">`;
-    return `<div><label style="display:block;font-size:11px;margin-bottom:3px;">${label}</label>${input}</div>`;
+      ? `<select id="${id}" class="fc"><option value="">&lt;--All--&gt;</option></select>`
+      : `<input type="text" id="${id}" class="fc" placeholder="${placeholder||''}">`;
+    return `<div class="fg"><label class="fl">${label}</label>${input}</div>`;
   },
 
   setType(type) {
     this._type = type;
     ['all','demanded','pending','paid'].forEach(t => {
       const btn = document.getElementById(`ds-type-${t}`);
-      if (!btn) return;
-      const active = t === type;
-      btn.style.background  = active ? '#0d9488' : 'white';
-      btn.style.color       = active ? 'white' : '#0d9488';
-      btn.style.fontWeight  = active ? 'bold' : 'normal';
+      if (btn) btn.classList.toggle('on', t === type);
     });
   },
 
@@ -140,8 +177,8 @@ const DS = {
     const g = document.getElementById('ds-gst-btn');
     const b = document.getElementById('ds-pregst-btn');
     if (!g || !b) return;
-    g.style.background = type === 'gst'    ? '#0d9488' : 'white'; g.style.color = type === 'gst'    ? 'white' : '#0d9488';
-    b.style.background = type === 'before' ? '#0d9488' : 'white'; b.style.color = type === 'before' ? 'white' : '#0d9488';
+    g.classList.toggle('on', type === 'gst');
+    b.classList.toggle('on', type === 'before');
   },
 
   async init() {
@@ -186,7 +223,7 @@ const DS = {
     if (this._type !== 'all') params.set('demand_status', this._type);
 
     const tbody = document.getElementById('ds-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:#999;">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text3);">Loading…</td></tr>';
 
     try {
       const token = Auth?.getToken?.() || localStorage.getItem('rof-jwt') || '';
@@ -201,25 +238,25 @@ const DS = {
       if (results) results.style.display = 'block';
 
       if (!rows.length) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:20px;color:#999;">No records found</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text3);">No records found</td></tr>';
         return;
       }
 
       if (tbody) tbody.innerHTML = rows.map((r, i) => {
-        const bg = r.delivery_status === 'paid' ? '#f5f5f5' : r.active_demands > 0 ? 'white' : '#FFFDE7';
-        return `<tr style="background:${bg};border-bottom:1px solid #e8e8e8;">
-          <td style="padding:7px 6px;text-align:center;"><input type="checkbox" class="ds-cb" value="${r.consumer_id}" onchange="DS.toggleSel('${r.consumer_id}',this.checked)"></td>
-          <td style="padding:7px 6px;">${(this._page-1)*this._limit+i+1}</td>
-          <td style="padding:7px 6px;color:#1a237e;font-weight:500;cursor:pointer;" onclick="DS.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
-          <td style="padding:7px 6px;font-size:11px;">${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
-          <td style="padding:7px 6px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.name||'—'}</a></td>
-          <td style="padding:7px 6px;">${r.bhk_type||'—'}</td>
-          <td style="padding:7px 6px;font-weight:500;">${r.unit_number||'—'}</td>
-          <td style="padding:7px 6px;">${r.tower_name||'—'}</td>
-          <td style="padding:7px 6px;">${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
-          <td style="padding:7px 6px;">${r.mobile||'—'}</td>
-          <td style="padding:7px 6px;text-align:center;">
-            <button onclick="DS.openLetter('${r.consumer_id}')" style="background:#1976D2;color:white;border:none;padding:3px 10px;border-radius:2px;cursor:pointer;font-size:12px;font-weight:bold;">D</button>
+        const rowCls = r.delivery_status === 'paid' ? 'ds-sent' : r.active_demands > 0 ? '' : 'ds-rem';
+        return `<tr class="${rowCls}">
+          <td style="text-align:center"><input type="checkbox" class="ds-cb" value="${r.consumer_id}" onchange="DS.toggleSel('${r.consumer_id}',this.checked)"></td>
+          <td>${(this._page-1)*this._limit+i+1}</td>
+          <td class="ds-link" onclick="DS.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
+          <td>${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
+          <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.name||'—'}</a></td>
+          <td>${r.bhk_type||'—'}</td>
+          <td style="font-weight:600">${r.unit_number||'—'}</td>
+          <td>${r.tower_name||'—'}</td>
+          <td>${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
+          <td>${r.mobile||'—'}</td>
+          <td style="text-align:center">
+            <button onclick="DS.openLetter('${r.consumer_id}')" class="ds-btn-d">D</button>
           </td>
         </tr>`;
       }).join('');
@@ -227,19 +264,19 @@ const DS = {
       const totalPages = Math.ceil(total / this._limit);
       const pg = document.getElementById('ds-pagination');
       if (pg) pg.innerHTML = `
-        <span>Records Per Page: <select onchange="DS._limit=+this.value;DS._page=1;DS._loadData()" style="padding:2px;font-size:12px;">
+        <span>Records Per Page: <select onchange="DS._limit=+this.value;DS._page=1;DS._loadData()" style="padding:3px 6px;border-radius:6px;">
           <option value="50" ${this._limit===50?'selected':''}>50</option>
           <option value="100" ${this._limit===100?'selected':''}>100</option>
         </select></span>
         <span>Page No: ${this._page} of ${totalPages || 1}</span>
         <span>Records ${(this._page-1)*this._limit+1} - ${Math.min(this._page*this._limit,total)} of ${total}
-          <button onclick="DS._page=1;DS._loadData()" style="padding:2px 6px;cursor:pointer;">&#8676;</button>
-          <button onclick="DS._page=Math.max(1,DS._page-1);DS._loadData()" style="padding:2px 6px;cursor:pointer;">&#8249;</button>
-          <button onclick="DS._page=Math.min(${totalPages},DS._page+1);DS._loadData()" style="padding:2px 6px;cursor:pointer;">&#8250;</button>
-          <button onclick="DS._page=${totalPages};DS._loadData()" style="padding:2px 6px;cursor:pointer;">&#8677;</button>
+          <button onclick="DS._page=1;DS._loadData()" >&#8676;</button>
+          <button onclick="DS._page=Math.max(1,DS._page-1);DS._loadData()" >&#8249;</button>
+          <button onclick="DS._page=Math.min(${totalPages},DS._page+1);DS._loadData()" >&#8250;</button>
+          <button onclick="DS._page=${totalPages};DS._loadData()" >&#8677;</button>
         </span>`;
     } catch (err) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:20px;color:#c62828;">Failed to load — ${err.message}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--red);">Failed to load — ${err.message}</td></tr>`;
     }
   },
 
