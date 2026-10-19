@@ -19,6 +19,7 @@ Every step stops the pipeline when it fails and says what is wrong. Failures app
 | Migrations after the baseline (096 onward), twice | a new migration fails, or is not safe to run a second time | the migration file name and the psql message |
 | Start the API | the built server does not answer `/api/health` within 60 s | the server log |
 | API flow tests | any check fails | one error per failed check, by name. All scripts always run, so one run shows every failure. A script that crashes is reported with its last lines |
+| Browser flow tests (Playwright, real Chromium) | a flow breaks in the browser: a button, message or screen is missing or wrong, a JavaScript error appears, or the server answers 5xx | the failed test name, the line and the expected/received text as an annotation; screenshots and a trace are uploaded as the `browser-test-failures` artifact |
 | Dependency audit | never blocks; lists known high-severity packages | npm audit output |
 
 ### Flow coverage
@@ -27,6 +28,7 @@ Only modules that have been checked one by one are covered. When a module is che
 
 | Module | Script | Checks |
 |---|---|---|
+| Menu, Set Up, Project Set Up, roles (in the browser) | `e2e/flows.spec.ts` | 8 flows: the 4-group Set Master menu and its 23 entries, applicant lists, banks, locations, company with bank account and logo, project to unit and CSV upload, read-only and project-manager screens |
 | Set Master: Set Up (lists, locations, banks, companies, bank accounts, logo) | `docs/set-master-setup/api-test-setup.mjs`, `api-test-deep.mjs` | 134 + 19 |
 | Set Projects: Project Set Up (project, towers, units, unit types, locations, reminders) and the fixes made on 2026-10-19 | `docs/set-projects-setup/api-test-project-setup.mjs`, `api-test-fixes.mjs` | 81 + 47 |
 
@@ -50,6 +52,16 @@ Vercel only builds the code (`vercel.json`), so a new file in `packages/api/src/
 3. GitHub, Settings, Branches: add a rule for `main` that requires the `verify` check.
 4. Delete the old Render service in the Render dashboard (the repository no longer has `render.yaml`).
 
+## Running the browser flow tests on your machine
+
+With the app running (see below) and its test database:
+
+```bash
+cd e2e && npm install && npx playwright install chromium
+BASE_URL=http://localhost:3002 npx playwright test                 # headless
+BASE_URL=http://localhost:3002 SLOWMO=400 npx playwright test --headed   # watch it run
+```
+
 ## Running the same checks on your machine
 
 Start a Postgres, then from the repository root:
@@ -65,5 +77,6 @@ export DB_HOST=localhost DB_PORT=5432 DB_NAME=rof_ci DB_USER=postgres DB_PASSWOR
 
 - The full `npm run db:migrate` cannot rebuild a database from the baseline: migration 040 needs the `seed_flags` table, which the migrations never create (the live database already has it). So the pipeline runs only the migrations after the baseline (096 onward).
 - `typescript` and the other dependencies are not pinned and there is no valid lock file, so a new TypeScript release could change the built `dist` and make the dist check fail. The fix is the build command above.
-- The pipeline tests the API, syntax and the live site; it does not open the web pages in a browser.
+- The browser tests cover the verified modules only; the live site is checked with plain HTTP requests, not in a browser.
+- Vercel publishes a commit from Git on its own, usually before `verify` has finished, so CI is a check, not a gate, until automatic deploys are turned off and the deploy hook is used (see One-time setup).
 - Found while building the flow tests: the reconstructed baseline made `booking_records.invoice_date_by` a `uuid`, but the code saves a word there, so saving any booking failed with "invalid input syntax for type uuid". The baseline is fixed and migration 098 repairs a database that was built from the old baseline. Run it on the live database.

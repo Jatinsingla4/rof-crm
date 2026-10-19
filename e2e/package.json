@@ -1,0 +1,12 @@
+{
+  "name": "rof-crm-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Browser flow checks for the CRM (run by CI; see docs/PIPELINE.md)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}
