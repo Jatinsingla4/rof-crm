@@ -71,7 +71,7 @@ const DEV_AUTH = isDev && process.env.ALLOW_DEV_AUTH === 'true';
 // Behind the host's proxy (Vercel), req.ip must be the client address or every user shares one rate-limit bucket.
 if (!isDev) app.set('trust proxy', 1);
 
-import { db } from './db/pool';
+import { db, scopeStore } from './db/pool';
 import { runMigrations } from './db/migrations';
 export { db } from './db/pool';
 
@@ -182,7 +182,7 @@ export interface DocumentVersion {
 // Role, active flag and token_version are read from the DB (cached briefly) so that
 // deactivation, role changes and logout take effect without waiting for the JWT to expire.
 const AUTH_CACHE_MS = 15_000;
-const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string; is_active: boolean; token_version: number; ip_rules: string[] | null } | null }>();
+const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string; is_active: boolean; token_version: number; ip_rules: string[] | null; project_scope: string | null } | null }>();
 
 export const invalidateAuthUser = (userId: string) => { authUserCache.delete(userId); };
 export const clearAuthUserCache = () => authUserCache.clear(); // after a role definition changes
@@ -194,7 +194,13 @@ const loadAuthUser = async (userId: string) => {
     `SELECT u.role, COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role) AS eff_role,
             u.is_active, COALESCE(u.token_version, 0) AS token_version,
             CASE WHEN u.ip_security_enabled IS TRUE
-                 THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules
+                 THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules,
+            -- project ids the login is limited to, as one comma separated text; null when it may see every project
+            CASE WHEN jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) > 0 THEN
+              -- assigned only to projects that no longer exist: see nothing, never everything
+              COALESCE((SELECT string_agg(DISTINCT p.id::text, ',') FROM projects p
+                         WHERE p.id::text IN (SELECT jsonb_array_elements_text(u.assigned_project_ids))), '00000000-0000-0000-0000-000000000000')
+            END AS project_scope
        FROM users u WHERE u.id = $1`,
     [userId]
   );
@@ -245,6 +251,7 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     req.userName = decoded.name || decoded.email || 'Unknown';
     req.userRole = user.eff_role;
     req.roleName = user.role;
+    if (user.eff_role !== 'super_admin' && user.project_scope) scopeStore.enterWith({ projectIds: user.project_scope });
     req.userPermissions = decoded.permissions || [];
     next();
   } catch (err) {

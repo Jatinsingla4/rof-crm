@@ -132,7 +132,8 @@ jobs:
             docs/set-master-setup/api-test-deep.mjs \
             docs/set-projects-setup/api-test-project-setup.mjs \
             docs/set-projects-setup/api-test-fixes.mjs \
-            docs/security-setup/api-test-security.mjs
+            docs/security-setup/api-test-security.mjs \
+            docs/security-setup/api-test-scope.mjs
 
       - name: Install the browser for the flow tests
         working-directory: e2e

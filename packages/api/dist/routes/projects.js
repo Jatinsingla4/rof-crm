@@ -8,6 +8,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const master_js_1 = require("./master.js");
+const pool_js_1 = require("../db/pool.js");
 const router = (0, express_1.Router)();
 // GET /api/projects
 router.get('/', async (req, res, next) => {
@@ -33,6 +34,9 @@ router.get('/', async (req, res, next) => {
 });
 // POST /api/projects
 router.post('/', async (req, res, next) => {
+    // A login limited to some projects could not see the project it creates; an admin creates projects
+    if ((0, pool_js_1.isScoped)())
+        return res.status(403).json({ error: 'Your login is limited to assigned projects. Ask an admin to create a new project.' });
     try {
         const { landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
         const cleaned = (0, master_js_1.cleanBody)(req.body, ['name', 'reraNumber', 'tcpLicence', 'location']);

@@ -8,6 +8,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { cleanBody } from './master.js';
+import { isScoped } from '../db/pool.js';
 
 const router = Router();
 
@@ -37,6 +38,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 
 // POST /api/projects
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  // A login limited to some projects could not see the project it creates; an admin creates projects
+  if (isScoped()) return res.status(403).json({ error: 'Your login is limited to assigned projects. Ask an admin to create a new project.' });
   try {
     const { landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
     const cleaned = cleanBody(req.body, ['name', 'reraNumber', 'tcpLicence', 'location']);

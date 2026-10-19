@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.pgErrorHandler = void 0;
 const pgErrorHandler = (err, req, res, next) => {
     switch (err?.code) {
+        case '42501': return res.status(403).json({ error: 'This is outside the projects your login is assigned to' });
         case '23505': return res.status(409).json({ error: 'A record with the same value already exists' });
         case '23503':
             return req.method === 'DELETE'

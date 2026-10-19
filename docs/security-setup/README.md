@@ -81,18 +81,31 @@ The older "approver" right is not used by any route and is no longer offered.
 | 16 | Any logged-in route unknown to the page list returned Access Denied when page access was configured | A screen not on the list is allowed |
 | 17 | Audit log could be written by hand through an endpoint nobody used; a made-up permission checker and a static role list that disagreed with the code | Removed |
 
-## 6. Known gaps (not fixed, by design or for later)
+## 6. Project scope (who sees which project)
+
+Decision: a login assigned to one or more projects sees and changes **only those projects**. A login with **no project assigned sees every project** (this keeps every existing login working). Super admin is never limited, whatever is ticked.
+
+How it works: the API runs a limited login's requests as the database role `rof_app` with the allowed project ids set for that request. Row level security (migration 100) filters every table that has `project_id`, `consumer_id` or `unit_id`: projects, towers, units, unit types, applicants and everything of an applicant (receipts, demands, documents, calls, tasks, remarks ...), bookings, allocations, payment plans, GST, brokers' commissions. Because the database does it, lists, details, reports, dashboard and writes all obey it, including queries nobody remembered to filter. Assigned to a project that no longer exists means seeing nothing, never everything. A change in the login's projects applies on the next request.
+
+Checks that keep it true: the API test fails if a table with `project_id`, `consumer_id` or `unit_id` has no scope policy (add `SELECT rof_apply_project_scope();` to the migration that creates the table), or if a view exists (a view would run as its owner and skip the scope). All 180 list endpoints were called as a limited login: none failed where the admin's call worked.
+
+Live database: run migration 100 as the database owner (it creates the `rof_app` role). If the role is missing, a limited login gets an error, never other projects' data.
+
+## 7. Known gaps (not fixed, by design or for later)
 
 | Gap | Why it matters |
 |---|---|
-| Projects and companies assigned to a login are saved but **not used to limit data** anywhere in the API. | A sales person assigned to one project can still see every project. Decide if scoping is wanted, then it is one change across consumers, units, payments and reports. The screen says so. |
-| "May print", "May download" and Home page widgets are saved but no screen reads them yet. | Same: stored, not enforced. |
+| Companies assigned to a login are saved but not used to limit data. | Companies are not a data boundary today (a project belongs to one company). Revisit if a client runs separate companies in one CRM. |
+| "May print", "May download" and Home page widgets are saved but no screen reads them yet. | Stored, not enforced. |
+| Applicants with no project yet (new leads) are visible to everyone. | A lead has no project until it is booked. Once it has one, only that project's logins see it. |
+| A limited login cannot create a project (it could not see it). | An admin creates projects. |
 | A custom role cannot be given its own API rights; it borrows a base role. | Enough for most offices. A rights grid per role would be a larger change. |
 | Role Menu Access is a screen-level control only. | The API rights come from the base role. |
 | Sessions: a JWT lasts 8 hours, but it is checked against the database on every request, so disabling works at once. | No gap, listed so it is not rechecked. |
 
-## 7. Tests
+## 8. Tests
 
 - `api-test-security.mjs`: 155 checks. Roles (create, validate, edit, delete, matrix), page access (own role, other role, save, defaults), logins (every validation, duplicates in other letter case), edits and the effect at once (role, password, sign out, disable), custom role working through its base role, IP allow list including lock-out guards, injection attempts, audit log filters, password change.
 - `e2e/flows.spec.ts`, section 8: new login with a weak then a matching password, sign in with the email in capitals, edit and disable and refused sign in, bad IP in the list, custom role created, grid ticked and saved, role deleted, a role given a screen and losing it again, audit log.
+- `api-test-scope.mjs`: 34 checks. Two projects with a unit, applicant and receipt each; a login limited to one project, one with two, one with none, a limited project manager: lists, details, edits, adds, receipts, dashboard, routes that hold their own database connection, connections going back to the pool clean, changes applying at once, super admin unaffected, a deleted project, and the policy coverage guard.
 - Run locally: see `docs/PIPELINE.md`.

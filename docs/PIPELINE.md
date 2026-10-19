@@ -31,7 +31,7 @@ Only modules that have been checked one by one are covered. When a module is che
 | Menu, Set Up, Project Set Up, roles, Security (in the browser) | `e2e/flows.spec.ts` | 14 flows: the 4-group Set Master menu and its 22 entries, applicant lists, banks, locations, company with bank account and logo, project to unit and CSV upload, read-only and project-manager screens, and Security (new login, sign in, edit and disable, custom role, role menu access grid, audit log) |
 | Set Master: Set Up (lists, locations, banks, companies, bank accounts, logo) | `docs/set-master-setup/api-test-setup.mjs`, `api-test-deep.mjs` | 134 + 19 |
 | Set Projects: Project Set Up (project, towers, units, unit types, locations, reminders) and the fixes made on 2026-10-19 | `docs/set-projects-setup/api-test-project-setup.mjs`, `api-test-fixes.mjs` | 81 + 47 |
-| Security: roles, role menu access, logins, process rights, IP allow list, sessions, audit log | `docs/security-setup/api-test-security.mjs` | 155 |
+| Security: roles, role menu access, logins, process rights, IP allow list, sessions, audit log | `docs/security-setup/api-test-security.mjs`, `api-test-scope.mjs` (project scope) | 155 + 34 |
 
 ## `live` job (after a push to `main`, once `verify` has passed)
 
@@ -71,7 +71,7 @@ Start a Postgres, then from the repository root:
 export PGHOST=localhost PGPORT=5432 PGUSER=postgres PGPASSWORD=postgres PGDATABASE=rof_ci PSQL=psql
 export DB_HOST=localhost DB_PORT=5432 DB_NAME=rof_ci DB_USER=postgres DB_PASSWORD=postgres JWT_SECRET=local NODE_ENV=development PORT=3002
 (cd packages/api && npm run build && scripts/make-test-db.sh rof_ci && node dist/index.js &)
-.github/scripts/run-api-tests.sh docs/set-master-setup/api-test-setup.mjs docs/set-master-setup/api-test-deep.mjs docs/set-projects-setup/api-test-project-setup.mjs docs/set-projects-setup/api-test-fixes.mjs docs/security-setup/api-test-security.mjs
+.github/scripts/run-api-tests.sh docs/set-master-setup/api-test-setup.mjs docs/set-master-setup/api-test-deep.mjs docs/set-projects-setup/api-test-project-setup.mjs docs/set-projects-setup/api-test-fixes.mjs docs/security-setup/api-test-security.mjs docs/security-setup/api-test-scope.mjs
 ```
 
 ## Known limits

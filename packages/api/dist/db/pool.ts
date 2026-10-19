@@ -1,9 +1,10 @@
 import { Pool } from 'pg';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-export const db = new Pool(
+const pool = new Pool(
   process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,
@@ -20,3 +21,69 @@ export const db = new Pool(
         password: process.env.DB_PASSWORD || 'postgres',
       }
 );
+
+// Project scope. A login that is assigned to projects may only see and change rows of those projects.
+// The limit is applied by the database (row level security, migration 100), so every query of the request
+// obeys it: lists, details, reports and writes, including queries nobody remembers to filter.
+// The request sets its scope once (authenticateToken); every db.query / db.connect of that request then runs
+// as the limited database role `rof_app` with the allowed project ids in `app.project_scope`.
+// Without a scope (super admin, or no project assigned) nothing changes.
+export const scopeStore = new AsyncLocalStorage<{ projectIds: string }>();
+
+const SCOPE_RE = /^[0-9a-f-]{36}(,[0-9a-f-]{36})*$/;
+const scopeOf = () => {
+  const ids = scopeStore.getStore()?.projectIds;
+  if (ids && !SCOPE_RE.test(ids)) throw new Error('Invalid project scope');
+  return ids;
+};
+
+export const isScoped = () => !!scopeStore.getStore()?.projectIds;
+
+async function scopedQuery(ids: string, args: any[]) {
+  const client = await pool.connect();
+  try {
+    await client.query(`BEGIN; SET LOCAL ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', true)`);
+    const result = await (client.query as any)(...args);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function scopedConnect(ids: string) {
+  const client = await pool.connect();
+  try {
+    await client.query(`SET ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', false)`);
+  } catch (err) {
+    client.release(err as Error);
+    throw err;
+  }
+  const release = client.release.bind(client);
+  // The connection goes back to the pool only after the limit is removed; if that fails it is closed instead
+  (client as any).release = (err?: Error | boolean) =>
+    client.query('RESET ROLE; RESET app.project_scope').then(() => release(err as any), (e) => release(e));
+  return client;
+}
+
+export const db = new Proxy(pool, {
+  get(target, prop) {
+    if (prop === 'query') {
+      return (...args: any[]) => {
+        const ids = scopeOf();
+        return ids ? scopedQuery(ids, args) : (target.query as any)(...args);
+      };
+    }
+    if (prop === 'connect') {
+      return (...args: any[]) => {
+        const ids = scopeOf();
+        return ids && !args.length ? scopedConnect(ids) : (target.connect as any)(...args);
+      };
+    }
+    const v = Reflect.get(target, prop);
+    return typeof v === 'function' ? v.bind(target) : v;
+  },
+}) as Pool;

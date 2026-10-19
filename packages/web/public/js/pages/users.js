@@ -135,7 +135,7 @@ SEC.userRow = (u) => `<tr data-row data-role="${sesc(u.role)}" data-active="${u.
   <td><b>${sesc(u.name)}</b><div class="sm-muted" style="font-size:12px">${sesc(u.username || '')}${u.username ? ' · ' : ''}${sesc(u.email)}</div></td>
   <td>${sesc(u.role_label || u.role)}</td>
   <td class="sm-muted" style="max-width:260px">${sesc(SEC.processText(u)) || 'None'}</td>
-  <td class="sm-muted" style="max-width:200px">${sesc(u.project_names) || '—'}</td>
+  <td class="sm-muted" style="max-width:200px">${sesc(u.project_names) || 'All projects'}</td>
   <td class="sm-muted">${sesc(SEC.when(u.last_login_at)) || 'Never'}</td>
   <td>${u.is_active ? SEC.tag('Active', 'ok') : SEC.tag('Inactive', 'warn')}${u.ip_security_enabled ? ' ' + SEC.tag('IP locked', 'info') : ''}</td>
   <td class="act">${SEC.admin ? `<button class="sm-btn sm-btn--quiet" data-act="edit" data-id="${sesc(u.id)}">Edit</button>
@@ -198,7 +198,7 @@ SEC.openLogin = (u) => {
           <label class="sec-check"><input type="checkbox" name="download"${u?.authorized_download ? ' checked' : ''}> May download</label></div>
       </div>
       <div class="sm-field"><span class="sm-label">Projects</span><div class="sec-list">${SEC.checks('proj', m.projects.map((p) => ({ id: p.id, label: p.name })), u?.assigned_project_ids || []) || '<span class="sm-muted">No projects yet</span>'}</div>
-        <div class="sm-hint">Saved with the login. Data is not yet limited to these projects.</div></div>
+        <div class="sm-hint">Leave empty for every project. With projects ticked, this login sees and changes only those projects: applicants, units, bookings, payments and reports.</div></div>
       <div class="sm-field"><span class="sm-label">Companies</span><div class="sec-list">${SEC.checks('comp', m.companies.map((c) => ({ id: c.id, label: c.name })), u?.company_ids || []) || '<span class="sm-muted">No companies yet</span>'}</div>
         <div class="sm-hint">Saved with the login. Data is not yet limited to these companies.</div></div>
       <div class="sm-field"><span class="sm-label">Home page widgets</span><div class="sec-list">${SEC.checks('wid', m.homePageWidgets.map((w) => ({ id: w.key, label: w.label })), picked)}</div></div>
