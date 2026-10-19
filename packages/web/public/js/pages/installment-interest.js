@@ -3,155 +3,44 @@
 {
   const II_STYLES = `
 <style id="ii-styles">
-.ii-page {
-  padding: 0;
-  font-family: Arial, sans-serif;
-  font-size: 13px;
-  background: #f0f0f0;
-}
-/* Filter card */
-.ii-filter-card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 3px;
-  margin-bottom: 10px;
-}
-.ii-hdr {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background: #1d3a6e;
-  padding: 7px 12px;
-  border-radius: 3px 3px 0 0;
-}
-.ii-hdr-title {
-  color: #fff;
-  font-size: 13px;
-  font-weight: bold;
-  letter-spacing: .3px;
-}
-.ii-collapse-btn {
-  background: #337ab7;
-  color: #fff;
-  border: none;
-  padding: 1px 8px;
-  font-size: 16px;
-  line-height: 1.4;
-  cursor: pointer;
-  border-radius: 3px;
-  font-weight: bold;
-}
-.ii-filter-body {
-  padding: 12px 14px 14px;
-  background: #fff;
-}
-.ii-filter-fields {
-  display: flex;
-  gap: 24px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-.ii-field-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ii-field-lbl {
-  font-size: 13px;
-  color: #333;
-}
-.ii-req { color: #c0392b; }
-.ii-filter-card select {
-  min-width: 160px;
-  padding: 4px 8px;
-  border: 1px solid #ccc;
-  border-radius: 3px;
-  font-size: 13px;
-  background: #fff;
-}
-.ii-fetch-row {
-  margin-top: 10px;
-}
-.ii-btn-fetch {
-  background: #337ab7;
-  color: #fff;
-  border: none;
-  padding: 5px 18px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: bold;
-  cursor: pointer;
-}
-.ii-btn-fetch:hover { background: #2a6496; }
-.ii-btn-fetch:disabled { opacity: .7; cursor: default; }
-.ii-fmsg {
-  margin-top: 8px;
-  padding: 6px 10px;
-  border-radius: 3px;
-  font-size: 12px;
-}
-.ii-fmsg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-/* Results card */
-.ii-results-card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 3px;
-}
-.ii-tbl-wrap { overflow-x: auto; }
-.ii-tbl {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.ii-tbl th {
-  background: #1d3a6e;
-  color: #fff;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: normal;
-  text-align: left;
-  border-right: 1px solid rgba(255,255,255,.15);
-}
-.ii-tbl th:last-child { border-right: none; }
-.ii-tbl td {
-  padding: 6px 10px;
-  border-bottom: 1px solid #e8e8e8;
-  border-right: 1px solid #eee;
-  color: #333;
-}
-.ii-tbl td:last-child { border-right: none; }
-.ii-tbl tr:last-child td { border-bottom: none; }
-.ii-tbl tr.ii-row-first td { background: #f5f0dc; }
-.ii-interest-input {
-  width: 80px;
-  text-align: right;
-  padding: 3px 5px;
-  border: 1px solid #ccc;
-  border-radius: 2px;
-  font-size: 13px;
-}
-.ii-save-wrap { padding: 10px 14px 12px; }
-.ii-btn-save {
-  background: #337ab7;
-  color: #fff;
-  border: none;
-  padding: 5px 18px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: bold;
-  cursor: pointer;
-}
-.ii-btn-save:hover { background: #2a6496; }
-.ii-btn-save:disabled { opacity: .7; cursor: default; }
-.ii-smsg {
-  display: inline-block;
-  margin-left: 10px;
-  padding: 4px 10px;
-  border-radius: 3px;
-  font-size: 12px;
-}
-.ii-smsg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.ii-smsg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
+.ii-page { padding:0; font-size:13px; background:transparent; max-width:1100px; margin:0 auto }
+.ii-filter-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.ii-hdr { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.ii-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.ii-collapse-btn { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:1px 10px; font-size:16px; line-height:1.4; cursor:pointer; border-radius:6px }
+.ii-filter-body { padding:18px }
+.ii-filter-fields { display:flex; gap:18px 24px; align-items:flex-end; flex-wrap:wrap }
+.ii-field-group { display:flex; flex-direction:column; gap:6px }
+.ii-field-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px }
+.ii-req { color:var(--red) }
+.ii-filter-card select { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
+.ii-filter-card select:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.ii-filter-card select { min-width:200px }
+.ii-fetch-row { margin-top:18px }
+.ii-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.ii-btn-fetch:hover { filter:brightness(.92) }
+.ii-btn-fetch:disabled { opacity:.65; cursor:default }
+.ii-fmsg { margin-top:12px }
+.ii-fmsg { padding:8px 12px; border-radius:8px; font-size:12px }
+.ii-fmsg-ok { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
+.ii-fmsg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
+.ii-results-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.ii-tbl-wrap { overflow-x:auto }
+.ii-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+.ii-tbl th { background:var(--surface2); color:var(--text3); padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
+.ii-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text);  }
+.ii-tbl tr:last-child td { border-bottom:none }
+.ii-tbl tbody tr:hover td { background:var(--surface2) }
+.ii-tbl tr.ii-row-first td { background:var(--teal-bg) }
+.ii-interest-input { padding:6px 10px; border:1px solid var(--border2); border-radius:8px; font-size:12.5px; background:var(--surface); color:var(--text); width:90px; text-align:right; }
+.ii-interest-input:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.ii-save-wrap { padding:14px 18px 16px; border-top:1px solid var(--border); background:var(--surface2) }
+.ii-btn-save { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.ii-btn-save:hover { filter:brightness(.92) }
+.ii-btn-save:disabled { opacity:.65; cursor:default }
+.ii-smsg { display:inline-block; margin-left:10px; padding:6px 12px; border-radius:8px; font-size:12px }
+.ii-smsg-ok { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
+.ii-smsg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
 </style>`;
 
   const InstallmentInterest = {
@@ -280,7 +169,7 @@
     renderTable() {
       const div = document.getElementById('ii-results');
       if (this._rows.length === 0) {
-        div.innerHTML = `<div class="ii-results-card"><div class="ii-hdr"><span class="ii-hdr-title">INTEREST MASTER</span></div><div style="padding:12px;color:#777;font-size:13px;">No installments found for this plan.</div></div>`;
+        div.innerHTML = `<div class="ii-results-card"><div class="ii-hdr"><span class="ii-hdr-title">INTEREST MASTER</span></div><div style="padding:30px 18px;color:var(--text3);font-size:13px;text-align:center;">No installments found for this plan.</div></div>`;
         return;
       }
       let rows = '';

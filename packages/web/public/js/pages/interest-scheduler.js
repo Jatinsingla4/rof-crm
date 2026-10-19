@@ -3,170 +3,43 @@
 {
   const IS_STYLES = `
 <style id="is-styles">
-.is-page-wrap {
-  padding: 20px;
-  font-family: Arial, sans-serif;
-  font-size: 13px;
-}
-.is-card {
-  max-width: 560px;
-  margin: 30px auto;
-  background: #fff;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0,0,0,.08);
-}
-.is-card-title {
-  background: #e8e8e8;
-  color: #1a4a7a;
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .4px;
-  border-bottom: 1px solid #ccc;
-}
-.is-card-body {
-  padding: 22px 30px 26px;
-}
-.is-form-row {
-  display: flex;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.is-form-row label {
-  width: 72px;
-  font-size: 13px;
-  color: #333;
-  font-weight: 500;
-  flex-shrink: 0;
-}
-.is-form-row select {
-  flex: 1;
-  padding: 5px 8px;
-  border: 1px solid #aaa;
-  border-radius: 3px;
-  font-size: 12px;
-  background: #fff;
-}
-.is-btn-row {
-  display: flex;
-  gap: 10px;
-  margin-top: 22px;
-}
-.is-btn-calc {
-  background: #2e8b57;
-  color: #fff;
-  border: none;
-  padding: 9px 22px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: .3px;
-  text-transform: uppercase;
-}
-.is-btn-calc:hover { background: #236b45; }
-.is-btn-calc:disabled { opacity: .65; cursor: default; }
-.is-btn-del {
-  background: #cc2200;
-  color: #fff;
-  border: none;
-  padding: 9px 22px;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  letter-spacing: .3px;
-  text-transform: uppercase;
-}
-.is-btn-del:hover { background: #a81c00; }
-.is-btn-del:disabled { opacity: .65; cursor: default; }
-.is-summary {
-  display: flex;
-  gap: 12px;
-  margin: 20px 0;
-  max-width: 700px;
-}
-.is-summary-card {
-  flex: 1;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  padding: 12px;
-  text-align: center;
-}
-.is-summary-card span {
-  display: block;
-  font-size: 11px;
-  color: #64748b;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-}
-.is-summary-card strong {
-  font-size: 18px;
-  color: #1e293b;
-}
-.is-table-wrap {
-  overflow-x: auto;
-  margin-bottom: 14px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-}
-.is-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.is-table th {
-  background: #1a4a7a;
-  color: #fff;
-  padding: 8px 10px;
-  text-align: left;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .4px;
-  white-space: nowrap;
-}
-.is-table td {
-  padding: 7px 10px;
-  border-bottom: 1px solid #f1f5f9;
-  color: #374151;
-  white-space: nowrap;
-}
-.is-table tr:last-child td { border-bottom: none; }
-.is-table tr:hover td { background: #f8fbff; }
-.is-save-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 12px;
-  padding: 12px 0;
-}
-.is-btn-save {
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  padding: 8px 20px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  text-transform: uppercase;
-}
-.is-btn-save:hover { background: #1d4ed8; }
-.is-btn-save:disabled { opacity: .65; cursor: default; }
-.is-save-note {
-  font-size: 11px;
-  color: #64748b;
-}
-.is-no-interest {
-  padding: 16px;
-  color: #555;
-  font-size: 13px;
-  text-align: center;
-}
+.is-page-wrap { padding:0; font-size:13px }
+.is-card { max-width:560px; margin:0 auto 16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.is-card { margin-top:8px }
+.is-card-title { background:var(--teal-bg); color:var(--text); padding:14px 18px; font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; border-bottom:1px solid var(--border) }
+.is-card-body { padding:22px 24px 24px }
+.is-form-row { display:flex; align-items:center; margin-bottom:16px; gap:12px }
+.is-form-row label { width:72px; font-size:12px; color:var(--text2); font-weight:500; flex-shrink:0 }
+.is-form-row select { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
+.is-form-row select:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.is-form-row select { flex:1 }
+.is-btn-row { display:flex; gap:10px; margin-top:22px; flex-wrap:wrap }
+.is-btn-calc { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.is-btn-calc:hover { filter:brightness(.92) }
+.is-btn-calc:disabled { opacity:.65; cursor:default }
+.is-btn-calc { text-transform:uppercase; letter-spacing:.3px }
+.is-btn-del { background:var(--red); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; text-transform:uppercase; letter-spacing:.3px; min-height:38px }
+.is-btn-del:hover { filter:brightness(.92) }
+.is-btn-del:disabled { opacity:.65; cursor:default }
+.is-summary { display:flex; gap:12px; margin:16px auto; max-width:960px; flex-wrap:wrap }
+.is-summary-card { flex:1 1 180px; background:var(--surface); border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px; padding:12px 16px; text-align:left }
+.is-summary-card span { display:block; font-size:10.5px; color:var(--text3); margin-bottom:5px; text-transform:uppercase; letter-spacing:.5px }
+.is-summary-card strong { font-size:20px; color:var(--text) }
+.is-table-wrap { overflow-x:auto; margin-bottom:14px; border:1px solid var(--border2); border-radius:10px; background:var(--surface) }
+.is-table { width:100%; border-collapse:collapse; font-size:12.5px }
+.is-table th { background:var(--surface2); color:var(--text3); padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
+.is-table td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); white-space:nowrap; }
+.is-table tr:last-child td { border-bottom:none }
+.is-table tbody tr:hover td { background:var(--surface2) }
+.is-table a { color:var(--teal); text-decoration:none; font-weight:500 }
+.is-table a:hover { text-decoration:underline }
+.is-save-row { display:flex; align-items:center; gap:14px; margin-top:12px; padding:12px 0 }
+.is-btn-save { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.is-btn-save:hover { filter:brightness(.92) }
+.is-btn-save:disabled { opacity:.65; cursor:default }
+.is-btn-save { text-transform:uppercase }
+.is-save-note { font-size:11.5px; color:var(--text3) }
+.is-no-interest { padding:30px 16px; color:var(--text3); font-size:13px; text-align:center }
 </style>`;
 
   const InterestScheduler = {
@@ -326,13 +199,13 @@
             html += `
       <tr>
         <td>${sno++}</td>
-        <td><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
+        <td><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
         <td>${c.registration_number || '—'}</td>
         <td>${row.installment_name}</td>
         <td>${row.installment_date ? new Date(row.installment_date).toLocaleDateString('en-IN') : '—'}</td>
         <td>${row.delay_days}</td>
         <td>${(row.amount_received === 0 && row.is_first_receipt === true) ? '--' : '&#8377;' + Math.round(row.delay_amount).toLocaleString('en-IN')}</td>
-        <td style="color:#c0392b;font-weight:600;">&#8377;${row.interest_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+        <td style="color:var(--red);font-weight:600;">&#8377;${row.interest_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
       </tr>`;
           });
         });

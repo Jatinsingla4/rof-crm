@@ -31,6 +31,46 @@ const InterestWaiver = (() => {
     return `${dd}/${mm}/${yyyy}`;
   }
 
+  const IW_STYLE = `<style>
+.iwn { max-width:1180px; margin:0 auto; font-size:13px }
+.iwn-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden; margin-bottom:16px }
+.iwn-hdr { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.iwn-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.iwn-ico { cursor:pointer; font-size:16px; color:var(--text2); margin-left:10px }
+.iwn-body { padding:18px }
+.iwn-row { display:flex; flex-wrap:wrap; gap:16px 18px; align-items:flex-end; margin-bottom:16px }
+.iwn-row:last-child { margin-bottom:0 }
+.iwn-fg { display:flex; flex-direction:column; gap:6px }
+.iwn-fl { font-size:11px; color:var(--text2); letter-spacing:.3px }
+.iwn-fc { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
+.iwn-fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.iwn-btns { display:flex; gap:10px; margin-top:4px }
+.iwn-btn { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.iwn-btn:hover { filter:brightness(.92) }
+.iwn-btn-grey { background:var(--surface); color:var(--text2); border:1px solid var(--border2) }
+.iwn-btn-grey:hover { background:var(--surface2); filter:none }
+.iwn-scroll { overflow-x:auto }
+.iwn-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+.iwn-tbl th { background:var(--surface2); color:var(--text3); padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
+.iwn-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+.iwn-tbl tbody tr:hover td { background:var(--surface2) }
+.iwn-tbl tbody tr:last-child td { border-bottom:none }
+.iwn-tbl .c { text-align:center } .iwn-tbl .r { text-align:right }
+.iwn-tbl tr.iwn-first td { background:var(--teal-bg) }
+.iwn-tbl tr.iwn-total td { font-weight:600; background:var(--surface2) }
+.iwn-link { color:var(--teal); text-decoration:none; font-weight:500; cursor:pointer }
+.iwn-link:hover { text-decoration:underline }
+.iwn-info { display:flex; flex-wrap:wrap; gap:8px 28px; padding:14px 18px; border-bottom:1px solid var(--border); font-size:13px; color:var(--text2) }
+.iwn-info strong { color:var(--text) }
+.iwn-form { padding:18px; border-top:1px solid var(--border2); background:var(--surface2) }
+.iwn-stats { display:flex; flex-wrap:wrap; gap:8px 28px; margin-bottom:18px; padding-bottom:14px; border-bottom:1px solid var(--border) }
+.iwn-stat { font-size:12px; color:var(--text2) }
+.iwn-stat strong { color:var(--text); font-size:13px }
+.iwn-msg { padding:30px 18px; color:var(--text3); font-size:13px; text-align:center }
+.iwn-err { color:var(--red) }
+.iwn-ok { color:var(--teal) }
+</style>`;
+
   async function loadProjects() {
     try {
       const res = await Api.get('/projects');
@@ -47,47 +87,47 @@ const InterestWaiver = (() => {
       `<option value="${p.id}">${p.name || p.project_name || p.id}</option>`
     ).join('');
 
-    return `
-<div style="background:#fff;min-height:100vh;padding:16px;">
+    return `${IW_STYLE}
+<div class="iwn">
 
   <!-- Filter card -->
-  <div style="border:1px solid #ccc;border-radius:4px;margin-bottom:16px;">
-    <div style="background:#1d3a6e;color:#fff;padding:8px 14px;display:flex;justify-content:space-between;align-items:center;border-radius:4px 4px 0 0;">
-      <strong style="font-size:14px;letter-spacing:.5px;">INTEREST WAIVE OFF</strong>
-      <span id="iw-collapse-btn" style="cursor:pointer;font-size:18px;line-height:1;" onclick="InterestWaiver._toggleFilter()">&#8722;</span>
+  <div class="iwn-card">
+    <div class="iwn-hdr">
+      <div class="iwn-title">Interest Waive Off</div>
+      <span id="iw-collapse-btn" class="iwn-ico" onclick="InterestWaiver._toggleFilter()">&#8722;</span>
     </div>
-    <div id="iw-filter-body" style="background:#f5f5f5;padding:12px 14px;">
-      <div style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-        <div>
-          <label style="font-size:12px;display:block;margin-bottom:3px;">*Project:</label>
-          <select id="iw-proj" style="min-width:160px;padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;">
+    <div id="iw-filter-body" class="iwn-body">
+      <div class="iwn-row">
+        <div class="iwn-fg">
+          <label class="iwn-fl">*Project</label>
+          <select id="iw-proj" class="iwn-fc" style="min-width:200px;">
             <option value="">-- Select --</option>
             ${projOptions}
           </select>
         </div>
-        <div>
-          <label style="font-size:12px;display:block;margin-bottom:3px;">Type:</label>
-          <select id="iw-type" style="min-width:140px;padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Type</label>
+          <select id="iw-type" class="iwn-fc" style="min-width:160px;">
             <option value="All">&lt;--All--&gt;</option>
             <option value="Self">Self</option>
             <option value="Pending">Pending</option>
             <option value="Loan Sanctioned">Loan Sanctioned</option>
           </select>
         </div>
-        <div>
-          <label style="font-size:12px;display:block;margin-bottom:3px;">Registration No.:</label>
-          <input id="iw-regno" type="text" placeholder="Registration No." style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;width:140px;">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Registration No.</label>
+          <input id="iw-regno" type="text" placeholder="Registration No." class="iwn-fc" style="width:160px;">
+        </div>
+        <div class="iwn-fg">
+          <label class="iwn-fl">First Name</label>
+          <input id="iw-name" type="text" placeholder="First Name" class="iwn-fc" style="width:150px;">
+        </div>
+        <div class="iwn-fg">
+          <label class="iwn-fl">Unit Address</label>
+          <input id="iw-addr" type="text" placeholder="Unit Address" class="iwn-fc" style="width:150px;">
         </div>
         <div>
-          <label style="font-size:12px;display:block;margin-bottom:3px;">First Name:</label>
-          <input id="iw-name" type="text" placeholder="First Name" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;width:130px;">
-        </div>
-        <div>
-          <label style="font-size:12px;display:block;margin-bottom:3px;">Unit Address:</label>
-          <input id="iw-addr" type="text" placeholder="Unit Address" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;width:130px;">
-        </div>
-        <div>
-          <button onclick="InterestWaiver._fetchList()" style="padding:6px 18px;background:#d9534f;color:#fff;border:none;border-radius:3px;font-size:13px;cursor:pointer;font-weight:600;">FETCH</button>
+          <button class="iwn-btn" onclick="InterestWaiver._fetchList()">FETCH</button>
         </div>
       </div>
     </div>
@@ -124,7 +164,7 @@ const InterestWaiver = (() => {
     _state.selectedProject = proj;
 
     const resultsDiv = document.getElementById('iw-results');
-    resultsDiv.innerHTML = '<div style="padding:16px;color:#555;font-size:13px;">Loading...</div>';
+    resultsDiv.innerHTML = '<div class="iwn-msg">Loading...</div>';
 
     try {
       const params = new URLSearchParams({ project_id: projId });
@@ -138,65 +178,64 @@ const InterestWaiver = (() => {
       _state.consumers = data;
       renderConsumerTable(data, proj);
     } catch (e) {
-      resultsDiv.innerHTML = `<div style="color:red;padding:12px;font-size:13px;">Error: ${e.message}</div>`;
+      resultsDiv.innerHTML = `<div class="iwn-msg iwn-err">Error: ${e.message}</div>`;
     }
   }
 
   function renderConsumerTable(data, proj) {
     const resultsDiv = document.getElementById('iw-results');
     if (!data.length) {
-      resultsDiv.innerHTML = '<div style="padding:16px;color:#555;font-size:13px;">No records found.</div>';
+      resultsDiv.innerHTML = '<div class="iwn-msg">No records found.</div>';
       return;
     }
 
     const projName = proj ? (proj.name || proj.project_name || proj.id) : '';
 
     const rows = data.map((r, i) => {
-      const bg = i === 0 ? 'background:#f5f0dc;' : (i % 2 === 0 ? 'background:#fafafa;' : '');
-      return `<tr style="${bg}">
-        <td style="padding:6px 8px;text-align:center;font-size:12px;">${i + 1}</td>
-        <td style="padding:6px 8px;font-size:12px;">${r.registration_no || ''}</td>
-        <td style="padding:6px 8px;font-size:12px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.name || ''}</a></td>
-        <td style="padding:6px 8px;font-size:12px;">${r.unit_address || ''}</td>
-        <td style="padding:6px 8px;font-size:12px;">${r.type || ''}</td>
-        <td style="padding:6px 8px;text-align:right;font-size:12px;">${fmt(r.total_interest_inr)}</td>
-        <td style="padding:6px 8px;text-align:right;font-size:12px;">${fmt(r.total_waived_inr)}</td>
-        <td style="padding:6px 8px;text-align:right;font-size:12px;">${fmt(r.paid_interest_inr)}</td>
-        <td style="padding:6px 8px;text-align:right;font-size:12px;">${fmt(r.balance_interest_inr)}</td>
-        <td style="padding:6px 8px;text-align:center;font-size:12px;"><a href="#" style="color:#337ab7;text-decoration:none;" onclick="event.preventDefault();InterestWaiver._openDetail(${i},false)">Detail</a></td>
-        <td style="padding:6px 8px;text-align:center;font-size:12px;"><a href="#" style="color:#337ab7;text-decoration:none;" onclick="event.preventDefault();InterestWaiver._openDetail(${i},true)">Waive Off</a></td>
+      return `<tr class="${i === 0 ? 'iwn-first' : ''}">
+        <td class="c">${i + 1}</td>
+        <td>${r.registration_no || ''}</td>
+        <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.name || ''}</a></td>
+        <td>${r.unit_address || ''}</td>
+        <td>${r.type || ''}</td>
+        <td class="r">${fmt(r.total_interest_inr)}</td>
+        <td class="r">${fmt(r.total_waived_inr)}</td>
+        <td class="r">${fmt(r.paid_interest_inr)}</td>
+        <td class="r">${fmt(r.balance_interest_inr)}</td>
+        <td class="c"><a href="#" class="iwn-link" onclick="event.preventDefault();InterestWaiver._openDetail(${i},false)">Detail</a></td>
+        <td class="c"><a href="#" class="iwn-link" onclick="event.preventDefault();InterestWaiver._openDetail(${i},true)">Waive Off</a></td>
       </tr>`;
     }).join('');
 
-    const thStyle = 'padding:8px;background:#1d3a6e;color:#fff;font-size:12px;font-weight:600;white-space:nowrap;';
-
     resultsDiv.innerHTML = `
-<div style="display:flex;justify-content:space-between;align-items:center;background:#1d3a6e;color:#fff;padding:8px 14px;border-radius:4px 4px 0 0;margin-top:4px;">
-  <strong style="font-size:13px;">PROJECT : ${projName.toUpperCase()}</strong>
-  <div style="display:flex;gap:8px;">
-    <span style="cursor:pointer;font-size:16px;" title="Print" onclick="window.print()">&#128438;</span>
-    <span style="cursor:pointer;font-size:16px;" title="Download">&#8659;</span>
+<div class="iwn-card">
+  <div class="iwn-hdr">
+    <div class="iwn-title">Project : ${projName}</div>
+    <div>
+      <span class="iwn-ico" title="Print" onclick="window.print()">&#128438;</span>
+      <span class="iwn-ico" title="Download">&#8659;</span>
+    </div>
   </div>
-</div>
-<div style="overflow-x:auto;border:1px solid #ccc;border-top:none;">
-  <table style="width:100%;border-collapse:collapse;">
-    <thead>
-      <tr>
-        <th style="${thStyle}">S.NO.</th>
-        <th style="${thStyle}">REGISTRATION NO.</th>
-        <th style="${thStyle}">NAME</th>
-        <th style="${thStyle}">ADDRESS</th>
-        <th style="${thStyle}">TYPE</th>
-        <th style="${thStyle}">INTEREST AMOUNT</th>
-        <th style="${thStyle}">WAIVE OFF AMOUNT</th>
-        <th style="${thStyle}">PAID INTEREST</th>
-        <th style="${thStyle}">BALANCE INTEREST</th>
-        <th style="${thStyle}">DETAIL</th>
-        <th style="${thStyle}">WAIVE OFF</th>
-      </tr>
-    </thead>
-    <tbody>${rows}</tbody>
-  </table>
+  <div class="iwn-scroll">
+    <table class="iwn-tbl">
+      <thead>
+        <tr>
+          <th>S.NO.</th>
+          <th>REGISTRATION NO.</th>
+          <th>NAME</th>
+          <th>ADDRESS</th>
+          <th>TYPE</th>
+          <th>INTEREST AMOUNT</th>
+          <th>WAIVE OFF AMOUNT</th>
+          <th>PAID INTEREST</th>
+          <th>BALANCE INTEREST</th>
+          <th>DETAIL</th>
+          <th>WAIVE OFF</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
 </div>`;
   }
 
@@ -207,7 +246,7 @@ const InterestWaiver = (() => {
     if (!consumer) return;
 
     const content = document.getElementById('content') || document.body;
-    content.innerHTML = '<div style="padding:24px;color:#555;font-size:13px;">Loading interest data...</div>';
+    content.innerHTML = '<div class="iwn-msg">Loading interest data...</div>';
 
     try {
       const token = localStorage.getItem('rof-jwt');
@@ -230,7 +269,7 @@ const InterestWaiver = (() => {
 
       renderDetailView(content);
     } catch (e) {
-      content.innerHTML = `<div style="color:red;padding:16px;font-size:13px;">Error loading detail: ${e.message}</div>`;
+      content.innerHTML = `<div class="iwn-msg iwn-err">Error loading detail: ${e.message}</div>`;
     }
   }
 
@@ -239,24 +278,19 @@ const InterestWaiver = (() => {
     const proj = _state.selectedProject;
     const projName = proj ? (proj.name || proj.project_name || '') : '';
 
-    const thS = 'padding:8px;background:#1d3a6e;color:#fff;font-size:12px;font-weight:600;text-align:center;white-space:nowrap;';
-    const tdS = 'padding:6px 8px;font-size:12px;text-align:center;';
-    const tdR = 'padding:6px 8px;font-size:12px;text-align:right;';
-
     let totalInterest = 0;
     const tableRows = rows.map((r, i) => {
       totalInterest += parseFloat(r.interest_amount) || 0;
-      const bg = i % 2 === 0 ? '' : 'background:#f9f9f9;';
-      return `<tr style="${bg}">
-        <td style="${tdS}">${i + 1}</td>
-        <td style="padding:6px 8px;font-size:12px;">${r.installment_name || ''}</td>
-        <td style="${tdS}">${fmtDate(r.installment_date)}</td>
-        <td style="${tdR}">${fmt(r.amount_received)}</td>
-        <td style="${tdS}">${fmtDate(r.date_received)}</td>
-        <td style="${tdR}">${(r.amount_received === 0 && r.is_first_receipt === true) ? '--' : fmt(r.delay_amount)}</td>
-        <td style="${tdS}">${r.delay_days != null ? r.delay_days : ''}</td>
-        <td style="${tdS}">${r.roi != null ? r.roi : ''}</td>
-        <td style="${tdR}">${fmt(r.interest_amount)}</td>
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>${r.installment_name || ''}</td>
+        <td class="c">${fmtDate(r.installment_date)}</td>
+        <td class="r">${fmt(r.amount_received)}</td>
+        <td class="c">${fmtDate(r.date_received)}</td>
+        <td class="r">${(r.amount_received === 0 && r.is_first_receipt === true) ? '--' : fmt(r.delay_amount)}</td>
+        <td class="c">${r.delay_days != null ? r.delay_days : ''}</td>
+        <td class="c">${r.roi != null ? r.roi : ''}</td>
+        <td class="r">${fmt(r.interest_amount)}</td>
       </tr>`;
     }).join('');
 
@@ -269,97 +303,93 @@ const InterestWaiver = (() => {
 
     const s = summary;
 
-    container.innerHTML = `
-<div style="background:#fff;min-height:100vh;padding:16px;">
+    container.innerHTML = `${IW_STYLE}
+<div class="iwn">
 
-  <div style="border:1px solid #ccc;border-radius:4px;">
-    <div style="background:#1d3a6e;color:#fff;padding:8px 14px;border-radius:4px 4px 0 0;">
-      <strong style="font-size:14px;letter-spacing:.5px;">INTEREST WAIVE OFF</strong>
+  <div class="iwn-card">
+    <div class="iwn-hdr">
+      <div class="iwn-title">Interest Waive Off</div>
     </div>
-    <div style="padding:12px 14px;background:#fff;border-bottom:1px solid #eee;display:flex;flex-wrap:wrap;gap:24px;">
-      <span style="font-size:13px;"><strong>Project:</strong> ${projName}</span>
-      <span style="font-size:13px;"><strong>Customer Name:</strong> ${consumer.name || ''}</span>
-      <span style="font-size:13px;"><strong>Registration No.:</strong> ${consumer.registration_no || ''}</span>
+    <div class="iwn-info">
+      <span><strong>Project:</strong> ${projName}</span>
+      <span><strong>Customer Name:</strong> ${consumer.name || ''}</span>
+      <span><strong>Registration No.:</strong> ${consumer.registration_no || ''}</span>
     </div>
 
     <!-- Interest breakdown table -->
-    <div style="overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;">
+    <div class="iwn-scroll">
+      <table class="iwn-tbl">
         <thead>
           <tr>
-            <th style="${thS}">S.NO.</th>
-            <th style="${thS};text-align:left;">INSTALLMENT NAME</th>
-            <th style="${thS}">INSTALLMENT DATE</th>
-            <th style="${thS}">AMOUNT REC.</th>
-            <th style="${thS}">DATE OF REC.</th>
-            <th style="${thS}">DELAY AMOUNT</th>
-            <th style="${thS}">DELAY DAYS</th>
-            <th style="${thS}">ROI</th>
-            <th style="${thS}">INTEREST AMOUNT</th>
+            <th class="c">S.NO.</th>
+            <th>INSTALLMENT NAME</th>
+            <th class="c">INSTALLMENT DATE</th>
+            <th class="c">AMOUNT REC.</th>
+            <th class="c">DATE OF REC.</th>
+            <th class="c">DELAY AMOUNT</th>
+            <th class="c">DELAY DAYS</th>
+            <th class="c">ROI</th>
+            <th class="c">INTEREST AMOUNT</th>
           </tr>
         </thead>
         <tbody>
           ${tableRows}
-          <tr style="font-weight:600;background:#f0f0f0;">
-            <td colspan="8" style="padding:7px 8px;font-size:12px;text-align:right;">Total:</td>
-            <td style="${tdR};font-weight:600;">${fmt(totalInterest)}</td>
+          <tr class="iwn-total">
+            <td colspan="8" class="r">Total:</td>
+            <td class="r">${fmt(totalInterest)}</td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <!-- Waiver form -->
-    <div id="iw-waiver-form" style="padding:14px 16px;border-top:2px solid #ccc;background:#fdfdfd;">
+    <div id="iw-waiver-form" class="iwn-form">
 
-      <!-- Row 1: labels + values -->
-      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-bottom:12px;">
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Installment Name</div>
-          <select id="iw-inst-select" onchange="InterestWaiver._onInstChange()" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px;min-width:160px;">
+      <!-- Summary of selected installment -->
+      <div class="iwn-stats">
+        <div class="iwn-stat">Interest Amount : <strong id="iw-disp-interest">${fmt(s.total_interest)}</strong></div>
+        <div class="iwn-stat">Previous Waive Off Amount : <strong id="iw-disp-prev-waive">${fmt(s.total_waived)}</strong></div>
+        <div class="iwn-stat">Paid Interest : <strong id="iw-disp-paid">0.00</strong></div>
+        <div class="iwn-stat">Balance Interest : <strong id="iw-disp-balance">${fmt(s.balance_interest)}</strong></div>
+      </div>
+
+      <!-- Row 1 -->
+      <div class="iwn-row">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Installment Name</label>
+          <select id="iw-inst-select" class="iwn-fc" onchange="InterestWaiver._onInstChange()" style="min-width:180px;">
             ${instOpts}
           </select>
         </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Interest Amount : <strong id="iw-disp-interest">${fmt(s.total_interest)}</strong></div>
-        </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Previous Waive Off Amount : <strong id="iw-disp-prev-waive">${fmt(s.total_waived)}</strong></div>
-        </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Paid Interest : <strong id="iw-disp-paid">0.00</strong></div>
-        </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Balance Interest : <strong id="iw-disp-balance">${fmt(s.balance_interest)}</strong></div>
-        </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Waive Off Amount</div>
-          <input id="iw-waive-amt" type="number" min="0" step="0.01" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px;width:120px;">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Waive Off Amount</label>
+          <input id="iw-waive-amt" class="iwn-fc" type="number" min="0" step="0.01" style="width:140px;">
         </div>
       </div>
 
       <!-- Row 2: auth + document + remark -->
-      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start;margin-bottom:14px;">
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Auth. By</div>
-          <input id="iw-auth-by" type="text" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px;width:150px;">
+      <div class="iwn-row">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Auth. By</label>
+          <input id="iw-auth-by" class="iwn-fc" type="text" style="width:180px;">
         </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Attach Document</div>
-          <input id="iw-doc" type="file" accept=".pdf,.jpg,.jpeg,.png" style="font-size:12px;">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Attach Document</label>
+          <input id="iw-doc" type="file" accept=".pdf,.jpg,.jpeg,.png" style="font-size:12px;color:var(--text2);">
         </div>
-        <div>
-          <div style="font-size:12px;margin-bottom:3px;">Remark</div>
-          <textarea id="iw-remark" rows="3" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px;width:220px;resize:vertical;"></textarea>
+        <div class="iwn-fg">
+          <label class="iwn-fl">Remark</label>
+          <textarea id="iw-remark" class="iwn-fc" rows="3" style="width:260px;resize:vertical;"></textarea>
         </div>
       </div>
 
       <!-- Buttons -->
-      <div style="display:flex;gap:10px;">
-        <button onclick="InterestWaiver._saveWaiver()" style="padding:7px 22px;background:#337ab7;color:#fff;border:none;border-radius:3px;font-size:13px;cursor:pointer;font-weight:600;">SAVE</button>
-        <button onclick="InterestWaiver._backToList()" style="padding:7px 22px;background:#6c757d;color:#fff;border:none;border-radius:3px;font-size:13px;cursor:pointer;">BACK</button>
+      <div class="iwn-btns">
+        <button class="iwn-btn" onclick="InterestWaiver._saveWaiver()">SAVE</button>
+        <button class="iwn-btn iwn-btn-grey" onclick="InterestWaiver._backToList()">BACK</button>
       </div>
 
-      <div id="iw-save-msg" style="margin-top:10px;font-size:13px;"></div>
+      <div id="iw-save-msg" style="margin-top:12px;font-size:13px;"></div>
     </div>
   </div>
 </div>`;
@@ -410,11 +440,11 @@ const InterestWaiver = (() => {
     const remark   = remarkInput ? remarkInput.value.trim() : '';
 
     if (!waiverAmt || waiverAmt <= 0) {
-      msgDiv.innerHTML = '<span style="color:red;">Waive Off Amount must be greater than 0.</span>';
+      msgDiv.innerHTML = '<span class="iwn-err">Waive Off Amount must be greater than 0.</span>';
       return;
     }
     if (!authBy) {
-      msgDiv.innerHTML = '<span style="color:red;">Auth. By is required.</span>';
+      msgDiv.innerHTML = '<span class="iwn-err">Auth. By is required.</span>';
       return;
     }
 
@@ -430,7 +460,7 @@ const InterestWaiver = (() => {
       document_path:      null,
     };
 
-    msgDiv.innerHTML = '<span style="color:#555;">Saving...</span>';
+    msgDiv.innerHTML = '<span style="color:var(--text2);">Saving...</span>';
 
     try {
       const token = localStorage.getItem('rof-jwt');
@@ -444,14 +474,14 @@ const InterestWaiver = (() => {
       });
       const json = await resp.json();
       if (!resp.ok) {
-        msgDiv.innerHTML = `<span style="color:red;">Error: ${json.error || resp.statusText}</span>`;
+        msgDiv.innerHTML = `<span class="iwn-err">Error: ${json.error || resp.statusText}</span>`;
         return;
       }
-      msgDiv.innerHTML = '<span style="color:green;">Waiver saved successfully.</span>';
+      msgDiv.innerHTML = '<span class="iwn-ok">Waiver saved successfully.</span>';
       _backToList();
       setTimeout(() => _fetchList(), 300);
     } catch (e) {
-      msgDiv.innerHTML = `<span style="color:red;">Error: ${e.message}</span>`;
+      msgDiv.innerHTML = `<span class="iwn-err">Error: ${e.message}</span>`;
     }
   }
 
@@ -485,22 +515,24 @@ const InterestWaiver = (() => {
       `<option value="${p.id}">${p.name || p.project_name || p.id}</option>`
     ).join('');
 
-    return `
-<div style="padding:0 0 24px;">
+    return `${IW_STYLE}
+<div class="iwn">
   <!-- Filter card -->
-  <div style="background:#fff;border:1px solid #ddd;border-radius:4px;margin-bottom:16px;overflow:hidden;">
-    <div style="background:#1d3a6e;color:#fff;padding:8px 14px;font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center;">
-      <span>CUSTOMER WAIVER REPORT</span>
+  <div class="iwn-card">
+    <div class="iwn-hdr">
+      <div class="iwn-title">Customer Waiver Report</div>
     </div>
-    <div style="padding:12px 14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;">
-      <div>
-        <div style="font-size:11px;margin-bottom:3px;color:#555;">Project *</div>
-        <select id="iwr-proj" style="padding:5px 8px;border:1px solid #ccc;border-radius:3px;font-size:12px;min-width:200px;">
-          <option value="">-- Select --</option>
-          ${projOptions}
-        </select>
+    <div class="iwn-body">
+      <div class="iwn-row">
+        <div class="iwn-fg">
+          <label class="iwn-fl">Project *</label>
+          <select id="iwr-proj" class="iwn-fc" style="min-width:240px;">
+            <option value="">-- Select --</option>
+            ${projOptions}
+          </select>
+        </div>
+        <button class="iwn-btn" onclick="InterestWaiver._fetchReport()">FETCH</button>
       </div>
-      <button onclick="InterestWaiver._fetchReport()" style="padding:6px 18px;background:#337ab7;color:#fff;border:none;border-radius:3px;font-size:12px;font-weight:600;cursor:pointer;">FETCH</button>
     </div>
   </div>
   <!-- Results -->
@@ -515,7 +547,7 @@ const InterestWaiver = (() => {
     const proj = _state.projects.find(p => p.id === projectId);
 
     const resultsDiv = document.getElementById('iwr-results');
-    if (resultsDiv) resultsDiv.innerHTML = '<div style="padding:12px;font-size:12px;color:#555;">Loading...</div>';
+    if (resultsDiv) resultsDiv.innerHTML = '<div class="iwn-msg">Loading...</div>';
 
     try {
       const token = localStorage.getItem('rof-jwt');
@@ -527,49 +559,46 @@ const InterestWaiver = (() => {
       const data = json.data || [];
 
       if (!data.length) {
-        if (resultsDiv) resultsDiv.innerHTML = '<div style="padding:12px;font-size:12px;color:#555;">No waiver records found for this project.</div>';
+        if (resultsDiv) resultsDiv.innerHTML = '<div class="iwn-msg">No waiver records found for this project.</div>';
         return;
       }
 
       const projName = proj ? (proj.name || proj.project_name || '') : '';
-      const thS = 'padding:8px;background:#1d3a6e;color:#fff;font-size:12px;font-weight:600;white-space:nowrap;';
-      const tdR = 'padding:6px 8px;text-align:right;font-size:12px;';
 
       const rows = data.map((r, i) => {
-        const bg = i === 0 ? 'background:#f5f0dc;' : (i % 2 === 0 ? 'background:#fafafa;' : '');
         const dt = r.last_waiver_date ? new Date(r.last_waiver_date) : null;
         const dtStr = dt ? `${String(dt.getDate()).padStart(2,'0')}/${String(dt.getMonth()+1).padStart(2,'0')}/${dt.getFullYear()}` : '';
-        return `<tr style="${bg}">
-          <td style="padding:6px 8px;text-align:center;font-size:12px;">${i+1}</td>
-          <td style="padding:6px 8px;font-size:12px;">${r.registration_no || ''}</td>
-          <td style="padding:6px 8px;font-size:12px;"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name || ''}</a></td>
-          <td style="padding:6px 8px;font-size:12px;">${r.unit_address || ''}</td>
-          <td style="${tdR}">${fmt(r.total_interest_inr)}</td>
-          <td style="${tdR}">${fmt(r.total_waived_inr)}</td>
-          <td style="${tdR}">${fmt(r.balance_interest_inr)}</td>
-          <td style="padding:6px 8px;text-align:center;font-size:12px;">${r.waiver_count}</td>
-          <td style="padding:6px 8px;text-align:center;font-size:12px;">${dtStr}</td>
+        return `<tr class="${i === 0 ? 'iwn-first' : ''}">
+          <td class="c">${i+1}</td>
+          <td>${r.registration_no || ''}</td>
+          <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.consumer_name || ''}</a></td>
+          <td>${r.unit_address || ''}</td>
+          <td class="r">${fmt(r.total_interest_inr)}</td>
+          <td class="r">${fmt(r.total_waived_inr)}</td>
+          <td class="r">${fmt(r.balance_interest_inr)}</td>
+          <td class="c">${r.waiver_count}</td>
+          <td class="c">${dtStr}</td>
         </tr>`;
       }).join('');
 
       if (resultsDiv) resultsDiv.innerHTML = `
-        <div style="background:#fff;border:1px solid #ddd;border-radius:4px;overflow:hidden;">
-          <div style="background:#1d3a6e;color:#fff;padding:8px 14px;font-size:13px;font-weight:600;">
-            PROJECT: ${projName}
+        <div class="iwn-card">
+          <div class="iwn-hdr">
+            <div class="iwn-title">Project: ${projName}</div>
           </div>
-          <div style="overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;">
+          <div class="iwn-scroll">
+            <table class="iwn-tbl">
               <thead>
                 <tr>
-                  <th style="${thS}">S.NO.</th>
-                  <th style="${thS}">REGISTRATION NO.</th>
-                  <th style="${thS}">NAME</th>
-                  <th style="${thS}">UNIT ADDRESS</th>
-                  <th style="${thS}">TOTAL INTEREST</th>
-                  <th style="${thS}">WAIVED AMOUNT</th>
-                  <th style="${thS}">BALANCE INTEREST</th>
-                  <th style="${thS}">WAIVER COUNT</th>
-                  <th style="${thS}">LAST WAIVER DATE</th>
+                  <th>S.NO.</th>
+                  <th>REGISTRATION NO.</th>
+                  <th>NAME</th>
+                  <th>UNIT ADDRESS</th>
+                  <th>TOTAL INTEREST</th>
+                  <th>WAIVED AMOUNT</th>
+                  <th>BALANCE INTEREST</th>
+                  <th>WAIVER COUNT</th>
+                  <th>LAST WAIVER DATE</th>
                 </tr>
               </thead>
               <tbody>${rows}</tbody>
@@ -577,7 +606,7 @@ const InterestWaiver = (() => {
           </div>
         </div>`;
     } catch (e) {
-      if (resultsDiv) resultsDiv.innerHTML = `<div style="color:red;padding:12px;font-size:12px;">Error: ${e.message}</div>`;
+      if (resultsDiv) resultsDiv.innerHTML = `<div class="iwn-msg iwn-err">Error: ${e.message}</div>`;
     }
   }
 

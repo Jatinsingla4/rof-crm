@@ -8,50 +8,34 @@
   let _consumers = [];
 
   const GP_STYLES = `<style id="gp-styles">
-.gp-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.gp-filter-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.gp-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.gp-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.gp-filter-body {
-  padding: 10px 14px 12px; display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
-}
-.gp-field { display: flex; flex-direction: column; gap: 3px; }
-.gp-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.gp-filter-body select,
-.gp-filter-body input[type="text"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; min-width: 150px;
-}
-.gp-btn-fetch {
-  background: #337ab7; color: #fff; border: none;
-  padding: 6px 18px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
-}
-.gp-btn-fetch:hover { background: #2a6496; }
-.gp-btn-fetch:disabled { opacity: .7; }
-.gp-results-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; }
-.gp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.gp-tbl th {
-  background: #1d3a6e; color: #fff; padding: 8px 10px;
-  font-size: 11px; font-weight: bold; text-align: left;
-  text-transform: uppercase; letter-spacing: .4px; white-space: nowrap;
-  border-right: 1px solid rgba(255,255,255,.15);
-}
-.gp-tbl th:last-child { border-right: none; }
-.gp-tbl td { padding: 6px 10px; border-bottom: 1px solid #e8e8e8; color: #333; }
-.gp-tbl tr:last-child td { border-bottom: none; }
-.gp-tbl tr.gp-row-first td { background: #f5f0dc; }
-.gp-tbl tr:hover td { background: #f8faff; }
-.gp-grace-input {
-  width: 70px; padding: 3px 6px; border: 1px solid #ccc;
-  border-radius: 3px; font-size: 13px; text-align: center;
-}
-.gp-set-link { color: #337ab7; cursor: pointer; font-size: 13px; text-decoration: none; margin-right: 8px; }
-.gp-set-link:hover { text-decoration: underline; }
-.gp-inline-msg { font-size: 11px; margin-left: 4px; }
-.gp-msg-ok { color: #3c763d; }
-.gp-msg-err { color: #a94442; }
+.gp-page { padding:0; font-size:13px; max-width:1100px; margin:0 auto }
+.gp-filter-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.gp-hdr { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border) }
+.gp-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase }
+.gp-filter-body { padding:18px; display:flex; flex-wrap:wrap; gap:16px 18px; align-items:flex-end }
+.gp-field { display:flex; flex-direction:column; gap:6px }
+.gp-lbl { font-size:11px; color:var(--text2); letter-spacing:.3px; white-space:nowrap }
+.gp-filter-body select, .gp-filter-body input[type="text"] { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; background:var(--surface); color:var(--text); min-height:38px; box-sizing:border-box }
+.gp-filter-body select, .gp-filter-body input[type="text"]:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.gp-filter-body select, .gp-filter-body input[type="text"] { min-width:170px }
+.gp-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; min-height:38px }
+.gp-btn-fetch:hover { filter:brightness(.92) }
+.gp-btn-fetch:disabled { opacity:.65; cursor:default }
+.gp-results-card { margin-bottom:16px; background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+.gp-results-card { overflow-x:auto }
+.gp-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
+.gp-tbl th { background:var(--surface2); color:var(--text3); padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
+.gp-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text);  }
+.gp-tbl tr:last-child td { border-bottom:none }
+.gp-tbl tbody tr:hover td { background:var(--surface2) }
+.gp-tbl tr.gp-row-first td { background:var(--teal-bg) }
+.gp-grace-input { padding:6px 10px; border:1px solid var(--border2); border-radius:8px; font-size:12.5px; background:var(--surface); color:var(--text); width:80px; text-align:center; }
+.gp-grace-input:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); outline:none }
+.gp-set-link { color:var(--teal); cursor:pointer; font-size:12.5px; font-weight:500; text-decoration:none; margin-right:8px }
+.gp-set-link:hover { text-decoration:underline }
+.gp-inline-msg { font-size:11px; margin-left:4px }
+.gp-msg-ok { color:var(--teal) }
+.gp-msg-err { color:var(--red) }
 </style>`;
 
   function render() {
@@ -148,7 +132,7 @@
     if (!_consumers.length) {
       div.innerHTML = `<div class="gp-results-card">
         <div class="gp-hdr"><span class="gp-hdr-title">GRACE PERIOD</span></div>
-        <div style="padding:12px;font-size:13px;color:#777;">No consumers found.</div>
+        <div style="padding:30px 18px;font-size:13px;color:var(--text3);text-align:center;">No consumers found.</div>
       </div>`;
       return;
     }
@@ -159,7 +143,7 @@
       return `<tr class="${firstCls}" data-consumer-id="${c.consumer_id}">
         <td style="text-align:center;">${i + 1}</td>
         <td>${c.registration_no || '&mdash;'}</td>
-        <td style="color:#1d3a6e;font-weight:500;"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.name || ''}</a></td>
+        <td style="font-weight:500;"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.name || ''}</a></td>
         <td>${c.unit_address || '&mdash;'}</td>
         <td>${c.payment_plan || '&mdash;'}</td>
         <td style="text-align:center;">
