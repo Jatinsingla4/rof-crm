@@ -7,6 +7,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { cleanBody, badNumber } from './master.js';
 
 const router = Router();
 
@@ -17,7 +19,6 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       projectId,
       towerId,
       floor,
-      unitNumber,
       bhkType,
       carpetAreaSqft,
       superAreaSqft,
@@ -26,7 +27,11 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       totalPriceInr,
       facing,
       floorPlanUrl,
+      unitTypeId,
     } = req.body;
+    const cleaned = cleanBody(req.body, ['unitNumber']);
+    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+    const { unitNumber } = cleaned.values;
 
     if (!projectId || !towerId || !unitNumber || !bhkType) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -34,18 +39,26 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (floor === undefined || floor === null || floor === '') {
       return res.status(400).json({ error: 'Floor number is required for each unit' });
     }
+    const numberError = badNumber(req.body, ['carpetAreaSqft', 'superAreaSqft', 'balconyAreaSqft', 'basePriceInr', 'totalPriceInr']);
+    if (numberError) return res.status(400).json({ error: numberError });
+    const tower = await db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2', [towerId, projectId]);
+    if (!tower.rows.length) return res.status(400).json({ error: 'This tower does not belong to the selected project' });
+    if (unitTypeId) {
+      const ut = await db.query('SELECT 1 FROM unit_types WHERE id = $1 AND project_id = $2', [unitTypeId, projectId]);
+      if (!ut.rows.length) return res.status(400).json({ error: 'This unit type does not belong to the selected project' });
+    }
 
     const result = await db.query(
       `INSERT INTO units (
         project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft,
         super_area_sqft, balcony_area_sqft,
         base_price_inr, total_price_inr, facing, floor_plan_url,
-        status, created_by_user_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'available', $13)
+        status, created_by_user_id, unit_type_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'available', $13, $14)
        RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`,
       [projectId, towerId, floor, unitNumber, bhkType, carpetAreaSqft, superAreaSqft,
        balconyAreaSqft || null,
-       basePriceInr, totalPriceInr, facing, floorPlanUrl, req.userId]
+       basePriceInr, totalPriceInr, facing, floorPlanUrl, req.userId, unitTypeId || null]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -453,6 +466,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     const { id } = req.params;
     const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
             balconyAreaSqft } = req.body;
+    const numberError = badNumber(req.body, ['basePriceInr', 'totalPriceInr', 'balconyAreaSqft']);
+    if (numberError) return res.status(400).json({ error: numberError });
 
     const result = await db.query(
       `UPDATE units
@@ -483,6 +498,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
 router.post('/bulk-import', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId, rows } = req.body;
+    if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows must be a list of units' });
 
     let created = 0;
     let skipped = 0;
@@ -507,7 +523,7 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next: NextFu
           towerId = towerRes.rows[0].id;
         }
 
-        await db.query(
+        const inserted = await db.query(
           `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
             carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
             status, created_by_user_id)
@@ -517,7 +533,8 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next: NextFu
            row.carpetAreaSqft || row.carpetAreaSqm, row.superAreaSqft || row.superAreaSqm,
            row.basePriceInr, row.totalPriceInr, row.facing, req.userId]
         );
-        created++;
+        if (inserted.rowCount) created++;
+        else { skipped++; errors.push({ unitNumber: row.unitNumber, reason: 'A unit with this number already exists in this tower' }); }
       } catch (error: any) {
         skipped++;
         errors.push({ unitNumber: row.unitNumber, reason: error.message.split('\n')[0] });
@@ -529,5 +546,7 @@ router.post('/bulk-import', async (req: AuthRequest, res: Response, next: NextFu
     next(error);
   }
 });
+
+router.use(pgErrorHandler);
 
 export default router;

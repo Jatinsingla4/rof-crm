@@ -6,6 +6,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const pg_errors_js_1 = require("../middleware/pg-errors.js");
+const master_js_1 = require("./master.js");
 const router = (0, express_1.Router)();
 // GET /api/projects
 router.get('/', async (req, res, next) => {
@@ -32,10 +34,23 @@ router.get('/', async (req, res, next) => {
 // POST /api/projects
 router.post('/', async (req, res, next) => {
     try {
-        const { name, reraNumber, tcpLicence, location, landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
+        const { landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
+        const cleaned = (0, master_js_1.cleanBody)(req.body, ['name', 'reraNumber', 'tcpLicence', 'location']);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const { name, reraNumber, tcpLicence, location } = cleaned.values;
         if (!name || !reraNumber || !tcpLicence) {
             return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
         }
+        // Receipts, demand letters and allotment letters print the project's company, so every project needs one
+        if (!companyId)
+            return res.status(400).json({ error: 'companyId is required' });
+        const company = await index_js_1.db.query('SELECT 1 FROM companies WHERE id = $1', [companyId]);
+        if (!company.rows.length)
+            return res.status(400).json({ error: 'This company does not exist' });
+        const sameName = await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1)', [name]);
+        if (sameName.rows.length)
+            return res.status(409).json({ error: 'A project with this name already exists' });
         const result = await index_js_1.db.query(`INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units,
                              group_name, possession_date, company_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -302,7 +317,16 @@ router.get('/:id', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, location, totalUnits, licenseDate, envClearanceNo, envClearanceDate, buildingPlanMemoNo, buildingPlanDate, collaborationAgreementDate, landOwnerName, landOwnerLlpin, landOwnerPan, landOwnerAddress, landOwnerGpaVasikaNo, landOwnerGpaDate, saleDeedNo, saleDeedDate, occupationCertMemoNo, occupationCertDate, deedOfDeclarationVasikaNo, deedOfDeclarationDate, khasraDetails, villageName, sectorName, subRegistrarOffice, authorisedSignatoryName, authorisedSignatoryAadhaar, boardResolutionDate, companyId, } = req.body;
+        const cleanedNames = (0, master_js_1.cleanBody)(req.body, ['name', 'location']);
+        if ('error' in cleanedNames)
+            return res.status(400).json({ error: cleanedNames.error });
+        const { name, location } = cleanedNames.values;
+        if (name) {
+            const sameName = await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1) AND id::text <> $2', [name, id]);
+            if (sameName.rows.length)
+                return res.status(409).json({ error: 'A project with this name already exists' });
+        }
+        const { totalUnits, licenseDate, envClearanceNo, envClearanceDate, buildingPlanMemoNo, buildingPlanDate, collaborationAgreementDate, landOwnerName, landOwnerLlpin, landOwnerPan, landOwnerAddress, landOwnerGpaVasikaNo, landOwnerGpaDate, saleDeedNo, saleDeedDate, occupationCertMemoNo, occupationCertDate, deedOfDeclarationVasikaNo, deedOfDeclarationDate, khasraDetails, villageName, sectorName, subRegistrarOffice, authorisedSignatoryName, authorisedSignatoryAadhaar, boardResolutionDate, companyId, } = req.body;
         const result = await index_js_1.db.query(`UPDATE projects SET
          name = COALESCE($1, name),
          location = COALESCE($2, location),
@@ -391,11 +415,16 @@ router.get('/:id/towers', async (req, res, next) => {
 router.post('/:id/towers', async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { towerName } = req.body;
+        const cleaned = (0, master_js_1.cleanBody)(req.body, ['towerName']);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const { towerName } = cleaned.values;
         if (!towerName)
             return res.status(400).json({ error: 'towerName is required' });
+        const exists = await index_js_1.db.query(`SELECT 1 FROM towers WHERE project_id = $1 AND lower(tower_name) = lower($2)`, [id, towerName]);
+        if (exists.rows.length)
+            return res.status(409).json({ error: 'A tower with this name already exists in this project' });
         const result = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
-       ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
        RETURNING id, tower_name, project_id`, [id, towerName]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
@@ -431,7 +460,9 @@ router.delete('/:id/towers/:towerId', async (req, res, next) => {
                 error: `Cannot delete tower. It has ${unitCount} unit(s) linked to it. Please remove all units first.`
             });
         }
-        await index_js_1.db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
+        const result = await index_js_1.db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
+        if (!result.rowCount)
+            return res.status(404).json({ error: 'Tower not found' });
         res.json({ success: true });
     }
     catch (err) {
@@ -484,9 +515,15 @@ router.get('/:id/unit-locations', async (req, res, next) => {
 // POST /api/projects/:id/unit-locations
 router.post('/:id/unit-locations', async (req, res, next) => {
     try {
-        const { name, description } = req.body;
+        const cleaned = (0, master_js_1.cleanBody)(req.body, ['name', 'description']);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const { name, description } = cleaned.values;
         if (!name)
             return res.status(400).json({ error: 'name is required' });
+        const dup = await index_js_1.db.query(`SELECT 1 FROM unit_locations WHERE project_id = $1 AND lower(name) = lower($2)`, [req.params.id, name]);
+        if (dup.rows.length)
+            return res.status(409).json({ error: 'A unit location with this name already exists in this project' });
         const result = await index_js_1.db.query(`INSERT INTO unit_locations (project_id, name, description) VALUES ($1, $2, $3) RETURNING *`, [req.params.id, name, description || null]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
@@ -497,12 +534,15 @@ router.post('/:id/unit-locations', async (req, res, next) => {
 // DELETE /api/projects/:id/unit-locations/:locId
 router.delete('/:id/unit-locations/:locId', async (req, res, next) => {
     try {
-        await index_js_1.db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
+        const result = await index_js_1.db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
+        if (!result.rowCount)
+            return res.status(404).json({ error: 'Unit location not found' });
         res.json({ success: true });
     }
     catch (err) {
         next(err);
     }
 });
+router.use(pg_errors_js_1.pgErrorHandler);
 exports.default = router;
 //# sourceMappingURL=projects.js.map

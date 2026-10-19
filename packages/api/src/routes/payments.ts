@@ -3242,12 +3242,13 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
           FROM receipts r
           WHERE r.consumer_id = c.id AND r.status != 'cancelled'
         ), 0) AS interest_paid,
-        (SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1) AS company_name
+        COALESCE(pco.name, (SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1)) AS company_name
       FROM consumers c
       LEFT JOIN booking_records br ON br.consumer_id = c.id
       LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
       LEFT JOIN units u ON u.id = COALESCE(br.unit_id, pp.unit_id)
       LEFT JOIN projects p ON p.id = u.project_id
+      LEFT JOIN companies pco ON pco.id = p.company_id
       LEFT JOIN towers t ON t.id = u.tower_id
       LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id
       WHERE c.id = $1

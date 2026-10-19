@@ -770,7 +770,7 @@ Pages.employees = async function(params = {}) {
   content.innerHTML = `
     <div class="page-hdr">
       <h1>Employee Organisation</h1>
-      <div class="breadcrumb">Set Master / Employee Login Creation / <b>Employees</b></div>
+      <div class="breadcrumb">Set Master / <b>Employees</b></div>
     </div>
 
     <div class="tabs-line">

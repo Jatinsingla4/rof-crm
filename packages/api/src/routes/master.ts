@@ -16,9 +16,9 @@ const router = Router();
 
 // ─── Access control ──────────────────────────────────────────────────────────
 // Reading masters is open to every signed-in user (booking, brokers and payments use these lists as dropdowns).
-// Changing the Set Master lists needs the master_data permission. Reminder, unit type, floor and tax slab
-// routes share this file but belong to Set Projects, so they keep their current access.
-const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch)(\/|$)/i;
+// Changing the Set Master lists, and the Set Projects lists that share this file (unit types, floors, tax slabs,
+// reminders), needs the master_data permission.
+const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch|unit-types|floors|tax-slabs|reminder-master)(\/|$)/i;
 const actionByMethod: Record<string, string> = { POST: 'create', PUT: 'edit', PATCH: 'edit', DELETE: 'delete' };
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method === 'GET' || req.method === 'HEAD' || !SET_MASTER_PATH.test(req.path)) return next();
@@ -27,20 +27,34 @@ router.use((req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // ─── Input helpers ───────────────────────────────────────────────────────────
+// "towerName" or "base_rate_sqft" -> "Tower name" / "Base rate sqft" for messages shown to the user
+export const fieldLabel = (f: string) => {
+  const s = f.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+// Returns a message when one of the listed fields is present but not a number of zero or more
+export function badNumber(values: Record<string, any>, fields: string[] = []): string | null {
+  for (const f of fields) {
+    const v = values[f];
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'boolean' || !Number.isFinite(Number(v)) || Number(v) < 0) return `${fieldLabel(f)} must be a number, zero or more`;
+  }
+  return null;
+}
 // Strings are trimmed and blank strings become null. Objects and arrays are rejected.
 const TEXT_FIELDS = new Set(['name', 'code', 'ifsc_prefix', 'branch', 'description', 'category', 'document_from',
   'required_at', 'document_type', 'dispatch_mode', 'tracking_no']);
 // current: the stored row on update; an unchanged old value is not re-checked for markup
-function cleanBody(body: any, fields: string[], current?: Record<string, any>): { values: Record<string, any> } | { error: string } {
+export function cleanBody(body: any, fields: string[], current?: Record<string, any>): { values: Record<string, any> } | { error: string } {
   const values: Record<string, any> = {};
   for (const f of fields) {
     let v = body?.[f];
     if (v === undefined) continue;
     if (typeof v === 'string') { v = v.replace(/[\u200B-\u200D\uFEFF]/g, '').trim(); if (v === '') v = null; }
-    else if (v !== null && typeof v === 'object') return { error: `Invalid value for ${f}` };
-    if (v !== null && TEXT_FIELDS.has(f) && typeof v !== 'string') return { error: `Invalid value for ${f}` };
+    else if (v !== null && typeof v === 'object') return { error: `Invalid value for ${fieldLabel(f)}` };
+    if (v !== null && TEXT_FIELDS.has(f) && typeof v !== 'string') return { error: `Invalid value for ${fieldLabel(f)}` };
     // Other pages put these names into dropdowns and letters as HTML, so markup characters are not accepted
-    if (typeof v === 'string' && /[<>]/.test(v) && !(current && current[f] === v)) return { error: `${f} cannot contain < or >` };
+    if (typeof v === 'string' && /[<>]/.test(v) && !(current && current[f] === v)) return { error: `${fieldLabel(f)} cannot contain < or >` };
     values[f] = v;
   }
   return { values };
@@ -67,14 +81,17 @@ function listRoute(table: string, orderBy = 'name') {
   };
 }
 
-function addRoute(table: string, fields: string[], opts: { unique?: string[]; required?: string[] } = {}) {
+function addRoute(table: string, fields: string[], opts: { unique?: string[]; required?: string[]; maxLen?: number; nonNegative?: string[] } = {}) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const cleaned = cleanBody(req.body, fields);
       if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
       const { values } = cleaned;
       if (fields.includes('name') && !values.name) return res.status(400).json({ error: 'Name is required' });
-      for (const r of opts.required || []) if (!values[r]) return res.status(400).json({ error: `${r} is required` });
+      for (const r of opts.required || []) if (!values[r]) return res.status(400).json({ error: `${fieldLabel(r)} is required` });
+      if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen) return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
+      const numberError = badNumber(values, opts.nonNegative);
+      if (numberError) return res.status(400).json({ error: numberError });
       if (opts.unique && await isDuplicate(table, opts.unique, values)) {
         return res.status(409).json({ error: 'A record with this name already exists' });
       }
@@ -103,7 +120,7 @@ function deleteRoute(table: string, opts: { inUse?: (id: string) => Promise<stri
 }
 
 // Only the fields present in the request are changed
-function updateRoute(table: string, fields: string[], opts: { unique?: string[]; required?: string[]; inUse?: (id: string) => Promise<string | null> } = {}) {
+function updateRoute(table: string, fields: string[], opts: { unique?: string[]; required?: string[]; maxLen?: number; nonNegative?: string[]; inUse?: (id: string) => Promise<string | null> } = {}) {
   return async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const current = (await db.query(`SELECT * FROM ${table} WHERE id = $1`, [req.params.id])).rows[0];
@@ -114,7 +131,10 @@ function updateRoute(table: string, fields: string[], opts: { unique?: string[];
       const keys = Object.keys(values);
       if (!keys.length) return res.status(400).json({ error: 'Nothing to update' });
       if ('name' in values && !values.name) return res.status(400).json({ error: 'Name is required' });
-      for (const r of opts.required || []) if (r in values && !values[r]) return res.status(400).json({ error: `${r} is required` });
+      for (const r of opts.required || []) if (r in values && !values[r]) return res.status(400).json({ error: `${fieldLabel(r)} is required` });
+      if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen) return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
+      const numberError = badNumber(values, opts.nonNegative);
+      if (numberError) return res.status(400).json({ error: numberError });
       // Renaming a list item that other records hold as text would split their data, so it is refused while in use
       if (opts.inUse && typeof values.name === 'string' && values.name !== current.name) {
         const blocked = await opts.inUse(req.params.id);
@@ -223,8 +243,8 @@ router.delete('/banks/:id',          deleteRoute('banks', {
 
 // ─── SALUTATIONS ──────────────────────────────────────────────────────────────
 router.get('/salutations',           listRoute('salutations', 'name'));
-router.post('/salutations',          addRoute('salutations', ['name'], { unique: [] }));
-router.put('/salutations/:id', updateRoute('salutations', ['name'], { unique: [], inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
+router.post('/salutations',          addRoute('salutations', ['name'], { unique: [], maxLen: 20 }));
+router.put('/salutations/:id', updateRoute('salutations', ['name'], { unique: [], maxLen: 20, inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
 router.delete('/salutations/:id',    deleteRoute('salutations', { inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
 
 // ─── PROFESSIONS ──────────────────────────────────────────────────────────────
@@ -416,12 +436,19 @@ router.get('/reminder-master', async (req: AuthRequest, res: Response, next: Nex
 });
 router.post('/reminder-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, days_before, channel } = req.body;
-    if (!name || !days_before) return res.status(400).json({ error: 'name and days_before are required' });
+    const cleaned = cleanBody(req.body, ['name']);
+    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+    const { name } = cleaned.values;
+    const { days_before, channel } = req.body;
+    if (!name || days_before === undefined || days_before === null || days_before === '') return res.status(400).json({ error: 'name and days_before are required' });
+    const days = Number(days_before);
+    if (!Number.isInteger(days) || days < 0) return res.status(400).json({ error: 'Days before must be a whole number, zero or more' });
+    const dup = await db.query('SELECT 1 FROM reminder_master WHERE lower(reminder_name) = lower($1) AND days = $2', [name, days]);
+    if (dup.rows.length) return res.status(409).json({ error: 'A reminder with this name and days already exists' });
     const result = await db.query(
       `INSERT INTO reminder_master (reminder_name, days, prefix_name)
        VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`,
-      [name, parseInt(days_before), channel || null]
+      [name, days, channel || null]
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { next(err); }
@@ -441,8 +468,9 @@ router.get('/unit-types',           async (req: AuthRequest, res: Response, next
     res.json({ success: true, data: result.rows });
   } catch (err) { next(err); }
 });
-router.post('/unit-types',          addRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
-router.put('/unit-types/:id',       updateRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
+const UNIT_TYPE_NUMBERS = ['carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft'];
+router.post('/unit-types',          addRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], required: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
+router.put('/unit-types/:id',       updateRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
 router.delete('/unit-types/:id',    deleteRoute('unit_types'));
 
 // ─── FLOORS ───────────────────────────────────────────────────────────────────

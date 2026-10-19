@@ -61,24 +61,30 @@ router.post('/', async (req, res, next) => {
         if (importType === 'units' && projectId) {
             for (const row of rows) {
                 try {
-                    // Resolve tower
-                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
-             ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
-             RETURNING id`, [projectId, row.tower || 'A']);
-                    const towerId = towerRes.rows[0].id;
+                    // Check the row before creating anything, so a bad row does not leave an empty tower behind
                     if (row.floor === undefined || row.floor === null || row.floor === '') {
                         skipped++;
                         errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
                         continue;
                     }
-                    await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
+                    // Resolve tower
+                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
+             ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
+             RETURNING id`, [projectId, row.tower || 'A']);
+                    const towerId = towerRes.rows[0].id;
+                    const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
                carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
                status, created_by_user_id)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
              ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, parseInt(row.floor), row.unitNumber, row.bhkType,
                         row.carpetAreaSqft || null, row.superAreaSqft || null,
                         row.basePriceInr || null, row.totalPriceInr, row.facing || null, req.userId]);
-                    created++;
+                    if (inserted.rowCount)
+                        created++;
+                    else {
+                        skipped++;
+                        errors.push({ row: row.unitNumber, reason: 'A unit with this number already exists in this tower' });
+                    }
                 }
                 catch (err) {
                     skipped++;

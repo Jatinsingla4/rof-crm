@@ -38,7 +38,8 @@ const Permissions = (() => {
 
   function canAccessPage(route) {
     if (isSuperAdmin()) return true;
-    if (!_pageAccess) return true; // fallback: allow if not loaded
+    // Not loaded, or no pages are configured yet (empty nav_pages): allow. The server still enforces every role.
+    if (!_pageAccess || Object.keys(_pageAccess).length === 0) return true;
     return _pageAccess[route] === true;
   }
 

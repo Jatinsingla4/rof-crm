@@ -1,5 +1,8 @@
 // ROF CRM — Set Projects (Project & Unit Configuration)
 
+// Same rule as the server: only super_admin can delete here, so other roles do not see the delete button
+const spjCanDelete = () => (Auth.getUser() || {}).role === 'super_admin';
+
 Pages.setProjects = async function(params = {}) {
   const tab = params.tab || 'new-project';
   const content = document.getElementById('content');
@@ -193,10 +196,6 @@ Pages.setProjects = async function(params = {}) {
                 <label class="form-label">Tower / Plot Name <span style="color:var(--red)">*</span></label>
                 <input class="form-control" name="towerName" placeholder="e.g. Tower A" required>
               </div>
-              <div class="form-group">
-                <label class="form-label">No. of Floors</label>
-                <input type="number" class="form-control" name="floors" placeholder="e.g. 14">
-              </div>
               <button type="submit" class="btn btn-teal" style="margin-top:8px">Add Tower</button>
             </form>
           </div>
@@ -271,12 +270,18 @@ Pages.setProjects = async function(params = {}) {
             </div>
             <div class="sp-grid">
               <div class="fg">
-                <label class="fl">Status</label>
-                <select class="fc" name="status">
-                  <option value="available">Available</option>
-                  <option value="hold">Hold</option>
-                  <option value="booked">Booked</option>
+                <label class="fl">Unit Type</label>
+                <select class="fc" id="spj-unit-type" name="unit_type_id">
+                  <option value="">None</option>
                 </select>
+              </div>
+              <div class="fg">
+                <label class="fl">Base Price (₹)</label>
+                <input type="number" min="0" step="1" class="fc" name="base_price_inr">
+              </div>
+              <div class="fg">
+                <label class="fl">Total Price (₹)</label>
+                <input type="number" min="0" step="1" class="fc" name="total_price_inr">
               </div>
             </div>
             <div style="margin-top:14px;display:flex;gap:8px">
@@ -832,10 +837,10 @@ Object.assign(SPJPage, {
             <thead><tr><th>Project</th><th>Tower/Plot</th><th class="txt-right">Units</th><th>Action</th></tr></thead>
             <tbody>
               ${rows.map(r=>`<tr>
-                <td>${r.project_name||'—'}</td>
-                <td class="td-bold">${r.tower_name||'—'}</td>
+                <td>${Utils.esc(r.project_name)||'—'}</td>
+                <td class="td-bold">${Utils.esc(r.tower_name)||'—'}</td>
                 <td class="txt-right">${r.unit_count||0}</td>
-                <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteTower(this,'${r.id}','${r.project_id}')">✕</button></td>
+                <td>${spjCanDelete() ? `<button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteTower(this,'${r.id}','${r.project_id}')">✕</button>` : ''}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
@@ -852,6 +857,7 @@ Object.assign(SPJPage, {
       await Api.post(`/projects/${projectId}/towers`, { towerName });
       Utils.success(`Tower "${towerName}" added`);
       form.reset();
+      document.getElementById('spj-tower-project').value = projectId;
       await this.loadTowers();
     } catch (err) { Utils.error(err.message); }
   },
@@ -873,8 +879,15 @@ Object.assign(SPJPage, {
     try {
       const res = await Api.get(`/projects/${projectId}/towers`);
       const towers = res.data || [];
-      towSel.innerHTML = `<option value="">No Tower</option>` + towers.map(t=>`<option value="${t.id}">${t.tower_name}</option>`).join('');
+      towSel.innerHTML = `<option value="">No Tower</option>` + towers.map(t=>`<option value="${t.id}">${Utils.esc(t.tower_name)}</option>`).join('');
     } catch { towSel.innerHTML = `<option value="">No towers</option>`; }
+    const typeSel = document.getElementById('spj-unit-type');
+    if (typeSel) {
+      try {
+        const res = await Api.get(`/master/unit-types?project_id=${encodeURIComponent(projectId)}`);
+        typeSel.innerHTML = `<option value="">None</option>` + (res.data || []).map(t=>`<option value="${t.id}">${Utils.esc(t.name)}</option>`).join('');
+      } catch { typeSel.innerHTML = `<option value="">None</option>`; }
+    }
   },
 
   calcSuperArea() {
@@ -906,7 +919,9 @@ Object.assign(SPJPage, {
       superAreaSqft: formData.super_area_sqft ? parseFloat(formData.super_area_sqft) : null,
       balconyAreaSqft: formData.balcony_area_sqft ? parseFloat(formData.balcony_area_sqft) : null,
       facing: formData.facing || undefined,
-      status: formData.status || 'available'
+      basePriceInr: formData.base_price_inr ? parseFloat(formData.base_price_inr) : undefined,
+      totalPriceInr: formData.total_price_inr ? parseFloat(formData.total_price_inr) : undefined,
+      unitTypeId: formData.unit_type_id || undefined
     };
 
     if (!projectId) { Utils.warn('Please select a project'); return; }
@@ -963,10 +978,10 @@ Object.assign(SPJPage, {
             <thead><tr><th>Project</th><th>Location Name</th><th>Description</th><th>Action</th></tr></thead>
             <tbody>
               ${rows.map(r=>`<tr>
-                <td>${r.project_name||'—'}</td>
-                <td class="td-bold">${r.name}</td>
-                <td>${r.description||'—'}</td>
-                <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteUnitLocation(this,'${r.id}','${r.project_id}')">✕</button></td>
+                <td>${Utils.esc(r.project_name)||'—'}</td>
+                <td class="td-bold">${Utils.esc(r.name)}</td>
+                <td>${Utils.esc(r.description)||'—'}</td>
+                <td>${spjCanDelete() ? `<button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteUnitLocation(this,'${r.id}','${r.project_id}')">✕</button>` : ''}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
@@ -1010,10 +1025,10 @@ Object.assign(SPJPage, {
             <thead><tr><th>Reminder Name</th><th class="txt-right">Days Before</th><th>Channel</th><th>Action</th></tr></thead>
             <tbody>
               ${rows.map(r=>`<tr>
-                <td class="td-bold">${r.name}</td>
-                <td class="txt-right" style="color:var(--warn);font-weight:700">${r.days_before}</td>
-                <td><span class="chip chip-blue">${r.channel||'all'}</span></td>
-                <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteReminder(this,'${r.id}')">✕</button></td>
+                <td class="td-bold">${Utils.esc(r.name)}</td>
+                <td class="txt-right" style="color:var(--warn);font-weight:700">${Utils.esc(r.days_before)}</td>
+                <td><span class="chip chip-blue">${Utils.esc(r.channel)||'all'}</span></td>
+                <td>${spjCanDelete() ? `<button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteReminder(this,'${r.id}')">✕</button>` : ''}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
@@ -1624,7 +1639,7 @@ Object.assign(SPJPage, {
                   <td>${r.carpet_area_sqft || 0} sqft</td>
                   <td>${r.balcony_area_sqft || 0} sqft</td>
                   <td>₹${r.base_rate_sqft || 0}/sqft</td>
-                  <td><button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteUnitType('${r.id}')">✕</button></td>
+                  <td>${spjCanDelete() ? `<button class="btn btn-ghost btn-xs" style="color:var(--red)" onclick="SPJPage.deleteUnitType('${r.id}')">✕</button>` : ''}</td>
                 </tr>`).join('')}
               </tbody>
             </table>

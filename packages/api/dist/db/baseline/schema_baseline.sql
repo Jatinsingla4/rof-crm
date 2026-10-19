@@ -1409,7 +1409,7 @@ CREATE TABLE public.document_types (
     document_from character varying(255),
     is_mandatory boolean,
     project_id uuid,
-    required_at timestamp with time zone,
+    required_at character varying(100),
     updated_at timestamp with time zone
 );
 

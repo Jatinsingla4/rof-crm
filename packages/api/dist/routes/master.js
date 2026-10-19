@@ -6,6 +6,9 @@
  *           Document Types, Document Dispatch
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.fieldLabel = void 0;
+exports.badNumber = badNumber;
+exports.cleanBody = cleanBody;
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
@@ -14,9 +17,9 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const router = (0, express_1.Router)();
 // ─── Access control ──────────────────────────────────────────────────────────
 // Reading masters is open to every signed-in user (booking, brokers and payments use these lists as dropdowns).
-// Changing the Set Master lists needs the master_data permission. Reminder, unit type, floor and tax slab
-// routes share this file but belong to Set Projects, so they keep their current access.
-const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch)(\/|$)/i;
+// Changing the Set Master lists, and the Set Projects lists that share this file (unit types, floors, tax slabs,
+// reminders), needs the master_data permission.
+const SET_MASTER_PATH = /^\/(countries|states|cities|banks|salutations|professions|nationalities|sources-of-enquiry|document-types|document-dispatch|unit-types|floors|tax-slabs|reminder-master)(\/|$)/i;
 const actionByMethod = { POST: 'create', PUT: 'edit', PATCH: 'edit', DELETE: 'delete' };
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD' || !SET_MASTER_PATH.test(req.path))
@@ -26,6 +29,23 @@ router.use((req, res, next) => {
     return res.status(403).json({ error: 'You do not have permission to change master data' });
 });
 // ─── Input helpers ───────────────────────────────────────────────────────────
+// "towerName" or "base_rate_sqft" -> "Tower name" / "Base rate sqft" for messages shown to the user
+const fieldLabel = (f) => {
+    const s = f.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase();
+    return s.charAt(0).toUpperCase() + s.slice(1);
+};
+exports.fieldLabel = fieldLabel;
+// Returns a message when one of the listed fields is present but not a number of zero or more
+function badNumber(values, fields = []) {
+    for (const f of fields) {
+        const v = values[f];
+        if (v === undefined || v === null)
+            continue;
+        if (typeof v === 'boolean' || !Number.isFinite(Number(v)) || Number(v) < 0)
+            return `${(0, exports.fieldLabel)(f)} must be a number, zero or more`;
+    }
+    return null;
+}
 // Strings are trimmed and blank strings become null. Objects and arrays are rejected.
 const TEXT_FIELDS = new Set(['name', 'code', 'ifsc_prefix', 'branch', 'description', 'category', 'document_from',
     'required_at', 'document_type', 'dispatch_mode', 'tracking_no']);
@@ -42,12 +62,12 @@ function cleanBody(body, fields, current) {
                 v = null;
         }
         else if (v !== null && typeof v === 'object')
-            return { error: `Invalid value for ${f}` };
+            return { error: `Invalid value for ${(0, exports.fieldLabel)(f)}` };
         if (v !== null && TEXT_FIELDS.has(f) && typeof v !== 'string')
-            return { error: `Invalid value for ${f}` };
+            return { error: `Invalid value for ${(0, exports.fieldLabel)(f)}` };
         // Other pages put these names into dropdowns and letters as HTML, so markup characters are not accepted
         if (typeof v === 'string' && /[<>]/.test(v) && !(current && current[f] === v))
-            return { error: `${f} cannot contain < or >` };
+            return { error: `${(0, exports.fieldLabel)(f)} cannot contain < or >` };
         values[f] = v;
     }
     return { values };
@@ -92,7 +112,12 @@ function addRoute(table, fields, opts = {}) {
                 return res.status(400).json({ error: 'Name is required' });
             for (const r of opts.required || [])
                 if (!values[r])
-                    return res.status(400).json({ error: `${r} is required` });
+                    return res.status(400).json({ error: `${(0, exports.fieldLabel)(r)} is required` });
+            if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen)
+                return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
+            const numberError = badNumber(values, opts.nonNegative);
+            if (numberError)
+                return res.status(400).json({ error: numberError });
             if (opts.unique && await isDuplicate(table, opts.unique, values)) {
                 return res.status(409).json({ error: 'A record with this name already exists' });
             }
@@ -141,7 +166,12 @@ function updateRoute(table, fields, opts = {}) {
                 return res.status(400).json({ error: 'Name is required' });
             for (const r of opts.required || [])
                 if (r in values && !values[r])
-                    return res.status(400).json({ error: `${r} is required` });
+                    return res.status(400).json({ error: `${(0, exports.fieldLabel)(r)} is required` });
+            if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen)
+                return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
+            const numberError = badNumber(values, opts.nonNegative);
+            if (numberError)
+                return res.status(400).json({ error: numberError });
             // Renaming a list item that other records hold as text would split their data, so it is refused while in use
             if (opts.inUse && typeof values.name === 'string' && values.name !== current.name) {
                 const blocked = await opts.inUse(req.params.id);
@@ -247,8 +277,8 @@ router.delete('/banks/:id', deleteRoute('banks', {
 }));
 // ─── SALUTATIONS ──────────────────────────────────────────────────────────────
 router.get('/salutations', listRoute('salutations', 'name'));
-router.post('/salutations', addRoute('salutations', ['name'], { unique: [] }));
-router.put('/salutations/:id', updateRoute('salutations', ['name'], { unique: [], inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
+router.post('/salutations', addRoute('salutations', ['name'], { unique: [], maxLen: 20 }));
+router.put('/salutations/:id', updateRoute('salutations', ['name'], { unique: [], maxLen: 20, inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
 router.delete('/salutations/:id', deleteRoute('salutations', { inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
 // ─── PROFESSIONS ──────────────────────────────────────────────────────────────
 router.get('/professions', listRoute('professions', 'name'));
@@ -458,11 +488,21 @@ router.get('/reminder-master', async (req, res, next) => {
 });
 router.post('/reminder-master', async (req, res, next) => {
     try {
-        const { name, days_before, channel } = req.body;
-        if (!name || !days_before)
+        const cleaned = cleanBody(req.body, ['name']);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const { name } = cleaned.values;
+        const { days_before, channel } = req.body;
+        if (!name || days_before === undefined || days_before === null || days_before === '')
             return res.status(400).json({ error: 'name and days_before are required' });
+        const days = Number(days_before);
+        if (!Number.isInteger(days) || days < 0)
+            return res.status(400).json({ error: 'Days before must be a whole number, zero or more' });
+        const dup = await index_js_1.db.query('SELECT 1 FROM reminder_master WHERE lower(reminder_name) = lower($1) AND days = $2', [name, days]);
+        if (dup.rows.length)
+            return res.status(409).json({ error: 'A reminder with this name and days already exists' });
         const result = await index_js_1.db.query(`INSERT INTO reminder_master (reminder_name, days, prefix_name)
-       VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`, [name, parseInt(days_before), channel || null]);
+       VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`, [name, days, channel || null]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (err) {
@@ -483,8 +523,9 @@ router.get('/unit-types', async (req, res, next) => {
         next(err);
     }
 });
-router.post('/unit-types', addRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
-router.put('/unit-types/:id', updateRoute('unit_types', ['project_id', 'name', 'description', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft']));
+const UNIT_TYPE_NUMBERS = ['carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft'];
+router.post('/unit-types', addRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], required: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
+router.put('/unit-types/:id', updateRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
 router.delete('/unit-types/:id', deleteRoute('unit_types'));
 // ─── FLOORS ───────────────────────────────────────────────────────────────────
 router.get('/floors', async (req, res, next) => {

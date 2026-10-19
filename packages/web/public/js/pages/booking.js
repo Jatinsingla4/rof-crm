@@ -1243,7 +1243,8 @@ Pages.booking = async function(params = {}) {
             </div>
             <div class="fg">
               <label class="fl">Nationality</label>
-              <input class="fc" id="bk-addl-nationality" value="Indian" placeholder="Nationality">
+              <input class="fc" id="bk-addl-nationality" value="Indian" placeholder="Nationality" list="bk-addl-nat-list">
+              <datalist id="bk-addl-nat-list">${nationalities.map(n=>`<option value="${Utils.esc(n.name)}">`).join('')}</datalist>
             </div>
           </div>
 

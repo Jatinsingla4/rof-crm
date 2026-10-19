@@ -609,7 +609,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
            salutation          = COALESCE($46, salutation),
            first_name          = COALESCE($47, first_name),
            last_name           = COALESCE($48, last_name),
-           name                = REGEXP_REPLACE(TRIM(INITCAP(COALESCE($47, first_name)) || ' ' || INITCAP(COALESCE($48, last_name))), '\s+', ' ', 'g'),
+           name                = COALESCE(NULLIF(REGEXP_REPLACE(TRIM(COALESCE(INITCAP(COALESCE($47, first_name)), '') || ' ' || COALESCE(INITCAP(COALESCE($48, last_name)), '')), '\s+', ' ', 'g'), ''), $1, name),
            middle_name         = COALESCE($49, middle_name),
            dob                 = COALESCE($50, dob),
            gender              = COALESCE($51, gender),

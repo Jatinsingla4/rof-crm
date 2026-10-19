@@ -71,6 +71,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (importType === 'units' && projectId) {
       for (const row of rows) {
         try {
+          // Check the row before creating anything, so a bad row does not leave an empty tower behind
+          if (row.floor === undefined || row.floor === null || row.floor === '') {
+            skipped++;
+            errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
+            continue;
+          }
           // Resolve tower
           const towerRes = await db.query(
             `INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
@@ -80,12 +86,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
           );
           const towerId = towerRes.rows[0].id;
 
-          if (row.floor === undefined || row.floor === null || row.floor === '') {
-            skipped++;
-            errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
-            continue;
-          }
-          await db.query(
+          const inserted = await db.query(
             `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
                carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
                status, created_by_user_id)
@@ -95,7 +96,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
              row.carpetAreaSqft || null, row.superAreaSqft || null,
              row.basePriceInr || null, row.totalPriceInr, row.facing || null, req.userId]
           );
-          created++;
+          if (inserted.rowCount) created++;
+          else { skipped++; errors.push({ row: row.unitNumber, reason: 'A unit with this number already exists in this tower' }); }
         } catch (err: any) {
           skipped++;
           errors.push({ row: row.unitNumber, reason: err.message.split('\n')[0] });

@@ -9,7 +9,6 @@ import { auditChange } from '../middleware/auditLogger.js';
 
 const router = Router();
 
-const LOGO_EXT: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/gif': '.gif' };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Format checks for tax and bank identifiers. Values are upper-cased before checking.
@@ -63,10 +62,21 @@ const logoStorage = multer.diskStorage({
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
+  // Saved under a temporary name first; the real name is given only after the file's bytes are checked,
+  // so a bad upload never replaces the company's current logo
   filename: (req: any, file, cb) => {
-    cb(null, `${req.params.id}${LOGO_EXT[file.mimetype]}`);
+    cb(null, `${req.params.id}.upload`);
   },
 });
+
+// The first bytes of a real PNG, JPEG or GIF. The type sent by the browser is not trusted.
+const LOGO_MAGIC: [string, number[]][] = [['.png', [0x89, 0x50, 0x4e, 0x47]], ['.jpg', [0xff, 0xd8, 0xff]], ['.gif', [0x47, 0x49, 0x46, 0x38]]];
+function logoExtFromBytes(file: string): string | null {
+  const fd = fs.openSync(file, 'r');
+  const head = Buffer.alloc(4);
+  try { fs.readSync(fd, head, 0, 4, 0); } finally { fs.closeSync(fd); }
+  return LOGO_MAGIC.find(([, magic]) => magic.every((b, i) => head[i] === b))?.[0] ?? null;
+}
 
 const uploadLogo = multer({
   storage: logoStorage,
@@ -376,9 +386,16 @@ router.post('/:id/logo', logoGuard, logoUpload, async (req: AuthRequest, res: Re
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded. Use a PNG, JPG or GIF image.' });
     if (req.file.size === 0) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: 'The file is empty' }); }
-    const logoUrl = `/uploads/company-logos/${req.file.filename}`;
+    const ext = logoExtFromBytes(req.file.path);
+    if (!ext) { fs.unlink(req.file.path, () => {}); return res.status(400).json({ error: 'The file is not a valid PNG, JPG or GIF image' }); }
+    const finalName = `${req.params.id}${ext}`;
+    const finalPath = path.join(path.dirname(req.file.path), finalName);
+    fs.renameSync(req.file.path, finalPath);
+    const logoUrl = `/uploads/company-logos/${finalName}`;
     const updated = await db.query(`UPDATE companies SET logo_url = $1, updated_at = NOW() WHERE id = $2`, [logoUrl, req.params.id]);
-    if (!updated.rowCount) { fs.unlink(req.file.path, () => {}); return res.status(404).json({ error: 'Company not found' }); }
+    if (!updated.rowCount) { fs.unlink(finalPath, () => {}); return res.status(404).json({ error: 'Company not found' }); }
+    // Remove an older logo saved with another extension
+    for (const other of ['.png', '.jpg', '.gif']) if (other !== ext) fs.unlink(path.join(path.dirname(finalPath), `${req.params.id}${other}`), () => {});
     await db.query(`
       INSERT INTO global_settings (key, value, updated_at) VALUES ('company_logo_url', $1, NOW())
       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [logoUrl]);

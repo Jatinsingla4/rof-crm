@@ -6,6 +6,8 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { cleanBody } from './master.js';
 
 const router = Router();
 
@@ -36,12 +38,20 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 // POST /api/projects
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, reraNumber, tcpLicence, location, landAreaSqft, totalUnits,
-            possessionDate, incomeCategory, companyId } = req.body;
+    const { landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
+    const cleaned = cleanBody(req.body, ['name', 'reraNumber', 'tcpLicence', 'location']);
+    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+    const { name, reraNumber, tcpLicence, location } = cleaned.values;
 
     if (!name || !reraNumber || !tcpLicence) {
       return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
     }
+    // Receipts, demand letters and allotment letters print the project's company, so every project needs one
+    if (!companyId) return res.status(400).json({ error: 'companyId is required' });
+    const company = await db.query('SELECT 1 FROM companies WHERE id = $1', [companyId]);
+    if (!company.rows.length) return res.status(400).json({ error: 'This company does not exist' });
+    const sameName = await db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1)', [name]);
+    if (sameName.rows.length) return res.status(409).json({ error: 'A project with this name already exists' });
 
     const result = await db.query(
       `INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units,
@@ -335,9 +345,14 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    const cleanedNames = cleanBody(req.body, ['name', 'location']);
+    if ('error' in cleanedNames) return res.status(400).json({ error: cleanedNames.error });
+    const { name, location } = cleanedNames.values;
+    if (name) {
+      const sameName = await db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1) AND id::text <> $2', [name, id]);
+      if (sameName.rows.length) return res.status(409).json({ error: 'A project with this name already exists' });
+    }
     const {
-      name,
-      location,
       totalUnits,
       licenseDate,
       envClearanceNo,
@@ -459,13 +474,20 @@ router.get('/:id/towers', async (req: AuthRequest, res: Response, next: NextFunc
 router.post('/:id/towers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { towerName } = req.body;
+    const cleaned = cleanBody(req.body, ['towerName']);
+    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+    const { towerName } = cleaned.values;
 
     if (!towerName) return res.status(400).json({ error: 'towerName is required' });
 
+    const exists = await db.query(
+      `SELECT 1 FROM towers WHERE project_id = $1 AND lower(tower_name) = lower($2)`,
+      [id, towerName]
+    );
+    if (exists.rows.length) return res.status(409).json({ error: 'A tower with this name already exists in this project' });
+
     const result = await db.query(
       `INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
-       ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
        RETURNING id, tower_name, project_id`,
       [id, towerName]
     );
@@ -508,7 +530,8 @@ router.delete('/:id/towers/:towerId', async (req: AuthRequest, res: Response, ne
         error: `Cannot delete tower. It has ${unitCount} unit(s) linked to it. Please remove all units first.`
       });
     }
-    await db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
+    const result = await db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Tower not found' });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -561,8 +584,12 @@ router.get('/:id/unit-locations', async (req: AuthRequest, res: Response, next: 
 // POST /api/projects/:id/unit-locations
 router.post('/:id/unit-locations', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { name, description } = req.body;
+    const cleaned = cleanBody(req.body, ['name', 'description']);
+    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
+    const { name, description } = cleaned.values;
     if (!name) return res.status(400).json({ error: 'name is required' });
+    const dup = await db.query(`SELECT 1 FROM unit_locations WHERE project_id = $1 AND lower(name) = lower($2)`, [req.params.id, name]);
+    if (dup.rows.length) return res.status(409).json({ error: 'A unit location with this name already exists in this project' });
     const result = await db.query(
       `INSERT INTO unit_locations (project_id, name, description) VALUES ($1, $2, $3) RETURNING *`,
       [req.params.id, name, description || null]
@@ -574,9 +601,12 @@ router.post('/:id/unit-locations', async (req: AuthRequest, res: Response, next:
 // DELETE /api/projects/:id/unit-locations/:locId
 router.delete('/:id/unit-locations/:locId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    await db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
+    const result = await db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Unit location not found' });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
+
+router.use(pgErrorHandler);
 
 export default router;

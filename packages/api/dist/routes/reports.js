@@ -1427,7 +1427,12 @@ router.get('/project-collection', async (req, res, next) => {
     `;
         const result = await pool_1.db.query(query, queryParams);
         const settingsRes = await pool_1.db.query(`SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1`);
-        const companyName = settingsRes.rows[0]?.value || 'Company';
+        // The report header names the project's company when every project in it shares one; otherwise the global company
+        const projectIds = result.rows.map((r) => r.project_id);
+        const coRes = projectIds.length
+            ? await pool_1.db.query(`SELECT DISTINCT c.name FROM projects p JOIN companies c ON c.id = p.company_id WHERE p.id = ANY($1::uuid[])`, [projectIds])
+            : { rows: [] };
+        const companyName = coRes.rows.length === 1 ? coRes.rows[0].name : (settingsRes.rows[0]?.value || 'Company');
         const zero = { cheque_amount: 0, draft_amount: 0, online_amount: 0, cash_amount: 0, total_amount: 0, normal_count: 0, cancel_count: 0, bounce_count: 0, total_collection: 0 };
         const totals = result.rows.reduce((acc, r) => ({
             cheque_amount: acc.cheque_amount + parseFloat(r.cheque_amount || 0),
