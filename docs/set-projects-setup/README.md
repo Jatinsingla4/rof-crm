@@ -178,3 +178,20 @@ Verified from the code and by running it (`api-test-units-rates.mjs`, 163 checks
 - **Reminder master:** name ≤200, days a whole number 0–3650 (before, `true`, `[]` and `"1e1"` were accepted as days), channel ≤100; one reminder per name and days in any letter case (migration 107 adds the missing unique index, skipped with a NOTICE if live data has duplicates); create is audited.
 - **Unit area can now be edited** (carpet and super area, same checks: super not below carpet, 4 decimals) and is locked together with price once the unit is booked or allotted, because per-sq-ft add-on charges and prices were worked out from it.
 - Tests: `api-test-units-rates.mjs` now has 247 checks.
+
+---
+
+## Preferred Location Charges (PLC) (Set Projects, Charge Master, Preferred Location Charges)
+
+**What it was:** the menu item opened nothing, and the booking form suggested PLC as a made-up **5% of the base price** (nothing in the system said a unit had a preferred location).
+
+**What it is now**
+- **A rate per unit location** of a project, charged flat or per sq ft of carpet area, switched on or off. Locations are the ones made in Project Set Up, Unit Location. Rates and the location of each unit are set on one page (`/plc-charges`); ticked units get a location in one click, and the location can be cleared.
+- **Booking** asks `GET /api/plc-charges/quote?unitId=` and fills the PLC amount from it, with a note ("From the PLC master: Park facing, 150 per sq ft"). A unit with no location or no rate gets 0 and a note, never a guess. The amount can still be changed in the form, and a booking keeps the amount it was given (later rate changes do not touch it).
+- **Rules** (`routes/plc-charges.ts`): everyone can read and get a quote; adding, editing and assigning need the Set Master permission (super admin, project manager), removing = super admin. Rate more than 0, up to 2 decimals, flat or per sq ft; one rate per location (also for parallel adds); the location must belong to the project; assigning is all-or-nothing (a unit of another project refuses the whole call), up to 2000 units, repeated ids counted once. A location that units or a rate use cannot be deleted. Everything is audited.
+- **Booking guard:** the PLC and other-charge amounts sent by the booking form must be a number from 0 to 100 crore (a negative PLC used to lower the price, text caused a server error).
+- Migration 108 adds the table, the unit's location column and the menu page for the roles that can open Set Projects.
+- Also fixed on the way: the unit-types list ignored its project filter (query values were not sent).
+- Tests: `api-test-plc.mjs` (92 checks). Demo data: `docs/demo-seed-plc.mjs`.
+
+**Not done (decide later):** PLC is a flat amount per booking; GST on it uses the PLC mapping in GST Configuration (falling back to BASIC) as before. Giving the Add Unit form a location box was not added: use the PLC page.

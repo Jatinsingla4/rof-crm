@@ -45,6 +45,7 @@ const employees_js_1 = __importDefault(require("./routes/employees.js"));
 const operations_js_1 = __importDefault(require("./routes/operations.js"));
 const addon_charges_js_1 = __importDefault(require("./routes/addon-charges.js"));
 const charge_master_js_1 = __importDefault(require("./routes/charge-master.js"));
+const plc_charges_js_1 = __importDefault(require("./routes/plc-charges.js"));
 const surrender_js_1 = __importDefault(require("./routes/surrender.js"));
 const transfers_js_1 = __importDefault(require("./routes/transfers.js"));
 const registry_js_1 = __importDefault(require("./routes/registry.js"));
@@ -458,6 +459,7 @@ app.use('/api/employees', exports.authenticateToken, rbac('users'), employees_js
 app.use('/api/operations', exports.authenticateToken, operations_js_1.default);
 app.use('/api/addon-charges', exports.authenticateToken, addon_charges_js_1.default);
 app.use('/api/charge-master', exports.authenticateToken, charge_master_js_1.default);
+app.use('/api/plc-charges', exports.authenticateToken, plc_charges_js_1.default);
 app.use('/api/gst-configuration', exports.authenticateToken, gst_configuration_js_1.default);
 app.use('/api/surrender', exports.authenticateToken, surrender_js_1.default);
 app.use('/api/transfers', exports.authenticateToken, transfers_js_1.default);

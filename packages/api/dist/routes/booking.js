@@ -146,6 +146,12 @@ router.post('/', async (req, res, next) => {
         basic_price = 0, // rate ₹/sqft entered in the booking form
         carpet_area_sqft = 0, // carpet area submitted by the form
          } = req.body;
+        // PLC and other charges are amounts added to the price: a number, zero or more
+        for (const [label, v] of [['PLC amount', plc_amount], ['Other charge amount', other_charge_amount]]) {
+            const n = Number(v ?? 0);
+            if (typeof v === 'boolean' || Array.isArray(v) || !Number.isFinite(n) || n < 0 || n > 1000000000)
+                return res.status(400).json({ error: `${label} must be a number from 0 to 100 crore` });
+        }
         if (!consumer_id)
             return res.status(400).json({ error: 'consumer_id is required' });
         if (!unit_id || String(unit_id).trim() === '')

@@ -1663,12 +1663,21 @@ const BookingPage = {
     };
   },
 
-  updatePlcSuggestion(basePriceInr) {
+  // The PLC to offer comes from the PLC master (Set Projects, Charge Master, PLC) for the unit's location; it can still be changed here.
+  async updatePlcSuggestion() {
     const chk = document.getElementById('bk-has-plc-chk');
-    if (!chk?.checked) return;
-    const suggested = Math.round(parseFloat(basePriceInr || 0) * 0.05);
     const plcInput = document.getElementById('bk-plc-amount');
-    if (plcInput) plcInput.value = suggested;
+    if (!chk?.checked || !plcInput) return;
+    const unitId = document.getElementById('bk-unit-select')?.value;
+    let hint = document.getElementById('bk-plc-hint');
+    if (!hint) { hint = document.createElement('div'); hint.id = 'bk-plc-hint'; hint.style.cssText = 'font-size:11.5px;color:var(--text3);margin-top:3px'; plcInput.parentNode.appendChild(hint); }
+    hint.textContent = '';
+    if (!unitId) return;
+    try {
+      const q = (await Api.get('/plc-charges/quote', { params: { unitId } })).data;
+      if (q && q.amount > 0) { plcInput.value = q.amount; hint.textContent = `From the PLC master: ${q.location} (${q.basis}). You can change it.`; }
+      else { plcInput.value = 0; hint.textContent = q && q.location ? `${q.location} has no PLC rate set. Enter the amount if one applies.` : 'This unit has no location in the PLC master. Enter the amount if one applies.'; }
+    } catch (e) { hint.textContent = 'Could not read the PLC master. Enter the amount.'; }
   },
 
   togglePlc(checked) {
@@ -1678,18 +1687,12 @@ const BookingPage = {
     hidden.value = checked ? 'true' : 'false';
     fields.style.display = checked ? 'block' : 'none';
     if (checked) {
-      const unitSel = document.getElementById('bk-unit-select');
-      const opt = unitSel?.selectedOptions[0];
-      const basePrice = parseFloat(opt?.dataset?.price || 0);
-      if (basePrice > 0) {
-        const plcInput = document.getElementById('bk-plc-amount');
-        if (plcInput && parseFloat(plcInput.value || 0) === 0) {
-          plcInput.value = Math.round(basePrice * 0.05);
-        }
-      }
+      BookingPage.updatePlcSuggestion();
     } else {
       const plcInput = document.getElementById('bk-plc-amount');
       if (plcInput) plcInput.value = 0;
+      const hint = document.getElementById('bk-plc-hint');
+      if (hint) hint.textContent = '';
     }
   },
 

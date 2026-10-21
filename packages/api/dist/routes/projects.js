@@ -870,6 +870,9 @@ router.post('/:id/unit-locations', async (req, res, next) => {
 // DELETE /api/projects/:id/unit-locations/:locId
 router.delete('/:id/unit-locations/:locId', async (req, res, next) => {
     try {
+        const used = Number((await index_js_1.db.query(`SELECT (SELECT count(*) FROM units WHERE unit_location_id = $1) + (SELECT count(*) FROM plc_charges WHERE unit_location_id = $1) AS n`, [req.params.locId])).rows[0].n);
+        if (used)
+            return res.status(409).json({ error: 'This location is used by units or a PLC rate. Remove those first.' });
         const result = await index_js_1.db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
         if (!result.rowCount)
             return res.status(404).json({ error: 'Unit location not found' });

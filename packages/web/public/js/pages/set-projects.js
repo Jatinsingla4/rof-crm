@@ -1844,7 +1844,7 @@ Object.assign(SPJPage, {
     if (!el) return;
     el.innerHTML = `<div class="page-loading"><div class="spinner"></div></div>`;
     try {
-      const res = await Api.get('/master/unit-types', projectId ? { project_id: projectId } : {});
+      const res = await Api.get('/master/unit-types', projectId ? { params: { project_id: projectId } } : {});
       const rows = res.data || [];
       el.innerHTML = `
         <div class="spjn-list">
