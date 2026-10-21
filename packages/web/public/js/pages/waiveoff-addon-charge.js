@@ -5,100 +5,57 @@
 (() => {
 
   const WAC_STYLES = `<style id="wac-styles">
-.wac-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.wac-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.wac-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.wac-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.wac-body { padding: 14px 16px 16px; }
-.wac-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px 14px;
-  margin-bottom: 10px;
-}
-.wac-filter-grid2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px 14px;
-  margin-bottom: 12px;
-}
-.wac-field { display: flex; flex-direction: column; gap: 3px; }
-.wac-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.wac-filter-grid select,
-.wac-filter-grid input,
-.wac-filter-grid2 select,
-.wac-filter-grid2 input {
-  padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 12px; width: 100%; box-sizing: border-box;
-}
-.wac-filter-grid select:focus,
-.wac-filter-grid input:focus,
-.wac-filter-grid2 select:focus,
-.wac-filter-grid2 input:focus { outline: none; border-color: #337ab7; }
-.wac-btn-fetch {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 6px 20px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
-  align-self: flex-end;
-}
-.wac-btn-fetch:hover { background: #16305c; }
-.wac-btn-fetch:disabled { opacity: .7; cursor: not-allowed; }
-.wac-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.wac-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; font-weight: bold; font-size: 12px; white-space: nowrap; }
-.wac-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
-.wac-table tr:nth-child(even) td { background: #f9fbff; }
-.wac-table tr:hover td { background: #eef4ff; }
-.wac-table td.wac-num { text-align: right; }
-.wac-link { color: #337ab7; cursor: pointer; text-decoration: underline; font-size: 12px; }
-.wac-link:hover { color: #1d3a6e; }
-.wac-waive-link { color: #8a6d3b; cursor: pointer; text-decoration: underline; font-size: 12px; }
-.wac-waive-link:hover { color: #5a4020; }
-.wac-no-charges { color: #aaa; font-size: 12px; }
-.wac-empty { text-align: center; color: #999; padding: 16px; font-size: 13px; }
-.wac-info-card {
-  background: #f7f9fc; border: 1px solid #d0daea; border-radius: 3px;
-  padding: 12px 16px; margin-bottom: 10px;
-}
-.wac-info-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 20px;
-}
-.wac-info-item { display: flex; flex-direction: column; gap: 2px; }
-.wac-info-lbl { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .3px; }
-.wac-info-val { font-size: 12px; font-weight: 600; color: #222; }
-.wac-charges-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
-.wac-charges-table th { background: #1d3a6e; color: #fff; padding: 5px 7px; text-align: center; font-size: 11px; white-space: nowrap; }
-.wac-charges-table td { padding: 4px 7px; border-bottom: 1px solid #eee; vertical-align: middle; text-align: center; }
-.wac-charges-table td.wac-tl { text-align: left; }
-.wac-charges-table td.wac-tr { text-align: right; }
-.wac-waive-form-row td { background: #fffbf0 !important; }
-.wac-waive-form-inner { padding: 8px 10px; display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
-.wac-waive-form-inner textarea {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 12px; width: 320px; resize: vertical;
-}
-.wac-waive-form-inner textarea:focus { outline: none; border-color: #337ab7; }
-.wac-btn-confirm-waive {
-  background: #e6a817; color: #fff; border: none;
-  padding: 6px 16px; border-radius: 3px; font-size: 12px; font-weight: bold; cursor: pointer;
-}
-.wac-btn-confirm-waive:hover { background: #c8900e; }
-.wac-btn-confirm-waive:disabled { opacity: .7; cursor: not-allowed; }
-.wac-btn-cancel-waive {
-  background: #fff; color: #555; border: 1px solid #ccc;
-  padding: 6px 14px; border-radius: 3px; font-size: 12px; cursor: pointer;
-}
-.wac-btn-cancel-waive:hover { background: #f5f5f5; }
-.wac-status-waived { color: #e6a817; font-weight: 600; }
-.wac-msg { margin-top: 10px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.wac-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.wac-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.wac-btn-close {
-  background: #fff; color: #555; border: 1px solid #ccc;
-  padding: 6px 16px; border-radius: 3px; font-size: 13px; cursor: pointer; margin-top: 8px;
-}
-.wac-btn-close:hover { background: #f5f5f5; }
+.wac-page { max-width:1400px; margin:0 auto; font-size:13px; color:var(--text); }
+.wac-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+.wac-hdr { display:flex; justify-content:space-between; align-items:center; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border); }
+.wac-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; }
+.wac-body { padding:18px; }
+.wac-filter-grid, .wac-filter-grid2 { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:14px 18px; margin-bottom:14px; }
+.wac-filter-grid2 { margin-bottom:0; }
+.wac-field { display:flex; flex-direction:column; gap:6px; }
+.wac-lbl { font-size:11px; font-weight:500; color:var(--text2); letter-spacing:.3px; white-space:nowrap; }
+.wac-filter-grid select, .wac-filter-grid input, .wac-filter-grid2 select, .wac-filter-grid2 input { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:100%; box-sizing:border-box; background:var(--surface); color:var(--text); }
+.wac-filter-grid select:focus, .wac-filter-grid input:focus, .wac-filter-grid2 select:focus, .wac-filter-grid2 input:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.wac-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 26px; min-height:38px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; align-self:flex-start; }
+.wac-btn-fetch:hover { filter:brightness(.92); }
+.wac-btn-fetch:disabled { opacity:.7; cursor:not-allowed; }
+.wac-table, .wac-charges-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.wac-table th, .wac-charges-table th { background:var(--surface2); color:var(--text3); padding:10px 14px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; border-bottom:1px solid var(--border2); }
+.wac-table td, .wac-charges-table td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
+.wac-table tbody tr:hover td, .wac-charges-table tbody tr:hover td { background:var(--surface2); }
+.wac-table td.wac-num { text-align:right; }
+.wac-link { color:var(--teal); cursor:pointer; font-size:12px; font-weight:600; }
+.wac-link:hover { text-decoration:underline; }
+.wac-waive-link { color:var(--warn); cursor:pointer; font-size:12px; font-weight:600; }
+.wac-waive-link:hover { text-decoration:underline; }
+.wac-no-charges { color:var(--text3); font-size:12px; }
+.wac-empty { text-align:center; color:var(--text3); padding:36px 18px; font-size:13px; }
+.wac-info-card { background:var(--surface2); border:1px solid var(--border2); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+.wac-info-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px 20px; }
+.wac-info-item { display:flex; flex-direction:column; gap:3px; }
+.wac-info-lbl { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:.4px; }
+.wac-info-val { font-size:13px; font-weight:600; color:var(--text); }
+.wac-charges-table { border:1px solid var(--border2); border-radius:8px; overflow:hidden; font-size:12px; }
+.wac-charges-table th { text-align:center; }
+.wac-charges-table td { text-align:center; }
+.wac-charges-table td.wac-tl { text-align:left; }
+.wac-charges-table td.wac-tr { text-align:right; }
+.wac-waive-form-row td { background:var(--surface2) !important; }
+.wac-waive-form-inner { padding:10px 12px; display:flex; align-items:flex-start; gap:14px; flex-wrap:wrap; text-align:left; }
+.wac-waive-form-inner textarea { padding:9px 12px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:340px; max-width:100%; resize:vertical; background:var(--surface); color:var(--text); }
+.wac-waive-form-inner textarea:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.wac-btn-confirm-waive { background:var(--warn); color:#fff; border:none; padding:9px 18px; min-height:36px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+.wac-btn-confirm-waive:hover { filter:brightness(.92); }
+.wac-btn-confirm-waive:disabled { opacity:.7; cursor:not-allowed; }
+.wac-btn-cancel-waive { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:9px 16px; min-height:36px; border-radius:8px; font-size:12px; cursor:pointer; }
+.wac-btn-cancel-waive:hover { background:var(--surface2); }
+.wac-status-active { color:var(--teal); background:var(--teal-bg); padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+.wac-status-waived { color:var(--warn); font-weight:600; }
+.wac-msg { margin-top:14px; font-size:12.5px; padding:9px 14px; border-radius:8px; display:none; }
+.wac-msg-ok  { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal); font-weight:600; }
+.wac-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red); }
+.wac-btn-close { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:9px 22px; min-height:38px; border-radius:8px; font-size:12.5px; cursor:pointer; margin-top:14px; }
+.wac-btn-close:hover { background:var(--surface2); }
 </style>`;
 
   let _projects = [];
@@ -110,6 +67,10 @@
   function _renderPage() {
     return WAC_STYLES + `
 <div class="wac-page">
+  <div class="page-hdr">
+    <h1>Waiveoff Add On Charge</h1>
+    <div class="breadcrumb">Set Projects / <b>Addon Charges</b></div>
+  </div>
 
   <!-- SECTION 1: Filters -->
   <div class="wac-card">
@@ -352,7 +313,7 @@
   async function _loadConsumerCharges(consumerId) {
     const wrap = document.getElementById('wac-charges-wrap');
     if (!wrap) return;
-    wrap.innerHTML = '<div style="color:#999;font-size:12px;padding:8px">Loading charges...</div>';
+    wrap.innerHTML = '<div class="wac-empty">Loading charges...</div>';
     const token = _token();
     try {
       const res = await fetch('/api/addon-charges/consumer?consumerId=' + encodeURIComponent(consumerId), {
@@ -382,7 +343,7 @@
         '<td>' + _fmtDate(r.effective_date) + '</td>' +
         '<td class="wac-tr">' + _fmtNum(r.amount) + '</td>' +
         '<td class="wac-tr">' + _fmtNum(r.total_amount) + '</td>' +
-        '<td id="wac-status-' + r.id + '"><span style="color:#3c763d;font-weight:600">Active</span></td>' +
+        '<td id="wac-status-' + r.id + '"><span class="wac-status-active">Active</span></td>' +
         '<td>' +
           '<span class="wac-waive-link" id="wac-waive-btn-' + r.id + '" onclick="WaiveoffAddonCharge.showWaiveForm(\'' + r.id + '\')">Waive Off</span>' +
         '</td>' +
@@ -391,7 +352,7 @@
           '<td colspan="7">' +
             '<div class="wac-waive-form-inner">' +
               '<div style="display:flex;flex-direction:column;gap:4px">' +
-                '<span style="font-size:11px;color:#555">* Waive Remark:</span>' +
+                '<span style="font-size:11px;font-weight:500;color:var(--text2)">* Waive Remark:</span>' +
                 '<textarea id="wac-remark-' + r.id + '" rows="2" placeholder="Required — reason for waiving"></textarea>' +
               '</div>' +
               '<div style="display:flex;gap:8px;align-items:flex-end">' +
@@ -436,7 +397,7 @@
     const remarkEl = document.getElementById('wac-remark-' + id);
     const waiveRemark = remarkEl ? remarkEl.value.trim() : '';
     if (!waiveRemark) {
-      remarkEl && (remarkEl.style.border = '1px solid #a94442');
+      remarkEl && (remarkEl.style.border = '1px solid var(--red)');
       _showPanelMsg('Waive remark is required.', false);
       return;
     }
@@ -461,7 +422,7 @@
       const statusCell = document.getElementById('wac-status-' + id);
       if (statusCell) statusCell.innerHTML = '<span class="wac-status-waived">Waived</span>';
       const waiveBtn = document.getElementById('wac-waive-btn-' + id);
-      if (waiveBtn) { waiveBtn.style.display = ''; waiveBtn.style.color = '#aaa'; waiveBtn.style.cursor = 'default'; waiveBtn.style.textDecoration = 'none'; waiveBtn.onclick = null; waiveBtn.textContent = 'Waived'; }
+      if (waiveBtn) { waiveBtn.style.display = ''; waiveBtn.style.color = 'var(--text3)'; waiveBtn.style.cursor = 'default'; waiveBtn.style.textDecoration = 'none'; waiveBtn.onclick = null; waiveBtn.textContent = 'Waived'; }
       _activeWaiveId = null;
 
       _showPanelMsg('Charge waived successfully.', true);

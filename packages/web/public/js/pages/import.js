@@ -3,6 +3,40 @@
 Pages.importPage = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      .imn { max-width:1100px; margin:0 auto; --bg2:var(--surface2) }
+      #content:has(.imn) { margin-left:auto; margin-right:auto; width:100% }
+      .imn .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .imn .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .imn .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .imn .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .imn .sp { border-radius:10px; overflow:hidden }
+      .imn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:flex-start; gap:10px }
+      .imn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .imn .sp-body { padding:18px }
+      .imn-step { width:22px; height:22px; border-radius:50%; background:var(--teal); color:#fff; font-size:11px; font-weight:700; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0 }
+      .imn .fg { gap:6px }
+      .imn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .imn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .imn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .imn .btn-teal { background:var(--teal); color:#fff; border:none; padding:9px 28px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:40px; cursor:pointer }
+      .imn .btn-teal:hover:not(:disabled) { filter:brightness(.92) }
+      .imn .btn-teal:disabled { opacity:.5; cursor:not-allowed }
+      .imn .btn-ghost.btn-lg { border-radius:8px; min-height:40px; padding:9px 24px; font-size:12.5px }
+      .imn .btn-ghost.btn-sm { border-radius:6px; min-height:28px; padding:4px 12px; font-size:12px }
+      .imn #imp-dropzone { background:var(--surface2); border:2px dashed var(--border2); border-radius:12px; padding:44px 20px; text-align:center; cursor:pointer; transition:border-color .2s, background .2s }
+      .imn #imp-dropzone:hover { border-color:var(--teal); background:var(--teal-bg) }
+      .imn .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .imn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .imn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .imn table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .imn table tbody tr:hover td { background:var(--surface2) }
+      .imn #imp-history-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .imn .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .imn .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .imn .alert { border-radius:8px; padding:10px 14px; font-size:12.5px }
+    </style>
+    <div class="imn">
     <div class="page-hdr">
       <h1>Import Data</h1>
       <div class="breadcrumb">Settings / <b>Import</b></div>
@@ -15,7 +49,7 @@ Pages.importPage = async function(params = {}) {
     <!-- UPLOAD TAB -->
     <div data-panel-group="imp" data-panel="upload">
       <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">Import Settings</div></div>
+        <div class="sp-hdr"><span class="imn-step">1</span><div class="sp-title">Import Settings</div></div>
         <div class="sp-body">
           <div class="sp-grid">
             <div class="fg"><label class="fl"><span class="r">*</span>Data Type</label>
@@ -53,11 +87,11 @@ Pages.importPage = async function(params = {}) {
 
       <!-- Drag & Drop Zone -->
       <div class="sp" style="margin-bottom:12px">
+        <div class="sp-hdr"><span class="imn-step">2</span><div class="sp-title">Upload File</div></div>
         <div class="sp-body">
           <div id="imp-dropzone"
-            style="border:2px dashed var(--border);border-radius:8px;padding:40px;text-align:center;cursor:pointer;transition:border-color .2s"
             ondragover="event.preventDefault();this.style.borderColor='var(--teal)'"
-            ondragleave="this.style.borderColor='var(--border)'"
+            ondragleave="this.style.borderColor='var(--border2)'"
             ondrop="ImportPage.onDrop(event)"
             onclick="document.getElementById('imp-file').click()">
             <div style="font-size:40px;margin-bottom:8px">📂</div>
@@ -66,7 +100,7 @@ Pages.importPage = async function(params = {}) {
             <input type="file" id="imp-file" style="display:none" accept=".csv,.xlsx,.xls" onchange="ImportPage.onFileSelect(this.files[0])">
           </div>
           <div id="imp-file-info" style="margin-top:8px;display:none">
-            <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg2);border-radius:6px">
+            <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px">
               <span style="font-size:20px">📄</span>
               <div>
                 <div id="imp-file-name" style="font-weight:600;font-size:12px"></div>
@@ -78,7 +112,8 @@ Pages.importPage = async function(params = {}) {
         </div>
       </div>
 
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span class="imn-step">3</span>
         <button class="btn btn-ghost btn-lg" onclick="ImportPage.preview()" id="imp-preview-btn" disabled>Preview Data</button>
         <button class="btn btn-teal btn-lg" onclick="ImportPage.confirm()" id="imp-confirm-btn" disabled>Confirm Import</button>
       </div>
@@ -92,6 +127,7 @@ Pages.importPage = async function(params = {}) {
     <!-- HISTORY TAB -->
     <div data-panel-group="imp" data-panel="history" style="display:none">
       <div id="imp-history-body"><div class="page-loading"><div class="spinner"></div></div></div>
+    </div>
     </div>
   `;
 
@@ -123,7 +159,7 @@ const ImportPage = {
 
   onDrop(event) {
     event.preventDefault();
-    document.getElementById('imp-dropzone').style.borderColor = 'var(--border)';
+    document.getElementById('imp-dropzone').style.borderColor = 'var(--border2)';
     const file = event.dataTransfer.files[0];
     if (file) this.onFileSelect(file);
   },

@@ -60,6 +60,32 @@ Pages.bookingPayment = async function(params = {}) {
   const regNo = booking.registration_no || regNoParam || '—';
 
   document.getElementById('content').innerHTML = `
+    <style>
+      #content:has(.bpn) { margin-left:auto; margin-right:auto; width:100% }
+      .bpn { max-width:1300px; margin:0 auto }
+      .bpn .page-hdr { align-items:baseline; gap:14px }
+      .bpn .page-sub { font-size:12px; color:var(--text3) }
+      .bpn .sp { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .bpn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap }
+      .bpn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .bpn .sp-body { padding:18px }
+      .bpn .fg { gap:6px }
+      .bpn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .bpn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .bpn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .bpn .btg { display:inline-flex; gap:6px; flex-wrap:wrap; border:none; background:transparent; padding:0; border-radius:0 }
+      .bpn .btg-item { padding:6px 14px; font-size:12px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .bpn .btg-item:hover { border-color:var(--teal); color:var(--teal) }
+      .bpn .btg-item.on { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .bpn .btn-teal { background:var(--teal); color:#fff; border:none; padding:10px 30px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:42px; cursor:pointer }
+      .bpn .btn-teal:hover { filter:brightness(.92) }
+      .bpn .btn-ghost { border-radius:8px; min-height:42px; padding:10px 24px; font-size:12.5px }
+      .bpn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .bpn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; border-bottom:1px solid var(--border2) }
+      .bpn table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .bpn input[type=checkbox], .bpn input[type=radio] { accent-color:var(--teal) }
+    </style>
+    <div class="bpn">
     <div class="page-hdr">
       <h1 class="page-title">Payment Detail</h1>
       <div class="page-sub">Step 2 — Record payment for booking ${regNo}</div>
@@ -181,20 +207,20 @@ Pages.bookingPayment = async function(params = {}) {
 
         <!-- BLOCK 2: Payment Method Tabs -->
         <div>
-          <div style="display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+          <div style="display:flex;flex-wrap:wrap;margin-bottom:14px">
             ${['cheque','draft','online','cash','adjust','dealer_adjustment','tds_challan','card'].map((t,i) => {
               const labels = {cheque:'Cheque',draft:'Draft',online:'Online',cash:'Cash',adjust:'Adjust',dealer_adjustment:'Dealer Adjustment',tds_challan:'TDS Challan',card:'Card'};
-              const activeStyle = 'background:var(--teal);color:#fff;border:1px solid var(--border);border-bottom:2px solid var(--surface);margin-bottom:-1px;font-weight:600;';
-              const inactiveStyle = 'background:var(--bg);color:var(--text);border:1px solid var(--border);border-bottom:none;font-weight:400;';
+              const activeStyle = 'background:var(--teal);color:#fff;border:1px solid var(--teal);font-weight:600;';
+              const inactiveStyle = 'background:var(--surface);color:var(--text2);border:1px solid var(--border2);font-weight:400;';
               return `<button type="button" id="bkp-ptab-${t}" onclick="BkPayPage.switchPaymentTab('${t}')"
-                style="padding:6px 14px;${i===0?activeStyle:inactiveStyle}border-radius:4px 4px 0 0;cursor:pointer;font-size:13px;margin-right:2px">${labels[t]}</button>`;
+                style="padding:7px 16px;${i===0?activeStyle:inactiveStyle}border-radius:999px;cursor:pointer;font-size:12.5px;margin:0 6px 6px 0">${labels[t]}</button>`;
             }).join('')}
           </div>
           <input type="hidden" id="bkp-payment-mode" value="cheque">
           <input type="hidden" id="bkp-cgst-amount">
           <input type="hidden" id="bkp-sgst-amount">
 
-          <div id="bkp-panel-container" style="border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;padding:14px;background:var(--surface)">
+          <div id="bkp-panel-container" style="border:1px solid var(--border2);border-radius:10px;padding:18px;background:var(--surface2)">
 
           <!-- CHEQUE fields -->
           <div id="bkp-pfields-cheque">
@@ -229,7 +255,7 @@ Pages.bookingPayment = async function(params = {}) {
                 <input class="fc" id="bkp-ref-cheque" placeholder="Cheque number"
                   oninput="BkPayPage._clearRefErr('bkp-ref-cheque-err')"
                   onblur="BkPayPage.validateChequeRef()">
-                <span id="bkp-ref-cheque-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
+                <span id="bkp-ref-cheque-err" style="color:var(--red);font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Cheque Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-cheque"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -262,7 +288,7 @@ Pages.bookingPayment = async function(params = {}) {
                 <input class="fc" id="bkp-ref-draft" placeholder="Draft number"
                   oninput="BkPayPage._syncAmount_noop();BkPayPage._clearRefErr('bkp-ref-draft-err')"
                   onblur="BkPayPage.validateChequeRef()">
-                <span id="bkp-ref-draft-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
+                <span id="bkp-ref-draft-err" style="color:var(--red);font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Draft Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-draft"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -289,7 +315,7 @@ Pages.bookingPayment = async function(params = {}) {
                 <input class="fc" id="bkp-ref-online" placeholder="UTR / Ref No."
                   oninput="BkPayPage._clearRefErr('bkp-ref-online-err')"
                   onblur="BkPayPage.validateChequeRef()">
-                <span id="bkp-ref-online-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
+                <span id="bkp-ref-online-err" style="color:var(--red);font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Transaction Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-online"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -358,7 +384,7 @@ Pages.bookingPayment = async function(params = {}) {
                 <input class="fc" id="bkp-ref-card" placeholder="Auth / Approval No."
                   oninput="BkPayPage._clearRefErr('bkp-ref-card-err')"
                   onblur="BkPayPage.validateChequeRef()">
-                <span id="bkp-ref-card-err" style="color:#dc3545;font-size:11px;display:none"></span></div>
+                <span id="bkp-ref-card-err" style="color:var(--red);font-size:11px;display:none"></span></div>
               <div class="fg"><label class="fl">Transaction Date</label>
                 <input type="date" class="fc" id="bkp-chqdate-card"></div>
               <div class="fg"><label class="fl">Bank Name</label>
@@ -376,6 +402,7 @@ Pages.bookingPayment = async function(params = {}) {
       <button type="button" class="btn btn-teal btn-lg" id="bkp-confirm-btn" onclick="BkPayPage.confirmPayment()">CONFIRM PAYMENT</button>
       <button type="button" class="btn btn-ghost" onclick="Router.navigate('/consumers')">BACK</button>
       <button type="button" class="btn btn-ghost" style="margin-left:auto;color:#c0392b" onclick="BkPayPage.cancelBooking()" title="Withdraw this booking before any payment is confirmed">CANCEL BOOKING</button>
+    </div>
     </div>
   `;
 
@@ -458,16 +485,12 @@ const BkPayPage = {
       if (t === tab) {
         btn.style.background = 'var(--teal)';
         btn.style.color = '#fff';
-        btn.style.border = '1px solid var(--border)';
-        btn.style.borderBottom = '2px solid var(--surface)';
-        btn.style.marginBottom = '-1px';
+        btn.style.border = '1px solid var(--teal)';
         btn.style.fontWeight = '600';
       } else {
-        btn.style.background = 'var(--bg)';
-        btn.style.color = 'var(--text)';
-        btn.style.border = '1px solid var(--border)';
-        btn.style.borderBottom = 'none';
-        btn.style.marginBottom = '';
+        btn.style.background = 'var(--surface)';
+        btn.style.color = 'var(--text2)';
+        btn.style.border = '1px solid var(--border2)';
         btn.style.fontWeight = '400';
       }
     });
@@ -596,7 +619,7 @@ const BkPayPage = {
     const foundIn = data.found_in === 'booking' ? 'booking record' : 'payment receipt';
     const msg = `"${refVal}" already used in a ${foundIn} (Ref: ${data.detail?.reference || '—'}, Date: ${dateStr}).`;
     if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; }
-    if (refEl) { refEl.style.borderColor = '#dc3545'; refEl.focus(); }
+    if (refEl) { refEl.style.borderColor = 'var(--red)'; refEl.focus(); }
     return false;
   },
 
@@ -740,8 +763,8 @@ const BkPayPage = {
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
       overlay.innerHTML = `
         <div onclick="event.stopPropagation()" style="position:relative;background:var(--surface);border-radius:12px;padding:40px;max-width:480px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3)">
-          <button id="bkp-modal-close" style="position:absolute;top:12px;right:12px;background:none;border:none;font-size:18px;cursor:pointer;color:#666;line-height:1">✕</button>
-          <div style="width:60px;height:60px;background:#22c55e;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:28px;color:#fff">✓</div>
+          <button id="bkp-modal-close" style="position:absolute;top:12px;right:12px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--text3);line-height:1">✕</button>
+          <div style="width:60px;height:60px;background:var(--green);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:28px;color:#fff">✓</div>
           <h2 style="color:var(--text);font-size:22px;margin-bottom:8px">Payment Confirmed!</h2>
           <p style="color:var(--text2);margin-bottom:24px">Payment has been successfully recorded</p>
           <div style="background:var(--surface2);border-radius:8px;padding:16px;margin-bottom:24px;text-align:left">
@@ -759,7 +782,7 @@ const BkPayPage = {
             </div>
           </div>
           <div style="display:flex;gap:10px">
-            <button id="bkp-print-btn" style="flex:1;padding:12px;background:#fff;border:1px solid #ccc;border-radius:6px;cursor:pointer;font-size:13px">🖨 Print Receipt</button>
+            <button id="bkp-print-btn" style="flex:1;padding:12px;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:8px;cursor:pointer;font-size:13px">🖨 Print Receipt</button>
             <button id="bkp-done-btn" class="btn btn-teal" style="flex:1;padding:12px">View Consumer Profile</button>
           </div>
         </div>`;

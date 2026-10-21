@@ -24,6 +24,45 @@ Pages.consumerDetail = async function(params = {}) {
     const fullName = c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : (c.name || 'Unknown');
 
     content.innerHTML = `
+      <style>
+        #content:has(.cdn) { margin-left:auto; margin-right:auto; width:100% }
+        .cdn { max-width:1400px; margin:0 auto; --bg2:var(--surface2) }
+        .cdn .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+        .cdn .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+        .cdn .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+        .cdn .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+        .cdn .card { background:var(--surface); border:1px solid var(--border2); border-radius:12px; padding:18px }
+        .cdn .card-hdr { margin:-18px -18px 16px; padding:13px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); border-radius:12px 12px 0 0 }
+        .cdn .card-title { font-size:12px; letter-spacing:.6px }
+        .cdn .stat-line { padding:9px 0 }
+        .cdn .sl-l { font-size:12px }
+        .cdn .sl-v { font-size:12.5px; font-weight:600 }
+        .cdn .sp { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+        .cdn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+        .cdn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+        .cdn .sp-body { padding:18px }
+        .cdn .fg { gap:6px }
+        .cdn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+        .cdn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+        .cdn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+        .cdn .btn-teal { background:var(--teal); color:#fff; border:none; padding:9px 22px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+        .cdn .btn-teal.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+        .cdn .btn-teal:hover { filter:brightness(.92) }
+        .cdn .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+        .cdn .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+        .cdn .tbl-hdr { padding:12px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); flex-wrap:wrap }
+        .cdn .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+        .cdn .tbl-actions { margin-left:auto; display:flex; gap:8px }
+        .cdn table { width:100%; border-collapse:collapse; font-size:12.5px }
+        .cdn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+        .cdn table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+        .cdn table tbody tr:hover td { background:var(--surface2) }
+        .cdn .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+        .cdn .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+        .cdn .tl-item { padding:10px 0 }
+        .cdn-av { width:52px; height:52px; border-radius:50%; background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal); display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:700; flex-shrink:0 }
+      </style>
+      <div class="cdn">
       <div class="page-hdr">
         <h1>${fullName}</h1>
         <div class="breadcrumb">Consumers / <b>${(c.registration_no || c.id) + ' — ' + fullName}</b></div>
@@ -43,9 +82,9 @@ Pages.consumerDetail = async function(params = {}) {
         <div class="g2">
           <div class="card">
             <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)">
-              <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0;color:#fff">${initials}</div>
+              <div class="cdn-av">${initials}</div>
               <div style="flex:1">
-                <div style="font-size:15px;font-weight:700;color:var(--text)"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${fullName}</a></div>
+                <div style="font-size:15px;font-weight:700;color:var(--text)"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:700;cursor:pointer" title="View Applicant File">${fullName}</a></div>
                 <div style="font-size:10px;color:var(--text3)">${c.registration_no || c.id || ''} · ${c.project_name || c.projectName || '—'}</div>
                 <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
                   ${Utils.chip(c.lead_stage || c.leadStage || 'enquiry')}
@@ -225,6 +264,7 @@ Pages.consumerDetail = async function(params = {}) {
             <div><div class="tl-title">Unit Allotted</div><div class="tl-meta">Stage updated to Allotted</div></div>
           </div>` : ''}
         </div>
+      </div>
       </div>
     `;
 
@@ -422,13 +462,13 @@ const ConsumerDetailPage = {
       const kycEl = document.getElementById(`kyc-list-${id}`);
       const kycItems = ['Physical Application Form', 'Aadhaar Card', 'PAN Card', 'Income Certificate', 'Invitation Letter'];
       if (kycEl) kycEl.innerHTML = `
-        <p style="color:#64748b;font-size:13px;margin-bottom:16px;">Document Compliance Verification Grid</p>
+        <p style="color:var(--text3);font-size:13px;margin-bottom:16px;">Document Compliance Verification Grid</p>
         <table style="width:100%;border-collapse:collapse;">
           <thead>
-            <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
-              <th style="width:50px;padding:12px 16px;text-align:center;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">VERIFIED</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT TYPE</th>
-              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT NUMBER</th>
+            <tr style="background:var(--surface2);border-bottom:2px solid var(--border2);">
+              <th style="width:50px;padding:12px 16px;text-align:center;font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">VERIFIED</th>
+              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT TYPE</th>
+              <th style="padding:12px 16px;text-align:left;font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;">DOCUMENT NUMBER</th>
             </tr>
           </thead>
           <tbody id="kyc-checklist-body">
@@ -439,15 +479,15 @@ const ConsumerDetailPage = {
               if (item === 'Aadhaar Card' && consumer.aadhaar_no) { isPopulated = true; docNumber = consumer.aadhaar_no; }
               if (item === 'PAN Card' && consumer.pan_no) { isPopulated = true; docNumber = consumer.pan_no; }
               const isVerified = uploaded || isPopulated;
-              return `<tr style="border-bottom:1px solid #f1f5f9;transition:background 0.15s;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+              return `<tr style="border-bottom:1px solid var(--border);transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
                 <td style="padding:14px 16px;text-align:center;">
-                  <input type="checkbox" data-doc-type="${item}" ${isVerified ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;accent-color:#0d9488;">
+                  <input type="checkbox" data-doc-type="${item}" ${isVerified ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;accent-color:var(--teal);">
                 </td>
                 <td style="padding:14px 16px;">
-                  <span style="font-weight:${isVerified?'600':'400'};color:${isVerified?'#0d9488':'#1e293b'};font-size:14px;">${item}</span>
+                  <span style="font-weight:${isVerified?'600':'400'};color:${isVerified?'var(--teal)':'var(--text)'};font-size:14px;">${item}</span>
                 </td>
                 <td style="padding:14px 16px;">
-                  <span style="font-size:14px;color:${docNumber?'#0f172a':'#94a3b8'};font-family:${docNumber?'monospace':'inherit'};">${docNumber || '—'}</span>
+                  <span style="font-size:14px;color:${docNumber?'var(--text)':'var(--text3)'};font-family:${docNumber?'monospace':'inherit'};">${docNumber || '—'}</span>
                 </td>
               </tr>`;
             }).join('')}

@@ -16,6 +16,7 @@
 
   // ── STYLES ─────────────────────────────────────────────────────────────────
   const SUR_STYLES = `<style id="sur-styles">
+#content:has(.sur-tab-btn) { max-width: 1180px; margin-left: auto; margin-right: auto; width: 100%; }
 .sur-page { padding: 0; font-size: 13px; max-width: 1180px; margin: 0 auto; }
 .sur-card { background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
 .sur-hdr {
@@ -1124,17 +1125,17 @@
         <td>${r.tower_name || '—'}</td>
         <td>${_fmtDate(r.surrender_date || r.cancellation_date)}</td>
         <td>
-          <span style="padding:2px 8px;border-radius:3px;font-size:11px;font-weight:bold;
-            background:${r.type==='cancellation' ? '#fff3cd;color:#856404' : '#d4edda;color:#155724'}">
+          <span style="padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+            background:${r.type==='cancellation' ? 'var(--warn-bg);color:var(--warn)' : 'var(--teal-bg);color:var(--teal)'}">
             ${r.type === 'cancellation' ? 'Cancellation' : 'Surrender'}
           </span>
         </td>
         <td class="sur-right">${_fmt(r.refund_amount_inr || 0)}</td>
         <td>
-          <span style="padding:2px 8px;border-radius:3px;font-size:11px;background:
-            ${r.status==='restored' ? '#d4edda;color:#155724'
-              : r.status==='approved' ? '#cce5ff;color:#004085'
-              : '#e2e3e5;color:#383d41'}">
+          <span style="padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;background:
+            ${r.status==='restored' ? 'var(--teal-bg);color:var(--teal)'
+              : r.status==='approved' ? 'var(--blue-bg);color:var(--blue)'
+              : 'var(--surface2);color:var(--text2)'}">
             ${r.status || 'pending'}
           </span>
         </td>
@@ -1286,8 +1287,8 @@
         <td>${r.tower_name || '—'}</td>
         <td>${_fmtDate(r.surrender_date || r.cancellation_date)}</td>
         <td>
-          <span style="padding:2px 8px;border-radius:3px;font-size:11px;font-weight:bold;
-            background:${r.status==='restored' ? '#d4edda;color:#155724' : '#f8d7da;color:#721c24'}">
+          <span style="padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
+            background:${r.status==='restored' ? 'var(--teal-bg);color:var(--teal)' : 'var(--red-bg);color:var(--red)'}">
             ${r.status || 'pending'}
           </span>
         </td>

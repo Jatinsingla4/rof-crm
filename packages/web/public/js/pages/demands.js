@@ -3,6 +3,41 @@
 Pages.demands = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      #content:has(.dmn) { margin-left:auto; margin-right:auto; width:100% }
+      .dmn { max-width:1500px; margin:0 auto; --bg2:var(--surface2) }
+      .dmn .tabs-line { display:flex; gap:8px; flex-wrap:wrap; border-bottom:none; margin-bottom:16px }
+      .dmn .tab-line { padding:7px 16px; font-size:12.5px; border:1px solid var(--border2); border-radius:999px; background:var(--surface); color:var(--text2); cursor:pointer; transition:.15s }
+      .dmn .tab-line:hover { border-color:var(--teal); color:var(--teal) }
+      .dmn .tab-line.active { background:var(--teal); color:#fff; border-color:var(--teal); font-weight:600 }
+      .dmn .sp { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .dmn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .dmn .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .dmn .sp-body { padding:18px }
+      .dmn .fg { gap:6px }
+      .dmn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .dmn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .dmn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .dmn .btn-fetch, .dmn .btn-accent { background:var(--teal) !important; color:#fff !important; border:none; padding:9px 24px; min-height:38px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer }
+      .dmn .btn-accent.btn-sm { min-height:30px; padding:5px 14px; font-size:12px; border-radius:6px }
+      .dmn .btn-fetch:hover, .dmn .btn-accent:hover { filter:brightness(.92) }
+      .dmn .btn-ghost.btn-sm { min-height:30px; padding:5px 12px; font-size:12px; border-radius:6px }
+      .dmn .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .dmn .tbl-hdr { padding:12px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); flex-wrap:wrap }
+      .dmn .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .dmn .tbl-actions { margin-left:auto; display:flex; gap:8px; flex-wrap:wrap }
+      .dmn #penal-body { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:auto }
+      .dmn #penal-body:empty { display:none }
+      .dmn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .dmn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 14px; text-align:left; white-space:nowrap; border-bottom:1px solid var(--border2) }
+      .dmn table td { padding:9px 14px; border-bottom:1px solid var(--border); color:var(--text) }
+      .dmn table tbody tr:hover td { background:var(--surface2) }
+      .dmn .tfoot-total td, .dmn tfoot td { background:var(--surface2); font-weight:700; border-top:1px solid var(--border2) }
+      .dmn .kpi { border:1px solid var(--border2); border-left:3px solid var(--teal); border-radius:10px }
+      .dmn .empty-state { padding:36px 18px; text-align:center; color:var(--text3) }
+      .dmn .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+    </style>
+    <div class="dmn">
     <div class="page-hdr">
       <h1>Demand Management</h1>
       <div class="breadcrumb">Application / <b>Demand Overview</b></div>
@@ -18,7 +53,7 @@ Pages.demands = async function(params = {}) {
       <div class="kpi-row" id="demand-kpis">
         ${[...Array(5)].map(() => `<div class="kpi"><div class="page-loading"><div class="spinner"></div></div></div>`).join('')}
       </div>
-      <div class="tbl-wrap" style="margin-top:12px">
+      <div class="tbl-wrap" style="margin-top:14px">
         <div class="tbl-hdr">
           <div class="tbl-title">Demand Records</div>
           <div class="tbl-actions">
@@ -110,6 +145,7 @@ Pages.demands = async function(params = {}) {
       </div>
       <div id="penal-kpis" class="kpi-row" style="margin-bottom:12px"></div>
       <div id="penal-body"><div class="page-loading"><div class="spinner"></div></div></div>
+    </div>
     </div>
   `;
 
@@ -207,7 +243,7 @@ const DemandsPage = {
             const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
             return `<tr>
               <td class="td-mono">${(d.id||'').slice(0,8)}</td>
-              <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
+              <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
               <td>${d.unit_no||d.unitNo||'—'}</td>
               <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>
               <td style="font-size:10.5px">${d.instalment_name||d.instalmentName||'—'}</td>
@@ -315,7 +351,7 @@ const DemandsPage = {
               const statusChipTxt = paid ? 'Paid' : sent ? 'Sent' : 'Unsent';
               return `<tr>
                 <td>${i+1}</td>
-                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${d.consumer_name||d.consumerName||'—'}</a></td>
                 <td>${d.unit_no||d.unitNo||'—'}</td>
                 <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>
                 <td style="font-size:10.5px">${d.instalment_name||d.instalmentName||'—'}</td>
@@ -376,7 +412,7 @@ const DemandsPage = {
             <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
             <tbody>
               ${list.map(d => `<tr>
-                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${d.consumer_name||d.name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${d.consumer_name||d.name||'—'}</a></td>
                 <td>${d.mobile||'—'}</td>
                 <td>${d.unit_no||d.unitNo||'—'}</td>
                 <td style="font-size:10.5px">${d.project_name||d.projectName||'—'}</td>

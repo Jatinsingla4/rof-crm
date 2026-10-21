@@ -3,23 +3,56 @@
 Pages.unitDocuments = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      #content:has(.udn) { margin-left:auto; margin-right:auto; width:100% }
+      .udn { max-width:1400px; margin:0 auto }
+      .udn-cols { display:grid; grid-template-columns:320px 1fr; gap:16px; align-items:start }
+      .udn .sp, .udn .tbl-wrap { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .udn .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap }
+      .udn .sp-title, .udn .tbl-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .udn .sp-body { padding:18px }
+      .udn .tbl-hdr { padding:12px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .udn .fg { gap:6px }
+      .udn .fl { font-size:11px; font-weight:500; text-transform:none; letter-spacing:.3px; color:var(--text2) }
+      .udn .fc { padding:9px 12px; font-size:13px; border-radius:8px; min-height:38px }
+      .udn .fc:focus { border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg) }
+      .udn input[type=file].fc { padding:6px 10px }
+      .udn .btn-teal { background:var(--teal); color:#fff; border:none; padding:9px 24px; border-radius:8px; font-size:12.5px; font-weight:600; min-height:38px; cursor:pointer }
+      .udn .btn-teal:hover { filter:brightness(.92) }
+      .udn .btn-ghost.btn-sm { min-height:28px; padding:4px 12px; font-size:12px; border-radius:6px }
+      .udn-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px }
+      .udn-stat { background:var(--surface2); border:1px solid var(--border2); border-radius:10px; padding:12px 14px }
+      .udn-stat-l { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:.4px }
+      .udn-stat-v { font-size:15px; font-weight:700; color:var(--text); margin-top:4px; font-variant-numeric:tabular-nums }
+      .udn-sub { font-size:12px; color:var(--text3); margin-top:3px; font-weight:400; text-transform:none; letter-spacing:0 }
+      .udn table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .udn table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 18px; text-align:left; border-bottom:1px solid var(--border2) }
+      .udn table td { padding:10px 18px; border-bottom:1px solid var(--border); color:var(--text) }
+      .udn table tbody tr:hover td { background:var(--surface2) }
+      .udn .empty-state { padding:44px 18px; text-align:center; color:var(--text3); background:var(--surface); border:1px solid var(--border2); border-radius:10px }
+      .udn .empty-state h3 { font-size:14px; font-weight:600; color:var(--text2); margin:0 0 4px }
+      .udn .empty-state p { font-size:12px; margin:0 }
+      .udn .tbl-wrap .empty-state { border:none; border-radius:0 }
+      @media (max-width:900px) { .udn-cols { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="udn">
     <div class="page-hdr">
       <h1>Unit Documents</h1>
       <div class="breadcrumb">Documents / <b>Unit Documents</b></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:300px 1fr;gap:16px">
+    <div class="udn-cols">
       <!-- Unit selector panel -->
       <div>
         <div class="sp">
           <div class="sp-hdr"><div class="sp-title">Select Unit</div></div>
           <div class="sp-body">
-            <div class="fg" style="margin-bottom:8px"><label class="fl">Project</label>
+            <div class="fg" style="margin-bottom:14px"><label class="fl">Project</label>
               <select class="fc" id="ud-project" onchange="UnitDocsPage.loadUnits()">
                 <option value="">— All Projects —</option>
               </select>
             </div>
-            <div class="fg" style="margin-bottom:8px"><label class="fl">Tower</label>
+            <div class="fg" style="margin-bottom:14px"><label class="fl">Tower</label>
               <select class="fc" id="ud-tower" onchange="UnitDocsPage.filterUnits()">
                 <option value="">— All Towers —</option>
               </select>
@@ -42,6 +75,7 @@ Pages.unitDocuments = async function(params = {}) {
           </div>
         </div>
       </div>
+    </div>
     </div>
   `;
 
@@ -102,28 +136,28 @@ const UnitDocsPage = {
     const unit = this._units.find(u => u.id === unitId);
 
     el.innerHTML = `
-      <div class="sp" style="margin-bottom:12px">
+      <div class="sp" style="margin-bottom:16px">
         <div class="sp-hdr">
           <div>
             <div class="sp-title">Unit ${unit?.unit_number||unit?.unitNumber||'—'}</div>
-            <div style="font-size:11px;color:var(--text3)">${unit?.project_name||unit?.projectName||'—'} · Tower ${unit?.tower||'—'} · Floor ${unit?.floor||'—'} · ${unit?.bhk_type||unit?.bhkType||'—'}</div>
+            <div class="udn-sub">${unit?.project_name||unit?.projectName||'—'} · Tower ${unit?.tower||'—'} · Floor ${unit?.floor||'—'} · ${unit?.bhk_type||unit?.bhkType||'—'}</div>
           </div>
           ${Utils.chip(unit?.status||'available')}
         </div>
         <div class="sp-body">
           ${unit ? `
-            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;font-size:11px">
-              <div><div style="color:var(--text3)">Carpet Area</div><div style="font-weight:600">${unit.carpet_area_sqft||unit.carpetAreaSqft||'—'} sqft</div></div>
-              <div><div style="color:var(--text3)">Super Area</div><div style="font-weight:600">${unit.super_area_sqft||unit.superAreaSqft||'—'} sqft</div></div>
-              <div><div style="color:var(--text3)">Base Price</div><div style="font-weight:600">${Utils.currency(unit.base_price||unit.basePrice||0)}</div></div>
-              <div><div style="color:var(--text3)">Total Price</div><div style="font-weight:600">${Utils.currency(unit.total_price||unit.totalPrice||0)}</div></div>
+            <div class="udn-stats">
+              <div class="udn-stat"><div class="udn-stat-l">Carpet Area</div><div class="udn-stat-v">${unit.carpet_area_sqft||unit.carpetAreaSqft||'—'} sqft</div></div>
+              <div class="udn-stat"><div class="udn-stat-l">Super Area</div><div class="udn-stat-v">${unit.super_area_sqft||unit.superAreaSqft||'—'} sqft</div></div>
+              <div class="udn-stat"><div class="udn-stat-l">Base Price</div><div class="udn-stat-v">${Utils.currency(unit.base_price||unit.basePrice||0)}</div></div>
+              <div class="udn-stat"><div class="udn-stat-l">Total Price</div><div class="udn-stat-v">${Utils.currency(unit.total_price||unit.totalPrice||0)}</div></div>
             </div>
           ` : ''}
         </div>
       </div>
 
       <!-- Upload section -->
-      <div class="sp" style="margin-bottom:12px">
+      <div class="sp" style="margin-bottom:16px">
         <div class="sp-hdr"><div class="sp-title">Upload Document</div></div>
         <div class="sp-body">
           <div class="sp-grid">
@@ -145,7 +179,7 @@ const UnitDocsPage = {
               <input class="fc" id="ud-upload-remarks" placeholder="Optional remarks">
             </div>
           </div>
-          <button class="btn btn-teal btn-sm" style="margin-top:8px" onclick="UnitDocsPage.uploadDoc('${unitId}')">Upload</button>
+          <button class="btn btn-teal" style="margin-top:14px" onclick="UnitDocsPage.uploadDoc('${unitId}')">Upload</button>
         </div>
       </div>
 

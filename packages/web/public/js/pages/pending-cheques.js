@@ -92,7 +92,7 @@ const PC = {
     if (get('pc-date-to'))      params.set('to_date',     get('pc-date-to'));
 
     const tbody = document.getElementById('pc-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="21" style="text-align:center;padding:20px;color:#999;">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="21" style="text-align:center;padding:20px;color:var(--text3);">Loading…</td></tr>';
     document.getElementById('pc-results').style.display = 'block';
 
     // Load banks lazily on first fetch
@@ -118,7 +118,7 @@ const PC = {
       this.renderTable(rows, totalAmt);
     } catch (err) {
       if (tbody) tbody.innerHTML =
-        '<tr><td colspan="21" style="text-align:center;padding:20px;color:#c62828;">Error: ' + err.message + '</td></tr>';
+        '<tr><td colspan="21" style="text-align:center;padding:20px;color:var(--red);">Error: ' + err.message + '</td></tr>';
     }
   },
 
@@ -171,8 +171,8 @@ const PC = {
       return '<tr data-id="' + r.id + '" data-status="' + r.status + '">' +
         '<td><input type="checkbox" class="pc-cb" value="' + r.id + '" onchange="PC._rowCheck(this)"></td>' +
         '<td>' + (i + 1) + '</td>' +
-        '<td style="color:#1e3a5f;font-weight:500;">' + (r.registration_number || '—') + '</td>' +
-        '<td><a href="/api/consumers/' + consId + '/applicant-file?token=' + pcGetToken() + '" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">' + (r.consumer_name || '—') + '</a></td>' +
+        '<td style="color:var(--text);font-weight:500;">' + (r.registration_number || '—') + '</td>' +
+        '<td><a href="/api/consumers/' + consId + '/applicant-file?token=' + pcGetToken() + '" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">' + (r.consumer_name || '—') + '</a></td>' +
         '<td>' + (r.unit_address || '—') + '</td>' +
         '<td>' + (r.tower_name || '—') + '</td>' +
         '<td>' + (r.bank_name || '—') + '</td>' +
@@ -190,7 +190,7 @@ const PC = {
         '<td><select class="pc-bounce-reason" data-id="' + r.id + '"><option value="">--Select--</option>' + bounceOptions + '</select></td>' +
         '<td style="max-width:130px;white-space:normal;word-break:break-word;">' + (r.hold_remark || '—') + '</td>' +
         '<td>' + (r.status === 'on_hold'
-          ? '<button class="btn-hold-link" style="color:#dc3545;" onclick="PC.handleRelease(\'' + r.id + '\')">Release</button>'
+          ? '<button class="btn-hold-link" style="color:var(--red);" onclick="PC.handleRelease(\'' + r.id + '\')">Release</button>'
           : ['cleared','bounced','cancelled'].includes(r.status)
             ? '—'
             : '<button class="btn-hold-link" onclick="PC.handleHold(\'' + r.id + '\')">Hold</button>') + '</td>' +

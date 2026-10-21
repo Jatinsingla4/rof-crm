@@ -3,12 +3,43 @@
 Pages.help = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `
+    <style>
+      #content:has(.hln) { margin-left:auto; margin-right:auto; width:100% }
+      .hln { max-width:1300px; margin:0 auto }
+      .hln-cols { display:grid; grid-template-columns:280px 1fr; gap:16px; align-items:start }
+      .hln .sp { background:var(--surface); border:1px solid var(--border2); border-radius:10px; overflow:hidden }
+      .hln .sp-hdr { padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }
+      .hln .sp-title { font-size:12px; font-weight:600; color:var(--text); text-transform:uppercase; letter-spacing:.6px }
+      .hln .sp-body { padding:18px }
+      .hln-link { padding:12px 18px; border-bottom:1px solid var(--border); cursor:pointer; display:flex; align-items:center; gap:12px; transition:background .15s }
+      .hln-link:last-child { border-bottom:none }
+      .hln-link:hover { background:var(--surface2) }
+      .hln-ico { width:36px; height:36px; border-radius:10px; background:var(--teal-bg); display:flex; align-items:center; justify-content:center; font-size:17px; flex-shrink:0 }
+      .hln-link b { display:block; font-size:12.5px; font-weight:600; color:var(--text) }
+      .hln-link span { font-size:11px; color:var(--text3) }
+      .hln-support { font-size:12.5px; line-height:2; color:var(--text2) }
+      .hln-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:14px; margin-bottom:20px }
+      .hln-card { padding:16px; background:var(--surface2); border:1px solid var(--border2); border-radius:12px }
+      .hln-card .hln-ico { margin-bottom:12px; width:40px; height:40px; font-size:20px }
+      .hln-card b { display:block; font-size:13px; font-weight:600; margin-bottom:6px; color:var(--text) }
+      .hln-card p { font-size:12px; color:var(--text3); line-height:1.6; margin:0 }
+      .hln-sub { border:1px solid var(--border2); border-radius:10px; overflow:hidden; margin-bottom:16px }
+      .hln-sub-h { padding:12px 18px; background:var(--surface2); border-bottom:1px solid var(--border2); font-size:11.5px; font-weight:600; letter-spacing:.5px; text-transform:uppercase; color:var(--text) }
+      .hln table { width:100%; border-collapse:collapse; font-size:12.5px }
+      .hln table th { background:var(--surface2); color:var(--text3); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; padding:10px 18px; text-align:left; border-bottom:1px solid var(--border2) }
+      .hln table td { padding:10px 18px; border-bottom:1px solid var(--border); color:var(--text) }
+      .hln table tbody tr:last-child td { border-bottom:none }
+      .hln .alert { border-radius:8px; padding:12px 16px; font-size:12.5px; line-height:1.6 }
+      .hln .btn-ghost { border-radius:8px; min-height:38px; padding:9px 18px; font-size:12.5px }
+      @media (max-width:900px) { .hln-cols { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="hln">
     <div class="page-hdr">
       <h1>Help & Support</h1>
       <div class="breadcrumb">Settings / <b>Help</b></div>
     </div>
 
-    <div style="display:grid;grid-template-columns:260px 1fr;gap:16px">
+    <div class="hln-cols">
       <!-- Quick links sidebar -->
       <div>
         <div class="sp">
@@ -22,11 +53,11 @@ Pages.help = async function(params = {}) {
               { icon:'🎯', label:'E-Draw Process', desc:'TCP Haryana lottery guide' },
               { icon:'🔒', label:'Roles & Permissions', desc:'Access control reference' },
             ].map((item, i) => `
-              <div style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;align-items:center;gap:10px" onclick="HelpPage.showSection(${i})">
-                <span style="font-size:18px">${item.icon}</span>
+              <div class="hln-link" onclick="HelpPage.showSection(${i})">
+                <span class="hln-ico">${item.icon}</span>
                 <div>
-                  <div style="font-size:12px;font-weight:600">${item.label}</div>
-                  <div style="font-size:10.5px;color:var(--text3)">${item.desc}</div>
+                  <b>${item.label}</b>
+                  <span>${item.desc}</span>
                 </div>
               </div>
             `).join('')}
@@ -36,7 +67,7 @@ Pages.help = async function(params = {}) {
         <div class="sp" style="margin-top:12px">
           <div class="sp-hdr"><div class="sp-title">Support</div></div>
           <div class="sp-body">
-            <div style="font-size:11px;line-height:1.8">
+            <div class="hln-support">
               <div>📧 <a href="mailto:support@grapesworldwide.com" style="color:var(--teal)">support@grapesworldwide.com</a></div>
               <div>📞 +91 124-XXXXXXX</div>
               <div>🕐 Mon–Sat, 9 AM–7 PM IST</div>
@@ -50,7 +81,7 @@ Pages.help = async function(params = {}) {
         <div class="sp" id="help-content">
           <div class="sp-hdr"><div class="sp-title">ROF CRM User Guide</div></div>
           <div class="sp-body">
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:20px">
+            <div class="hln-cards">
               ${[
                 { title:'Consumer Management', body:'Manage leads from enquiry through allotment. Use the Consumer tab to track status, payments, and documents.', icon:'👤' },
                 { title:'Allotment Process', body:'After e-draw results, import CSV from TCP Haryana. System auto-matches by Aadhaar and updates statuses.', icon:'🏠' },
@@ -59,17 +90,17 @@ Pages.help = async function(params = {}) {
                 { title:'Communications', body:'Send WhatsApp, email, and SMS messages from within the CRM. All communications logged automatically.', icon:'💬' },
                 { title:'Reports & Analytics', body:'View sales pipeline, collection efficiency, overdue ageing, and project fill rates in real time.', icon:'📊' },
               ].map(card => `
-                <div style="padding:14px;background:var(--bg2);border-radius:8px">
-                  <div style="font-size:24px;margin-bottom:8px">${card.icon}</div>
-                  <div style="font-weight:600;font-size:12px;margin-bottom:6px">${card.title}</div>
-                  <div style="font-size:11px;color:var(--text3);line-height:1.6">${card.body}</div>
+                <div class="hln-card">
+                  <div class="hln-ico">${card.icon}</div>
+                  <b>${card.title}</b>
+                  <p>${card.body}</p>
                 </div>
               `).join('')}
             </div>
 
-            <div class="sp" style="margin-bottom:12px">
-              <div class="sp-hdr"><div class="sp-title">AHP Payment Plan</div></div>
-              <div class="sp-body">
+            <div class="hln-sub">
+              <div class="hln-sub-h">AHP Payment Plan</div>
+              <div>
                 <table>
                   <thead><tr><th>Instalment</th><th>%</th><th>Timing</th></tr></thead>
                   <tbody>
@@ -78,7 +109,7 @@ Pages.help = async function(params = {}) {
                       ['On Allotment', '20%', 'Within 15 days of allotment'],
                       ['Instalment 1–6', '12.5% × 6', 'Half-yearly over 3 years'],
                       ['On Possession', '5%', 'On handover'],
-                    ].map(([n,p,t]) => `<tr><td>${n}</td><td style="font-weight:700;color:var(--teal)">${p}</td><td style="font-size:10.5px;color:var(--text3)">${t}</td></tr>`).join('')}
+                    ].map(([n,p,t]) => `<tr><td>${n}</td><td style="font-weight:700;color:var(--teal)">${p}</td><td style="font-size:12px;color:var(--text3)">${t}</td></tr>`).join('')}
                   </tbody>
                 </table>
               </div>
@@ -97,6 +128,7 @@ Pages.help = async function(params = {}) {
           </div>
         </div>
       </div>
+    </div>
     </div>
   `;
 };
