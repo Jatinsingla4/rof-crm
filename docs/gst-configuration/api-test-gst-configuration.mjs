@@ -202,6 +202,50 @@ r = await prr('x', { reraNumber: 'a1' }); t('RERA edit: bad id -> 400', r.s === 
 r = await A('GET', G('/project-rera?projectId=' + P1)); t('RERA: list shows project and tower rows', r.j.data.length === 2 && r.j.data.some(x => x.tower_name === 'RT1 ' + U), JSON.stringify(r.j.data?.length));
 r = await A('GET', G('/towers?projectId=' + P1)); t('towers list', r.s === 200 && r.j.data.length === 1, r.s); r = await A('GET', G('/towers')); t('towers: no project -> 400', r.s === 400, r.s); r = await A('GET', G('/towers?projectId=x')); t('towers: bad project -> 400', r.s === 400, r.s);
 
+// ---------- a rate that already priced bookings or receipts is locked ----------
+const P3 = await mkProj('C'), P4 = await mkProj('D');
+const lockSlab = (await S(d(Y + 30, 1, 1), d(Y + 30, 12, 31))).j.data.id; made.slab.push(lockSlab);
+const otherSlab = (await S(d(Y + 32, 1, 1), d(Y + 32, 12, 31))).j.data.id; made.slab.push(otherSlab);
+const lt = (await A('POST', G('/gst-tax-setup'), { slabId: lockSlab, gstCode: 'L ' + U, type: 'INTRA', cgstPct: 9, sgstPct: 9 })).j.data.id, lt2 = (await A('POST', G('/gst-tax-setup'), { slabId: lockSlab, gstCode: 'L2 ' + U, type: 'INTRA', cgstPct: 6, sgstPct: 6 })).j.data.id; made.tax.push(lt, lt2);
+const lm = (await A('POST', G('/gst-charge-mapping'), { projectId: P3, slabId: lockSlab, gstTaxId: lt, chargeType: 'BASIC' })).j.data.id;
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: before any booking the percentage can be corrected', r.s === 200, JSON.stringify(r.j)); await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9 });
+const seed = (P, tag, date) => {
+  const cons = psql(`INSERT INTO consumers (name, mobile) VALUES ('Lock ${tag} ${U}', '9${String(Date.now() + Math.floor(Math.random() * 1e6)).slice(-9)}') RETURNING id`);
+  const tower = psql(`SELECT id FROM towers WHERE project_id='${P}' LIMIT 1`) || psql(`INSERT INTO towers (project_id, tower_name) VALUES ('${P}','L${U}') RETURNING id`);
+  const unit = psql(`INSERT INTO units (project_id, tower_id, unit_number, status, bhk_type, floor) VALUES ('${P}','${tower}','${tag}-${U}','available','2BHK',1) RETURNING id`);
+  const al = psql(`INSERT INTO allocations (consumer_id, unit_id, project_id) VALUES ('${cons}','${unit}','${P}') RETURNING id`);
+  const pp = psql(`INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr) VALUES ('${al}','${cons}','${unit}','${P}',1000000) RETURNING id`);
+  const bk = psql(`INSERT INTO booking_records (consumer_id, unit_id, project_id, selected_plan_name, status, booking_date) VALUES ('${cons}','${unit}','${P}','x','draft','${date}') RETURNING id`);
+  return { cons, pp, bk };
+};
+const bkOut = seed(P3, 'out', d(Y + 31, 6, 1));
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: a booking dated outside the slab does not lock it', r.s === 200, JSON.stringify(r.j)); await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9 });
+const bkCan = seed(P3, 'can', d(Y + 30, 6, 1)); psql(`UPDATE booking_records SET status='cancelled' WHERE id='${bkCan.bk}'`);
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: a cancelled booking does not lock it', r.s === 200, JSON.stringify(r.j)); await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9 });
+const bkIn = seed(P3, 'in', d(Y + 30, 6, 1));
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: a live booking inside the slab -> 409 with the counts', r.s === 409 && /1 booking/.test(r.j.error) && /new slab/.test(r.j.error), JSON.stringify(r.j));
+t('locked: the rate is unchanged after the refusal', psql(`select cgst_pct from gst_tax_setup where id='${lt}'`) === '9.000');
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { gstCode: 'L renamed ' + U }); t('locked: a rename (no percentage change) is still allowed', r.s === 200, JSON.stringify(r.j));
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9 }); t('locked: saving the same percentages is not a change', r.s === 200, JSON.stringify(r.j));
+r = await A('POST', G('/gst-charge-mapping'), { projectId: P3, slabId: lockSlab, gstTaxId: lt2, chargeType: 'BASIC' }); t('locked: switching the project to another rate in that slab -> 409', r.s === 409, JSON.stringify(r.j));
+r = await A('POST', G('/gst-charge-mapping'), { projectId: P3, slabId: lockSlab, gstTaxId: lt, chargeType: 'BASIC' }); t('locked: saving the same mapping again is fine', r.s === 201, JSON.stringify(r.j));
+r = await A('DELETE', G('/gst-charge-mapping/' + lm)); t('locked: removing the mapping -> 409', r.s === 409, JSON.stringify(r.j));
+r = await PM('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5, confirmChangeUsedRate: true }); t('locked: project_manager cannot override', r.s === 409, r.s);
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5, confirmChangeUsedRate: 'true' }); t('locked: super admin override must be the boolean true', r.s === 409, r.s);
+r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 4.5, sgstPct: 4.5, confirmChangeUsedRate: true }); t('locked: super admin can correct on purpose', r.s === 200 && Number(r.j.data.cgst_pct) === 4.5, JSON.stringify(r.j));
+t('locked: the override is in the audit log with old and new values', psql(`select (previous_values->>'cgst_pct')||'>'||(new_values->>'cgst_pct') from audit_logs where resource_type='gst_tax_setup' and resource_id='${lt}' order by timestamp desc limit 1`) === '9.000>4.500');
+await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9, confirmChangeUsedRate: true });
+// a project that has only receipts in the slab
+const lm4 = (await A('POST', G('/gst-charge-mapping'), { projectId: P4, slabId: otherSlab, gstTaxId: (await A('POST', G('/gst-tax-setup'), { slabId: otherSlab, gstCode: 'R ' + U, type: 'INTRA', cgstPct: 9, sgstPct: 9 })).j.data.id, chargeType: 'BASIC' })).j.data;
+made.tax.push(lm4.gst_tax_id);
+const rc = seed(P4, 'rcp', d(Y + 31, 1, 1));
+r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 6, sgstPct: 6 }); t('locked: a booking outside the slab and no receipt -> still editable', r.s === 200, JSON.stringify(r.j));
+psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) VALUES ('${rc.cons}','${rc.pp}',1,1000,'cash','cleared','${d(Y + 32, 5, 5)}') RETURNING id`);
+r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: a receipt dated inside the slab locks it', r.s === 409 && /1 receipt/.test(r.j.error), JSON.stringify(r.j));
+psql(`UPDATE receipts SET status='cancelled' WHERE payment_plan_id='${rc.pp}'`);
+r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: once the receipt is cancelled it is free again', r.s === 200, JSON.stringify(r.j));
+r = await A('PATCH', G('/gst-tax-setup/' + lt2), { cgstPct: 7, sgstPct: 7 }); t('locked: a rate that no project uses is free to edit', r.s === 200, JSON.stringify(r.j));
+
 // ---------- audit, then tidy up ----------
 const au = (ty) => Number(psql(`select count(*) from audit_logs where resource_type='${ty}'`));
 for (const ty of ['financial_year', 'hsn_sac_code', 'hsn_sac_assignment', 'gst_slab', 'gst_tax_setup', 'gst_charge_mapping', 'project_gstin', 'project_rera']) t(`audit: ${ty} changes are logged`, au(ty) >= 3, au(ty));
@@ -209,7 +253,7 @@ t('audit: a rate edit keeps old and new values', psql(`select (previous_values->
 for (const id of made.fy) psql(`delete from financial_years where id='${id}'`);
 for (const id of made.hsn.filter(Boolean)) psql(`delete from hsn_sac_code_assign where hsn_sac_id='${id}'`), psql(`delete from hsn_sac_codes where id='${id}'`);
 psql(`delete from hsn_sac_codes where code in ('${hsA}','${hsG}','997777')`);
-for (const id of made.tax.filter(Boolean)) psql(`delete from gst_tax_setup where id='${id}'`);
+for (const id of made.tax.filter(Boolean)) psql(`delete from gst_tax_charge_mapping where gst_tax_id='${id}'`), psql(`delete from gst_tax_setup where id='${id}'`);
 for (const id of made.slab.filter(Boolean)) psql(`delete from gst_slabs where id='${id}'`);
 t('tidy: no slab of this run is left', psql(`select count(*) from gst_slabs where from_date >= '${d(Y - 1, 1, 1)}' and from_date <= '${d(Y + 21, 1, 1)}'`) === '0');
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

@@ -256,6 +256,26 @@ router.delete('/gst-slabs/:id', async (req: AuthRequest, res: Response, next: Ne
   } catch (err) { fail(err, res, next); }
 });
 
+
+// Money already priced with a rate: bookings and receipts of the mapped projects dated inside the slab. Changing the rate's
+// percentage (or its mapping) would reprice them, because every lookup is by date. Only a super admin may do it on purpose
+// (confirmChangeUsedRate: true); the audit log records it. Otherwise the new rate belongs in a new slab for the new period.
+const usageIn = async (c: any, slabId: string, projectIds: string[]) => {
+  if (!projectIds.length) return { bookings: 0, receipts: 0 };
+  const row = await one(c,
+    `SELECT (SELECT count(*) FROM booking_records br, gst_slabs gs WHERE gs.id = $1 AND br.project_id = ANY($2::uuid[]) AND COALESCE(br.status, '') <> 'cancelled'
+                AND br.booking_date >= gs.from_date AND br.booking_date <= gs.to_date)::int AS bookings,
+            (SELECT count(*) FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id, gst_slabs gs WHERE gs.id = $1 AND pp.project_id = ANY($2::uuid[])
+                AND COALESCE(r.status, '') <> 'cancelled' AND r.received_date >= gs.from_date AND r.received_date <= gs.to_date)::int AS receipts`, [slabId, projectIds]);
+  return row as { bookings: number; receipts: number };
+};
+const guardUsed = async (c: any, req: AuthRequest, b: any, slabId: string, projectIds: string[], what: string) => {
+  const u = await usageIn(c, slabId, projectIds);
+  if (!u.bookings && !u.receipts) return;
+  if (req.userRole === 'super_admin' && b.confirmChangeUsedRate === true) return;
+  throw bad(`${what} is already used by ${u.bookings} booking(s) and ${u.receipts} receipt(s) dated inside this slab, so the change would reprice them. Create a new slab for the new period instead.`, 409);
+};
+
 // ── TAB 5: GST TAX SETUP ─────────────────────────────────────────────────────
 router.get('/gst-tax-setup', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -311,6 +331,11 @@ router.patch('/gst-tax-setup/:id', async (req: AuthRequest, res: Response, next:
       const r = taxRates(b, cur); taxRules(type, r);
       // A rate used by a project mapping must stay INTRA, because Booking charges CGST + SGST
       if (type !== 'INTRA' && (await one(c, `SELECT 1 AS x FROM gst_tax_charge_mapping WHERE gst_tax_id = $1`, [tid]))) throw bad('This rate is mapped to a project charge, so it must stay INTRA', 409);
+      const pctChanged = ['cgst_pct', 'sgst_pct', 'utgst_pct', 'igst_pct'].some((k, i) => Number(cur[k]) !== [r.cgst, r.sgst, r.utgst, r.igst][i]);
+      if (pctChanged) {
+        const projects = (await c.query(`SELECT DISTINCT project_id FROM gst_tax_charge_mapping WHERE gst_tax_id = $1`, [tid])).rows.map((x: any) => x.project_id);
+        await guardUsed(c, req, b, cur.slab_id, projects, 'This rate');
+      }
       await lock(c, `gst|tax|${cur.slab_id}|${code.toLowerCase()}|${type}`);
       await taxDup(c, cur.slab_id, code, type, tid);
       const upd = (await c.query(`UPDATE gst_tax_setup SET gst_code = $2, type = $3, cgst_pct = $4, sgst_pct = $5, utgst_pct = $6, igst_pct = $7, updated_at = now() WHERE id = $1 RETURNING *`,
@@ -364,6 +389,7 @@ router.post('/gst-charge-mapping', async (req: AuthRequest, res: Response, next:
       if (tax.slab_id !== slabId) throw bad('That tax rate belongs to a different slab');
       if (tax.type !== 'INTRA') throw bad('Booking charges CGST + SGST, so map an INTRA rate');
       const prev = await one(c, `SELECT * FROM gst_tax_charge_mapping WHERE project_id = $1 AND slab_id = $2 AND charge_type = $3`, [projectId, slabId, ct]);
+      if (prev && prev.gst_tax_id !== gstTaxId) await guardUsed(c, req, b, slabId, [projectId], 'This project\'s rate in this slab');
       const row = (await c.query(
         `INSERT INTO gst_tax_charge_mapping (project_id, slab_id, gst_tax_id, charge_type, created_by) VALUES ($1,$2,$3,$4,$5)
          ON CONFLICT (project_id, slab_id, charge_type) DO UPDATE SET gst_tax_id = $3, updated_at = now() RETURNING *`, [projectId, slabId, gstTaxId, ct, req.userId || null])).rows[0];
@@ -376,8 +402,13 @@ router.post('/gst-charge-mapping', async (req: AuthRequest, res: Response, next:
 router.delete('/gst-charge-mapping/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const mid = uuid(req.params.id, 'Mapping id');
-    const gone = (await db.query(`DELETE FROM gst_tax_charge_mapping WHERE id = $1 RETURNING *`, [mid])).rows[0];
-    if (!gone) throw notFound('Charge mapping');
+    const gone = await inTx(async (c) => {
+      const row = await one(c, `SELECT * FROM gst_tax_charge_mapping WHERE id = $1 FOR UPDATE`, [mid]);
+      if (!row) throw notFound('Charge mapping');
+      await guardUsed(c, req, body(req), row.slab_id, [row.project_id], 'This project\'s rate in this slab');
+      await c.query(`DELETE FROM gst_tax_charge_mapping WHERE id = $1`, [mid]);
+      return row;
+    });
     await auditChange(db, req, res, 'delete', 'gst_charge_mapping', mid, gone, undefined);
     res.json({ success: true, data: { id: mid } });
   } catch (err) { fail(err, res, next); }
