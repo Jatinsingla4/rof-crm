@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.performSurrender = void 0;
 /**
  * Surrender and builder-cancellation routes (mounted at /api/surrender): find the applicant, show the account, surrender / cancel (the unit goes back,
  * demands stop), list, and restore. Every id, date, amount and filter is checked; the ids are checked against each other, not trusted.
@@ -285,6 +286,77 @@ const signed = (v, label) => {
     return Math.round(n * 100) / 100;
 };
 const r2 = (n) => Math.round(n * 100) / 100;
+const performSurrender = async (c, req, res, p) => {
+    const { consumerId, allocationId, given, isCancel, date, sType, mode, f } = p;
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`surrender-alloc:${allocationId}`]);
+    const alloc = (await c.query(`SELECT id, consumer_id, unit_id, project_id, status FROM allocations WHERE id = $1 FOR UPDATE`, [allocationId])).rows[0];
+    if (!alloc)
+        throw (0, input_js_1.bad)('Allocation not found', 404);
+    if (alloc.consumer_id !== consumerId)
+        throw (0, input_js_1.bad)('This allocation does not belong to that applicant');
+    if (alloc.status === 'cancelled')
+        throw (0, input_js_1.bad)('This allocation is already surrendered or cancelled', 409);
+    if (alloc.status === 'transferred')
+        throw (0, input_js_1.bad)('This allocation was transferred to another applicant', 409);
+    if (!alloc.unit_id)
+        throw (0, input_js_1.bad)('This allocation has no unit');
+    if (given.unit && given.unit !== alloc.unit_id)
+        throw (0, input_js_1.bad)('The unit does not match the allocation');
+    const unit = (await c.query(`SELECT id, project_id, status FROM units WHERE id = $1 FOR UPDATE`, [alloc.unit_id])).rows[0];
+    if (given.project && given.project !== unit.project_id)
+        throw (0, input_js_1.bad)('The project does not match the unit');
+    const person = (await c.query(`SELECT id, lead_stage, allocated_unit_id FROM consumers WHERE id = $1 FOR UPDATE`, [consumerId])).rows[0];
+    const booking = given.booking
+        ? (await c.query(`SELECT id, consumer_id, unit_id, status FROM booking_records WHERE id = $1 FOR UPDATE`, [given.booking])).rows[0]
+        : (await c.query(`SELECT id, consumer_id, unit_id, status FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 AND status <> 'cancelled' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [consumerId, alloc.unit_id])).rows[0];
+    if (given.booking && !booking)
+        throw (0, input_js_1.bad)('Booking not found', 404);
+    if (booking && (booking.consumer_id !== consumerId || booking.unit_id !== alloc.unit_id))
+        throw (0, input_js_1.bad)('The booking does not belong to this applicant and unit');
+    if (booking && booking.status === 'cancelled')
+        throw (0, input_js_1.bad)('This booking is already cancelled', 409);
+    // What the applicant has paid (cleared receipts, as the account screen shows it): forfeiture and refund together cannot exceed it
+    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId])).rows[0].s);
+    if (f.forfeit > received + 0.005)
+        throw (0, input_js_1.bad)(`The forfeiture (${f.forfeit}) is more than the amount received (${received})`);
+    if (f.forfeit + f.refund > received + 1)
+        throw (0, input_js_1.bad)(`Forfeiture plus refund (${r2(f.forfeit + f.refund)}) is more than the amount received (${received})`);
+    // What this changes, kept so a restore can put it back
+    const commissions = booking
+        ? (await c.query(`SELECT id FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [consumerId, alloc.unit_id])).rows.map((r) => r.id) : [];
+    const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
+    const snapshot = JSON.stringify(demands.map((r) => ({ demand_id: r.id, previous_status: r.status })));
+    const preState = JSON.stringify({ booking_status: booking?.status ?? null, allocation_status: alloc.status, lead_stage: person.lead_stage, allocated_unit_id: person.allocated_unit_id, commission_ids: commissions });
+    let surrenderId;
+    if (isCancel) {
+        surrenderId = (await c.query(`INSERT INTO cancellations (consumer_id, allocation_id, booking_record_id, cancellation_date, reason, forfeiture_amount_inr, refund_amount_inr, refund_status, surrender_type, refund_mode,
+           penalty_base_amount, penalty_total_amount, extra_addon_charges, total_amount, gst_included, interest_included, premium_amount, bank_noc, broker_noc, remark, created_by_user_id,
+           pre_surrender_unit_status, cancelled_demand_snapshot, pre_state)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,'initiated',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id`, [consumerId, allocationId, booking?.id ?? null, date, f.reason, f.forfeit, f.refund, sType, mode, f.penBase, f.penTotal, f.extra, f.total, f.gst, f.interest, f.premium, f.bankNoc, f.brokerNoc, f.remark,
+            req.userId || null, unit.status, snapshot, preState])).rows[0].id;
+    }
+    else {
+        surrenderId = (await c.query(`INSERT INTO surrender_applications (consumer_id, allocation_id, booking_record_id, project_id, unit_id, surrender_date, reason, forfeiture_amount_inr, refund_amount_inr, status, surrender_type, refund_mode,
+           penalty_base_amount, penalty_gst_amount, penalty_total_amount, extra_addon_charges, total_amount, gst_included, service_tax_included, vat_included, interest_included, premium_amount,
+           bank_noc, broker_noc, remark, created_by_user_id, pre_surrender_unit_status, cancelled_demand_snapshot, pre_state)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`, [consumerId, allocationId, booking?.id ?? null, unit.project_id, alloc.unit_id, date, f.reason, f.forfeit, f.refund, sType, mode, f.penBase, f.penGst, f.penTotal, f.extra, f.total, f.gst, f.st, f.vat,
+            f.interest, f.premium, f.bankNoc, f.brokerNoc, f.remark, req.userId || null, unit.status, snapshot, preState])).rows[0].id;
+    }
+    await c.query(`UPDATE allocations SET status = 'cancelled', updated_at = now() WHERE id = $1`, [allocationId]);
+    await c.query(`UPDATE consumers SET lead_stage = 'cancelled', allocated_unit_id = NULL WHERE id = $1 AND allocated_unit_id IS NOT DISTINCT FROM $2`, [consumerId, alloc.unit_id]);
+    await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
+    if (booking)
+        await c.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [booking.id]);
+    await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender']);
+    // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
+    if (demands.length)
+        await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d) => d.id)]);
+    if (commissions.length)
+        await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
+    await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined, { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
+    return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };
+};
+exports.performSurrender = performSurrender;
 router.post('/', async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
@@ -311,75 +383,7 @@ router.post('/', async (req, res, next) => {
             gst: (0, input_js_1.flag)(b.gstIncluded, 'gstIncluded') ?? true, st: (0, input_js_1.flag)(b.serviceTaxIncluded, 'serviceTaxIncluded') ?? false, vat: (0, input_js_1.flag)(b.vatIncluded, 'vatIncluded') ?? false, interest: (0, input_js_1.flag)(b.interestIncluded, 'interestIncluded') ?? true,
             bankNoc: (0, input_js_1.flag)(b.bankNoc, 'bankNoc') ?? false, brokerNoc: (0, input_js_1.flag)(b.brokerNoc, 'brokerNoc') ?? false, reason: (0, input_js_1.text)(b.reason, 'Reason', 1000, false), remark: (0, input_js_1.text)(b.remark, 'Remark', 1000, false),
         };
-        const out = await (0, input_js_1.inTx)(async (c) => {
-            await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`surrender-alloc:${allocationId}`]);
-            const alloc = (await c.query(`SELECT id, consumer_id, unit_id, project_id, status FROM allocations WHERE id = $1 FOR UPDATE`, [allocationId])).rows[0];
-            if (!alloc)
-                throw (0, input_js_1.bad)('Allocation not found', 404);
-            if (alloc.consumer_id !== consumerId)
-                throw (0, input_js_1.bad)('This allocation does not belong to that applicant');
-            if (alloc.status === 'cancelled')
-                throw (0, input_js_1.bad)('This allocation is already surrendered or cancelled', 409);
-            if (alloc.status === 'transferred')
-                throw (0, input_js_1.bad)('This allocation was transferred to another applicant', 409);
-            if (!alloc.unit_id)
-                throw (0, input_js_1.bad)('This allocation has no unit');
-            if (given.unit && given.unit !== alloc.unit_id)
-                throw (0, input_js_1.bad)('The unit does not match the allocation');
-            const unit = (await c.query(`SELECT id, project_id, status FROM units WHERE id = $1 FOR UPDATE`, [alloc.unit_id])).rows[0];
-            if (given.project && given.project !== unit.project_id)
-                throw (0, input_js_1.bad)('The project does not match the unit');
-            const person = (await c.query(`SELECT id, lead_stage, allocated_unit_id FROM consumers WHERE id = $1 FOR UPDATE`, [consumerId])).rows[0];
-            const booking = given.booking
-                ? (await c.query(`SELECT id, consumer_id, unit_id, status FROM booking_records WHERE id = $1 FOR UPDATE`, [given.booking])).rows[0]
-                : (await c.query(`SELECT id, consumer_id, unit_id, status FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 AND status <> 'cancelled' ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [consumerId, alloc.unit_id])).rows[0];
-            if (given.booking && !booking)
-                throw (0, input_js_1.bad)('Booking not found', 404);
-            if (booking && (booking.consumer_id !== consumerId || booking.unit_id !== alloc.unit_id))
-                throw (0, input_js_1.bad)('The booking does not belong to this applicant and unit');
-            if (booking && booking.status === 'cancelled')
-                throw (0, input_js_1.bad)('This booking is already cancelled', 409);
-            // What the applicant has paid (cleared receipts, as the account screen shows it): forfeiture and refund together cannot exceed it
-            const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId])).rows[0].s);
-            if (f.forfeit > received + 0.005)
-                throw (0, input_js_1.bad)(`The forfeiture (${f.forfeit}) is more than the amount received (${received})`);
-            if (f.forfeit + f.refund > received + 1)
-                throw (0, input_js_1.bad)(`Forfeiture plus refund (${r2(f.forfeit + f.refund)}) is more than the amount received (${received})`);
-            // What this changes, kept so a restore can put it back
-            const commissions = booking
-                ? (await c.query(`SELECT id FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [consumerId, alloc.unit_id])).rows.map((r) => r.id) : [];
-            const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
-            const snapshot = JSON.stringify(demands.map((r) => ({ demand_id: r.id, previous_status: r.status })));
-            const preState = JSON.stringify({ booking_status: booking?.status ?? null, allocation_status: alloc.status, lead_stage: person.lead_stage, allocated_unit_id: person.allocated_unit_id, commission_ids: commissions });
-            let surrenderId;
-            if (isCancel) {
-                surrenderId = (await c.query(`INSERT INTO cancellations (consumer_id, allocation_id, booking_record_id, cancellation_date, reason, forfeiture_amount_inr, refund_amount_inr, refund_status, surrender_type, refund_mode,
-             penalty_base_amount, penalty_total_amount, extra_addon_charges, total_amount, gst_included, interest_included, premium_amount, bank_noc, broker_noc, remark, created_by_user_id,
-             pre_surrender_unit_status, cancelled_demand_snapshot, pre_state)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,'initiated',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id`, [consumerId, allocationId, booking?.id ?? null, date, f.reason, f.forfeit, f.refund, sType, mode, f.penBase, f.penTotal, f.extra, f.total, f.gst, f.interest, f.premium, f.bankNoc, f.brokerNoc, f.remark,
-                    req.userId || null, unit.status, snapshot, preState])).rows[0].id;
-            }
-            else {
-                surrenderId = (await c.query(`INSERT INTO surrender_applications (consumer_id, allocation_id, booking_record_id, project_id, unit_id, surrender_date, reason, forfeiture_amount_inr, refund_amount_inr, status, surrender_type, refund_mode,
-             penalty_base_amount, penalty_gst_amount, penalty_total_amount, extra_addon_charges, total_amount, gst_included, service_tax_included, vat_included, interest_included, premium_amount,
-             bank_noc, broker_noc, remark, created_by_user_id, pre_surrender_unit_status, cancelled_demand_snapshot, pre_state)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28) RETURNING id`, [consumerId, allocationId, booking?.id ?? null, unit.project_id, alloc.unit_id, date, f.reason, f.forfeit, f.refund, sType, mode, f.penBase, f.penGst, f.penTotal, f.extra, f.total, f.gst, f.st, f.vat,
-                    f.interest, f.premium, f.bankNoc, f.brokerNoc, f.remark, req.userId || null, unit.status, snapshot, preState])).rows[0].id;
-            }
-            await c.query(`UPDATE allocations SET status = 'cancelled', updated_at = now() WHERE id = $1`, [allocationId]);
-            await c.query(`UPDATE consumers SET lead_stage = 'cancelled', allocated_unit_id = NULL WHERE id = $1 AND allocated_unit_id IS NOT DISTINCT FROM $2`, [consumerId, alloc.unit_id]);
-            await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
-            if (booking)
-                await c.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [booking.id]);
-            await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender']);
-            // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
-            if (demands.length)
-                await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d) => d.id)]);
-            if (commissions.length)
-                await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
-            await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined, { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
-            return { surrenderId, type: b.type || 'surrender' };
-        });
+        const out = await (0, input_js_1.inTx)((c) => (0, exports.performSurrender)(c, req, res, { consumerId, allocationId, given, isCancel, date, sType, mode, f }));
         return res.status(201).json({ success: true, data: out });
     }
     catch (err) {
