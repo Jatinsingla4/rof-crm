@@ -641,7 +641,7 @@ test('Customized Letters: make a template, make a numbered letter for an applica
   await page.locator(`#mk-sug [data-id="${who.id}"]`).click();
   await page.locator('#mk-go').click();
   const frame = page.frameLocator('#mk-frame');
-  await expect(frame.locator('body')).toContainText(`Dear ${who.name}, welcome.`);
+  await expect(frame.locator('body')).toContainText(new RegExp(`Dear ${who.name}, welcome\\.`, 'i')) // the applicant's name is stored with capitals;
   await expect(frame.locator('body')).toContainText(new RegExp(`Ref\\. No\\.: E2E/W${U}/\\d{4}-\\d{2}/0001`));
   // a second letter runs on to 0002
   await page.locator('#mk-go').click();

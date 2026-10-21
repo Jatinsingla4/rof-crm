@@ -153,6 +153,63 @@ r = await L(`projectId=${P1}&name=${encodeURIComponent("x' or '1'='1")}`); t('li
 for (const [n, q] of [['no project', ''], ['bad project', 'projectId=x'], ['bad tower', `projectId=${P1}&towerId=x`], ['repeated name', `projectId=${P1}&name=a&name=b`], ['name over 100', `projectId=${P1}&name=${'x'.repeat(101)}`]]) { r = await L(q); t(`list: ${n} -> 400`, r.s === 400, r.s); }
 r = await RO('GET', `/addon-charges/consumers?projectId=${P1}`); t('list: read_only_viewer can read', r.s === 200, r.s);
 
+// ---------- money already received: frozen demands ----------
+const P3 = await mkProj('C');
+for (const [i, pct] of [[1, 40], [2, 30], [3, 30]]) await A('POST', `/projects/${P3}/plan-templates`, { plan_name: 'FZ ' + U, installment_name: 'I' + i, installment_type: 'installment', percentage: pct, due_date_offset_days: i * 30, installment_index: i });
+const MF = (await M(P3, { chargeName: 'Frozen test ' + U, defaultAmount: 100000 })).j.data.id;
+for (const [i, pct] of [[1, 50], [2, 25], [3, 25]]) await A('POST', `/projects/${P3}/plan-templates/${psql(`SELECT id FROM plan_schedule_templates WHERE project_id='${P3}' AND installment_index=${i}`)}/addon-charges`, { charge_master_id: MF, pct });
+const mkF = (tag) => {
+  const cons = psql(`INSERT INTO consumers (name, mobile) VALUES ('Frozen ${tag} ${U}', '9${String(Date.now() + Math.floor(Math.random() * 1e6)).slice(-9)}') RETURNING id`);
+  const tower = psql(`SELECT id FROM towers WHERE project_id='${P3}' LIMIT 1`) || psql(`INSERT INTO towers (project_id, tower_name) VALUES ('${P3}','F${U}') RETURNING id`);
+  const unit = psql(`INSERT INTO units (project_id, tower_id, unit_number, status, bhk_type, floor, carpet_area_sqft) VALUES ('${P3}','${tower}','${tag}-${U}','available','2BHK',1,900) RETURNING id`);
+  const al = psql(`INSERT INTO allocations (consumer_id, unit_id, project_id) VALUES ('${cons}','${unit}','${P3}') RETURNING id`);
+  const pp = psql(`INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr) VALUES ('${al}','${cons}','${unit}','${P3}',1000000) RETURNING id`);
+  psql(`INSERT INTO booking_records (consumer_id, unit_id, project_id, selected_plan_name, status) VALUES ('${cons}','${unit}','${P3}','FZ ${U}','draft') RETURNING id`);
+  for (const [i, a] of [[1, 400000], [2, 300000], [3, 300000]]) psql(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, amount_due_inr, status) VALUES ('${pp}',${i},'${cons}',${a},'raised') RETURNING id`);
+  return { cons, pp };
+};
+const pay = (f, idx, status = 'cleared', withIdx = true) => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) VALUES ('${f.cons}','${f.pp}',${withIdx ? idx : 'NULL'},1000,'cash','${status}', CURRENT_DATE) RETURNING id`);
+const fd = (f) => [1, 2, 3].map(i => psql(`SELECT addon_charge_amount FROM demands WHERE payment_plan_id='${f.pp}' AND installment_index=${i}`)).join('/');
+const fch = (f, o) => ({ consumerId: f.cons, projectId: P3, chargeMasterId: MF, amount: 100000, ...o });
+
+// F1: instalment 1 is paid, then the charge is added -> its share moves to the next unpaid instalment
+const F1 = mkF('F1'); pay(F1, 1);
+r = await A('POST', '/addon-charges/consumer', fch(F1)); t('frozen: add after instalment 1 is paid -> 201 with a note', r.s === 201 && /instalment 2/.test(r.j.note || ''), JSON.stringify(r.j)); const F1c = r.j?.data?.id;
+t('frozen: paid instalment untouched, its share moved to instalment 2, total stays 100000', fd(F1) === '0.00/75000.00/25000.00', fd(F1));
+r = await A('PATCH', `/addon-charges/consumer/${F1c}/cancel`); t('frozen: cancelling a charge that never touched the paid instalment works', r.s === 200 && fd(F1) === '0.00/0.00/0.00', r.s + ' ' + fd(F1));
+// F2: charge added first, instalment 1 paid after -> cut/cancel/waive refused, raise allowed
+const F2 = mkF('F2'); r = await A('POST', '/addon-charges/consumer', fch(F2)); const F2c = r.j.data.id; t('frozen: normal add spreads 50/25/25', fd(F2) === '50000.00/25000.00/25000.00', fd(F2));
+const rcp = pay(F2, 1);
+r = await A('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: cancel after payment -> 400 naming the instalment', r.s === 400 && /Instalment 1 already has a payment/.test(r.j.error), JSON.stringify(r.j));
+r = await A('PATCH', `/addon-charges/consumer/${F2c}/waive`, { waiveRemark: 'try' }); t('frozen: waive after payment -> 400', r.s === 400, r.s);
+r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 60000 }); t('frozen: lowering the amount after payment -> 400', r.s === 400, r.s);
+t('frozen: refused changes left charge and demands as they were', fd(F2) === '50000.00/25000.00/25000.00' && psql(`SELECT status||amount FROM consumer_addon_charges WHERE id='${F2c}'`) === 'active100000.00', fd(F2));
+r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: raising the amount is allowed; the extra for the paid instalment moves forward', r.s === 200 && /instalment 2/.test(r.j.note || '') && fd(F2) === '50000.00/100000.00/50000.00', r.s + ' ' + fd(F2) + JSON.stringify(r.j.note));
+r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: saving the same amount again changes nothing', r.s === 200 && !r.j.note && fd(F2) === '50000.00/100000.00/50000.00', fd(F2));
+// the carried amount now sits on instalment 2, which has no payment: cutting back the carried part is blocked only by the paid instalment's own share
+r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 100000 }); t('frozen: back to 100000 is allowed (the paid instalment keeps its 50000, only the carried part goes)', r.s === 200 && fd(F2) === '50000.00/25000.00/25000.00', r.s + ' ' + fd(F2));
+// a bounced cheque frees the demand
+psql(`UPDATE receipts SET status='bounced' WHERE id='${rcp}'`);
+r = await A('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: a bounced receipt no longer freezes -> cancel works', r.s === 200 && fd(F2) === '0.00/0.00/0.00', r.s + ' ' + fd(F2));
+// F3: other kinds of receipt
+const F3 = mkF('F3'); pay(F3, 1, 'cancelled'); pay(F3, 1, 'cleared', false);
+r = await A('POST', '/addon-charges/consumer', fch(F3)); t('frozen: a cancelled receipt, and a receipt with no instalment, do not freeze', r.s === 201 && !r.j.note && fd(F3) === '50000.00/25000.00/25000.00', fd(F3));
+const F3c = r.j.data.id; pay(F3, 2, 'pending');
+r = await A('PATCH', `/addon-charges/consumer/${F3c}/cancel`); t('frozen: a pending cheque counts as money received -> cancel refused', r.s === 400 && /Instalment 2/.test(r.j.error), JSON.stringify(r.j));
+// F4: demand marked paid with no receipt row (old data) freezes too; cancelled demand is ignored
+const F4 = mkF('F4'); psql(`UPDATE demands SET status='paid' WHERE payment_plan_id='${F4.pp}' AND installment_index=1`); psql(`UPDATE demands SET status='cancelled' WHERE payment_plan_id='${F4.pp}' AND installment_index=3`);
+r = await A('POST', '/addon-charges/consumer', fch(F4)); t('frozen: status paid freezes; a cancelled instalment is skipped (25000 + moved 50000)', r.s === 201 && fd(F4) === '0.00/75000.00/0.00', r.s + ' ' + fd(F4));
+// F5: everything paid
+const F5 = mkF('F5'); for (const i of [1, 2, 3]) pay(F5, i);
+r = await A('POST', '/addon-charges/consumer', fch(F5)); t('frozen: every instalment paid -> 400, nothing saved', r.s === 400 && /separate demand/.test(r.j.error) && psql(`SELECT count(*) FROM consumer_addon_charges WHERE consumer_id='${F5.cons}'`) === '0', JSON.stringify(r.j));
+// master changes hit the same rule, all or nothing
+r = await pm(MF, { defaultAmount: 50000 }); t('frozen: lowering the master while a customer has paid -> 400 naming them, nothing changed', r.s === 400 && /Frozen F3/.test(r.j.error) && psql(`SELECT default_amount FROM addon_charge_master WHERE id='${MF}'`) === '100000.00' && psql(`SELECT amount FROM consumer_addon_charges WHERE id='${F3c}'`) === '100000.00', JSON.stringify(r.j));
+r = await A('DELETE', `/addon-charges/master/${MF}`); t('frozen: deactivating the master while a customer has paid -> 400, master stays on', r.s === 400 && psql(`SELECT is_active FROM addon_charge_master WHERE id='${MF}'`) === 't', JSON.stringify(r.j));
+r = await pm(MF, { defaultAmount: 120000 }); t('frozen: raising the master is fine', r.s === 200, JSON.stringify(r.j));
+// races with a receipt arriving between checks cannot be tested here; parallel changes on one customer still serialise
+const F6 = mkF('F6'); r = await A('POST', '/addon-charges/consumer', fch(F6)); const F6c = r.j.data.id; pay(F6, 1);
+const rr = await Promise.all([1, 2, 3, 4].map(() => A('PATCH', `/addon-charges/consumer/${F6c}`, { amount: 150000 }))); t('frozen: 4 parallel raises all succeed and the total is billed once', rr.every(x => x.s === 200) && psql(`SELECT sum(addon_charge_amount)::int FROM demands WHERE payment_plan_id='${F6.pp}'`) === '150000', rr.map(x => x.s).join() + ' ' + fd(F6));
+
 // ---------- audit ----------
 const au = (ty, a) => Number(psql(`SELECT count(*) FROM audit_logs WHERE resource_type='${ty}' AND action='${a}'`));
 t('audit: master created / updated / deleted', au('addon_charge_master', 'create') >= 5 && au('addon_charge_master', 'update') >= 5 && au('addon_charge_master', 'delete') >= 1);

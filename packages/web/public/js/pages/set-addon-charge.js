@@ -612,7 +612,7 @@
       }
       data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      _showFormMsg(_editingChargeId ? 'Charge updated successfully.' : 'Charge added successfully.', true);
+      _showFormMsg((_editingChargeId ? 'Charge updated successfully.' : 'Charge added successfully.') + (data.note ? ' ' + data.note : ''), true);
       _editingChargeId = null;
       const titleEl = document.getElementById('sac-form-title');
       if (titleEl) titleEl.textContent = 'ADD ADDON CHARGES';

@@ -48,6 +48,7 @@ const day = (v: any): string | null => {
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v || v < '1990-01-01' || v > '2100-12-31') throw bad('Date must be a real date (YYYY-MM-DD)');
   return v;
 };
+const r2 = (n: number) => Math.round(n * 100) / 100;
 const body = (req: AuthRequest) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
 const likeEsc = (v: string) => v.replace(/[\\%_]/g, '\\$&');
 // One customer's add-on work runs one at a time, so a double click or two users cannot double-add or half-recompute
@@ -79,87 +80,96 @@ async function getPaymentPlanInfo(
   };
 }
 
+// A demand that already has money against it (marked paid, or a receipt that is not bounced/cancelled) is frozen: its add-on
+// figures never change. Extra add-on that would have fallen on a frozen demand moves to the next unpaid demand; a cut that
+// would fall on a frozen demand is refused (accounts issue a credit note or refund instead).
 export async function recomputeAddonDemands(
   client: any,
   consumerId: string,
   projectId: string,
   paymentPlanId: string,
   planName: string,
-): Promise<void> {
+): Promise<{ movedAmount: number; movedToInstalment: number | null }> {
   await lockConsumer(client, consumerId);
-  await client.query(
-    `UPDATE demands
-     SET addon_charge_amount = 0,
-         addon_cgst_amount = 0,
-         addon_sgst_amount = 0,
-         updated_at = NOW()
-     WHERE payment_plan_id = $1
-       AND status NOT IN ('cancelled')`,
-    [paymentPlanId],
-  );
+  const demands = (await client.query(
+    `SELECT d.id, d.installment_index AS idx, d.addon_charge_amount AS a, d.addon_cgst_amount AS c, d.addon_sgst_amount AS s,
+            (d.status = 'paid' OR EXISTS (SELECT 1 FROM receipts r
+               WHERE COALESCE(r.status, '') NOT IN ('bounced', 'cancelled')
+                 AND (r.demand_id = d.id OR (r.payment_plan_id = d.payment_plan_id AND r.installment_index = d.installment_index)))) AS locked
+       FROM demands d WHERE d.payment_plan_id = $1 AND d.status NOT IN ('cancelled')
+      ORDER BY d.installment_index, d.created_at, d.id FOR UPDATE OF d`, [paymentPlanId])).rows
+    .map((d: any) => ({ id: d.id, idx: Number(d.idx), a: Number(d.a || 0), c: Number(d.c || 0), s: Number(d.s || 0), locked: !!d.locked }));
 
-  const chargesRes = await client.query(
-    `SELECT id, charge_master_id, cgst_pct, sgst_pct,
-            amount + COALESCE(increase_amount, 0) AS effective_amount
-     FROM consumer_addon_charges
-     WHERE consumer_id = $1
-       AND project_id  = $2
-       AND status = 'active'`,
-    [consumerId, projectId],
-  );
-
-  if (!chargesRes.rows.length) return;
-
-  for (const charge of chargesRes.rows) {
+  // What each instalment should carry now, from the active charges
+  const want = new Map<number, { a: number; c: number; s: number }>();
+  const charges = (await client.query(
+    `SELECT charge_master_id, cgst_pct, sgst_pct, amount + COALESCE(increase_amount, 0) AS effective_amount
+       FROM consumer_addon_charges WHERE consumer_id = $1 AND project_id = $2 AND status = 'active'`, [consumerId, projectId])).rows;
+  for (const charge of charges) {
     const pctRes = await client.query(
-      `SELECT pst.installment_index,
-              SUM(pacp.pct) AS total_pct
-       FROM plan_addon_charge_pct pacp
-       JOIN plan_schedule_templates pst
-         ON pst.id = pacp.plan_schedule_template_id
-       WHERE pst.project_id       = $3
-         AND lower(pst.plan_name) = lower($1)
-         AND pacp.charge_master_id = $2
-       GROUP BY pst.installment_index`,
-      [planName, charge.charge_master_id, projectId],
-    );
-
+      `SELECT pst.installment_index, SUM(pacp.pct) AS total_pct
+         FROM plan_addon_charge_pct pacp JOIN plan_schedule_templates pst ON pst.id = pacp.plan_schedule_template_id
+        WHERE pst.project_id = $3 AND lower(pst.plan_name) = lower($1) AND pacp.charge_master_id = $2
+        GROUP BY pst.installment_index`, [planName, charge.charge_master_id, projectId]);
     for (const row of pctRes.rows) {
-      const addonAmt =
-        Math.round(
-          parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100 * 100,
-        ) / 100;
-
-      if (addonAmt === 0) continue;
-
-      const addonCgstAmt =
-        Math.round(addonAmt * parseFloat(charge.cgst_pct) / 100 * 100) / 100;
-      const addonSgstAmt =
-        Math.round(addonAmt * parseFloat(charge.sgst_pct) / 100 * 100) / 100;
-
-      await client.query(
-        `UPDATE demands
-         SET addon_charge_amount = addon_charge_amount + $1,
-             addon_cgst_amount = addon_cgst_amount + $2,
-             addon_sgst_amount = addon_sgst_amount + $3,
-             updated_at = NOW()
-         WHERE payment_plan_id  = $4
-           AND installment_index = $5
-           AND status NOT IN ('cancelled')`,
-        [addonAmt, addonCgstAmt, addonSgstAmt, paymentPlanId, row.installment_index],
-      );
+      const a = r2(parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100);
+      if (a === 0) continue;
+      const w = want.get(Number(row.installment_index)) || { a: 0, c: 0, s: 0 };
+      w.a = r2(w.a + a); w.c = r2(w.c + r2(a * parseFloat(charge.cgst_pct) / 100)); w.s = r2(w.s + r2(a * parseFloat(charge.sgst_pct) / 100));
+      want.set(Number(row.installment_index), w);
     }
   }
+
+  // Frozen demands: keep as they are; collect what they are short of, refuse what they are over
+  const carry = { a: 0, c: 0, s: 0 }; let from: number | null = null;
+  for (const d of demands.filter((x: any) => x.locked)) {
+    const w = want.get(d.idx) || { a: 0, c: 0, s: 0 };
+    const diff = (w.a + w.c + w.s) - (d.a + d.c + d.s);
+    if (diff < -0.005) throw bad(`Instalment ${d.idx} already has a payment, so the add-on billed there (₹${(d.a + d.c + d.s).toFixed(2)} with GST) cannot be reduced. Ask accounts for a credit note or refund.`);
+    if (diff > 0.005) { carry.a += w.a - d.a; carry.c += w.c - d.c; carry.s += w.s - d.s; from = from === null ? d.idx : Math.min(from, d.idx); }
+  }
+  const open = demands.filter((x: any) => !x.locked);
+  const moved = carry.a + carry.c + carry.s > 0.005;
+  let target: any = null;
+  if (moved) {
+    target = open.find((x: any) => x.idx > (from as number)) || open[0];
+    if (!target) throw bad('Every instalment already has a payment, so this add-on cannot be billed on a demand. Ask accounts to raise a separate demand.');
+  }
+  let shifted = false;
+  for (const d of open) {
+    const w = want.get(d.idx) || { a: 0, c: 0, s: 0 };
+    const add = d === target ? carry : { a: 0, c: 0, s: 0 };
+    if (d === target && Math.abs(r2(w.a + add.a) - d.a) > 0.005) shifted = true;
+    await client.query(
+      `UPDATE demands SET addon_charge_amount = $2, addon_cgst_amount = $3, addon_sgst_amount = $4, updated_at = NOW() WHERE id = $1`,
+      [d.id, r2(w.a + add.a), r2(w.c + add.c), r2(w.s + add.s)]);
+  }
+  // the note is only for a change made now, not for a shift that was already in place
+  return { movedAmount: shifted ? r2(carry.a + carry.c + carry.s) : 0, movedToInstalment: shifted ? target.idx : null };
 }
 
 
 // Recompute demands for each customer, one at a time in a fixed order (no deadlocks between two admins)
-async function recomputeFor(client: any, consumers: { consumer_id: string; project_id: string }[]) {
+async function recomputeFor(client: any, consumers: { consumer_id: string; project_id: string }[], batch = false) {
+  const moves: { movedAmount: number; movedToInstalment: number | null }[] = [];
+  const blocked: string[] = [];
   for (const row of consumers) {
     const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
-    if (planInfo) await recomputeAddonDemands(client, row.consumer_id, row.project_id, planInfo.paymentPlanId, planInfo.planName);
+    if (!planInfo) continue;
+    try { moves.push(await recomputeAddonDemands(client, row.consumer_id, row.project_id, planInfo.paymentPlanId, planInfo.planName)); }
+    catch (e: any) {
+      if (!batch || !e?.http) throw e;
+      const n = await client.query(`SELECT COALESCE(NULLIF(TRIM(COALESCE(first_name,'') || ' ' || COALESCE(last_name,'')), ''), name, registration_no, id::text) AS n FROM consumers WHERE id = $1`, [row.consumer_id]);
+      blocked.push(n.rows[0]?.n || row.consumer_id);
+    }
   }
+  if (blocked.length) {
+    throw bad(`${blocked.length} customer(s) already have payments against this add-on, so it cannot be reduced or removed: ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ' …' : ''}. Ask accounts for credit notes or refunds first.`);
+  }
+  return moves.find((m) => m.movedAmount > 0) || { movedAmount: 0, movedToInstalment: null };
 }
+const movedNote = (m: { movedAmount: number; movedToInstalment: number | null }) => m.movedAmount > 0
+  ? { note: `Part of this add-on fell on an instalment that already has a payment, so ₹${m.movedAmount.toFixed(2)} (with GST) was billed on instalment ${m.movedToInstalment} instead.` } : {};
 // Locks every customer holding an active charge of this master (sorted), returns them
 async function lockHolders(client: any, masterId: string) {
   const r = await client.query(
@@ -177,7 +187,6 @@ const gstPcts = (b: any, cur?: { cgst_pct: any; sgst_pct: any }) => ({
   cgst: has(b.cgstPct) ? num(b.cgstPct, 'CGST %', 50, 4) : cur ? Number(cur.cgst_pct) : 9,
   sgst: has(b.sgstPct) ? num(b.sgstPct, 'SGST %', 50, 4) : cur ? Number(cur.sgst_pct) : 9,
 });
-const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // ── A: GET /api/addon-charges/master?projectId=uuid ──────────────────────────
 router.get('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -284,7 +293,7 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
                   updated_at = NOW()
             WHERE charge_master_id = $1 AND status = 'active'`, [mid, amount, cgst, sgst]);
       }
-      await recomputeFor(c, holders);
+      await recomputeFor(c, holders, true);
       return { cur, master, affected: holders.length };
     });
     await auditChange(db, req, res, 'update', 'addon_charge_master', mid, out.cur, out.master);
@@ -303,7 +312,7 @@ router.delete('/master/:id', async (req: AuthRequest, res: Response, next: NextF
       await c.query(`UPDATE addon_charge_master SET is_active = false, updated_at = now() WHERE id = $1`, [mid]);
       // Active customer charges of this type are cancelled and their demands recomputed
       await c.query(`UPDATE consumer_addon_charges SET status = 'cancelled', cancelled_at = now(), updated_at = now() WHERE charge_master_id = $1 AND status = 'active'`, [mid]);
-      await recomputeFor(c, holders);
+      await recomputeFor(c, holders, true);
       return { cur, affected: holders.length };
     });
     await auditChange(db, req, res, 'delete', 'addon_charge_master', mid, out.cur, { ...out.cur, is_active: false });
@@ -357,11 +366,11 @@ router.post('/consumer', async (req: AuthRequest, res: Response, next: NextFunct
            cgst_pct, sgst_pct, cgst_amount, sgst_amount, total_amount, remark, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
         [consumerId, projectId, chargeMasterId, chargeName, effectiveDate, amt, cgst, sgst, cgstAmount, sgstAmount, r2(amt + cgstAmount + sgstAmount), remark, req.userId || null])).rows[0];
-      await recomputeFor(c, [{ consumer_id: consumerId, project_id: projectId }]);
-      return row;
+      const moved = await recomputeFor(c, [{ consumer_id: consumerId, project_id: projectId }]);
+      return { row, moved };
     });
-    await auditChange(db, req, res, 'create', 'consumer_addon_charge', out.id, undefined, out);
-    res.status(201).json({ success: true, data: out });
+    await auditChange(db, req, res, 'create', 'consumer_addon_charge', out.row.id, undefined, { ...out.row, moved_to_next_instalment: out.moved });
+    res.status(201).json({ success: true, data: out.row, ...movedNote(out.moved) });
   } catch (err) { fail(err, res, next); }
 });
 
@@ -393,11 +402,11 @@ async function changeCharge(req: AuthRequest, res: Response, next: NextFunction,
       } else {
         upd = (await c.query(`UPDATE consumer_addon_charges SET status = 'waived', waive_remark = $2, updated_at = now() WHERE id = $1 RETURNING id, status`, [cid, waive])).rows[0];
       }
-      await recomputeFor(c, [pre]);
-      return { cur, upd };
+      const moved = await recomputeFor(c, [pre]);
+      return { cur, upd, moved };
     });
-    await auditChange(db, req, res, 'update', 'consumer_addon_charge', cid, out.cur, out.upd);
-    res.json({ success: true, data: out.upd });
+    await auditChange(db, req, res, 'update', 'consumer_addon_charge', cid, out.cur, { ...out.upd, moved_to_next_instalment: out.moved });
+    res.json({ success: true, data: out.upd, ...movedNote(out.moved) });
   } catch (err) { fail(err, res, next); }
 }
 // ── G / H / I: edit, cancel, waive a customer's charge ───────────────────────

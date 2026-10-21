@@ -14,6 +14,10 @@ Five screens, one API (`/api/addon-charges`): Extra Add On Charge Master, Set Ex
 - Demand recalculation now only reads the plan of the same project (case-insensitive name).
 - Migration 105 adds unique indexes for the two duplicate rules (skipped with a NOTICE if live data already has duplicates).
 
-**Not changed (decide separately):** a charge added or removed after a demand is already paid still changes that demand's amount.
+**Money already received (frozen demands).** A demand is frozen when it is marked paid or has a receipt that is not bounced/cancelled (a pending cheque counts; a receipt with no instalment does not; cancelled demands are skipped). Its add-on figures never change.
+- Add or raise a charge: the share that belongs on a frozen instalment is billed on the next unpaid one, and the screen says so (`note`). If every instalment is paid the change is refused ("raise a separate demand").
+- Cancel, waive, lower, or lower/deactivate the master when a frozen instalment already carries that add-on: refused with the instalment number; accounts issue a credit note or refund. For master edits it is all-or-nothing and the message names the customers.
+- A bounced or cancelled receipt unfreezes the demand. Saving the same value again changes nothing and shows no note.
+- Known small gap: a receipt saved in the same instant a change is being saved is not seen by that change (the check and the update are one transaction, receipts are not locked by it).
 
-**Check it:** `docs/addon-charges/api-test-addon-charges.mjs` (132 checks incl. 8 parallel adds → 1, 6 parallel master creates → 1, cancel/cancel/waive race, demand totals, cascade, audit). Demo data: `docs/demo-seed-addons.mjs`.
+**Check it:** `docs/addon-charges/api-test-addon-charges.mjs` (152 checks incl. 20 on frozen demands (paid, pending/bounced/cancelled receipts, all paid, master cut and deactivate, parallel raises) and 8 parallel adds → 1, 6 parallel master creates → 1, cancel/cancel/waive race, demand totals, cascade, audit). Demo data: `docs/demo-seed-addons.mjs`.
