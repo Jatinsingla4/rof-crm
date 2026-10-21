@@ -11,6 +11,7 @@ import { AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
+import { inTx as inTxOnce, bad, uuid as inUuid, has as inHas, num as inNum, text as inText, body as inBody } from '../utils/input.js';
 
 const router = Router();
 
@@ -491,29 +492,31 @@ router.get('/reminder-master', async (req: AuthRequest, res: Response, next: Nex
 });
 router.post('/reminder-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const cleaned = cleanBody(req.body, ['name']);
-    if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
-    const { name } = cleaned.values;
-    const { days_before, channel } = req.body;
-    if (!name || days_before === undefined || days_before === null || days_before === '') return res.status(400).json({ error: 'name and days_before are required' });
-    const days = Number(days_before);
-    if (!Number.isInteger(days) || days < 0) return res.status(400).json({ error: 'Days before must be a whole number, zero or more' });
-    const dup = await db.query('SELECT 1 FROM reminder_master WHERE lower(reminder_name) = lower($1) AND days = $2', [name, days]);
-    if (dup.rows.length) return res.status(409).json({ error: 'A reminder with this name and days already exists' });
-    const result = await db.query(
-      `INSERT INTO reminder_master (reminder_name, days, prefix_name)
-       VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`,
-      [name, days, channel || null]
-    );
+    const rb = inBody(req);
+    const name = inText(rb.name, 'Name', 200, true)!;
+    if (!inHas(rb.days_before)) throw bad('name and days_before are required');
+    const days = inNum(rb.days_before, 'Days before', 3650, 0);
+    const channel = inText(rb.channel, 'Channel', 100, false);
+    const result = await inTxOnce(async (c) => {
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('reminder|' || lower($1) || '|' || $2))`, [name, days]);
+      if ((await c.query('SELECT 1 FROM reminder_master WHERE lower(reminder_name) = lower($1) AND days = $2', [name, days])).rows.length) {
+        throw Object.assign(bad('A reminder with this name and days already exists'), { http: 409 });
+      }
+      return c.query(
+        `INSERT INTO reminder_master (reminder_name, days, prefix_name)
+         VALUES ($1, $2, $3) RETURNING id, reminder_name AS name, days AS days_before, COALESCE(prefix_name,'all') AS channel`,
+        [name, days, channel]);
+    });
+    await auditChange(db, req, res, 'create', 'master.reminder_master', result.rows[0].id, undefined, result.rows[0]);
     res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err: any) { err?.http ? res.status(err.http).json({ error: err.message }) : next(err); }
 });
 router.delete('/reminder-master/:id', deleteRoute('reminder_master'));
 
 // ─── UNIT TYPES ───────────────────────────────────────────────────────────────
 router.get('/unit-types',           async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id } = req.query;
+    const project_id = inHas(req.query.project_id) ? inUuid(req.query.project_id, 'project_id') : null;
     const where = project_id ? `WHERE ut.project_id = $1` : '';
     const params = project_id ? [project_id] : [];
     const result = await db.query(
@@ -521,12 +524,66 @@ router.get('/unit-types',           async (req: AuthRequest, res: Response, next
       params
     );
     res.json({ success: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) { sendErr(err, res, next); }
 });
-const UNIT_TYPE_NUMBERS = ['carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft'];
-router.post('/unit-types',          addRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], required: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
-router.put('/unit-types/:id',       updateRoute('unit_types', ['project_id', 'name', 'description', ...UNIT_TYPE_NUMBERS], { unique: ['project_id'], nonNegative: UNIT_TYPE_NUMBERS }));
-router.delete('/unit-types/:id',    deleteRoute('unit_types'));
+// Unit types: areas to 2 decimals, the base rate in whole rupees per sq ft; one name per project (any letter case)
+const unitTypeInput = (rb: any, cur?: any) => {
+  const name = 'name' in rb || !cur ? inText(rb.name, 'Name', 100, true)! : cur.name;
+  const description = 'description' in rb ? inText(rb.description, 'Description', 1000, false) : cur ? cur.description : null;
+  const pick = (k: string, col: string, label: string, max: number, dec: number) => k in rb ? (inHas(rb[k]) ? inNum(rb[k], label, max, dec) : null) : cur ? (cur[col] == null ? null : Number(cur[col])) : null;
+  return { name, description, carpet: pick('carpet_area_sqft', 'carpet_area_sqft', 'Carpet area', 1_000_000, 2), balcony: pick('balcony_area_sqft', 'balcony_area_sqft', 'Balcony area', 1_000_000, 2), rate: pick('base_rate_sqft', 'base_rate_sqft', 'Base rate', 1_000_000, 0) };
+};
+const sendErr = (err: any, res: Response, next: NextFunction) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
+router.post('/unit-types', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const rb = inBody(req); const projectId = inUuid(rb.project_id, 'Project'); const f = unitTypeInput(rb);
+    if (!(await db.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length) throw Object.assign(bad('Project not found'), { http: 404 });
+    const made = await inTxOnce(async (c) => {
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('unittype|' || $1 || '|' || lower($2)))`, [projectId, f.name]);
+      if ((await c.query('SELECT 1 FROM unit_types WHERE project_id = $1 AND lower(name) = lower($2)', [projectId, f.name])).rows.length) throw Object.assign(bad('A record with this name already exists'), { http: 409 });
+      return (await c.query(`INSERT INTO unit_types (project_id, name, description, carpet_area_sqft, balcony_area_sqft, base_rate_sqft) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        [projectId, f.name, f.description, f.carpet, f.balcony, f.rate])).rows[0];
+    });
+    await auditChange(db, req, res, 'create', 'master.unit_types', made.id, undefined, made);
+    res.status(201).json({ success: true, data: made });
+  } catch (err) { sendErr(err, res, next); }
+});
+router.put('/unit-types/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const uid = inUuid(req.params.id, 'Unit type id'); const rb = inBody(req);
+    const out = await inTxOnce(async (c) => {
+      const cur = (await c.query('SELECT * FROM unit_types WHERE id = $1 FOR UPDATE', [uid])).rows[0];
+      if (!cur) throw Object.assign(bad('Not found'), { http: 404 });
+      const projectId = inHas(rb.project_id) ? inUuid(rb.project_id, 'Project') : cur.project_id;
+      if (!Object.keys(rb).some(k => ['name', 'description', 'project_id', 'carpet_area_sqft', 'balcony_area_sqft', 'base_rate_sqft'].includes(k))) throw bad('Nothing to update');
+      const f = unitTypeInput(rb, cur);
+      if (projectId !== cur.project_id) {
+        // Units of the old project already use this type; moving it would leave them pointing at another project's type
+        const n = Number((await c.query('SELECT count(*) AS n FROM units WHERE unit_type_id = $1', [uid])).rows[0].n);
+        if (n) throw Object.assign(bad(`${n} unit(s) use this unit type, so it cannot be moved to another project.`), { http: 409 });
+        if (!(await c.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length) throw Object.assign(bad('Project not found'), { http: 404 });
+      }
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('unittype|' || $1 || '|' || lower($2)))`, [projectId, f.name]);
+      if ((await c.query('SELECT 1 FROM unit_types WHERE project_id = $1 AND lower(name) = lower($2) AND id <> $3', [projectId, f.name, uid])).rows.length) throw Object.assign(bad('A record with this name already exists'), { http: 409 });
+      const upd = (await c.query(`UPDATE unit_types SET project_id = $2, name = $3, description = $4, carpet_area_sqft = $5, balcony_area_sqft = $6, base_rate_sqft = $7, updated_at = now() WHERE id = $1 RETURNING *`,
+        [uid, projectId, f.name, f.description, f.carpet, f.balcony, f.rate])).rows[0];
+      return { cur, upd };
+    });
+    await auditChange(db, req, res, 'update', 'master.unit_types', uid, out.cur, out.upd);
+    res.json({ success: true, data: out.upd });
+  } catch (err) { sendErr(err, res, next); }
+});
+router.delete('/unit-types/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const uid = inUuid(req.params.id, 'Unit type id');
+    const n = Number((await db.query('SELECT count(*) AS n FROM units WHERE unit_type_id = $1', [uid])).rows[0].n);
+    if (n) return res.status(409).json({ error: `${n} unit(s) use this unit type. Change those units first.` });
+    const result = await db.query('DELETE FROM unit_types WHERE id = $1 RETURNING *', [uid]);
+    if (!result.rowCount) return res.status(404).json({ error: 'Not found' });
+    await auditChange(db, req, res, 'delete', 'master.unit_types', uid, result.rows[0]);
+    res.json({ success: true });
+  } catch (err) { sendErr(err, res, next); }
+});
 
 // ─── FLOORS ───────────────────────────────────────────────────────────────────
 router.get('/floors',               async (req: AuthRequest, res: Response, next: NextFunction) => {

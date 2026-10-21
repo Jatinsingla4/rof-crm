@@ -154,6 +154,64 @@ r = await RR('?projectId=x'); t('rate report: bad project id -> 400', r.s === 40
 r = await RR(`?projectId=${NIL}`); t('rate report: unknown project -> empty list', r.s === 200 && r.j.data.length === 0, r.s); r = await RO('GET', `/projects/reports/rates?projectId=${PR}`); t('rate report: read_only_viewer can read', r.s === 200, r.s);
 r = await RR("?projectId=' or 1=1 --"); t('rate report: SQL text in the filter -> 400', r.s === 400, r.s);
 
+// ---------- unit area can be edited (and is locked once sold) ----------
+const ar = (await add({ unitNumber: 'AREA-1', carpetAreaSqft: 800, superAreaSqft: 1000 })).j.data.id;
+r = await pu(ar, { carpetAreaSqft: 850 }); t('area edit: carpet area', r.s === 200 && Number(psql(`select carpet_area_sqft from units where id='${ar}'`)) === 850, r.s);
+r = await pu(ar, { carpetAreaSqft: 1100 }); t('area edit: carpet above the stored super area -> 400', r.s === 400 && /Super area/.test(r.j.error), JSON.stringify(r.j));
+r = await pu(ar, { superAreaSqft: 800 }); t('area edit: super below the stored carpet -> 400', r.s === 400, JSON.stringify(r.j));
+for (const [n, v] of [['negative', -1], ['text', 'x'], ['5 decimals', '1.00001'], ['huge', 1e9]]) { r = await pu(ar, { carpetAreaSqft: v }); t(`area edit: ${n} -> 400`, r.s === 400, r.s); }
+r = await pu(ar, { carpetAreaSqft: 900, superAreaSqft: 1200 }); t('area edit: both together', r.s === 200, JSON.stringify(r.j));
+psql(`INSERT INTO booking_records (consumer_id, unit_id, project_id, selected_plan_name, status) VALUES ('${cons}','${ar}','${P1}','x','draft') RETURNING id`);
+r = await pu(ar, { carpetAreaSqft: 910 }); t('area edit: a booked unit\'s area is locked -> 409', r.s === 409, JSON.stringify(r.j));
+r = await pu(ar, { carpetAreaSqft: 900 }); t('area edit: saving the same area is fine', r.s === 200, JSON.stringify(r.j));
+
+// ---------- unit types (Unit Address screen) ----------
+const UT = (b, raw) => A('POST', '/master/unit-types', b, raw);
+const utb = { project_id: P1, name: 'Type A ' + U, carpet_area_sqft: 800, balcony_area_sqft: 50, base_rate_sqft: 6000, description: 'two bed' };
+r = await SE('POST', '/master/unit-types', utb); t('unit type: sales_executive -> 403', r.s === 403, r.s); r = await RO('GET', `/master/unit-types?project_id=${P1}`); t('unit type: read_only_viewer can read', r.s === 200, r.s);
+for (const [n, o, re] of [['no project', { project_id: undefined }, /Project/], ['project not an id', { project_id: 'x' }, /Project/], ['no name', { name: '' }, /Name/], ['name spaces', { name: '  ' }, /Name/], ['name over 100', { name: 'n'.repeat(101) }, /100/], ['name markup', { name: '<b>' }, /character/], ['name a number', { name: 5 }, /text/],
+  ['description markup', { description: '<x>' }, /character/], ['description over 1000', { description: 'd'.repeat(1001) }, /1000/], ['carpet negative', { carpet_area_sqft: -1 }, /Carpet/], ['carpet 3 decimals', { carpet_area_sqft: '1.234' }, /Carpet/], ['carpet exponent', { carpet_area_sqft: '1e3' }, /Carpet/],
+  ['carpet huge', { carpet_area_sqft: 1e8 }, /Carpet/], ['balcony text', { balcony_area_sqft: 'x' }, /Balcony/], ['rate decimal', { base_rate_sqft: 6000.5 }, /Base rate/], ['rate negative', { base_rate_sqft: -1 }, /Base rate/], ['rate huge', { base_rate_sqft: 1e12 }, /Base rate/], ['rate array', { base_rate_sqft: [1] }, /Base rate/], ['rate boolean', { base_rate_sqft: true }, /Base rate/]]) {
+  r = await UT({ ...utb, name: 'Bad ' + Math.random().toString(36).slice(2, 6) + U, ...o }); t(`unit type: ${n} -> 400`, r.s === 400 && re.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j)); }
+r = await UT({ ...utb, project_id: NIL }); t('unit type: unknown project -> 404', r.s === 404, r.s); r = await UT(undefined, '[1]'); t('unit type: array body -> 400', r.s === 400, r.s); r = await UT(undefined, '{oops'); t('unit type: broken JSON -> 4xx', r.s >= 400 && r.s < 500, r.s);
+r = await UT({ ...utb, name: ' Type A ' + U + ' ' }); t('unit type: create (name trimmed)', r.s === 201 && r.j.data.name === 'Type A ' + U && Number(r.j.data.base_rate_sqft) === 6000, JSON.stringify(r.j)); const ut1 = r.j.data.id;
+r = await UT({ ...utb, name: 'type a ' + U }); t('unit type: same name in another letter case -> 409', r.s === 409, JSON.stringify(r.j));
+r = await UT({ ...utb, project_id: P2 }); t('unit type: the same name in another project is fine', r.s === 201, JSON.stringify(r.j));
+const rut = await Promise.all(Array.from({ length: 6 }, () => UT({ ...utb, name: 'Race type ' + U }))); t('unit type: 6 parallel creates -> exactly 1', rut.filter(x => x.s === 201).length === 1 && rut.every(x => x.s === 201 || x.s === 409), rut.map(x => x.s).join());
+r = await UT({ project_id: P1, name: 'Bare ' + U }); t('unit type: only a name is enough', r.s === 201 && r.j.data.carpet_area_sqft === null, JSON.stringify(r.j));
+const put = (id, b) => A('PUT', `/master/unit-types/${id}`, b);
+r = await put('x', { name: 'q' }); t('unit type edit: bad id -> 400', r.s === 400, r.s); r = await put(NIL, { name: 'q' }); t('unit type edit: unknown -> 404', r.s === 404, r.s); r = await put(ut1, {}); t('unit type edit: nothing to change -> 400', r.s === 400, r.s);
+r = await put(ut1, { name: '' }); t('unit type edit: blank name -> 400', r.s === 400, r.s); r = await put(ut1, { base_rate_sqft: -5 }); t('unit type edit: negative rate -> 400', r.s === 400, r.s);
+r = await put(ut1, { name: 'Bare ' + U }); t('unit type edit: a name that exists -> 409', r.s === 409, r.s);
+r = await put(ut1, { base_rate_sqft: 6500 }); t('unit type edit: only the rate changes, the rest stays', r.s === 200 && Number(r.j.data.base_rate_sqft) === 6500 && Number(r.j.data.carpet_area_sqft) === 800 && r.j.data.name === 'Type A ' + U, JSON.stringify(r.j));
+r = await put(ut1, { description: null }); t('unit type edit: a value can be cleared with null', r.s === 200 && r.j.data.description === null, JSON.stringify(r.j));
+r = await put(ut1, { name: 'TYPE A ' + U }); t('unit type edit: own name in other case is fine', r.s === 200, r.s);
+r = await SE('PUT', `/master/unit-types/${ut1}`, { name: 'x' }); t('unit type edit: sales_executive -> 403', r.s === 403, r.s);
+const uu = (await add({ unitNumber: 'UT-1', unitTypeId: ut1 })).j.data.id;
+r = await put(ut1, { project_id: P2 }); t('unit type edit: a type that units use cannot move to another project -> 409', r.s === 409 && /1 unit/.test(r.j.error), JSON.stringify(r.j));
+r = await A('DELETE', `/master/unit-types/${ut1}`); t('unit type delete: in use -> 409 with the count', r.s === 409 && /1 unit/.test(r.j.error), JSON.stringify(r.j));
+r = await PM('DELETE', `/master/unit-types/${ut1}`); t('unit type delete: project_manager -> 403 or in-use 409, never a server error', r.s === 403 || r.s === 409, r.s);
+const free = (await UT({ project_id: P1, name: 'Free ' + U })).j.data.id; r = await A('DELETE', `/master/unit-types/${free}`); t('unit type delete: free type', r.s === 200, r.s); r = await A('DELETE', `/master/unit-types/${free}`); t('unit type delete: twice -> 404', r.s === 404, r.s); r = await A('DELETE', '/master/unit-types/x'); t('unit type delete: bad id -> 400', r.s === 400, r.s);
+r = await A('GET', '/master/unit-types?project_id=x'); t('unit type list: bad project id -> 400', r.s === 400, r.s); r = await A('GET', `/master/unit-types?project_id=${P1}&project_id=${P2}`); t('unit type list: repeated project -> 400', r.s === 400, r.s);
+
+// ---------- reminder master ----------
+const RM = (b, raw) => A('POST', '/master/reminder-master', b, raw);
+const rmb = { name: 'Pay reminder ' + U, days_before: 5, channel: 'sms' };
+r = await SE('POST', '/master/reminder-master', rmb); t('reminder: sales_executive -> 403', r.s === 403, r.s);
+for (const [n, o, re] of [['no name', { name: '' }, /Name|name/], ['name markup', { name: '<b>' }, /character/], ['name over 200', { name: 'n'.repeat(201) }, /200/], ['no days', { days_before: undefined }, /required/], ['days text', { days_before: 'abc' }, /Days/], ['days negative', { days_before: -1 }, /Days/],
+  ['days decimal', { days_before: 2.5 }, /Days/], ['days exponent', { days_before: '1e1' }, /Days/], ['days boolean', { days_before: true }, /Days/], ['days array', { days_before: [3] }, /Days/], ['days 4000', { days_before: 4000 }, /Days/], ['channel markup', { channel: '<i>' }, /character/], ['channel over 100', { channel: 'c'.repeat(101) }, /100/], ['channel array', { channel: ['a'] }, /text/]]) {
+  r = await RM({ ...rmb, name: 'Bad ' + Math.random().toString(36).slice(2, 6) + U, ...o }); t(`reminder: ${n} -> 400`, r.s === 400 && re.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j)); }
+r = await RM(undefined, '[1]'); t('reminder: array body -> 400', r.s === 400, r.s);
+r = await RM(rmb); t('reminder: create', r.s === 201 && r.j.data.days_before === 5 && r.j.data.channel === 'sms', JSON.stringify(r.j)); const rm1 = r.j.data.id;
+r = await RM({ ...rmb, name: 'PAY REMINDER ' + U }); t('reminder: same name and days in another letter case -> 409', r.s === 409, JSON.stringify(r.j));
+r = await RM({ ...rmb, days_before: 6 }); t('reminder: same name with other days is fine', r.s === 201, JSON.stringify(r.j));
+r = await RM({ name: 'Same day ' + U, days_before: '0' }); t('reminder: 0 days as text is fine', r.s === 201, JSON.stringify(r.j));
+r = await RM({ name: 'No channel ' + U, days_before: 3 }); t('reminder: no channel shows as all', r.s === 201 && r.j.data.channel === 'all', JSON.stringify(r.j));
+const rrm = await Promise.all(Array.from({ length: 6 }, () => RM({ name: 'Race rem ' + U, days_before: 9 }))); t('reminder: 6 parallel creates -> exactly 1', rrm.filter(x => x.s === 201).length === 1 && rrm.every(x => x.s === 201 || x.s === 409), rrm.map(x => x.s).join());
+r = await RO('GET', '/master/reminder-master'); t('reminder: read_only_viewer can read', r.s === 200 && r.j.data.some(x => x.id === rm1), r.s);
+r = await A('DELETE', `/master/reminder-master/${rm1}`); t('reminder: delete', r.s === 200, r.s); r = await A('DELETE', `/master/reminder-master/${rm1}`); t('reminder: delete twice -> 404', r.s === 404, r.s); r = await A('DELETE', '/master/reminder-master/x'); t('reminder: delete bad id -> 400', r.s === 400, r.s);
+t('audit: unit types and reminders are logged', Number(psql(`select count(*) from audit_logs where resource_type in ('master.unit_types','master.reminder_master')`)) >= 8);
+
 // ---------- audit ----------
 const au = (ty) => Number(psql(`select count(*) from audit_logs where resource_type='${ty}'`));
 for (const ty of ['unit', 'unit_bulk_import', 'project', 'tower']) t(`audit: ${ty} changes are logged`, au(ty) >= 2, au(ty));

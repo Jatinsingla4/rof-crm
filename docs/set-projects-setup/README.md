@@ -173,4 +173,8 @@ Verified from the code and by running it (`api-test-units-rates.mjs`, 163 checks
 
 **Rate Report** (`GET /api/projects/reports/rates?projectId=`): one row per project / BHK / tower. Units with no price used to vanish from the report; they are now counted ("No price"), next to available and sold units, min / max / average price and average ₹ per sq ft (price ÷ carpet area, units without carpet area left out). The screen has a project filter, and names are escaped before they are shown.
 
-**Still open (decide later):** Unit Address / Unit Type (the master-data screens) and Reminder Master keep their earlier checks; a unit's area cannot be edited after it is added (only price, floor, facing, link and balcony).
+**Unit Address / Unit Type, Reminder Master and unit area (done in the same pass)**
+- **Unit types:** name plain text ≤100, unique per project in any letter case (also for parallel adds), areas up to 2 decimals, base rate whole rupees per sq ft, description ≤1000; text, `1e3`, negatives, huge values, true/arrays are refused with a message. An edit keeps the fields you do not send, and `null` clears one. A type that units use cannot be moved to another project, and cannot be deleted (the message gives the number of units). Edit, delete and add are audited.
+- **Reminder master:** name ≤200, days a whole number 0–3650 (before, `true`, `[]` and `"1e1"` were accepted as days), channel ≤100; one reminder per name and days in any letter case (migration 107 adds the missing unique index, skipped with a NOTICE if live data has duplicates); create is audited.
+- **Unit area can now be edited** (carpet and super area, same checks: super not below carpet, 4 decimals) and is locked together with price once the unit is booked or allotted, because per-sq-ft add-on charges and prices were worked out from it.
+- Tests: `api-test-units-rates.mjs` now has 247 checks.

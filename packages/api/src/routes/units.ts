@@ -495,19 +495,19 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       const floor = has(b.floor) ? floorNo(b.floor) : cur.floor;
       const facing = has(b.facing) ? text(b.facing, 'Facing', 30, false) : cur.facing;
       const floorPlanUrl = has(b.floorPlanUrl) ? planUrl(b.floorPlanUrl) : cur.floor_plan_url;
-      const f = unitFields({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft }, cur);
+      const f = unitFields({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft, carpetAreaSqft: b.carpetAreaSqft, superAreaSqft: b.superAreaSqft }, cur);
       const same = (a: number | null, v: any) => (a === null && v == null) || (a !== null && v != null && Number(v) === a);
-      const moneyChanged = !same(f.base, cur.base_price_inr) || !same(f.total, cur.total_price_inr) || !same(f.balcony, cur.balcony_area_sqft);
+      const moneyChanged = !same(f.base, cur.base_price_inr) || !same(f.total, cur.total_price_inr) || !same(f.balcony, cur.balcony_area_sqft) || !same(f.carpet, cur.carpet_area_sqft) || !same(f.sup, cur.super_area_sqft);
       if (moneyChanged) {
         // Booking, demands and receipts were priced from these figures, so they stay as they are once the unit is sold
         const sold = cur.status !== 'available' && cur.status !== 'locked' && cur.status !== 'held'
           || (await client.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length > 0;
-        if (sold) throw Object.assign(bad('This unit already has a booking, so its price and balcony area can no longer be changed.'), { http: 409 });
+        if (sold) throw Object.assign(bad('This unit already has a booking, so its price and areas can no longer be changed.'), { http: 409 });
       }
       const upd = (await client.query(
-        `UPDATE units SET floor = $2, facing = $3, floor_plan_url = $4, base_price_inr = $5, total_price_inr = $6, balcony_area_sqft = $7, updated_at = NOW()
+        `UPDATE units SET floor = $2, facing = $3, floor_plan_url = $4, base_price_inr = $5, total_price_inr = $6, balcony_area_sqft = $7, carpet_area_sqft = $8, super_area_sqft = $9, updated_at = NOW()
          WHERE id = $1 RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`,
-        [id, floor, facing, floorPlanUrl, f.base, f.total, f.balcony])).rows[0];
+        [id, floor, facing, floorPlanUrl, f.base, f.total, f.balcony, f.carpet, f.sup])).rows[0];
       await client.query('COMMIT');
       out = { cur, upd };
     } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
