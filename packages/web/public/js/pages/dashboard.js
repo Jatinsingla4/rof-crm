@@ -4,7 +4,10 @@ Pages.dashboard = async function() {
   const content = document.getElementById('content');
   content.innerHTML = `
     <style>
+      #content:has(.dbn) { margin-left:auto; margin-right:auto; width:100% }
       .dbn { max-width:1500px; margin-left:auto; margin-right:auto }
+      .dbn .page-hdr { align-items:baseline }
+      .dbn-date { margin-left:auto; font-size:12px; color:var(--text3) }
       .dbn .tbl-wrap { border:1px solid var(--border2); border-radius:10px }
       .dbn .tbl-hdr { padding:12px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border); flex-wrap:wrap }
       .dbn .tbl-title { font-size:12px; letter-spacing:.6px }
@@ -13,44 +16,133 @@ Pages.dashboard = async function() {
       .dbn .dash-tbl { font-size:12.5px }
       .dbn .dash-tbl th { padding:9px 12px; background:var(--surface2); color:var(--text3); font-size:11px; letter-spacing:.4px }
       .dbn .dash-tbl td { padding:8px 12px }
-      .dbn .dash-tbl .grp-hdr { background:var(--surface2); color:var(--text2) }
-      .dbn .dash-tbl .sub-hdr { background:var(--surface2); color:var(--text3) }
+      .dbn .dash-tbl .grp-hdr, .dbn .dash-tbl .sub-hdr { background:var(--surface2); color:var(--text2) }
       .dbn .btn-teal.btn-sm { background:var(--teal); color:#fff; border:none; border-radius:6px; min-height:28px; padding:4px 12px; font-size:12px; font-weight:600 }
-      .dbn .empty-state { padding:36px 18px }
-      .dbn .kpi { border-radius:10px }
-      @media (max-width:900px) { .dbn .g2 { grid-template-columns:minmax(0,1fr) } }
+      .dbn .empty-state { padding:32px 18px }
+      .dbn-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; margin-bottom:14px }
+      .dbn-k { background:var(--surface); border:1px solid var(--border2); border-radius:10px; padding:14px 16px; cursor:pointer; transition:border-color .15s }
+      .dbn-k:hover { border-color:var(--teal) }
+      .dbn-k-lbl { font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.5px; font-weight:600 }
+      .dbn-k-val { font-size:22px; font-weight:700; color:var(--text); margin-top:6px; font-variant-numeric:tabular-nums }
+      .dbn-k-val.bad { color:var(--red) }
+      .dbn-k-sub { font-size:11.5px; color:var(--text3); margin-top:4px }
+      .dbn-row { display:grid; gap:14px; margin-bottom:14px }
+      .dbn-row.r2 { grid-template-columns:3fr 2fr }
+      .dbn-row.r3 { grid-template-columns:1.2fr 1fr 1fr }
+      .dbn-body { padding:16px 18px }
+      .dbn-bar-row { display:grid; grid-template-columns:130px 1fr auto; align-items:center; gap:12px; margin-bottom:12px }
+      .dbn-bar-row:last-child { margin-bottom:0 }
+      .dbn-bar-name { font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+      .dbn-bar-track { height:8px; background:var(--surface2); border-radius:4px; overflow:hidden }
+      .dbn-bar-fill { height:100%; background:var(--teal); border-radius:4px }
+      .dbn-bar-val { font-size:12.5px; font-weight:600; color:var(--text); text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap }
+      .dbn-bar-val small { display:block; font-weight:400; color:var(--text3); font-size:11px }
+      .dbn-cols { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; height:150px }
+      .dbn-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px }
+      .dbn-col-bar { width:100%; max-width:42px; background:var(--teal); border-radius:3px 3px 0 0; min-height:3px }
+      .dbn-col-bar.hot { background:var(--red) }
+      .dbn-col-n { font-size:12.5px; font-weight:600; color:var(--text) }
+      .dbn-col-l { font-size:11px; color:var(--text3) }
+      .dbn-att { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 18px; border-bottom:1px solid var(--border); cursor:pointer }
+      .dbn-att:last-child { border-bottom:none }
+      .dbn-att:hover { background:var(--surface2) }
+      .dbn-att b { font-size:12.5px; font-weight:500; color:var(--text) }
+      .dbn-att span { font-size:14px; font-weight:700; color:var(--text3); font-variant-numeric:tabular-nums }
+      .dbn-att span.bad { color:var(--red) }
+      .dbn-stack { display:flex; height:10px; border-radius:5px; overflow:hidden; background:var(--surface2); margin-bottom:14px }
+      .dbn-stack i { display:block; height:100% }
+      .dbn-leg div { display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text2); padding:4px 0 }
+      .dbn-leg em { width:9px; height:9px; border-radius:2px; flex-shrink:0 }
+      .dbn-leg b { margin-left:auto; color:var(--text); font-weight:600; font-variant-numeric:tabular-nums }
+      .dbn-big { font-size:22px; font-weight:700; color:var(--text); margin-bottom:10px }
+      .dbn-big small { font-size:12px; font-weight:400; color:var(--text3); margin-left:6px }
+      .dbn-hero { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; padding:24px 28px; margin-bottom:16px; border-radius:16px; color:#fff;
+        background:var(--teal); background:linear-gradient(135deg, var(--teal) 0%, color-mix(in srgb, var(--teal) 55%, #0b2a33) 100%); position:relative; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,.12) }
+      .dbn-hero::after { content:''; position:absolute; right:-60px; top:-80px; width:260px; height:260px; border-radius:50%; background:rgba(255,255,255,.08) }
+      .dbn-hero::before { content:''; position:absolute; right:140px; bottom:-110px; width:200px; height:200px; border-radius:50%; background:rgba(255,255,255,.06) }
+      .dbn-hero-l, .dbn-hero-r { position:relative; z-index:1 }
+      .dbn-greet { font-size:22px; font-weight:700; letter-spacing:.2px }
+      .dbn-hero .dbn-date { margin-left:0; font-size:12.5px; color:#fff; opacity:.85; margin-top:4px }
+      .dbn-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:16px }
+      .dbn-act { background:rgba(255,255,255,.16); color:#fff; border:1px solid rgba(255,255,255,.28); border-radius:999px; padding:7px 16px; font-size:12px; font-weight:600; cursor:pointer; transition:.15s; backdrop-filter:blur(4px) }
+      .dbn-act:hover { background:#fff; color:var(--teal) }
+      .dbn-hero-r { text-align:right }
+      .dbn-hero-lbl { font-size:11px; text-transform:uppercase; letter-spacing:1px; opacity:.85 }
+      .dbn-hero-val { font-size:36px; font-weight:800; line-height:1.1; margin-top:4px; font-variant-numeric:tabular-nums }
+      .dbn-hero-sub { font-size:12px; opacity:.85; margin-top:6px }
+      .dbn-kpis { grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:14px; margin-bottom:16px }
+      .dbn-k { border-radius:14px; padding:16px 18px; position:relative; overflow:hidden; transition:transform .15s, box-shadow .15s, border-color .15s }
+      .dbn-k:hover { transform:translateY(-2px); box-shadow:0 8px 20px rgba(0,0,0,.10) }
+      .dbn-k::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--c) }
+      .dbn-k-ico { width:38px; height:38px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:18px; background:color-mix(in srgb, var(--c) 16%, transparent); margin-bottom:12px }
+      .dbn-k-val { font-size:26px; font-weight:800; line-height:1.1 }
+      @media (max-width:900px) { .dbn-hero-r { text-align:left } }
+      @media (max-width:1100px) { .dbn-row.r3 { grid-template-columns:minmax(0,1fr) } }
+      @media (max-width:900px) { .dbn-row.r2 { grid-template-columns:minmax(0,1fr) } .dbn .g2 { grid-template-columns:minmax(0,1fr) } .dbn-bar-row { grid-template-columns:90px 1fr auto } }
     </style>
     <div class="dbn">
-    <div class="page-hdr">
-      <h1>Dashboard</h1>
-      <div class="breadcrumb">Home / <b>Dashboard</b></div>
+    <div class="dbn-hero">
+      <div class="dbn-hero-l">
+        <div class="dbn-greet" id="dash-greet">Welcome</div>
+        <div class="dbn-date" id="dash-date"></div>
+        <div class="dbn-actions">
+          <button class="dbn-act" onclick="Router.navigate('/booking')">＋ New Booking</button>
+          <button class="dbn-act" onclick="Router.navigate('/receipts')">Receipts</button>
+          <button class="dbn-act" onclick="Router.navigate('/demands')">Demands</button>
+          <button class="dbn-act" onclick="Router.navigate('/unit-status')">Unit Status</button>
+          <button class="dbn-act" onclick="Router.navigate('/reports')">Reports</button>
+        </div>
+      </div>
+      <div class="dbn-hero-r">
+        <div class="dbn-hero-lbl">Today's Collection</div>
+        <div class="dbn-hero-val" id="dash-hero-coll">—</div>
+        <div class="dbn-hero-sub" id="dash-hero-sub">Loading…</div>
+      </div>
     </div>
     <div id="dash-alert"></div>
 
-    <!-- KPI Cards -->
-    <div class="kpi-carousel">
-      <button class="kpi-arrow prev" onclick="DashboardPage.kpiScroll(-1)" aria-label="Previous">‹</button>
-      <div id="dash-kpis" class="kpi-track">
-        ${[...Array(6)].map(() => `<div class="kpi"><div class="page-loading"><div class="spinner"></div></div></div>`).join('')}
+    <div id="dash-kpis" class="dbn-kpis">
+      ${[...Array(6)].map(() => `<div class="dbn-k"><div class="page-loading"><div class="spinner"></div></div></div>`).join('')}
+    </div>
+
+    <div class="dbn-row r2">
+      <div class="tbl-wrap" style="margin-bottom:0">
+        <div class="tbl-hdr"><span class="tbl-icon">📈</span><div class="tbl-title">Collection by Project</div><div class="tbl-actions"><span style="font-size:11px;color:var(--text3)">This month</span></div></div>
+        <div class="dbn-body" id="dash-chart-coll"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
-      <button class="kpi-arrow next" onclick="DashboardPage.kpiScroll(1)" aria-label="Next">›</button>
-      <div id="dash-kpi-dots" class="kpi-dots"></div>
+      <div class="tbl-wrap" style="margin-bottom:0">
+        <div class="tbl-hdr"><span class="tbl-icon">⏳</span><div class="tbl-title">Dues Ageing</div><div class="tbl-actions"><span style="font-size:11px;color:var(--text3)">Next 28 days</span></div></div>
+        <div class="dbn-body" id="dash-chart-due"><div class="page-loading"><div class="spinner"></div></div></div>
+      </div>
+    </div>
+
+    <div class="dbn-row r3">
+      <div class="tbl-wrap" style="margin-bottom:0">
+        <div class="tbl-hdr"><span class="tbl-icon">🔔</span><div class="tbl-title">Needs Attention</div></div>
+        <div id="dash-attention"><div class="page-loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="tbl-wrap" style="margin-bottom:0">
+        <div class="tbl-hdr"><span class="tbl-icon">📨</span><div class="tbl-title">Demand Letters</div><div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demands')">Open</button></div></div>
+        <div class="dbn-body" id="dash-donut-demand"><div class="page-loading"><div class="spinner"></div></div></div>
+      </div>
+      <div class="tbl-wrap" style="margin-bottom:0">
+        <div class="tbl-hdr"><span class="tbl-icon">🎫</span><div class="tbl-title">Ticket Status</div><div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">Open</button></div></div>
+        <div class="dbn-body" id="dash-donut-tickets"><div class="page-loading"><div class="spinner"></div></div></div>
+      </div>
     </div>
 
     <!-- Row 1: Pending Cheques + Demand Status -->
     <div class="g2" style="margin-top:20px">
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">📝</span>
-          <div class="tbl-title">Pending Cheques</div>
+          <span class="tbl-icon">📝</span><div class="tbl-title">Pending Cheques</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/receipts')">View All</button></div>
         </div>
         <div id="dash-pending-cheques"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">📋</span>
-          <div class="tbl-title">Demand Status</div>
+          <span class="tbl-icon">📋</span><div class="tbl-title">Demand Status</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demands')">Details</button></div>
         </div>
         <div id="dash-demand-status"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -65,8 +157,7 @@ Pages.dashboard = async function() {
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">👥</span>
-          <div class="tbl-title">Employee Wise Ticket Details</div>
+          <span class="tbl-icon">👥</span><div class="tbl-title">Employee Wise Ticket Details</div>
           <div class="tbl-actions">
             <button class="collapse-toggle" onclick="DashboardPage.toggleCollapse('dash-employee-tickets')" aria-label="Collapse">▾</button>
             <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">View All</button>
@@ -79,8 +170,7 @@ Pages.dashboard = async function() {
     <!-- Row 3: Daily Status (full width) -->
     <div class="tbl-wrap" style="margin-top:14px">
       <div class="tbl-hdr">
-        <span class="tbl-icon">📊</span>
-        <div class="tbl-title">Daily Status</div>
+        <span class="tbl-icon">📊</span><div class="tbl-title">Daily Status</div>
         <div class="tbl-actions"><span style="font-size:11px;color:var(--text3)">T = Today &nbsp;·&nbsp; M = This Month &nbsp;·&nbsp; TIID = Total Till Date</span></div>
       </div>
       <div id="dash-daily-status"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -90,8 +180,7 @@ Pages.dashboard = async function() {
     <div class="g2" style="margin-top:14px">
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">🅿</span>
-          <div class="tbl-title">Parking Detail</div>
+          <span class="tbl-icon">🅿</span><div class="tbl-title">Parking Detail</div>
           <div class="tbl-actions">
             <button class="collapse-toggle collapsed" onclick="DashboardPage.toggleCollapse('dash-parking-detail')" aria-label="Expand">▾</button>
             <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/parking')">Manage</button>
@@ -101,8 +190,7 @@ Pages.dashboard = async function() {
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">📅</span>
-          <div class="tbl-title">Forthcoming Due</div>
+          <span class="tbl-icon">📅</span><div class="tbl-title">Forthcoming Due</div>
           <div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demands')">Schedule</button></div>
         </div>
         <div id="dash-forthcoming-due"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -143,45 +231,106 @@ Pages.dashboard = async function() {
   const totalTicketsOpen = tickRows.reduce((s, r) => s + parseInt(r.open_tickets || 0), 0);
   const totalCollection = dailyRows.reduce((s, r) => s + parseFloat(r.coll_today || 0), 0);
 
-  document.getElementById('dash-kpis').innerHTML = `
-    <div class="kpi c-teal" onclick="Router.navigate('/receipts')">
-      <span class="kpi-icon">💰</span>
-      <div class="kpi-lbl">Today's Collection</div>
-      <div class="kpi-val">${Utils.currency(totalCollection)}</div>
-      <div class="kpi-sub">All projects today</div>
-    </div>
-    <div class="kpi c-warn" onclick="Router.navigate('/receipts')">
-      <span class="kpi-icon">📝</span>
-      <div class="kpi-lbl">Pending Cheques</div>
-      <div class="kpi-val">${totalPending}</div>
-      <div class="kpi-sub">${Utils.currency(totalAmount)}</div>
-    </div>
-    <div class="kpi c-gold">
-      <span class="kpi-icon">🏦</span>
-      <div class="kpi-lbl">PDC / Demand Draft</div>
-      <div class="kpi-val">${totalPDC}</div>
-      <div class="kpi-sub">Post-dated instruments</div>
-    </div>
-    <div class="kpi c-blue" onclick="Router.navigate('/receipts')">
-      <span class="kpi-icon">✅</span>
-      <div class="kpi-lbl">Pending Approval</div>
-      <div class="kpi-val">${totalApproval}</div>
-      <div class="kpi-sub">Receipts awaiting approval</div>
-    </div>
-    <div class="kpi c-red" onclick="Router.navigate('/demands')">
-      <span class="kpi-icon">⏰</span>
-      <div class="kpi-lbl">Today's Dues</div>
-      <div class="kpi-val">${totalToday}</div>
-      <div class="kpi-sub">${total17Days} due in next 7 days</div>
-    </div>
-    <div class="kpi c-accent" onclick="Router.navigate('/tasks')">
-      <span class="kpi-icon">🎫</span>
-      <div class="kpi-lbl">Open Tickets</div>
-      <div class="kpi-val">${totalTicketsOpen}</div>
-      <div class="kpi-sub">Across all employees</div>
-    </div>
-  `;
-  DashboardPage.kpiInitDots();
+  const kpi = (c, ico, lbl, val, sub, go, bad) => `
+    <div class="dbn-k" style="--c:${c}" ${go ? `onclick="Router.navigate('${go}')"` : ''}>
+      <div class="dbn-k-ico">${ico}</div>
+      <div class="dbn-k-lbl">${lbl}</div>
+      <div class="dbn-k-val${bad ? ' bad' : ''}">${val}</div>
+      <div class="dbn-k-sub">${sub}</div>
+    </div>`;
+  document.getElementById('dash-kpis').innerHTML =
+    kpi('var(--teal)',   '💰', "Today's Collection", Utils.currency(totalCollection), 'All projects today', '/receipts') +
+    kpi('var(--warn)',   '📝', 'Pending Cheques', totalPending, Utils.currency(totalAmount), '/receipts') +
+    kpi('var(--accent)', '🏦', 'PDC / Demand Draft', totalPDC, 'Post-dated instruments', '') +
+    kpi('var(--blue)',   '✅', 'Pending Approval', totalApproval, 'Receipts awaiting approval', '/receipts') +
+    kpi('var(--red)',    '⏰', "Today's Dues", totalToday, `${total17Days} due in next 7 days`, '/demands', totalToday > 0) +
+    kpi('var(--green)',  '🎫', 'Open Tickets', totalTicketsOpen, 'Across all employees', '/tasks');
+
+  // Hero
+  const _u = (window.Auth && Auth.getUser && Auth.getUser()) || {};
+  const _h = new Date().getHours();
+  const _gr = _h < 12 ? 'Good morning' : _h < 17 ? 'Good afternoon' : 'Good evening';
+  const _nm = (_u.name || '').split(' ')[0];
+  const gEl = document.getElementById('dash-greet');
+  if (gEl) gEl.textContent = _gr + (_nm ? ', ' + _nm : '') + ' 👋';
+  const hc = document.getElementById('dash-hero-coll');
+  if (hc) hc.textContent = Utils.currency(totalCollection);
+  const hs = document.getElementById('dash-hero-sub');
+  if (hs) hs.textContent = `${totalPending} cheque(s) pending · ${totalApproval} awaiting approval · ${totalToday} due today`;
+
+  const dEl = document.getElementById('dash-date');
+  if (dEl) dEl.textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+
+  // Collection by project (this month)
+  const collEl = document.getElementById('dash-chart-coll');
+  if (collEl) {
+    const top = [...dailyRows].sort((a, b) => parseFloat(b.coll_month || 0) - parseFloat(a.coll_month || 0)).slice(0, 8);
+    const maxC = Math.max(1, ...top.map(r => parseFloat(r.coll_month || 0)));
+    collEl.innerHTML = top.length === 0
+      ? `<div class="empty-state"><div class="empty-icon">📈</div><div>No collection data</div></div>`
+      : top.map(r => {
+          const v = parseFloat(r.coll_month || 0);
+          return `<div class="dbn-bar-row">
+            <div class="dbn-bar-name" title="${r.project || ''}">${r.project || '—'}</div>
+            <div class="dbn-bar-track"><div class="dbn-bar-fill" style="width:${Math.max(1, v / maxC * 100)}%"></div></div>
+            <div class="dbn-bar-val">${Utils.currency(v)}<small>Today ${Utils.currency(r.coll_today)}</small></div>
+          </div>`;
+        }).join('');
+  }
+
+  // Dues ageing
+  const dueEl = document.getElementById('dash-chart-due');
+  if (dueEl) {
+    const sum = k => forthRows.reduce((a, r) => a + parseInt(r[k] || 0), 0);
+    const buckets = [
+      { l:'Today', n:sum('today_dues'), hot:true }, { l:'1-7 d', n:sum('days_1_7') }, { l:'8-14 d', n:sum('days_8_14') },
+      { l:'15-21 d', n:sum('days_15_21') }, { l:'22-28 d', n:sum('days_22_28') },
+    ];
+    const maxD = Math.max(1, ...buckets.map(b => b.n));
+    dueEl.innerHTML = forthRows.length === 0
+      ? `<div class="empty-state"><div class="empty-icon">📅</div><div>No upcoming dues</div></div>`
+      : `<div class="dbn-cols">${buckets.map(b => `
+          <div class="dbn-col">
+            <div class="dbn-col-n">${b.n}</div>
+            <div class="dbn-col-bar${b.hot ? ' hot' : ''}" style="height:${Math.max(2, b.n / maxD * 100)}%"></div>
+            <div class="dbn-col-l">${b.l}</div>
+          </div>`).join('')}</div>`;
+  }
+
+  // Stacked bar + legend (replaces donuts)
+  const stack = (parts, big, bigLbl) => {
+    const tot = parts.reduce((a, p) => a + p.n, 0);
+    return `<div class="dbn-big">${big}<small>${bigLbl}</small></div>
+      <div class="dbn-stack">${parts.filter(p => p.n > 0).map(p => `<i style="width:${p.n / tot * 100}%;background:${p.c}"></i>`).join('')}</div>
+      <div class="dbn-leg">${parts.map(p => `<div><em style="background:${p.c}"></em>${p.l}<b>${p.n}</b></div>`).join('')}</div>`;
+  };
+
+  const dsum = k => demandRows.reduce((a, r) => a + parseInt(r[k] || 0), 0);
+  const sentN = dsum('demand_send') + dsum('rem1_send') + dsum('rem2_send') + dsum('term_send');
+  const unsentN = dsum('demand_unsend') + dsum('rem1_unsend') + dsum('rem2_unsend') + dsum('term_unsend');
+  const dd = document.getElementById('dash-donut-demand');
+  if (dd) dd.innerHTML = demandRows.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">📋</div><div>No demand data</div></div>`
+    : stack([{ l:'Sent', n:sentN, c:'var(--teal)' }, { l:'Unsent', n:unsentN, c:'var(--warn)' }],
+        (sentN + unsentN) ? Math.round(sentN / (sentN + unsentN) * 100) + '%' : '0%', 'sent');
+
+  const tsum = k => tickRows.reduce((a, r) => a + parseInt(r[k] || 0), 0);
+  const tOpen = tsum('open_tickets'), tProg = tsum('in_progress'), tRes = tsum('resolved'), tOver = tsum('overdue');
+  const td = document.getElementById('dash-donut-tickets');
+  if (td) td.innerHTML = tickRows.length === 0
+    ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No active tickets</div></div>`
+    : stack([{ l:'Open', n:tOpen, c:'var(--warn)' }, { l:'In progress', n:tProg, c:'var(--blue)' }, { l:'Resolved', n:tRes, c:'var(--teal)' }, { l:'Overdue', n:tOver, c:'var(--red)' }],
+        tsum('total_tickets'), 'tickets');
+
+  // Needs attention
+  const att = (t, n, go, bad) => `<div class="dbn-att" onclick="Router.navigate('${go}')"><b>${t}</b><span${bad && n ? ' class="bad"' : ''}>${n}</span></div>`;
+  const ae = document.getElementById('dash-attention');
+  if (ae) ae.innerHTML =
+    att("Today's dues", totalToday, '/demands', true) +
+    att('Pending cheques', totalPending, '/receipts') +
+    att('Receipts to approve', totalApproval, '/receipts') +
+    att('Unsent demand letters', unsentN, '/demands') +
+    att('Overdue tickets', tOver, '/tasks', true);
 
   // Alert bar
   if (totalPending > 0 || totalApproval > 0) {
