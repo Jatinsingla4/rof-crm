@@ -3,107 +3,120 @@
  * Booking Documents Routes
  * Handles document uploads and metadata for booking records.
  * Each document is linked to a booking_record and optionally an applicant_number.
+ * Files are kept in the database and opened through /:id/file (login or a 2-minute link token).
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const fs_1 = require("fs");
-const path_1 = __importDefault(require("path"));
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
-const docStorage = multer_1.default.diskStorage({
-    destination(_req, _file, cb) {
-        cb(null, path_1.default.join(__dirname, '../../uploads/booking-documents'));
-    },
-    filename(_req, file, cb) {
-        const ext = path_1.default.extname(file.originalname).toLowerCase();
-        const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        cb(null, `${uid}${ext}`);
-    },
-});
-const docUpload = (0, multer_1.default)({
-    storage: docStorage,
-    limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter(_req, file, cb) {
-        if (/^(image\/(jpeg|jpg|png|gif)|application\/pdf)$/.test(file.mimetype)) {
-            cb(null, true);
-        }
-        else {
-            cb(new Error('Only jpeg, jpg, png, gif, and pdf files are allowed'));
-        }
-    },
-});
+const pg_errors_js_1 = require("../middleware/pg-errors.js");
+const rbac_js_1 = require("../middleware/rbac.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const input_js_1 = require("../utils/input.js");
+// Type of the file is read from its first bytes; the name and the declared type from the browser are not trusted
+const SIGNATURES = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]], ['application/pdf', [0x25, 0x50, 0x44, 0x46]]];
+const sniff = (b) => SIGNATURES.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
+const memory = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const oneFile = (req, res, next) => memory.single('file')(req, res, (err) => err
+    ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large — maximum size is 10MB' : err.message })
+    : next());
+const fail = (err, res, next) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
+const LIST = `id, booking_record_id, consumer_id, applicant_number, document_type, document_name, barcode_no, physical_storage_no,
+  scan_reference_no, file_url, file_original_name, file_mime_type, file_size_bytes, remarks, created_by, created_at, updated_at`;
 const router = (0, express_1.Router)();
+// Reading is open to every signed-in role; changing needs the sales (consumers) rights
+router.use((req, res, next) => {
+    if (req.method === 'GET')
+        return next();
+    if ((0, rbac_js_1.hasPermission)(req.userRole, 'consumers', req.method === 'POST' ? 'create' : 'edit'))
+        return next();
+    res.status(403).json({ error: 'Your role cannot change booking documents' });
+});
+router.param('id', (req, res, next, id) => { try {
+    (0, input_js_1.uuid)(id, 'Document id');
+    next();
+}
+catch (e) {
+    fail(e, res, next);
+} });
 // POST /api/booking-documents/upload
-router.post('/upload', docUpload.single('file'), async (req, res, next) => {
+router.post('/upload', oneFile, async (req, res, next) => {
     try {
-        const { booking_record_id, consumer_id, applicant_number = 0, document_type, document_name, barcode_no, physical_storage_no, scan_reference_no, remarks, } = req.body;
-        if (!booking_record_id)
-            return res.status(400).json({ error: 'booking_record_id is required' });
-        if (!consumer_id)
-            return res.status(400).json({ error: 'consumer_id is required' });
-        if (!document_type)
-            return res.status(400).json({ error: 'document_type is required' });
-        let file_url = null;
-        let file_original_name = null;
-        let file_mime_type = null;
-        let file_size_bytes = null;
+        const b = (0, input_js_1.body)(req);
+        const bookingId = (0, input_js_1.uuid)(b.booking_record_id, 'booking_record_id'), consumerId = (0, input_js_1.uuid)(b.consumer_id, 'consumer_id');
+        const documentType = (0, input_js_1.text)(b.document_type, 'document_type', 100, true);
+        const applicantNo = (0, input_js_1.has)(b.applicant_number) ? (0, input_js_1.num)(b.applicant_number, 'applicant_number', 12, 0) : 0;
+        const documentName = (0, input_js_1.text)(b.document_name, 'document_name', 255, false), barcode = (0, input_js_1.text)(b.barcode_no, 'barcode_no', 100, false);
+        const storage = (0, input_js_1.text)(b.physical_storage_no, 'physical_storage_no', 100, false), scanRef = (0, input_js_1.text)(b.scan_reference_no, 'scan_reference_no', 100, false), remarks = (0, input_js_1.text)(b.remarks, 'remarks', 2000, false);
+        let type = null;
         if (req.file) {
-            file_url = `/uploads/booking-documents/${req.file.filename}`;
-            file_original_name = req.file.originalname;
-            file_mime_type = req.file.mimetype;
-            file_size_bytes = req.file.size;
+            type = sniff(req.file.buffer);
+            if (!type)
+                throw (0, input_js_1.bad)('Only jpeg, jpg, png, gif, and pdf files are allowed');
         }
-        const result = await index_js_1.db.query(`INSERT INTO booking_documents
+        const bk = (await index_js_1.db.query(`SELECT consumer_id, status FROM booking_records WHERE id = $1`, [bookingId])).rows[0];
+        if (!bk)
+            throw (0, input_js_1.bad)('Booking not found', 404);
+        if (bk.consumer_id !== consumerId)
+            throw (0, input_js_1.bad)('This booking belongs to a different applicant');
+        if (bk.status === 'cancelled')
+            throw (0, input_js_1.bad)('This booking is cancelled', 409);
+        const row = (await index_js_1.db.query(`INSERT INTO booking_documents
          (booking_record_id, consumer_id, applicant_number, document_type, document_name,
-          barcode_no, physical_storage_no, scan_reference_no, file_url,
-          file_original_name, file_mime_type, file_size_bytes, remarks, created_by)
+          barcode_no, physical_storage_no, scan_reference_no, file_original_name, file_mime_type, file_size_bytes, file_data, remarks, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       RETURNING *`, [
-            booking_record_id,
-            consumer_id,
-            parseInt(applicant_number) || 0,
-            document_type,
-            document_name || null,
-            barcode_no || null,
-            physical_storage_no || null,
-            scan_reference_no || null,
-            file_url,
-            file_original_name,
-            file_mime_type,
-            file_size_bytes,
-            remarks || null,
-            req.userId,
-        ]);
-        res.status(201).json({ success: true, data: result.rows[0] });
+       RETURNING id`, [bookingId, consumerId, applicantNo, documentType, documentName, barcode, storage, scanRef,
+            req.file ? (0, input_js_1.text)(req.file.originalname, 'file name', 255, false) ?? 'file' : null, type, req.file ? req.file.size : null, req.file ? req.file.buffer : null, remarks, req.userId])).rows[0];
+        if (req.file)
+            await index_js_1.db.query(`UPDATE booking_documents SET file_url = $2 WHERE id = $1`, [row.id, `/api/booking-documents/${row.id}/file?token=`]);
+        const data = (await index_js_1.db.query(`SELECT ${LIST} FROM booking_documents WHERE id = $1`, [row.id])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'booking_document', row.id, {}, { booking_record_id: bookingId, document_type: documentType, applicant_number: applicantNo });
+        res.status(201).json({ success: true, data });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
+    }
+});
+// GET /api/booking-documents/:id/file — the stored file (page address carries a link token when opened in a tab)
+router.get('/:id/file', async (req, res, next) => {
+    try {
+        const d = (await index_js_1.db.query(`SELECT file_data, file_mime_type, file_original_name FROM booking_documents WHERE id = $1 AND deleted_at IS NULL`, [req.params.id])).rows[0];
+        if (!d?.file_data)
+            return res.status(404).json({ error: 'File not found' });
+        const name = String(d.file_original_name || 'document').replace(/[^\w.\- ]/g, '_');
+        res.set({ 'Content-Type': d.file_mime_type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Disposition': `inline; filename="${name}"`, 'Cache-Control': 'private, no-store' }).send(d.file_data);
+    }
+    catch (err) {
+        fail(err, res, next);
     }
 });
 // GET /api/booking-documents?booking_record_id=&consumer_id=&applicant_number=&document_type=
 router.get('/', async (req, res, next) => {
     try {
-        const { booking_record_id, consumer_id, applicant_number, document_type } = req.query;
-        if (!booking_record_id)
-            return res.status(400).json({ error: 'booking_record_id is required' });
-        const params = [booking_record_id];
+        const q = req.query;
+        for (const [k, v] of Object.entries(q))
+            if (typeof v !== 'string')
+                throw (0, input_js_1.bad)(`${k} must be given once`);
+        if (!q.booking_record_id)
+            throw (0, input_js_1.bad)('booking_record_id is required');
+        const params = [(0, input_js_1.uuid)(q.booking_record_id, 'booking_record_id')];
         let where = 'WHERE bd.booking_record_id = $1 AND bd.deleted_at IS NULL';
-        if (consumer_id) {
+        if (q.consumer_id) {
             where += ` AND bd.consumer_id = $${params.length + 1}`;
-            params.push(consumer_id);
+            params.push((0, input_js_1.uuid)(q.consumer_id, 'consumer_id'));
         }
-        if (applicant_number !== undefined) {
+        if (q.applicant_number !== undefined) {
             where += ` AND bd.applicant_number = $${params.length + 1}`;
-            params.push(parseInt(applicant_number));
+            params.push((0, input_js_1.num)(q.applicant_number, 'applicant_number', 12, 0));
         }
-        if (document_type) {
+        if (q.document_type) {
             where += ` AND bd.document_type = $${params.length + 1}`;
-            params.push(document_type);
+            params.push(q.document_type);
         }
-        const result = await index_js_1.db.query(`SELECT bd.*, u.name as created_by_name
+        const result = await index_js_1.db.query(`SELECT ${LIST.split(',').map(c => 'bd.' + c.trim()).join(', ')}, u.name as created_by_name
        FROM booking_documents bd
        LEFT JOIN users u ON u.id = bd.created_by
        ${where}
@@ -111,52 +124,44 @@ router.get('/', async (req, res, next) => {
         res.json({ success: true, data: result.rows });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
 // PATCH /api/booking-documents/:id
 router.patch('/:id', async (req, res, next) => {
     try {
-        const { document_name, barcode_no, physical_storage_no, scan_reference_no, remarks } = req.body;
+        const b = (0, input_js_1.body)(req);
+        const f = {
+            document_name: (0, input_js_1.text)(b.document_name, 'document_name', 255, false), barcode_no: (0, input_js_1.text)(b.barcode_no, 'barcode_no', 100, false),
+            physical_storage_no: (0, input_js_1.text)(b.physical_storage_no, 'physical_storage_no', 100, false), scan_reference_no: (0, input_js_1.text)(b.scan_reference_no, 'scan_reference_no', 100, false), remarks: (0, input_js_1.text)(b.remarks, 'remarks', 2000, false),
+        };
         const result = await index_js_1.db.query(`UPDATE booking_documents
-       SET document_name        = COALESCE($1, document_name),
-           barcode_no           = COALESCE($2, barcode_no),
-           physical_storage_no  = COALESCE($3, physical_storage_no),
-           scan_reference_no    = COALESCE($4, scan_reference_no),
-           remarks              = COALESCE($5, remarks),
-           updated_at           = NOW()
+       SET document_name = COALESCE($1, document_name), barcode_no = COALESCE($2, barcode_no), physical_storage_no = COALESCE($3, physical_storage_no),
+           scan_reference_no = COALESCE($4, scan_reference_no), remarks = COALESCE($5, remarks), updated_at = NOW()
        WHERE id = $6 AND deleted_at IS NULL
-       RETURNING *`, [document_name || null, barcode_no || null, physical_storage_no || null,
-            scan_reference_no || null, remarks || null, req.params.id]);
+       RETURNING ${LIST}`, [f.document_name, f.barcode_no, f.physical_storage_no, f.scan_reference_no, f.remarks, req.params.id]);
         if (!result.rows[0])
             return res.status(404).json({ error: 'Document not found' });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking_document', req.params.id, {}, Object.fromEntries(Object.entries(f).filter(([, v]) => v !== null)));
         res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
 // DELETE /api/booking-documents/:id
 router.delete('/:id', async (req, res, next) => {
     try {
-        const doc = await index_js_1.db.query(`SELECT file_url FROM booking_documents WHERE id = $1 AND deleted_at IS NULL`, [req.params.id]);
-        if (!doc.rows[0])
+        const r = await index_js_1.db.query(`UPDATE booking_documents SET deleted_at = NOW(), deleted_by = $1, file_data = NULL, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL RETURNING id, document_type`, [req.userId, req.params.id]);
+        if (!r.rows[0])
             return res.status(404).json({ error: 'Document not found' });
-        await index_js_1.db.query(`UPDATE booking_documents SET deleted_at = NOW(), deleted_by = $1, updated_at = NOW() WHERE id = $2`, [req.userId, req.params.id]);
-        if (doc.rows[0].file_url) {
-            const filePath = path_1.default.join(__dirname, '../../', doc.rows[0].file_url);
-            if ((0, fs_1.existsSync)(filePath)) {
-                try {
-                    (0, fs_1.unlinkSync)(filePath);
-                }
-                catch (_) { /* non-fatal */ }
-            }
-        }
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'delete', 'booking_document', req.params.id, { document_type: r.rows[0].document_type }, {});
         res.json({ success: true });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
+router.use(pg_errors_js_1.pgErrorHandler);
 exports.default = router;
 //# sourceMappingURL=booking_documents.js.map

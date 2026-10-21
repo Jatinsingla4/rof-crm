@@ -8,7 +8,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
-const crypto_1 = require("crypto");
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
@@ -20,6 +19,7 @@ const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -62,125 +62,12 @@ router.param('applicantId', async (req, res, next, applicantId) => {
         (0, input_js_1.failWith)(e, res, next);
     }
 });
-// ---------- field rules (one table drives create, update, co-applicant and additional applicants) ----------
-const T = (label, max) => (v) => (0, input_js_1.text)(v, label, max, false);
-const money = (label, max) => (v) => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, label, max, 2) : null);
-const flagOf = (label) => (v) => {
-    if (v === null || v === '')
-        return false;
-    if (v === true || v === 'true')
-        return true;
-    if (v === false || v === 'false')
-        return false;
-    throw (0, input_js_1.bad)(`${label} must be true or false`);
-};
-const addr = (label) => T(label, 300);
-const FIELDS = {
-    first_name: T('First name', 100), last_name: T('Last name', 100), middle_name: T('Middle name', 100),
-    salutation: T('Salutation', 20), dob: v => (0, applicant_js_1.birthDay)(v), gender: applicant_js_1.genderOf, profession: T('Profession', 100), nationality: T('Nationality', 100),
-    annual_income: money('Annual income', 1e11), education: T('Education', 100), company: T('Company', 200), ppp_id: T('Parivar Pehchan Patra', 100),
-    alt_mobile: v => (0, applicant_js_1.mobileNo)(v, 'Alternate mobile'), source_of_enquiry: T('Source of enquiry', 100), referred_by: T('Referred by', 200),
-    email: v => (0, applicant_js_1.emailAddr)(v), email_2: v => (0, applicant_js_1.emailAddr)(v, 'Second email'), pan_no: v => (0, applicant_js_1.panNo)(v), aadhaar_no: v => (0, applicant_js_1.aadhaarNo)(v),
-    passport_no: v => (0, applicant_js_1.passportNo)(v), father_name: T('Father name', 150), anniversary_date: v => (0, applicant_js_1.pastDay)(v, 'Anniversary date'),
-    marital_status: T('Marital status', 30), no_of_children: v => (0, applicant_js_1.children)(v), designation: T('Designation', 100), has_poa: flagOf('Has POA'),
-    phone_no: v => (0, applicant_js_1.phoneNo)(v, 'Phone'), fax_no: v => (0, applicant_js_1.phoneNo)(v, 'Fax'), form_no: T('Form number', 100), registration_no: T('Registration number', 100),
-    mailing_address_type: T('Mailing address type', 30), communication_mode: T('Communication mode', 30), poa_details: T('POA details', 1000),
-    company_name: T('Company name', 200), company_reg_no: T('Company registration number', 50), company_gstin: v => (0, applicant_js_1.gstinNo)(v, 'Company GSTIN'),
-    authorized_person: T('Authorised person', 150), authorized_designation: T('Authorised designation', 100),
-    nominee_name: T('Nominee name', 150), nominee_relation: T('Nominee relation', 50), nominee_dob: v => (0, applicant_js_1.pastDay)(v, 'Nominee date of birth'),
-    nominee_share: money('Nominee share', 100), finance_bank: T('Finance bank', 150), loan_amount: money('Loan amount', 1e10), loan_sanction_date: v => (0, input_js_1.day)(v, 'Loan sanction date'),
-    relationship: T('Relation', 50), applicant_type: v => {
-        const t = (0, input_js_1.text)(v, 'Applicant type', 30, false);
-        if (t !== null && !/^[a-z_]{2,30}$/.test(t))
-            throw (0, input_js_1.bad)('Applicant type is not valid');
-        return t;
-    },
-};
-// address blocks: present / office / perm (+ comm for the main applicant)
-for (const blk of ['present', 'office', 'perm', 'comm']) {
-    FIELDS[`${blk}_${blk === 'comm' ? 'address_line1' : 'address'}`] = addr('Address');
-    FIELDS[`${blk}_city`] = T('City', 100);
-    FIELDS[`${blk}_state`] = T('State', 100);
-    FIELDS[`${blk}_country`] = T('Country', 100);
-    FIELDS[`${blk}_pin`] = (v, b) => (0, applicant_js_1.pinCode)(v, 'PIN code', b[`${blk}_country`]);
-    for (const k of ['phone', 'fax', 'mobile'])
-        FIELDS[`${blk}_${k}_no`] = v => (0, applicant_js_1.phoneNo)(v, `${blk} ${k}`);
-}
-FIELDS.present_address_line2 = addr('Address line 2');
-// the body names differ from the column names for the first address line
-const ALIAS = { present_address_line1: 'present_address', office_address_line1: 'office_address', perm_address_line1: 'perm_address', pan: 'pan_no', aadhaar: 'aadhaar_no', relation: 'relationship' };
-const CO_COLS = new Set(['first_name', 'last_name', 'middle_name', 'salutation', 'relationship', 'pan_no', 'aadhaar_no', 'mobile', 'email', 'dob', 'gender', 'father_name', 'anniversary_date', 'marital_status', 'no_of_children', 'passport_no', 'email_2', 'designation', 'has_poa', 'nationality', 'profession', 'applicant_type', 'poa_details', 'mailing_address_type', 'communication_mode',
-    ...['present', 'office', 'perm'].flatMap(p => [`${p}_address`, `${p}_city`, `${p}_state`, `${p}_pin`, `${p}_country`, `${p}_phone_no`, `${p}_fax_no`, `${p}_mobile_no`])]);
-// Cleans every field that is present in the body (blank text becomes null). Unknown keys are ignored.
-// With `errors` given, a field that fails its rule is collected instead of thrown (update uses it to let old, untouched data pass).
-const cleanFields = (src, only, errors) => {
-    const b = {};
-    for (const [k, v] of Object.entries(src))
-        b[ALIAS[k] ?? k] = v;
-    const out = {};
-    for (const [col, fn] of Object.entries(FIELDS)) {
-        if (b[col] === undefined || (only && !only.has(col)))
-            continue;
-        try {
-            out[col] = fn(b[col], b, col);
-        }
-        catch (e) {
-            if (!errors || !e?.http)
-                throw e;
-            errors[col] = { e, raw: b[col] };
-        }
-    }
-    return out;
-};
-// Body keys of the co-applicant (Booking form) → the same names as the main applicant
-const coSource = (b) => {
-    const s = {};
-    for (const [k, v] of Object.entries(b)) {
-        if (k.startsWith('co_applicant_'))
-            s[k.slice(13) === 'relation' ? 'relationship' : k.slice(13)] = v;
-        else if (/^co_(present|office|perm)_/.test(k))
-            s[k.slice(3)] = v;
-        else if (k === 'co_mailing_address_type' || k === 'co_communication_mode' || k === 'co_poa_details')
-            s[k.slice(3)] = v;
-    }
-    return s;
-};
-const asText = (v) => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : v === null || v === undefined ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? String(Number(v)) : String(v));
-const mask = (v) => (typeof v === 'string' && v.length > 4 ? 'XXXX' + v.slice(-4) : v);
-const forAudit = (o) => { const c = { ...o }; for (const k of ['aadhaar_no', 'pan_no', 'passport_no'])
-    if (k in c)
-        c[k] = mask(c[k]); return c; };
-const sha = (s) => (0, crypto_1.createHash)('sha256').update(s).digest('hex');
-const lock = (c, key) => c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [key]);
-const conflict = (m) => (0, input_js_1.bad)(m, 409);
-// Our own client errors answer with their code; database errors go on to pgErrorHandler at the end of this router
+// ---------- field rules live in utils/applicant-fields.ts ----------
 const fail = (err, res, next) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
-// The same PAN / mobile cannot belong to two applicants of one project
-const checkIdentity = async (c, project, selfId, mobile, pan) => {
-    if (pan) {
-        const o = (await c.query(`SELECT name, mobile FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND upper(pan_no) = $2 AND ($3::uuid IS NULL OR id <> $3) LIMIT 1`, [project, pan, selfId])).rows[0];
-        if (o)
-            throw conflict(`This PAN already belongs to applicant "${o.name}" (mobile ${o.mobile}) in this project. Use that applicant instead of creating another.`);
-    }
-    if (mobile) {
-        const o = (await c.query(`SELECT name FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND mobile = $2 AND ($3::uuid IS NULL OR id <> $3) LIMIT 1`, [project, mobile, selfId])).rows[0];
-        if (o)
-            throw conflict(`This mobile number already belongs to applicant "${o.name}" in this project.`);
-    }
-};
-// Names for the NOT NULL name column
-const personName = (name, first, last, type) => {
-    const n = (0, input_js_1.has)(name) ? (0, input_js_1.text)(name, 'Name', 255, false) : null;
-    if (n)
-        return type === 'company' ? n : (0, applicant_js_1.titleCase)(n);
-    const f = [first, last].filter(Boolean).map(s => (0, applicant_js_1.titleCase)(String(s))).join(' ');
-    return f || null;
-};
-const hasLetter = (s) => /\p{L}/u.test(s);
 const prepCo = (b, main) => {
     if (b.applicant_type !== 'multiple' || !(0, input_js_1.has)(b.co_applicant_first_name))
         return null;
-    const co = cleanFields(coSource(b), CO_COLS);
+    const co = (0, applicant_fields_js_1.cleanFields)((0, applicant_fields_js_1.coSource)(b), applicant_fields_js_1.CO_COLS);
     const mob = (0, input_js_1.has)(b.co_applicant_mobile) ? (0, applicant_js_1.mobileNo)(b.co_applicant_mobile, 'Co-applicant mobile') : null;
     if (mob)
         co.mobile = mob;
@@ -216,9 +103,9 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
         const b = (0, input_js_1.body)(req);
         const mobile = (0, applicant_js_1.mobileNo)(b.mobile, 'Mobile number', true);
         const project = (0, input_js_1.has)(b.projectId ?? b.project_id) ? (0, input_js_1.uuid)(b.projectId ?? b.project_id, 'Project') : null;
-        const f = cleanFields(b);
-        const name = personName(b.name, f.first_name, f.last_name, f.applicant_type);
-        if (!name || !hasLetter(name))
+        const f = (0, applicant_fields_js_1.cleanFields)(b);
+        const name = (0, applicant_fields_js_1.personName)(b.name, f.first_name, f.last_name, f.applicant_type);
+        if (!name || !(0, applicant_fields_js_1.hasLetter)(name))
             throw (0, input_js_1.bad)('Applicant name is required');
         const inc = b.incomeCategory ?? b.income_category;
         if ((0, input_js_1.has)(inc) && !applicant_js_1.INCOME_CATS.includes(inc))
@@ -240,21 +127,21 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
         Object.assign(row, { name, mobile, project_id: project, lead_stage: stage || 'enquiry', income_category: inc || null, parivar_pehchan_patra: f.ppp_id ?? null, created_by_user_id: req.userId });
         delete row.ppp_id;
         if (row.pan_no)
-            row.pan_hash = sha(row.pan_no);
+            row.pan_hash = (0, applicant_fields_js_1.sha)(row.pan_no);
         if (row.aadhaar_no)
-            row.aadhaar_hash = sha(row.aadhaar_no);
+            row.aadhaar_hash = (0, applicant_fields_js_1.sha)(row.aadhaar_no);
         const out = await (0, input_js_1.inTx)(async (c) => {
             if (project && !(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [project])).rows.length)
                 throw (0, input_js_1.bad)('Project not found', 404);
-            await lock(c, `consumer:${project || ''}:${mobile}`);
+            await (0, applicant_fields_js_1.lock)(c, `consumer:${project || ''}:${mobile}`);
             if (row.pan_no)
-                await lock(c, `consumer-pan:${project || ''}:${row.pan_no}`);
+                await (0, applicant_fields_js_1.lock)(c, `consumer-pan:${project || ''}:${row.pan_no}`);
             const ex = (await c.query(`SELECT id, pan_no FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND mobile = $2 FOR UPDATE`, [project, mobile])).rows[0];
             let id, reused = false;
             if (ex) {
                 if (ex.pan_no && row.pan_no && ex.pan_no.toUpperCase() !== row.pan_no)
-                    throw conflict('This mobile number already belongs to an applicant with a different PAN.');
-                await checkIdentity(c, project, ex.id, null, row.pan_no ?? null);
+                    throw (0, applicant_fields_js_1.conflict)('This mobile number already belongs to an applicant with a different PAN.');
+                await (0, applicant_fields_js_1.checkIdentity)(c, project, ex.id, null, row.pan_no ?? null);
                 const upd = {};
                 for (const [k, v] of Object.entries(row))
                     if (v !== null && !['project_id', 'mobile', 'created_by_user_id', 'lead_stage', 'income_category', 'name'].includes(k) && !/_country$|^mailing_address_type$|^communication_mode$|^nominee_share$|^applicant_type$|^marital_status$|^no_of_children$|^has_poa$/.test(k))
@@ -269,7 +156,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
                 reused = true;
             }
             else {
-                await checkIdentity(c, project, null, null, row.pan_no ?? null);
+                await (0, applicant_fields_js_1.checkIdentity)(c, project, null, null, row.pan_no ?? null);
                 id = (await insertCols(c, 'consumers', row)).rows[0].id;
             }
             if (co)
@@ -277,7 +164,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
             const data = (await c.query(`SELECT id, name, mobile, email, lead_stage, project_id, created_at FROM consumers WHERE id = $1`, [id])).rows[0];
             return { data, reused };
         });
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, out.reused ? 'update' : 'create', 'consumer', out.data.id, {}, forAudit({ name: out.data.name, mobile: out.data.mobile, project_id: project, ...(out.reused ? { reused: true } : {}) }));
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, out.reused ? 'update' : 'create', 'consumer', out.data.id, {}, (0, applicant_fields_js_1.forAudit)({ name: out.data.name, mobile: out.data.mobile, project_id: project, ...(out.reused ? { reused: true } : {}) }));
         res.status(out.reused ? 200 : 201).json({ success: true, reused: out.reused, data: out.data });
     }
     catch (error) {
@@ -458,7 +345,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
         const id = req.params.id;
         const b = (0, input_js_1.body)(req);
         const errs = {};
-        const f = cleanFields(b, undefined, errs);
+        const f = (0, applicant_fields_js_1.cleanFields)(b, undefined, errs);
         const upd = {};
         for (const [k, v] of Object.entries(f)) {
             // These always keep a value
@@ -499,9 +386,9 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             upd.lead_stage = stage;
         }
         if (upd.pan_no !== undefined)
-            upd.pan_hash = upd.pan_no ? sha(upd.pan_no) : null;
+            upd.pan_hash = upd.pan_no ? (0, applicant_fields_js_1.sha)(upd.pan_no) : null;
         if (upd.aadhaar_no !== undefined)
-            upd.aadhaar_hash = upd.aadhaar_no ? sha(upd.aadhaar_no) : null;
+            upd.aadhaar_hash = upd.aadhaar_no ? (0, applicant_fields_js_1.sha)(upd.aadhaar_no) : null;
         if (b.name !== undefined && !(0, input_js_1.has)(b.name) && f.first_name === undefined && f.last_name === undefined)
             throw (0, input_js_1.bad)('Name cannot be blank');
         const out = await (0, input_js_1.inTx)(async (c) => {
@@ -510,35 +397,35 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
                 throw (0, input_js_1.bad)('Applicant not found', 404);
             // same lock names as create, so two people taking one mobile / PAN at once are told apart
             if (upd.mobile)
-                await lock(c, `consumer:${cur0.project_id || ''}:${upd.mobile}`);
+                await (0, applicant_fields_js_1.lock)(c, `consumer:${cur0.project_id || ''}:${upd.mobile}`);
             if (upd.pan_no)
-                await lock(c, `consumer-pan:${cur0.project_id || ''}:${upd.pan_no}`);
+                await (0, applicant_fields_js_1.lock)(c, `consumer-pan:${cur0.project_id || ''}:${upd.pan_no}`);
             const cur = (await c.query(`SELECT * FROM consumers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
             // Old records may hold values that today's rules refuse; sending such a value back unchanged is fine, a new bad value is not
             for (const [col, { e, raw }] of Object.entries(errs))
-                if (asText(typeof raw === 'string' ? raw.trim() : raw) !== asText(cur[col]))
+                if ((0, applicant_fields_js_1.asText)(typeof raw === 'string' ? raw.trim() : raw) !== (0, applicant_fields_js_1.asText)(cur[col]))
                     throw e;
             if (f.first_name !== undefined || f.last_name !== undefined || b.name !== undefined) {
-                const nm = personName(b.name, f.first_name !== undefined ? f.first_name : cur.first_name, f.last_name !== undefined ? f.last_name : cur.last_name, upd.applicant_type ?? cur.applicant_type)
+                const nm = (0, applicant_fields_js_1.personName)(b.name, f.first_name !== undefined ? f.first_name : cur.first_name, f.last_name !== undefined ? f.last_name : cur.last_name, upd.applicant_type ?? cur.applicant_type)
                     ?? (b.name === undefined ? cur.name : null);
-                if (!nm || !hasLetter(nm))
+                if (!nm || !(0, applicant_fields_js_1.hasLetter)(nm))
                     throw (0, input_js_1.bad)('Name cannot be blank');
                 upd.name = nm;
             }
             if (upd.mobile !== undefined || upd.pan_no)
-                await checkIdentity(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
+                await (0, applicant_fields_js_1.checkIdentity)(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
             if (upd.dob !== undefined && cur.applicant_type === 'company')
                 delete upd.dob;
             if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {
                 if (STAGE_NEEDS_UNIT.includes(upd.lead_stage) && !cur.allocated_unit_id)
-                    throw conflict(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);
+                    throw (0, applicant_fields_js_1.conflict)(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);
                 if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('active','complete') LIMIT 1`, [id])).rows.length) {
-                    throw conflict(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
+                    throw (0, applicant_fields_js_1.conflict)(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
                 }
             }
-            const cols = Object.keys(upd).filter(k => upd[k] !== undefined && asText(upd[k]) !== asText(cur[k]));
+            const cols = Object.keys(upd).filter(k => upd[k] !== undefined && (0, applicant_fields_js_1.asText)(upd[k]) !== (0, applicant_fields_js_1.asText)(cur[k]));
             const shown = `id, name, email, income_category, lead_stage, mailing_address_type, communication_mode,
                   comm_address_line1, comm_pin, comm_city, comm_state, comm_country, updated_at`;
             if (!cols.length)
@@ -548,8 +435,8 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             return { cur, row, changed: cols };
         });
         if (out.changed.length) {
-            const pick = (o) => forAudit(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, o[k] instanceof Date ? o[k].toLocaleDateString('en-CA') : o[k] ?? null])));
-            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'consumer', id, pick(out.cur), forAudit(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, upd[k]]))));
+            const pick = (o) => (0, applicant_fields_js_1.forAudit)(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, o[k] instanceof Date ? o[k].toLocaleDateString('en-CA') : o[k] ?? null])));
+            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'consumer', id, pick(out.cur), (0, applicant_fields_js_1.forAudit)(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, upd[k]]))));
         }
         res.locals.auditLogged = true; // nothing worth logging when nothing changed
         res.json({ success: true, data: out.row, changed: out.changed.filter(k => !k.endsWith('_hash')) });
@@ -652,7 +539,7 @@ router.post('/:id/base-rate', async (req, res, next) => {
             if (!u)
                 throw (0, input_js_1.bad)('Unit not found', 404);
             if ((await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status,'') <> 'cancelled' LIMIT 1`, [u.id])).rows.length) {
-                throw conflict('This unit already has a booking, so its price can no longer be changed.');
+                throw (0, applicant_fields_js_1.conflict)('This unit already has a booking, so its price can no longer be changed.');
             }
             await c.query(`UPDATE units SET basic_price = $1, updated_at = NOW() WHERE id = $2`, [rate, u.id]);
             await c.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, old_value, new_value, remarks)
@@ -681,7 +568,7 @@ router.post('/:id/multi-applicants', async (req, res, next) => {
             const who = `Applicant ${i + 3}`;
             let r;
             try {
-                r = cleanFields(a, CO_COLS);
+                r = (0, applicant_fields_js_1.cleanFields)(a, applicant_fields_js_1.CO_COLS);
                 if ((0, input_js_1.has)(a.mobile))
                     r.mobile = (0, applicant_js_1.mobileNo)(a.mobile, 'Mobile');
                 if (!r.first_name)
@@ -707,7 +594,7 @@ router.post('/:id/multi-applicants', async (req, res, next) => {
             return { ...r, consumer_id: id, applicant_number: i + 3 };
         });
         const inserted = await (0, input_js_1.inTx)(async (c) => {
-            await lock(c, `multi:${id}`);
+            await (0, applicant_fields_js_1.lock)(c, `multi:${id}`);
             await c.query(`DELETE FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2`, [id]);
             const out = [];
             for (const r of rows)
@@ -743,7 +630,7 @@ router.delete('/:id/multi-applicants/:applicantId', async (req, res, next) => {
     try {
         const { id, applicantId } = req.params;
         await (0, input_js_1.inTx)(async (c) => {
-            await lock(c, `multi:${id}`);
+            await (0, applicant_fields_js_1.lock)(c, `multi:${id}`);
             await c.query(`DELETE FROM co_applicants WHERE id = $1 AND consumer_id = $2 AND applicant_number > 2`, [applicantId, id]);
             const remaining = await c.query(`SELECT id FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2 ORDER BY applicant_number`, [id]);
             // two steps: moving straight to the new numbers could meet the (consumer, number) unique rule halfway

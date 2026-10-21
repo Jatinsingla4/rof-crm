@@ -375,6 +375,7 @@ Pages.bookingPayment = async function(params = {}) {
     <div style="display:flex;gap:10px;padding:14px 0;align-items:center">
       <button type="button" class="btn btn-teal btn-lg" id="bkp-confirm-btn" onclick="BkPayPage.confirmPayment()">CONFIRM PAYMENT</button>
       <button type="button" class="btn btn-ghost" onclick="Router.navigate('/consumers')">BACK</button>
+      <button type="button" class="btn btn-ghost" style="margin-left:auto;color:#c0392b" onclick="BkPayPage.cancelBooking()" title="Withdraw this booking before any payment is confirmed">CANCEL BOOKING</button>
     </div>
   `;
 
@@ -659,6 +660,17 @@ const BkPayPage = {
     if (_pfSgstEl) _pfSgstEl.dataset.rate = _pfSgstEl.value;
     this.calculatePaymentTaxes();
     this.updateTaxLabels();
+  },
+
+  // Withdraws a booking whose payment was never confirmed; the unit becomes bookable again
+  async cancelBooking() {
+    const reason = (window.prompt('Why is this booking being cancelled?') || '').trim();
+    if (!reason) return;
+    try {
+      await Api.post(`/booking/${this._bookingId}/cancel`, { reason });
+      Utils.success('Booking cancelled. The unit is available again.');
+      Router.navigate('/consumers');
+    } catch (err) { Utils.error(err.message); }
   },
 
   async confirmPayment() {

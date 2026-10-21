@@ -183,7 +183,8 @@ if (slab2.s === 201) {
   t('GST period: the new period gives the new rate', Math.abs((await A('GET', `/gst-configuration/resolve?projectId=${proj}&chargeType=BASIC&date=${later(15)}`)).j.data.cgstPct * 2 - newPct) < 1e-9);
   const x5 = await newUnit(600, 5000000, 'g'); const b5 = snapsNow();
   const cons5 = (await must('applicant', A('POST', '/consumers', { name: `E2E Buyer g ${U}`, mobile: '9' + String(Date.now() + 5).slice(-9) }))).id ?? psql(`select id from consumers where name='E2E Buyer g ${U}' limit 1`);
-  const bk5 = await must('booking later', A('POST', '/booking', { consumer_id: cons5, project_id: proj, unit_id: x5.id, selected_plan_name: planName, booking_date: later(15), booking_amount: 10000, payment_mode: 'cash' }));
+  const bk5 = await must('booking later', A('POST', '/booking', { consumer_id: cons5, project_id: proj, unit_id: x5.id, selected_plan_name: planName, booking_date: today, booking_amount: 10000, payment_mode: 'cash' }));
+  psql(`update booking_records set booking_date='${later(15)}' where id='${bk5.id}'`); // the form refuses a future date, so the date is moved in the database to test the new GST period
   r = await A('PATCH', `/booking/${bk5.id}`, { booking_amount: 10000, payment_mode: 'cash' });
   const ratio = Number(psql(`select (d.cgst_amount / nullif(d.amount_due_inr,0))::numeric(8,4) from demands d join payment_plans pp on pp.id=d.payment_plan_id where pp.consumer_id='${cons5}' and d.installment_index=2`));
   t(`GST period: a booking dated in the new period is taxed at the new rate (${newPct}%)`, r.s === 200 && Math.abs(ratio * 200 - newPct) < 0.15, `${ratio * 200} vs ${newPct}`);

@@ -91,7 +91,7 @@ r = await A('DELETE', `/projects/${P1}/unit-locations/${L1}`); t('location delet
 
 // ---------- booking: PLC and other charge amounts ----------
 for (const [n, b] of [['PLC negative', { plc_amount: -1 }], ['PLC text', { plc_amount: 'abc' }], ['PLC boolean', { plc_amount: true }], ['PLC array', { plc_amount: [5] }], ['PLC 1e12', { plc_amount: 1e12 }], ['other charge negative', { other_charge_amount: -5 }], ['other charge text', { other_charge_amount: 'x' }]]) {
-  r = await A('POST', '/booking', { consumer_id: NIL, project_id: P1, unit_id: u3, ...b }); t(`booking: ${n} -> 400`, r.s === 400 && /amount/.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j)); }
+  r = await A('POST', '/booking', { consumer_id: NIL, project_id: P1, unit_id: u3, selected_plan_name: 'x', ...b }); t(`booking: ${n} -> 400`, r.s === 400 && /amount/.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j)); }
 
 // ---------- audit ----------
 t('audit: rates and assignments are logged', Number(psql(`select count(*) from audit_logs where resource_type in ('plc_charge','plc_assignment')`)) >= 10);

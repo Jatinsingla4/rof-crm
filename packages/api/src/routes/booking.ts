@@ -7,6 +7,11 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { hasPermission } from '../middleware/rbac.js';
+import { auditChange } from '../middleware/auditLogger.js';
+import { bad, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
+import { pinCode, mobileNo } from '../utils/applicant.js';
+import { cleanFields, checkIdentity, personName, hasLetter, forAudit, asText, lock, sha } from '../utils/applicant-fields.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
@@ -15,6 +20,101 @@ import { recomputeAddonDemands } from './addon-charges.js';
 import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 
 const router = Router();
+
+// ---------- input rules for Booking ----------
+// Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
+const PAY_MODES = ['cheque', 'draft', 'demand_draft', 'online', 'neft', 'rtgs', 'upi', 'card', 'cash', 'bank_transfer', 'adjust', 'dealer_adjustment', 'tds_challan'];
+const RECEIPT_METHOD: Record<string, string> = { cheque: 'cheque', draft: 'demand_draft', demand_draft: 'demand_draft', cash: 'cash', card: 'card', upi: 'upi', neft: 'neft', rtgs: 'rtgs', tds_challan: 'tds_challan' };
+const money = (v: any, label: string, max = 1e10) => (has(v) ? num(v, label, max, 2) : 0);
+// Amounts the page works out itself (interest, TDS, GST amounts) can carry floating-point tails: they are rounded to paise, not refused
+const calc = (v: any, label: string, max = 1e10) => {
+  if (!has(v)) return 0;
+  const n = typeof v === 'number' ? v : typeof v === 'string' && /^[0-9]+(\.[0-9]+)?$/.test(v) ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 0 || n > max) throw bad(`${label} must be a number from 0 to ${max.toLocaleString('en-IN')}`);
+  return Math.round(n * 100) / 100;
+};
+const pct = (v: any, label: string) => (has(v) ? num(v, label, 100, 3) : 0);
+const T = (v: any, label: string, max: number) => text(v, label, max, false);
+const uuidOrNull = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
+const bookingDay = (v: any, label: string): string | null => {
+  const d = day(v, label);
+  if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  return d;
+};
+const mode = (v: any, required: boolean): string | null => {
+  if (!has(v)) { if (required) throw bad('payment_mode is required'); return null; }
+  if (typeof v !== 'string' || !PAY_MODES.includes(v)) throw bad(`payment_mode must be one of ${PAY_MODES.join(', ')}`);
+  return v;
+};
+const conflict = (m: string) => bad(m, 409);
+// A project with no GST rate set up cannot be booked: say so in plain words instead of a server error
+const fail = (err: any, res: Response, next: NextFunction) => (err?.http ? res.status(err.http).json({ error: err.message })
+  : /^No GST mapping found/.test(err?.message || '') ? res.status(422).json({ error: err.message })
+  : next(err));
+// What the unit is expected to cost, for catching a booking amount that is out by a factor of ten
+const priceEstimate = (rate: any, carpet: any, unit: any, plc: any, other: any, disc: any) => {
+  const r = Number(rate) || 0, c = Number(unit.carpet_area_sqft) || 0;
+  const basic = r > 0 && c > 0 ? Math.round(r * c) : Number(unit.base_price_inr) || 0;
+  return basic + (Number(plc) || 0) + (Number(other) || 0) - (Number(disc) || 0);
+};
+const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic price
+
+// Sales (consumers) rights are needed to write; confirming the payment step is also open to Accounts (payments edit)
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  const confirmStep = req.method === 'PATCH' && /^\/[^/]+$/.test(req.path);
+  const need = req.method === 'POST' && req.path === '/' ? 'create' : 'edit';
+  if (hasPermission(req.userRole, 'consumers', need) || (confirmStep && hasPermission(req.userRole, 'payments', 'edit'))) return next();
+  res.status(403).json({ error: 'Your role cannot change bookings' });
+});
+router.param('id', (req, res, next, id) => { try { uuid(id, 'Booking id'); next(); } catch (e) { fail(e, res, next); } });
+
+// What the booking form may send for a new booking, checked and with the same defaults the form relied on
+const parseNew = (b: any) => {
+  const o: any = {};
+  o.consumer_id = uuid(b.consumer_id, 'consumer_id');
+  if (!has(b.unit_id)) throw bad('Unit selection is required');
+  o.unit_id = uuid(b.unit_id, 'unit_id');
+  o.project_id = uuidOrNull(b.project_id, 'project_id');
+  if (!has(b.selected_plan_name)) throw bad('Payment plan is required');
+  o.selected_plan_name = T(b.selected_plan_name, 'Payment plan', 255)!;
+  o.booking_date = bookingDay(b.booking_date, 'booking_date');
+  o.booking_amount = money(b.booking_amount, 'booking_amount');
+  o.payment_mode = mode(b.payment_mode, false);
+  if (o.booking_amount > 0 && !o.payment_mode) throw bad('payment_mode is required when a booking amount is entered');
+  if (o.booking_amount === 0 && o.payment_mode) throw bad('booking_amount must be more than 0 when a payment mode is chosen');
+  o.payment_ref = T(b.payment_ref, 'payment_ref', 100); o.bank_name = T(b.bank_name, 'bank_name', 200); o.bank_branch = T(b.bank_branch, 'bank_branch', 255);
+  o.cheque_date = bookingDay(b.cheque_date, 'cheque_date');
+  for (const k of ['company_inaugural_disc', 'company_rebate_rs', 'company_rebate_sqft', 'broker_rebate_rs', 'broker_rebate_sqft', 'dealer_adjustment_amount']) o[k] = money(b[k], k.replace(/_/g, ' '));
+  o.interest_amount = calc(b.interest_amount, 'interest amount');
+  for (const k of ['cgst_amount', 'sgst_amount', 'tds_amount']) o[k] = calc(b[k], k.replace(/_/g, ' '));
+  for (const k of ['company_rebate_pct', 'broker_rebate_pct', 's_tax_pct', 'cgst_pct', 'sgst_pct', 'gst_interest_pct']) o[k] = pct(b[k], k.replace(/_/g, ' '));
+  o.booking_type = has(b.booking_type) ? b.booking_type : 'direct';
+  if (!['direct', 'broker'].includes(o.booking_type)) throw bad('booking_type must be direct or broker');
+  o.broker_id = uuidOrNull(b.broker_id, 'broker_id'); o.main_broker_id = uuidOrNull(b.main_broker_id, 'main_broker_id');
+  o.broker_commission_type = has(b.broker_commission_type) ? b.broker_commission_type : 'flat';
+  if (!['flat', 'percent'].includes(o.broker_commission_type)) throw bad('broker_commission_type must be flat or percent');
+  o.broker_commission = money(b.broker_commission, 'broker_commission');
+  if (o.broker_commission_type === 'percent' && o.broker_commission > 100) throw bad('A percentage commission cannot be more than 100');
+  o.mailing_address_type = T(b.mailing_address_type, 'mailing_address_type', 30) || 'present';
+  o.communication_mode = T(b.communication_mode, 'communication_mode', 30) || 'email';
+  o.comm_address_line1 = T(b.comm_address_line1, 'Communication address', 300); o.comm_city = T(b.comm_city, 'City', 100); o.comm_state = T(b.comm_state, 'State', 100);
+  o.comm_country = T(b.comm_country, 'Country', 100); o.comm_pin = pinCode(b.comm_pin, 'PIN code', o.comm_country);
+  o.sales_employee_id = uuidOrNull(b.sales_employee_id, 'sales_employee_id');
+  o.nominee_name = T(b.nominee_name, 'nominee_name', 200); o.nominee_relation = T(b.nominee_relation, 'nominee_relation', 50);
+  o.loan_amount = has(b.loan_amount) ? money(b.loan_amount, 'loan_amount') : null; o.finance_bank = T(b.finance_bank, 'finance_bank', 200);
+  o.remarks = T(b.remarks, 'remarks', 2000); o.form_no = T(b.form_no, 'form_no', 100);
+  o.has_plc = flag(b.has_plc ?? false, 'has_plc'); o.has_other_charge = flag(b.has_other_charge ?? false, 'has_other_charge');
+  o.plc_amount = money(b.plc_amount, 'PLC amount', 1e9); o.other_charge_amount = money(b.other_charge_amount, 'Other charge amount', 1e9);
+  o.other_charge_desc = T(b.other_charge_desc, 'other_charge_desc', 500);
+  o.received_for = T(b.received_for, 'received_for', 255); o.account_holder = T(b.account_holder, 'account_holder', 255); o.on_account_of = T(b.on_account_of, 'on_account_of', 255) || 'Booking';
+  o.invoice_date_by = T(b.invoice_date_by, 'invoice_date_by', 50) || 'receipt_date'; o.interest_type = T(b.interest_type, 'interest_type', 50) || 'exclusive';
+  o.extra_add_on_type = T(b.extra_add_on_type, 'extra_add_on_type', 50) || 'exclusive'; o.tds_type = T(b.tds_type, 'tds_type', 50) || 'not_calculate'; o.self_or_loan = T(b.self_or_loan, 'self_or_loan', 50) || 'self';
+  o.tds_challan_id = uuidOrNull(b.tds_challan_id, 'tds_challan_id');
+  o.basic_price = has(b.basic_price) ? num(b.basic_price, 'Basic rate', 1e6, 2) : 0;
+  o.carpet_area_sqft = has(b.carpet_area_sqft) ? num(b.carpet_area_sqft, 'Carpet area', 1e6, 3) : 0;
+  return o;
+};
 
 // Generate registration number with project-based prefix and sequential numbering
 async function generateRegistrationNo(projectId: string, client: any): Promise<string> {
@@ -80,6 +180,8 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const ref = (req.query.ref as string || '').trim();
     const excludeId = (req.query.exclude_id as string || '').trim() || null;
+    if (typeof req.query.ref !== 'string' || ref.length > 100) return res.status(400).json({ error: 'ref is not valid' });
+    if (excludeId) uuid(excludeId, 'exclude_id');
 
     if (!ref) {
       return res.status(400).json({ error: 'ref query parameter is required' });
@@ -135,7 +237,7 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
     }
 
     return res.json({ exists: false, found_in: null, detail: null });
-  } catch (err) { next(err); }
+  } catch (err) { fail(err, res, next); }
 });
 
 // GET /api/booking/check-form-no?formNo=XXXX[&excludeId=UUID]
@@ -143,6 +245,8 @@ router.get('/check-cheque', async (req: AuthRequest, res: Response, next: NextFu
 router.get('/check-form-no', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { formNo, excludeId } = req.query as Record<string, string>;
+    if ((formNo !== undefined && typeof formNo !== 'string') || (formNo && formNo.length > 100)) return res.status(400).json({ error: 'formNo is not valid' });
+    if (excludeId) uuid(excludeId, 'excludeId');
 
     if (!formNo || !formNo.trim()) {
       return res.json({ available: true });
@@ -166,89 +270,79 @@ router.get('/check-form-no', async (req: AuthRequest, res: Response, next: NextF
     }
 
     return res.json({ available: true });
-  } catch (err) { next(err); }
+  } catch (err) { fail(err, res, next); }
 });
 
 // POST /api/booking
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const o = parseNew(body(req));
     const {
-      consumer_id, project_id, unit_id, booking_date, booking_amount,
+      consumer_id, unit_id, booking_date, booking_amount,
       payment_mode, payment_ref, bank_name, cheque_date,
-      company_inaugural_disc = 0, company_rebate_rs = 0, company_rebate_sqft = 0, company_rebate_pct = 0,
+      company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct,
       broker_id, broker_commission, broker_commission_type,
-      booking_type = 'direct', main_broker_id,
-      broker_rebate_rs = 0, broker_rebate_sqft = 0, broker_rebate_pct = 0,
-      mailing_address_type = 'present', communication_mode = 'email',
+      booking_type, main_broker_id,
+      broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct,
+      mailing_address_type, communication_mode,
       comm_address_line1, comm_pin, comm_city, comm_state, comm_country,
       sales_employee_id, nominee_name, nominee_relation,
       loan_amount, finance_bank, remarks, form_no,
-      has_plc = false, plc_amount = 0,
-      has_other_charge = false, other_charge_amount = 0, other_charge_desc = null,
-      // Payment detail fields (migration 042)
-      bank_branch = null,
-      received_for = null,
-      account_holder = null,
-      on_account_of = 'Booking',
-      invoice_date_by = 'receipt_date',
-      interest_type = 'exclusive',
-      extra_add_on_type = 'exclusive',
-      tds_type = 'not_calculate',
-      self_or_loan = 'self',
-      interest_amount = 0,
-      dealer_adjustment_amount = 0,
-      tds_challan_id = null,
-      // Tax values
-      s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
-      cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
-      selected_plan_name = null,
-      // Staff-entered unit pricing (migration 051)
-      basic_price = 0,        // rate ₹/sqft entered in the booking form
-      carpet_area_sqft = 0,   // carpet area submitted by the form
-    } = req.body;
-    // PLC and other charges are amounts added to the price: a number, zero or more
-    for (const [label, v] of [['PLC amount', plc_amount], ['Other charge amount', other_charge_amount]] as [string, any][]) {
-      const n = Number(v ?? 0);
-      if (typeof v === 'boolean' || Array.isArray(v) || !Number.isFinite(n) || n < 0 || n > 1_000_000_000) return res.status(400).json({ error: `${label} must be a number from 0 to 100 crore` });
-    }
-
-    if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
-    if (!unit_id || String(unit_id).trim() === '') return res.status(400).json({ error: 'Unit selection is required' });
-    if (!selected_plan_name || String(selected_plan_name).trim() === '') return res.status(400).json({ error: 'Payment plan is required' });
-    // A booking on a plan that is not 100% could never be completed, yet it would freeze the plan so it could not be fixed
-    if (project_id) {
-      const pl = await db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(percentage), 0)::float AS pct FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [project_id, String(selected_plan_name)]);
-      if (!pl.rows[0].n || Math.abs(pl.rows[0].pct - 100) > 0.001) {
-        return res.status(400).json({ error: pl.rows[0].n
-          ? `The payment plan "${selected_plan_name}" adds up to ${pl.rows[0].pct}%, not 100%. Finish the plan in Payment Plan Setup, or choose another plan.`
-          : `The payment plan "${selected_plan_name}" does not exist or has no installments. Choose another plan.` });
-      }
-    }
+      has_plc, plc_amount, has_other_charge, other_charge_amount, other_charge_desc,
+      bank_branch, received_for, account_holder, on_account_of, invoice_date_by,
+      interest_type, extra_add_on_type, tds_type, self_or_loan,
+      interest_amount, dealer_adjustment_amount, tds_challan_id,
+      s_tax_pct, gst_interest_pct, tds_amount,
+      selected_plan_name, basic_price, carpet_area_sqft,
+    } = o;
+    let project_id: string | null = o.project_id;
 
     const client = await db.connect();
     try {
       await client.query('BEGIN');
 
-      // Prevent Double Booking: Check if unit is available
-      if (unit_id) {
-        const unitCheck = await client.query(
-          `SELECT status FROM units WHERE id = $1 FOR UPDATE`,
-          [unit_id]
-        );
+      // The unit is locked first: two people booking it at once are served one after the other
+      const unit = (await client.query(
+        `SELECT id, status, project_id, carpet_area_sqft, base_price_inr FROM units WHERE id = $1 FOR UPDATE`, [unit_id])).rows[0];
+      if (!unit) throw bad('Selected unit does not exist');
+      if (project_id && unit.project_id !== project_id) throw bad('This unit does not belong to the chosen project');
+      project_id = unit.project_id;
+      if (unit.status !== 'available') throw conflict('Unit is no longer available');
 
-        if (unitCheck.rows.length === 0) {
-          throw new Error('Selected unit does not exist');
-        }
-
-        if (unitCheck.rows[0].status !== 'available') {
-          throw new Error('Double Booking Prevented: Unit is no longer available');
-        }
+      const consumerRow = (await client.query(`SELECT id, project_id, nationality, registration_no FROM consumers WHERE id = $1`, [consumer_id])).rows[0];
+      if (!consumerRow) throw bad('Applicant not found', 404);
+      if (consumerRow.project_id && consumerRow.project_id !== project_id) {
+        throw conflict('This applicant belongs to another project. Create a new applicant for this project to book this unit.');
       }
 
-      // Prevent duplicate active bookings on the same unit —
-      // scoped by unit_id alone (not consumer_id), since a unit
-      // can only have ONE active (pending_payment, active, or complete)
-      // booking at a time regardless of who it's for.
+      // A booking on a plan that is not 100% could never be completed, yet it would freeze the plan so it could not be fixed
+      const pl = (await client.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(percentage), 0)::float AS pct FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [project_id, selected_plan_name])).rows[0];
+      if (!pl.n || Math.abs(pl.pct - 100) > 0.001) {
+        throw bad(pl.n
+          ? `The payment plan "${selected_plan_name}" adds up to ${pl.pct}%, not 100%. Finish the plan in Payment Plan Setup, or choose another plan.`
+          : `The payment plan "${selected_plan_name}" does not exist or has no installments. Choose another plan.`);
+      }
+
+      // Money sanity: the discount cannot exceed the basic price and the amount paid cannot be many times the price
+      const estimate = priceEstimate(basic_price, carpet_area_sqft, unit, plc_amount, other_charge_amount, company_inaugural_disc);
+      const basicEstimate = priceEstimate(basic_price, carpet_area_sqft, unit, 0, 0, 0);
+      if (company_inaugural_disc > basicEstimate && basicEstimate > 0) throw bad('The inaugural discount is more than the basic price of the unit');
+      if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM) throw bad(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
+
+      // Form number and cheque / reference are not reused by a live booking or a live receipt
+      if (form_no) {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ['booking-form:' + form_no]);
+        if ((await client.query(`SELECT 1 FROM booking_records WHERE form_no = $1 AND status != 'cancelled' LIMIT 1`, [form_no])).rows.length) throw conflict(`Form No. "${form_no}" is already in use.`);
+      }
+      if (payment_ref && payment_mode !== 'cash') {
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ['booking-ref:' + payment_ref]);
+        const dupB = (await client.query(`SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND status != 'cancelled' LIMIT 1`, [payment_ref])).rows[0];
+        if (dupB) throw conflict(`Reference "${payment_ref}" already used in booking ${dupB.registration_no}`);
+        const dupR = (await client.query(`SELECT receipt_number FROM receipts WHERE transaction_ref = $1 AND status NOT IN ('bounced', 'cancelled') LIMIT 1`, [payment_ref])).rows[0];
+        if (dupR) throw conflict(`Reference "${payment_ref}" already used in receipt ${dupR.receipt_number}`);
+      }
+
+      // Prevent duplicate live bookings on the same unit (the database also enforces this with a unique index)
       const existingBooking = await client.query(
         `SELECT br.id, br.status, u.unit_number,
                 c.first_name, c.last_name, c.registration_no
@@ -260,20 +354,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         [unit_id]
       );
       if (existingBooking.rows.length > 0) {
-        await client.query('ROLLBACK');
         const existing = existingBooking.rows[0];
-        return res.status(400).json({
-          error: `Unit ${existing.unit_number} already has an active booking (${existing.status}) for ${existing.first_name} ${existing.last_name} (${existing.registration_no}). Cancel or complete the existing booking first.`
-        });
+        throw conflict(`Unit ${existing.unit_number} already has an active booking (${existing.status}) for ${existing.first_name} ${existing.last_name} (${existing.registration_no}). Cancel or complete the existing booking first.`);
       }
 
       // Generate registration and form numbers
-      const registrationNo = await generateRegistrationNo(project_id, client);
+      const registrationNo = await generateRegistrationNo(project_id!, client);
       const formNo = form_no || registrationNo;
 
       // Determine status: pending_payment when no amount and no mode provided
-      const isPendingPayment = (!booking_amount || parseFloat(booking_amount) === 0) && !payment_mode;
-      const bookingStatus = isPendingPayment ? 'pending_payment' : 'active';
+      const bookingStatus = booking_amount === 0 ? 'pending_payment' : 'active';
 
       const result = await client.query(
         `INSERT INTO booking_records (
@@ -303,36 +393,28 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          )
          RETURNING *`,
         [
-          consumer_id, project_id||null, unit_id||null,
-          booking_date||new Date().toISOString().split('T')[0],
-          parseFloat(booking_amount||0),
-          payment_mode||null, payment_ref||null, bank_name||null, cheque_date||null,
-          parseFloat(company_inaugural_disc||0), parseFloat(company_rebate_rs||0),
-          parseFloat(company_rebate_sqft||0), parseFloat(company_rebate_pct||0),
-          broker_id||null, parseFloat(broker_commission||0), broker_commission_type||'flat',
-          booking_type||'direct', main_broker_id||null,
-          parseFloat(broker_rebate_rs||0), parseFloat(broker_rebate_sqft||0), parseFloat(broker_rebate_pct||0),
-          mailing_address_type||'present', communication_mode||'email',
-          comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||'India',
-          sales_employee_id||null, nominee_name||null, nominee_relation||null,
-          loan_amount?parseFloat(loan_amount):null, finance_bank||null, remarks||null,
+          consumer_id, project_id, unit_id,
+          booking_date || new Date().toISOString().split('T')[0],
+          booking_amount,
+          payment_mode, payment_ref, bank_name, cheque_date,
+          company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct,
+          broker_id, broker_commission, broker_commission_type,
+          booking_type, main_broker_id,
+          broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct,
+          mailing_address_type, communication_mode,
+          comm_address_line1, comm_pin, comm_city, comm_state, comm_country || 'India',
+          sales_employee_id, nominee_name, nominee_relation,
+          loan_amount, finance_bank, remarks,
           registrationNo, formNo,
-          has_plc === true || has_plc === 'true',
-          parseFloat(plc_amount||0),
-          has_other_charge === true || has_other_charge === 'true',
-          parseFloat(other_charge_amount||0),
-          other_charge_desc||null,
+          has_plc, plc_amount, has_other_charge, other_charge_amount, other_charge_desc,
           req.userId,
-          // payment detail (migration 042)
-          bank_branch||null, received_for||null, account_holder||null, on_account_of||'Booking',
-          invoice_date_by||'receipt_date', interest_type||'exclusive', extra_add_on_type||'exclusive',
-          tds_type||'not_calculate', self_or_loan||'self',
-          parseFloat(interest_amount||0), parseFloat(dealer_adjustment_amount||0),
-          tds_challan_id||null,
-          selected_plan_name||null,
+          bank_branch, received_for, account_holder, on_account_of,
+          invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan,
+          interest_amount, dealer_adjustment_amount, tds_challan_id,
+          selected_plan_name,
           bookingStatus,
-          parseFloat(basic_price||0) > 0 ? parseFloat(basic_price) : null,
-          parseFloat(carpet_area_sqft||0) > 0 ? parseFloat(carpet_area_sqft) : null,
+          basic_price > 0 ? basic_price : null,
+          carpet_area_sqft > 0 ? carpet_area_sqft : null,
         ]
       );
 
@@ -340,36 +422,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // derive cgst_amount/sgst_amount from the confirmed booking_amount --
       // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
       const bookingDateForGstCreate = booking_date || new Date().toISOString().split('T')[0];
+      const projectNameForGstCreate = (await client.query('SELECT name FROM projects WHERE id = $1', [project_id])).rows[0]?.name || project_id;
+      const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
 
-      const projectRowForGstCreate = project_id
-        ? await client.query('SELECT name FROM projects WHERE id = $1', [project_id])
-        : { rows: [] as any[] };
-      const projectNameForGstCreate = projectRowForGstCreate.rows[0]?.name || project_id;
-
-      const consumerRowForGstCreate = await client.query(
-        'SELECT nationality FROM consumers WHERE id = $1',
-        [consumer_id]
-      );
-      const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
-        .includes(consumerRowForGstCreate.rows[0]?.nationality);
-
-      const gstRateForBptCreate = (isNriForGstCreate || !project_id)
+      const gstRateForBptCreate = isNriForGstCreate
         ? { cgstPct: 0, sgstPct: 0 }
-        : await resolveRate(
-            db,
-            project_id,
-            projectNameForGstCreate,
-            'BASIC',
-            bookingDateForGstCreate
-          );
+        : await resolveRate(db, project_id!, projectNameForGstCreate, 'BASIC', bookingDateForGstCreate);
 
       const cgstPctForBptCreate = gstRateForBptCreate.cgstPct * 100;
       const sgstPctForBptCreate = gstRateForBptCreate.sgstPct * 100;
-      const gstSplitCreate = computeInclusiveGstSplit(
-        parseFloat(booking_amount || 0),
-        cgstPctForBptCreate,
-        sgstPctForBptCreate
-      );
+      const gstSplitCreate = computeInclusiveGstSplit(booking_amount, cgstPctForBptCreate, sgstPctForBptCreate);
 
       // Insert tax breakdown row (always, even if all zeros)
       await client.query(
@@ -377,20 +439,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
            (booking_record_id, s_tax_pct, cgst_pct, sgst_pct, gst_interest_pct,
             cgst_amount, sgst_amount, tds_amount)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [
-          result.rows[0].id,
-          parseFloat(s_tax_pct||0), cgstPctForBptCreate, sgstPctForBptCreate,
-          parseFloat(gst_interest_pct||0), gstSplitCreate.cgstAmount,
-          gstSplitCreate.sgstAmount, parseFloat(tds_amount||0),
-        ]
+        [result.rows[0].id, s_tax_pct, cgstPctForBptCreate, sgstPctForBptCreate, gst_interest_pct, gstSplitCreate.cgstAmount, gstSplitCreate.sgstAmount, tds_amount]
       );
 
       // Lock unit only when payment is present (active booking). pending_payment keeps unit available.
-      if (unit_id && bookingStatus !== 'pending_payment') {
-        await client.query(
-          `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [unit_id]
-        );
+      if (bookingStatus !== 'pending_payment') {
+        await client.query(`UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW() WHERE id = $1`, [unit_id]);
         await client.query(
           `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
            VALUES ($1, 'available', 'locked', NOW(), $2, $3)`,
@@ -402,90 +456,49 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // Do not overwrite on re-booking — this previously caused a real data-corruption
       // incident (consumer 9e9d7841, TULA-2026-0002 wrongly overwritten to ALAN-2026-0016
       // during unrelated testing).
-      const existingConsumer = await client.query(
-        `SELECT registration_no, project_id FROM consumers WHERE id = $1`,
-        [consumer_id]
-      );
-      const existingRegNo = existingConsumer.rows[0]?.registration_no;
-      const existingProjectId = existingConsumer.rows[0]?.project_id;
-
-      if (existingRegNo && existingProjectId !== project_id) {
-        // Different project than consumer's original registration — reject.
-        await client.query('ROLLBACK');
-        return res.status(409).json({
-          error: `Consumer is already registered as ${existingRegNo} under a different project. Create a new consumer record to book under this project instead.`
-        });
+      const existingRegNo = consumerRow.registration_no;
+      if (existingRegNo && consumerRow.project_id !== project_id) {
+        throw conflict(`Consumer is already registered as ${existingRegNo} under a different project. Create a new consumer record to book under this project instead.`);
       }
 
       // Update consumer with form number, communication preferences, and comm address.
       // registration_no is only set on first-ever assignment; a same-project re-book
       // (e.g. post-surrender) preserves the consumer's original registration_no.
-      if (existingRegNo) {
-        await client.query(
-          `UPDATE consumers
-           SET form_no = $1,
-               mailing_address_type = $2, communication_mode = $3,
-               comm_address_line1 = COALESCE($4, comm_address_line1),
-               comm_pin           = COALESCE($5, comm_pin),
-               comm_city          = COALESCE($6, comm_city),
-               comm_state         = COALESCE($7, comm_state),
-               comm_country       = COALESCE($8, comm_country),
-               lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
-           WHERE id = $9`,
-          [formNo, mailing_address_type||'present', communication_mode||'email',
-           comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
-           consumer_id]
-        );
-      } else {
-        await client.query(
-          `UPDATE consumers
-           SET registration_no = $1, form_no = $2,
-               mailing_address_type = $3, communication_mode = $4,
-               comm_address_line1 = COALESCE($5, comm_address_line1),
-               comm_pin           = COALESCE($6, comm_pin),
-               comm_city          = COALESCE($7, comm_city),
-               comm_state         = COALESCE($8, comm_state),
-               comm_country       = COALESCE($9, comm_country),
-               lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
-           WHERE id = $10`,
-          [registrationNo, formNo, mailing_address_type||'present', communication_mode||'email',
-           comm_address_line1||null, comm_pin||null, comm_city||null, comm_state||null, comm_country||null,
-           consumer_id]
-        );
-      }
+      await client.query(
+        `UPDATE consumers
+         SET registration_no = COALESCE(registration_no, $1), form_no = $2,
+             mailing_address_type = $3, communication_mode = $4,
+             comm_address_line1 = COALESCE($5, comm_address_line1),
+             comm_pin           = COALESCE($6, comm_pin),
+             comm_city          = COALESCE($7, comm_city),
+             comm_state         = COALESCE($8, comm_state),
+             comm_country       = COALESCE($9, comm_country),
+             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
+         WHERE id = $10`,
+        [registrationNo, formNo, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, consumer_id]
+      );
 
       // Auto-create pending commission record when booking type is broker
       if (booking_type === 'broker' && broker_id) {
+        const commission = broker_commission_type === 'percent' ? Math.round(basicEstimate * broker_commission) / 100 : broker_commission;
         await client.query(
           `INSERT INTO broker_commissions
              (broker_id, consumer_id, project_id, unit_id, commission_amount_inr, status, created_by)
            VALUES ($1, $2, $3, $4, $5, 'pending', $6)`,
-          [broker_id, consumer_id, project_id||null, unit_id||null,
-           parseFloat(broker_commission||0), req.userId]
+          [broker_id, consumer_id, project_id, unit_id, commission, req.userId]
         );
       }
 
       await client.query('COMMIT');
-      res.status(201).json({
-        success: true,
-        data: {
-          ...result.rows[0],
-          registration_no: registrationNo,
-          form_no: formNo
-        }
-      });
+      res.status(201).json({ success: true, data: { ...result.rows[0], registration_no: registrationNo, form_no: formNo } });
     } catch (err) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw err;
     } finally {
       client.release();
     }
   } catch (err: any) {
-    // These two are the customer's mistake (or a race), not a server fault
-    if (/^Double Booking Prevented/.test(err?.message || '')) return res.status(409).json({ error: err.message.replace(/^Double Booking Prevented: /, '') });
-    if (/^Selected unit does not exist/.test(err?.message || '')) return res.status(400).json({ error: err.message });
-    if (/^Project not found/.test(err?.message || '')) return res.status(404).json({ error: err.message });
-    next(err);
+    fail(err, res, next);
   }
 });
 
@@ -493,6 +506,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { project_id, consumer_id, status } = req.query;
+    if (project_id) uuid(project_id, 'project_id');
+    if (consumer_id) uuid(consumer_id, 'consumer_id');
+    if (status && !/^[a-z_]{1,30}$/.test(status as string)) throw bad('status is not valid');
     const whole = (v: any, dflt: number, max: number) => (v === undefined ? dflt : typeof v === 'string' && /^\d{1,6}$/.test(v) && +v >= 1 && +v <= max ? +v : NaN);
     const page = whole(req.query.page, 1, 100000), pageSize = whole(req.query.pageSize, 20, 1000);
     if (Number.isNaN(page) || Number.isNaN(pageSize)) return res.status(400).json({ error: 'page and pageSize must be whole numbers (pageSize up to 1000)' });
@@ -518,271 +534,149 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     `, params);
 
     res.json({ success: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) { fail(err, res, next); }
 });
 
 // PATCH /api/booking/:id/edit  — General-purpose edit: updates booking fields + consumer personal details.
 // Distinct from PATCH /:id which handles Step 2 payment confirmation only.
 // Must be registered BEFORE PATCH /:id to ensure Express resolves /edit as a static suffix.
+// The price basis (rate, area, discount, date) is fixed once the booking is complete: demands, GST and the receipt were made from it.
+const PRICE_FIELDS = ['basic_rate_inr_sqft', 'carpet_area_sqft', 'company_inaugural_disc', 'booking_date'];
+const CONSUMER_SHOWN = `id, name, first_name, last_name, salutation, mobile, email,
+  dob, gender, nationality, marital_status, pan_no, aadhaar_no, father_name, present_address, present_city, present_state,
+  present_pin, present_country, office_address, office_city, office_state, office_pin, perm_address, perm_city, perm_state,
+  perm_pin, applicant_type, income_category, registration_no, form_no, email_2, passport_no, profession, designation, company,
+  present_phone_no, office_country, perm_country, comm_address_line1, comm_city, comm_state, comm_pin, comm_country`;
+const setCols = (client: any, table: string, id: string, o: Record<string, any>, returning: string) => {
+  const cols = Object.keys(o);
+  return client.query(`UPDATE ${table} SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}${table === 'consumers' ? ', updated_at = NOW()' : ''} WHERE id = $1 RETURNING ${returning}`, [id, ...cols.map(k => o[k])]);
+};
 router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const {
-      // booking_records fields (locked fields excluded: unit_id, project_id, selected_plan_name, payment_plan_id, booking_amount, status)
-      booking_date,
-      basic_rate_inr_sqft, carpet_area_sqft,
-      form_no,
-      broker_id, main_broker_id,
-      broker_commission, broker_commission_type,
-      company_inaugural_disc,
-      company_rebate_rs, company_rebate_sqft, company_rebate_pct,
-      broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct,
-      sales_employee_id, remarks, booking_type,
-      // consumers fields
-      salutation, first_name, middle_name, last_name,
-      mobile, email, dob, gender, nationality, marital_status,
-      pan_no, aadhaar_no, father_name,
-      present_address_line1, present_city, present_state, present_pin, present_country,
-      office_address_line1, office_city, office_state, office_pin,
-      perm_address_line1, perm_city, perm_state, perm_pin,
-      applicant_type, income_category,
-      profession, designation, company,
-      email_2, passport_no, annual_income,
-      present_phone_no, office_country, perm_country,
-      comm_address_line1, comm_city, comm_state, comm_pin, comm_country,
-    } = req.body;
+    const b = body(req);
+    // ---- booking fields (a blank number is ignored, a blank link or note clears it) ----
+    const bk: Record<string, any> = {};
+    const numeric: [string, number, number][] = [['basic_rate_inr_sqft', 1e6, 2], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
+    for (const [k, max, dec] of numeric) if (has(b[k])) bk[k] = num(b[k], k.replace(/_/g, ' '), max, dec);
+    if (has(b.booking_date)) bk.booking_date = bookingDay(b.booking_date, 'booking_date');
+    if (has(b.form_no)) bk.form_no = T(b.form_no, 'form_no', 100);
+    for (const k of ['broker_id', 'main_broker_id', 'sales_employee_id']) if (b[k] !== undefined) bk[k] = uuidOrNull(b[k], k);
+    if (b.remarks !== undefined) bk.remarks = T(b.remarks, 'remarks', 2000);
+    if (has(b.booking_type)) { if (!['direct', 'broker'].includes(b.booking_type)) throw bad('booking_type must be direct or broker'); bk.booking_type = b.booking_type; }
+    if (has(b.broker_commission_type)) { if (!['flat', 'percent'].includes(b.broker_commission_type)) throw bad('broker_commission_type must be flat or percent'); bk.broker_commission_type = b.broker_commission_type; }
+    if (bk.broker_commission_type === 'percent' && bk.broker_commission > 100) throw bad('A percentage commission cannot be more than 100');
+    // ---- applicant fields: the same rules as the Applicants page; old values sent back unchanged pass ----
+    const errs: Record<string, { e: any; raw: any }> = {};
+    const cons = cleanFields(b, undefined, errs);
+    delete cons.ppp_id;
+    if (has(b.income_category)) { if (!['EWS', 'LIG', 'MIG'].includes(b.income_category)) throw bad('Income category must be one of EWS, LIG, MIG'); cons.income_category = b.income_category; }
+    if (has(b.mobile)) { try { cons.mobile = mobileNo(b.mobile, 'Mobile number', true); } catch (e: any) { if (!e?.http) throw e; errs.mobile = { e, raw: b.mobile }; } }
+    // The booking form sends blank boxes for what it does not show: a blank leaves the applicant's value as it is (the Applicants page is where a value is cleared)
+    for (const k of Object.keys(cons)) if (cons[k] === null || b[k] === '' || b[k] === null) delete cons[k];
+    delete errs.pan_hash;
+    if (cons.pan_no) cons.pan_hash = sha(cons.pan_no);
+    if (cons.aadhaar_no) cons.aadhaar_hash = sha(cons.aadhaar_no);
 
-    // Fetch booking to get consumer_id
-    const lookup = await db.query(
-      `SELECT id, consumer_id FROM booking_records WHERE id = $1`,
-      [id]
-    );
-    if (!lookup.rows[0]) {
-      return res.status(404).json({ error: 'Booking not found' });
-    }
-    const consumerId = lookup.rows[0].consumer_id;
-
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Update booking_records
-      const brResult = await client.query(
-        `UPDATE booking_records SET
-           booking_date           = COALESCE($2::date,  booking_date),
-           basic_rate_inr_sqft    = COALESCE($3,        basic_rate_inr_sqft),
-           carpet_area_sqft       = COALESCE($4,        carpet_area_sqft),
-           form_no                = COALESCE($5,        form_no),
-           broker_id              = COALESCE($6,        broker_id),
-           main_broker_id         = COALESCE($7,        main_broker_id),
-           broker_commission      = COALESCE($8,        broker_commission),
-           broker_commission_type = COALESCE($9,        broker_commission_type),
-           company_inaugural_disc = COALESCE($10,       company_inaugural_disc),
-           company_rebate_rs      = COALESCE($11,       company_rebate_rs),
-           company_rebate_sqft    = COALESCE($12,       company_rebate_sqft),
-           company_rebate_pct     = COALESCE($13,       company_rebate_pct),
-           broker_rebate_rs       = COALESCE($14,       broker_rebate_rs),
-           broker_rebate_sqft     = COALESCE($15,       broker_rebate_sqft),
-           broker_rebate_pct      = COALESCE($16,       broker_rebate_pct),
-           sales_employee_id      = COALESCE($17,       sales_employee_id),
-           remarks                = COALESCE($18,       remarks),
-           booking_type           = COALESCE($19,       booking_type)
-         WHERE id = $1
-         RETURNING *`,
-        [
-          id,
-          booking_date            || null,
-          basic_rate_inr_sqft  != null ? parseFloat(basic_rate_inr_sqft)  : null,
-          carpet_area_sqft     != null ? parseFloat(carpet_area_sqft)     : null,
-          form_no                 || null,
-          broker_id               || null,
-          main_broker_id          || null,
-          broker_commission    != null ? parseFloat(broker_commission)    : null,
-          broker_commission_type  || null,
-          company_inaugural_disc != null ? parseFloat(company_inaugural_disc) : null,
-          company_rebate_rs    != null ? parseFloat(company_rebate_rs)    : null,
-          company_rebate_sqft  != null ? parseFloat(company_rebate_sqft)  : null,
-          company_rebate_pct   != null ? parseFloat(company_rebate_pct)   : null,
-          broker_rebate_rs     != null ? parseFloat(broker_rebate_rs)     : null,
-          broker_rebate_sqft   != null ? parseFloat(broker_rebate_sqft)   : null,
-          broker_rebate_pct    != null ? parseFloat(broker_rebate_pct)    : null,
-          sales_employee_id       || null,
-          remarks                 || null,
-          booking_type            || null,
-        ]
-      );
-
-      // Update consumers
-      const cResult = await client.query(
-        `UPDATE consumers SET
-           salutation              = COALESCE($2,  salutation),
-           first_name              = COALESCE($3,  first_name),
-           middle_name             = COALESCE($4,  middle_name),
-           last_name               = COALESCE($5,  last_name),
-           name                    = REGEXP_REPLACE(TRIM(INITCAP(COALESCE($3, first_name)) || ' ' || INITCAP(COALESCE($5, last_name))), '\\s+', ' ', 'g'),
-           mobile                  = COALESCE($6,  mobile),
-           email                   = COALESCE($7,  email),
-           dob                     = COALESCE($8,  dob),
-           gender                  = COALESCE($9,  gender),
-           nationality             = COALESCE($10, nationality),
-           marital_status          = COALESCE($11, marital_status),
-           pan_no                  = COALESCE($12, pan_no),
-           aadhaar_no              = COALESCE($13, aadhaar_no),
-           father_name             = COALESCE($14, father_name),
-           present_address         = COALESCE($15, present_address),
-           present_city            = COALESCE($16, present_city),
-           present_state           = COALESCE($17, present_state),
-           present_pin             = COALESCE($18, present_pin),
-           present_country         = COALESCE($19, present_country),
-           office_address          = COALESCE($20, office_address),
-           office_city             = COALESCE($21, office_city),
-           office_state            = COALESCE($22, office_state),
-           office_pin              = COALESCE($23, office_pin),
-           perm_address            = COALESCE($24, perm_address),
-           perm_city               = COALESCE($25, perm_city),
-           perm_state              = COALESCE($26, perm_state),
-           perm_pin                = COALESCE($27, perm_pin),
-           applicant_type          = COALESCE($28, applicant_type),
-           income_category         = COALESCE($29::income_category, income_category),
-           form_no                 = COALESCE($30, form_no),
-           profession              = COALESCE($31, profession),
-           designation             = COALESCE($32, designation),
-           company                 = COALESCE($33, company),
-           email_2                 = COALESCE($34, email_2),
-           passport_no             = COALESCE($35, passport_no),
-           annual_income           = COALESCE($36, annual_income),
-           present_phone_no        = COALESCE($37, present_phone_no),
-           office_country          = COALESCE($38, office_country),
-           perm_country            = COALESCE($39, perm_country),
-           comm_address_line1      = COALESCE($40, comm_address_line1),
-           comm_city               = COALESCE($41, comm_city),
-           comm_state              = COALESCE($42, comm_state),
-           comm_pin                = COALESCE($43, comm_pin),
-           comm_country            = COALESCE($44, comm_country),
-           updated_at              = NOW()
-         WHERE id = $1
-         RETURNING id, name, first_name, last_name, salutation, mobile, email,
-                   dob, gender, nationality, marital_status, pan_no, aadhaar_no,
-                   father_name, present_address, present_city, present_state,
-                   present_pin, present_country, office_address, office_city,
-                   office_state, office_pin, perm_address, perm_city, perm_state,
-                   perm_pin, applicant_type, income_category, registration_no,
-                   form_no, email_2, passport_no, profession, designation, company,
-                   present_phone_no, office_country, perm_country,
-                   comm_address_line1, comm_city, comm_state, comm_pin, comm_country`,
-        [
-          consumerId,
-          salutation              || null,
-          first_name              || null,
-          middle_name             || null,
-          last_name               || null,
-          mobile                  || null,
-          email                   || null,
-          dob                     || null,
-          gender                  || null,
-          nationality             || null,
-          marital_status          || null,
-          pan_no                  || null,
-          aadhaar_no              || null,
-          father_name             || null,
-          present_address_line1   || null,
-          present_city            || null,
-          present_state           || null,
-          present_pin             || null,
-          present_country         || null,
-          office_address_line1    || null,
-          office_city             || null,
-          office_state            || null,
-          office_pin              || null,
-          perm_address_line1      || null,
-          perm_city               || null,
-          perm_state              || null,
-          perm_pin                || null,
-          applicant_type          || null,
-          income_category         || null,
-          form_no                 || null,
-          profession              || null,
-          designation             || null,
-          company                 || null,
-          email_2                 || null,
-          passport_no             || null,
-          annual_income != null ? parseFloat(annual_income) : null,
-          present_phone_no        || null,
-          office_country          || null,
-          perm_country            || null,
-          comm_address_line1      || null,
-          comm_city               || null,
-          comm_state              || null,
-          comm_pin                || null,
-          comm_country            || null,
-        ]
-      );
-
-      await client.query('COMMIT');
-      res.json({
-        success: true,
-        data: {
-          booking: brResult.rows[0],
-          consumer: cResult.rows[0],
+    const out = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT * FROM booking_records WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      if (!cur) throw bad('Booking not found', 404);
+      if (cur.status === 'cancelled') throw conflict('This booking is cancelled and can no longer be edited.');
+      const consCur = (await c.query(`SELECT * FROM consumers WHERE id = $1 FOR UPDATE`, [cur.consumer_id])).rows[0];
+      for (const [col, { e, raw }] of Object.entries(errs)) if (asText(typeof raw === 'string' ? raw.trim() : raw) !== asText(consCur[col])) throw e;
+      const changed = (o: Record<string, any>, from: any) => Object.keys(o).filter(k => asText(o[k]) !== asText(from[k]));
+      const bkChanged = changed(bk, cur);
+      if (cur.status === 'complete') {
+        const locked = PRICE_FIELDS.filter(k => bkChanged.includes(k));
+        if (locked.length) throw conflict(`The booking is complete, so ${locked.map(k => k.replace(/_/g, ' ')).join(', ')} can no longer be changed: the demands, GST and receipt were made from them.`);
+      }
+      if (bkChanged.includes('form_no')) {
+        await lock(c, 'booking-form:' + bk.form_no);
+        if ((await c.query(`SELECT 1 FROM booking_records WHERE form_no = $1 AND status != 'cancelled' AND id <> $2 LIMIT 1`, [bk.form_no, id])).rows.length) throw conflict(`Form No. "${bk.form_no}" is already in use.`);
+      }
+      // Broker commission: a pending commission follows the change, a paid one does not move
+      const commKeys = ['broker_id', 'broker_commission', 'broker_commission_type'].filter(k => bkChanged.includes(k));
+      if (commKeys.length) {
+        const cm = (await c.query(`SELECT id, status FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [cur.consumer_id, cur.unit_id])).rows[0];
+        if (cm && cm.status !== 'pending') throw conflict('The broker commission for this booking is already processed, so the broker or the commission can no longer be changed here.');
+        if (cm) {
+          const kind = bk.broker_commission_type ?? cur.broker_commission_type, val = bk.broker_commission ?? cur.broker_commission;
+          const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+          const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
+          await c.query(`UPDATE broker_commissions SET commission_amount_inr = $2, broker_id = COALESCE($3, broker_id) WHERE id = $1`, [cm.id, kind === 'percent' ? Math.round(basic * Number(val)) / 100 : Number(val), bk.broker_id ?? null]);
         }
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
+      }
+      if (bkChanged.includes('basic_rate_inr_sqft') || bkChanged.includes('company_inaugural_disc')) {
+        const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+        const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
+        if ((bk.company_inaugural_disc ?? cur.company_inaugural_disc) > basic && basic > 0) throw bad('The inaugural discount is more than the basic price of the unit');
+      }
+      // applicant part
+      if (cons.first_name !== undefined || cons.last_name !== undefined) {
+        const nm = personName(undefined, cons.first_name ?? consCur.first_name, cons.last_name ?? consCur.last_name, cons.applicant_type ?? consCur.applicant_type);
+        if (!nm || !hasLetter(nm)) throw bad('Name cannot be blank');
+        cons.name = nm;
+      }
+      if (bk.form_no) cons.form_no = bk.form_no;
+      const consChanged = changed(cons, consCur);
+      if (cons.mobile !== undefined || cons.pan_no) await lock(c, `consumer:${consCur.project_id || ''}:${cons.mobile ?? consCur.mobile}`);
+      if (cons.mobile !== undefined || cons.pan_no) await checkIdentity(c, consCur.project_id, consCur.id, cons.mobile && cons.mobile !== consCur.mobile ? cons.mobile : null, cons.pan_no && String(cons.pan_no).toUpperCase() !== String(consCur.pan_no || '').toUpperCase() ? cons.pan_no : null);
+      const bkRow = bkChanged.length ? (await setCols(c, 'booking_records', id, Object.fromEntries(bkChanged.map(k => [k, bk[k]])), '*')).rows[0] : cur;
+      const cRow = (await (consChanged.length ? setCols(c, 'consumers', consCur.id, Object.fromEntries(consChanged.map(k => [k, cons[k]])), CONSUMER_SHOWN) : c.query(`SELECT ${CONSUMER_SHOWN} FROM consumers WHERE id = $1`, [consCur.id]))).rows[0];
+      return { cur, bkRow, cRow, bkChanged, consChanged, consCur, bk, cons };
+    });
+    const hide = (k: string) => !k.endsWith('_hash');
+    if (out.bkChanged.length || out.consChanged.length) {
+      await auditChange(db, req, res, 'update', 'booking', id,
+        forAudit({ ...Object.fromEntries(out.bkChanged.map(k => [k, out.cur[k] instanceof Date ? asText(out.cur[k]) : out.cur[k] ?? null])), ...Object.fromEntries(out.consChanged.filter(hide).map(k => ['applicant_' + k, out.consCur[k] instanceof Date ? asText(out.consCur[k]) : out.consCur[k] ?? null])) }),
+        forAudit({ ...Object.fromEntries(out.bkChanged.map(k => [k, out.bk[k]])), ...Object.fromEntries(out.consChanged.filter(hide).map(k => ['applicant_' + k, out.cons[k]])) }));
     }
-  } catch (err) { next(err); }
+    res.locals.auditLogged = true;
+    res.json({ success: true, data: { booking: out.bkRow, consumer: out.cRow }, changed: [...out.bkChanged, ...out.consChanged.filter(hide).map(k => 'applicant_' + k)] });
+  } catch (err) { fail(err, res, next); }
 });
 
 // PATCH /api/booking/:id  — Step 2: save payment details for a pending_payment booking
 router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const {
-      booking_amount, payment_mode, payment_ref, bank_name, bank_branch, cheque_date,
-      received_for, account_holder, on_account_of, invoice_date_by,
-      interest_type, extra_add_on_type, tds_type, self_or_loan,
-      interest_amount = 0, dealer_adjustment_amount = 0, tds_challan_id = null,
-      s_tax_pct = 0, cgst_pct = 0, sgst_pct = 0, gst_interest_pct = 0,
-      cgst_amount = 0, sgst_amount = 0, tds_amount = 0,
-      companyBankAccountId,
-    } = req.body;
+    const rb = body(req);
+    if (!has(rb.booking_amount) || money(rb.booking_amount, 'booking_amount') === 0) return res.status(400).json({ error: 'booking_amount must be greater than zero' });
+    const booking_amount = money(rb.booking_amount, 'booking_amount');
+    const payment_mode = mode(rb.payment_mode, true)!;
+    const payment_ref = T(rb.payment_ref, 'payment_ref', 100), bank_name = T(rb.bank_name, 'bank_name', 200), bank_branch = T(rb.bank_branch, 'bank_branch', 255);
+    const cheque_date = bookingDay(rb.cheque_date, 'cheque_date');
+    const received_for = T(rb.received_for, 'received_for', 255), account_holder = T(rb.account_holder, 'account_holder', 255), on_account_of = T(rb.on_account_of, 'on_account_of', 255);
+    const invoice_date_by = T(rb.invoice_date_by, 'invoice_date_by', 50), interest_type = T(rb.interest_type, 'interest_type', 50), extra_add_on_type = T(rb.extra_add_on_type, 'extra_add_on_type', 50);
+    const tds_type = T(rb.tds_type, 'tds_type', 50), self_or_loan = T(rb.self_or_loan, 'self_or_loan', 50);
+    const interest_amount = calc(rb.interest_amount, 'interest_amount'), dealer_adjustment_amount = calc(rb.dealer_adjustment_amount, 'dealer_adjustment_amount');
+    const tds_challan_id = uuidOrNull(rb.tds_challan_id, 'tds_challan_id');
+    const s_tax_pct = pct(rb.s_tax_pct, 's_tax_pct'), gst_interest_pct = pct(rb.gst_interest_pct, 'gst_interest_pct'), tds_amount = calc(rb.tds_amount, 'tds_amount');
+    const companyBankAccountId = uuidOrNull(rb.companyBankAccountId, 'companyBankAccountId');
 
-    if (!booking_amount || parseFloat(booking_amount) === 0) {
-      return res.status(400).json({ error: 'booking_amount must be greater than zero' });
-    }
-    if (!payment_mode) {
-      return res.status(400).json({ error: 'payment_mode is required' });
-    }
-
-    // Duplicate cheque/reference check (excluding current booking)
-    if (payment_ref) {
+    // Duplicate cheque/reference check (excluding current booking, cancelled bookings and bounced/cancelled receipts)
+    if (payment_ref && payment_mode !== 'cash') {
       const [bookingDup, receiptDup] = await Promise.all([
-        db.query(
-          `SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND id != $2 LIMIT 1`,
-          [payment_ref, id]
-        ),
-        db.query(
-          `SELECT receipt_number FROM receipts WHERE transaction_ref = $1 LIMIT 1`,
-          [payment_ref]
-        ),
+        db.query(`SELECT registration_no FROM booking_records WHERE payment_ref = $1 AND id != $2 AND status != 'cancelled' LIMIT 1`, [payment_ref, id]),
+        db.query(`SELECT receipt_number FROM receipts WHERE transaction_ref = $1 AND status NOT IN ('bounced', 'cancelled') LIMIT 1`, [payment_ref]),
       ]);
-      if (bookingDup.rows.length > 0) {
-        return res.status(409).json({
-          error: `Reference "${payment_ref}" already used in booking ${bookingDup.rows[0].registration_no}`,
-        });
-      }
-      if (receiptDup.rows.length > 0) {
-        return res.status(409).json({
-          error: `Reference "${payment_ref}" already used in receipt ${receiptDup.rows[0].receipt_number}`,
-        });
-      }
+      if (bookingDup.rows.length > 0) return res.status(409).json({ error: `Reference "${payment_ref}" already used in booking ${bookingDup.rows[0].registration_no}` });
+      if (receiptDup.rows.length > 0) return res.status(409).json({ error: `Reference "${payment_ref}" already used in receipt ${receiptDup.rows[0].receipt_number}` });
     }
 
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+
+      // The booking is locked, so two confirmations at once cannot both run, and a finished or cancelled booking is not confirmed again
+      const pre = (await client.query(`SELECT br.status, br.basic_rate_inr_sqft, br.carpet_area_sqft AS br_carpet, br.plc_amount, br.other_charge_amount, br.company_inaugural_disc,
+                                              u.carpet_area_sqft, u.base_price_inr
+                                       FROM booking_records br LEFT JOIN units u ON u.id = br.unit_id WHERE br.id = $1 FOR UPDATE OF br`, [id])).rows[0];
+      if (!pre) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Booking not found' }); }
+      if (pre.status === 'complete') throw conflict('This booking is already complete.');
+      if (pre.status === 'cancelled') throw conflict('This booking is cancelled.');
+      const estimate = priceEstimate(pre.basic_rate_inr_sqft, 0, pre, pre.plc_amount, pre.other_charge_amount, pre.company_inaugural_disc);
+      if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM) throw bad(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
 
       const updateResult = await client.query(
         `UPDATE booking_records SET
@@ -807,13 +701,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
          WHERE id = $18
          RETURNING *`,
         [
-          parseFloat(booking_amount),
-          payment_mode, payment_ref||null, bank_name||null, bank_branch||null, cheque_date||null,
-          received_for||null, account_holder||null, on_account_of||'Booking',
+          booking_amount,
+          payment_mode, payment_ref, bank_name, bank_branch, cheque_date,
+          received_for, account_holder, on_account_of||'Booking',
           invoice_date_by||'receipt_date', interest_type||'exclusive',
           extra_add_on_type||'exclusive', tds_type||'not_calculate', self_or_loan||'self',
-          parseFloat(interest_amount||0), parseFloat(dealer_adjustment_amount||0),
-          tds_challan_id||null,
+          interest_amount, dealer_adjustment_amount,
+          tds_challan_id,
           id,
         ]
       );
@@ -896,9 +790,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
         [
           id,
-          parseFloat(s_tax_pct||0), cgstPctForBpt, sgstPctForBpt,
-          parseFloat(gst_interest_pct||0), gstSplit.cgstAmount,
-          gstSplit.sgstAmount, parseFloat(tds_amount||0),
+          s_tax_pct, cgstPctForBpt, sgstPctForBpt,
+          gst_interest_pct, gstSplit.cgstAmount,
+          gstSplit.sgstAmount, tds_amount,
         ]
       );
 
@@ -920,7 +814,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       // Auto-create allocation + payment_plan on payment confirmation (idempotent)
       if (booking.unit_id && booking.consumer_id) {
         const existingAlloc = await client.query(
-          `SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 LIMIT 1`,
+          // a cancelled or transferred allocation (an earlier surrender of this same unit) does not count: a fresh booking gets its own plan and demands
+          `SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 AND status NOT IN ('cancelled', 'transferred') LIMIT 1`,
           [booking.consumer_id, booking.unit_id]
         );
         if (existingAlloc.rows.length === 0) {
@@ -1092,8 +987,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
           // Step G: Auto-create booking receipt so payment is visible in all reports
           const bookingAmt = Math.round(parseFloat(booking.booking_amount || 0));
           if (bookingAmt > 0) {
-            const validPayMethods = ['bank_transfer', 'cheque', 'neft', 'rtgs', 'upi'];
-            const payMethod = validPayMethods.includes(booking.payment_mode) ? booking.payment_mode : 'bank_transfer';
+            // the receipt keeps the real mode (cash, draft, card ...); online, adjustment and the like are bank transfers
+            const payMethod = RECEIPT_METHOD[booking.payment_mode] || 'bank_transfer';
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
               : safeLocalDate(new Date());
@@ -1251,12 +1146,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       await client.query('COMMIT');
       res.json({ success: true, data: updateResult.rows[0] });
     } catch (err) {
-      await client.query('ROLLBACK');
+      await client.query('ROLLBACK').catch(() => {});
       throw err;
     } finally {
       client.release();
     }
-  } catch (err) { next(err); }
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── RECEIPT HELPERS ──────────────────────────
@@ -3484,6 +3379,37 @@ router.get('/:id/receipt-html', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// POST /api/booking/:id/cancel  — Withdraw a booking that was started but never completed (no payment step, no demands).
+// A completed booking is cancelled through Surrender, which also settles the money.
+router.post('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const reason = text(body(req).reason, 'reason', 500, true)!;
+    const out = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT * FROM booking_records WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      if (!cur) throw bad('Booking not found', 404);
+      if (cur.status === 'cancelled') throw conflict('This booking is already cancelled.');
+      if (cur.status === 'complete') throw conflict('This booking is complete. Cancel it through Surrender, which also settles the money.');
+      if ((await c.query(`SELECT 1 FROM payment_plans WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND allocation_id IN (SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status NOT IN ('cancelled','transferred')) LIMIT 1`, [cur.consumer_id, cur.unit_id])).rows.length) {
+        throw conflict('Demands already exist for this booking. Cancel it through Surrender.');
+      }
+      await c.query(`UPDATE booking_records SET status = 'cancelled', remarks = TRIM(BOTH E'\n' FROM COALESCE(remarks, '') || E'\nCancelled: ' || $2) WHERE id = $1`, [id, reason]);
+      if (cur.unit_id) {
+        const u = (await c.query(`SELECT status FROM units WHERE id = $1 FOR UPDATE`, [cur.unit_id])).rows[0];
+        // only a hold made by this booking is released
+        if (u && u.status === 'locked' && cur.status === 'active') {
+          await c.query(`UPDATE units SET status = 'available', status_changed_at = NOW(), updated_at = NOW() WHERE id = $1`, [cur.unit_id]);
+          await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason) VALUES ($1, 'locked', 'available', NOW(), $2, $3)`, [cur.unit_id, req.userId, `Booking cancelled - ${cur.registration_no}`]);
+        }
+      }
+      await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [cur.consumer_id, cur.unit_id]);
+      return cur;
+    });
+    await auditChange(db, req, res, 'update', 'booking', id, { status: out.status }, { status: 'cancelled', reason });
+    res.json({ success: true, data: { id, status: 'cancelled' } });
+  } catch (err) { fail(err, res, next); }
+});
+
 // GET /api/booking/:id
 router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -3515,7 +3441,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     `, [req.params.id]);
     if (!result.rows[0]) return res.status(404).json({ error: 'Booking not found' });
     res.json({ success: true, data: result.rows[0] });
-  } catch (err) { next(err); }
+  } catch (err) { fail(err, res, next); }
 });
 
 // A bad id, number or text from the form is the caller's mistake: 400, not a server error
