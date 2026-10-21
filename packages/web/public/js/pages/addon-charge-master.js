@@ -5,68 +5,60 @@
 (() => {
 
   const ACM_STYLES = `<style id="acm-styles">
-.acm-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.acm-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.acm-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.acm-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.acm-body { padding: 14px 16px 16px; }
-.acm-project-row { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
-.acm-field { display: flex; flex-direction: column; gap: 3px; }
-.acm-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.acm-project-row select { padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 13px; min-width: 200px; }
-.acm-divider { border: none; border-top: 1px solid #e0e0e0; margin: 4px 0 14px; }
-.acm-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px 20px;
-  margin-bottom: 14px;
-}
-.acm-grid input[type="text"],
-.acm-grid input[type="number"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; width: 100%; box-sizing: border-box;
-}
-.acm-grid input:focus { outline: none; border-color: #337ab7; }
-.acm-btn-row { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-.acm-btn-save {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 7px 22px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
-}
-.acm-btn-save:hover { background: #16305c; }
-.acm-btn-save:disabled { opacity: .7; cursor: not-allowed; }
-.acm-btn-cancel {
-  background: #fff; color: #555; border: 1px solid #ccc;
-  padding: 7px 16px; border-radius: 3px; font-size: 13px; cursor: pointer;
-}
-.acm-btn-cancel:hover { background: #f5f5f5; }
-.acm-msg { margin-top: 10px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.acm-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.acm-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.acm-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
-.acm-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; font-weight: bold; font-size: 12px; }
-.acm-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
-.acm-table tr:hover td { background: #f9f9f9; }
-.acm-act-link { color: #337ab7; cursor: pointer; font-size: 12px; text-decoration: underline; margin-right: 8px; }
-.acm-act-link:hover { color: #1d3a6e; }
-.acm-act-del { color: #a94442; cursor: pointer; font-size: 12px; text-decoration: underline; }
-.acm-act-del:hover { color: #800; }
-.acm-empty { text-align: center; color: #999; padding: 16px; font-size: 13px; }
-.acm-badge-active   { background: #dff0d8; color: #3c763d; padding: 2px 7px; border-radius: 10px; font-size: 11px; }
-.acm-badge-inactive { background: #f2dede; color: #a94442; padding: 2px 7px; border-radius: 10px; font-size: 11px; }
+.acm-page { max-width:1200px; margin:0 auto; font-size:13px; color:var(--text); }
+.acm-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+.acm-card:empty { display:none; }
+.acm-hdr { display:flex; justify-content:space-between; align-items:center; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border); }
+.acm-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; }
+.acm-body { padding:18px; }
+.acm-project-row { display:flex; align-items:flex-end; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+.acm-field { display:flex; flex-direction:column; gap:6px; }
+.acm-lbl { font-size:11px; font-weight:500; color:var(--text2); letter-spacing:.3px; white-space:nowrap; }
+.acm-project-row select { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; min-width:260px; background:var(--surface); color:var(--text); }
+.acm-divider { border:none; border-top:1px solid var(--border); margin:4px 0 16px; }
+.acm-form-title { font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; color:var(--teal); margin-bottom:12px; }
+.acm-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:14px 20px; margin-bottom:16px; }
+.acm-grid input[type="text"], .acm-grid input[type="number"] { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:100%; box-sizing:border-box; background:var(--surface); color:var(--text); }
+.acm-grid input:focus, .acm-project-row select:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.acm-grid input[type="radio"] { accent-color:var(--teal); }
+.acm-btn-row { display:flex; align-items:center; gap:10px; }
+.acm-btn-save { background:var(--teal); color:#fff; border:none; padding:9px 26px; min-height:38px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; }
+.acm-btn-save:hover { filter:brightness(.92); }
+.acm-btn-save:disabled { opacity:.7; cursor:not-allowed; }
+.acm-btn-cancel { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:9px 20px; min-height:38px; border-radius:8px; font-size:12.5px; cursor:pointer; }
+.acm-btn-cancel:hover { background:var(--surface2); }
+.acm-msg { margin-top:14px; font-size:12.5px; padding:9px 14px; border-radius:8px; display:none; }
+.acm-msg-ok  { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal); font-weight:600; }
+.acm-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red); }
+.acm-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.acm-table th { background:var(--surface2); color:var(--text3); padding:10px 18px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; border-bottom:1px solid var(--border2); }
+.acm-table td { padding:11px 18px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
+.acm-table tbody tr:hover td { background:var(--surface2); }
+.acm-act-link { display:inline-block; color:var(--teal); cursor:pointer; font-size:12px; font-weight:600; margin-right:14px; }
+.acm-act-link:hover { text-decoration:underline; }
+.acm-act-del { color:var(--red); cursor:pointer; font-size:12px; font-weight:600; }
+.acm-act-del:hover { text-decoration:underline; }
+.acm-empty { text-align:center; color:var(--text3); padding:36px 18px; font-size:13px; }
+.acm-badge-active   { background:var(--teal-bg); color:var(--teal); padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+.acm-badge-inactive { background:var(--red-bg); color:var(--red); padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+@media (max-width:900px) { .acm-grid { grid-template-columns:minmax(0,1fr); } .acm-grid > .acm-field { grid-column:auto !important; } }
+@media (max-width:700px) { .acm-table th, .acm-table td { padding:9px 12px; } .acm-project-row select { min-width:0; width:100%; } }
 </style>`;
 
+  const _TH = '<div class="acm-hdr"><span class="acm-hdr-title">Configured Charge Types</span></div>';
   let _editingId = null;
   let _rows = [];
 
   function _render() {
     return ACM_STYLES + `
 <div class="acm-page">
+  <div class="page-hdr">
+    <h1>Extra Add On Charge Master</h1>
+    <div class="breadcrumb">Set Projects / <b>Addon Charge Master</b></div>
+  </div>
   <div class="acm-card">
     <div class="acm-hdr">
-      <span class="acm-hdr-title">EXTRA ADD ON CHARGE MASTER</span>
+      <span class="acm-hdr-title">Charge Type Setup</span>
     </div>
     <div class="acm-body">
 
@@ -82,7 +74,7 @@
       <hr class="acm-divider">
 
       <div id="acm-form-section">
-        <div style="font-size:12px;font-weight:bold;color:#1d3a6e;margin-bottom:10px;" id="acm-form-title">ADD NEW CHARGE TYPE</div>
+        <div class="acm-form-title" id="acm-form-title">ADD NEW CHARGE TYPE</div>
         <div class="acm-grid">
           <div class="acm-field" style="grid-column: span 2">
             <span class="acm-lbl">* Charge Name</span>
@@ -90,7 +82,7 @@
           </div>
           <div class="acm-field" style="grid-column: span 2">
             <span class="acm-lbl">Rate Type</span>
-            <div style="display:flex;gap:16px;align-items:center;height:29px;">
+            <div style="display:flex;gap:18px;align-items:center;min-height:38px;">
               <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;">
                 <input type="radio" name="acm-rate-type" id="acm-rate-type-flat" value="flat" checked onchange="AddonChargeMaster.onRateTypeChange()"> Flat Amount
               </label>
@@ -123,10 +115,9 @@
         <div class="acm-msg" id="acm-msg"></div>
       </div>
 
-      <div id="acm-table-section"></div>
-
     </div>
   </div>
+  <div id="acm-table-section" class="acm-card"></div>
 </div>`;
   }
 
@@ -169,7 +160,7 @@
     const token = localStorage.getItem('rof-jwt') || '';
     const tableSection = document.getElementById('acm-table-section');
     if (!tableSection) return;
-    tableSection.innerHTML = '<div style="padding:10px;color:#999;font-size:12px;">Loading...</div>';
+    tableSection.innerHTML = _TH + '<div class="acm-empty">Loading...</div>';
     try {
       const res = await fetch('/api/addon-charges/master?projectId=' + encodeURIComponent(projectId), {
         headers: { Authorization: 'Bearer ' + token }
@@ -178,7 +169,7 @@
       if (!res.ok) throw new Error(data.error || 'Failed to load');
       _renderTable(data.data || []);
     } catch (e) {
-      tableSection.innerHTML = '<div class="acm-empty">Error loading charges: ' + e.message + '</div>';
+      tableSection.innerHTML = _TH + '<div class="acm-empty">Error loading charges: ' + e.message + '</div>';
     }
   }
 
@@ -187,10 +178,10 @@
     const tableSection = document.getElementById('acm-table-section');
     if (!tableSection) return;
     if (rows.length === 0) {
-      tableSection.innerHTML = '<div class="acm-empty">No charge types configured for this project.</div>';
+      tableSection.innerHTML = _TH + '<div class="acm-empty">No charge types configured for this project.</div>';
       return;
     }
-    let html = '<table class="acm-table"><thead><tr>' +
+    let html = _TH + '<table class="acm-table"><thead><tr>' +
       '<th>S.NO</th><th>CHARGE NAME</th><th>RATE</th>' +
       '<th>CGST %</th><th>SGST %</th><th>STATUS</th><th>ACTION</th>' +
       '</tr></thead><tbody>';

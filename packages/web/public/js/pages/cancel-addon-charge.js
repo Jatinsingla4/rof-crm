@@ -5,81 +5,47 @@
 (() => {
 
   const CAC2_STYLES = `<style id="cac2-styles">
-.cac2-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.cac2-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.cac2-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.cac2-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.cac2-body { padding: 14px 16px 16px; }
-.cac2-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px 14px;
-  margin-bottom: 10px;
-}
-.cac2-filter-grid2 {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 8px 14px;
-  margin-bottom: 12px;
-}
-.cac2-field { display: flex; flex-direction: column; gap: 3px; }
-.cac2-lbl { font-size: 11px; color: #555; white-space: nowrap; }
-.cac2-filter-grid select,
-.cac2-filter-grid input,
-.cac2-filter-grid2 select,
-.cac2-filter-grid2 input {
-  padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 12px; width: 100%; box-sizing: border-box;
-}
-.cac2-filter-grid select:focus,
-.cac2-filter-grid input:focus,
-.cac2-filter-grid2 select:focus,
-.cac2-filter-grid2 input:focus { outline: none; border-color: #337ab7; }
-.cac2-btn-fetch {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 6px 20px; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
-  align-self: flex-end;
-}
-.cac2-btn-fetch:hover { background: #16305c; }
-.cac2-btn-fetch:disabled { opacity: .7; cursor: not-allowed; }
-.cac2-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.cac2-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; font-weight: bold; font-size: 12px; white-space: nowrap; }
-.cac2-table td { padding: 5px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
-.cac2-table tr:nth-child(even) td { background: #f9fbff; }
-.cac2-table tr:hover td { background: #eef4ff; }
-.cac2-table td.cac2-num { text-align: right; }
-.cac2-link { color: #337ab7; cursor: pointer; text-decoration: underline; font-size: 12px; }
-.cac2-link:hover { color: #1d3a6e; }
-.cac2-cancel-link { color: #a94442; cursor: pointer; text-decoration: underline; font-size: 12px; }
-.cac2-cancel-link:hover { color: #800; }
-.cac2-no-charges { color: #aaa; font-size: 12px; }
-.cac2-empty { text-align: center; color: #999; padding: 16px; font-size: 13px; }
-.cac2-info-card {
-  background: #f7f9fc; border: 1px solid #d0daea; border-radius: 3px;
-  padding: 12px 16px; margin-bottom: 10px;
-}
-.cac2-info-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 20px;
-}
-.cac2-info-item { display: flex; flex-direction: column; gap: 2px; }
-.cac2-info-lbl { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .3px; }
-.cac2-info-val { font-size: 12px; font-weight: 600; color: #222; }
-.cac2-charges-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
-.cac2-charges-table th { background: #1d3a6e; color: #fff; padding: 5px 7px; text-align: center; font-size: 11px; white-space: nowrap; }
-.cac2-charges-table td { padding: 4px 7px; border-bottom: 1px solid #eee; vertical-align: middle; text-align: center; }
-.cac2-charges-table td.cac2-tl { text-align: left; }
-.cac2-charges-table td.cac2-tr { text-align: right; }
-.cac2-msg { margin-top: 10px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.cac2-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.cac2-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.cac2-btn-close {
-  background: #fff; color: #555; border: 1px solid #ccc;
-  padding: 6px 16px; border-radius: 3px; font-size: 13px; cursor: pointer; margin-top: 8px;
-}
-.cac2-btn-close:hover { background: #f5f5f5; }
+.cac2-page { max-width:1400px; margin:0 auto; font-size:13px; color:var(--text); }
+.cac2-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+.cac2-hdr { display:flex; justify-content:space-between; align-items:center; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border); }
+.cac2-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; }
+.cac2-body { padding:18px; }
+.cac2-filter-grid, .cac2-filter-grid2 { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:14px 18px; margin-bottom:14px; }
+.cac2-filter-grid2 { margin-bottom:0; }
+.cac2-field { display:flex; flex-direction:column; gap:6px; }
+.cac2-lbl { font-size:11px; font-weight:500; color:var(--text2); letter-spacing:.3px; white-space:nowrap; }
+.cac2-filter-grid select, .cac2-filter-grid input, .cac2-filter-grid2 select, .cac2-filter-grid2 input { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:100%; box-sizing:border-box; background:var(--surface); color:var(--text); }
+.cac2-filter-grid select:focus, .cac2-filter-grid input:focus, .cac2-filter-grid2 select:focus, .cac2-filter-grid2 input:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.cac2-btn-fetch { background:var(--teal); color:#fff; border:none; padding:9px 26px; min-height:38px; border-radius:8px; font-size:12.5px; font-weight:600; cursor:pointer; align-self:flex-start; }
+.cac2-btn-fetch:hover { filter:brightness(.92); }
+.cac2-btn-fetch:disabled { opacity:.7; cursor:not-allowed; }
+.cac2-table, .cac2-charges-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.cac2-table th, .cac2-charges-table th { background:var(--surface2); color:var(--text3); padding:10px 14px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; white-space:nowrap; border-bottom:1px solid var(--border2); }
+.cac2-table td, .cac2-charges-table td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
+.cac2-table tbody tr:hover td, .cac2-charges-table tbody tr:hover td { background:var(--surface2); }
+.cac2-table td.cac2-num { text-align:right; }
+.cac2-link { color:var(--teal); cursor:pointer; font-size:12px; font-weight:600; }
+.cac2-link:hover { text-decoration:underline; }
+.cac2-cancel-link { color:var(--red); cursor:pointer; font-size:12px; font-weight:600; }
+.cac2-cancel-link:hover { text-decoration:underline; }
+.cac2-no-charges { color:var(--text3); font-size:12px; }
+.cac2-empty { text-align:center; color:var(--text3); padding:36px 18px; font-size:13px; }
+.cac2-info-card { background:var(--surface2); border:1px solid var(--border2); border-radius:10px; padding:14px 18px; margin-bottom:16px; }
+.cac2-info-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px 20px; }
+.cac2-info-item { display:flex; flex-direction:column; gap:3px; }
+.cac2-info-lbl { font-size:10.5px; color:var(--text3); text-transform:uppercase; letter-spacing:.4px; }
+.cac2-info-val { font-size:13px; font-weight:600; color:var(--text); }
+.cac2-charges-table { border:1px solid var(--border2); border-radius:8px; overflow:hidden; font-size:12px; }
+.cac2-charges-table th { text-align:center; }
+.cac2-charges-table td { text-align:center; }
+.cac2-charges-table td.cac2-tl { text-align:left; }
+.cac2-charges-table td.cac2-tr { text-align:right; }
+.cac2-status-active { color:var(--teal); background:var(--teal-bg); padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+.cac2-msg { margin-top:14px; font-size:12.5px; padding:9px 14px; border-radius:8px; display:none; }
+.cac2-msg-ok  { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal); font-weight:600; }
+.cac2-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red); }
+.cac2-btn-close { background:var(--surface); color:var(--text2); border:1px solid var(--border2); padding:9px 22px; min-height:38px; border-radius:8px; font-size:12.5px; cursor:pointer; margin-top:14px; }
+.cac2-btn-close:hover { background:var(--surface2); }
 </style>`;
 
   let _projects = [];
@@ -90,6 +56,10 @@
   function _renderPage() {
     return CAC2_STYLES + `
 <div class="cac2-page">
+  <div class="page-hdr">
+    <h1>Cancel Extra Add On Charge</h1>
+    <div class="breadcrumb">Set Projects / <b>Addon Charges</b></div>
+  </div>
 
   <!-- SECTION 1: Filters -->
   <div class="cac2-card">
@@ -331,7 +301,7 @@
   async function _loadConsumerCharges(consumerId) {
     const wrap = document.getElementById('cac2-charges-wrap');
     if (!wrap) return;
-    wrap.innerHTML = '<div style="color:#999;font-size:12px;padding:8px">Loading charges...</div>';
+    wrap.innerHTML = '<div class="cac2-empty">Loading charges...</div>';
     const token = _token();
     try {
       const res = await fetch('/api/addon-charges/consumer?consumerId=' + encodeURIComponent(consumerId), {
@@ -360,7 +330,7 @@
         '<td>' + _fmtDate(r.effective_date) + '</td>' +
         '<td class="cac2-tr">' + _fmtNum(r.amount) + '</td>' +
         '<td class="cac2-tr">' + _fmtNum(r.total_amount) + '</td>' +
-        '<td><span style="color:#3c763d;font-weight:600">Active</span></td>' +
+        '<td><span class="cac2-status-active">Active</span></td>' +
         '<td>' +
           '<span class="cac2-cancel-link" onclick="CancelAddonCharge.cancelCharge(\'' + r.id + '\')">Cancel</span>' +
         '</td>' +

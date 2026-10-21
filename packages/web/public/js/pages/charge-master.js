@@ -5,32 +5,26 @@
 (() => {
 
   const CM_STYLES = `<style id="cm-styles">
-.cm-page { padding: 0; font-family: Arial, sans-serif; font-size: 13px; }
-.cm-card { background: #fff; border: 1px solid #ddd; border-radius: 3px; margin-bottom: 10px; }
-.cm-hdr {
-  display: flex; justify-content: space-between; align-items: center;
-  background: #1d3a6e; padding: 7px 12px; border-radius: 3px 3px 0 0;
-}
-.cm-hdr-title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .3px; }
-.cm-body { padding: 14px 16px 16px; }
-.cm-table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 12px; }
-.cm-table th { background: #1d3a6e; color: #fff; padding: 6px 8px; text-align: left; font-weight: bold; font-size: 12px; }
-.cm-table td { padding: 6px 8px; border-bottom: 1px solid #eee; vertical-align: middle; }
-.cm-table input[type="number"] {
-  padding: 5px 8px; border: 1px solid #ccc; border-radius: 3px;
-  font-size: 13px; width: 120px; box-sizing: border-box;
-}
-.cm-table input:focus { outline: none; border-color: #337ab7; }
-.cm-btn-save {
-  background: #1d3a6e; color: #fff; border: none;
-  padding: 5px 16px; border-radius: 3px; font-size: 12px; font-weight: bold; cursor: pointer;
-}
-.cm-btn-save:hover { background: #16305c; }
-.cm-btn-save:disabled { opacity: .7; cursor: not-allowed; }
-.cm-msg { margin-top: 10px; font-size: 13px; padding: 6px 10px; border-radius: 3px; display: none; }
-.cm-msg-ok  { background: #dff0d8; color: #3c763d; border: 1px solid #d6e9c6; }
-.cm-msg-err { background: #f2dede; color: #a94442; border: 1px solid #ebccd1; }
-.cm-empty { text-align: center; color: #999; padding: 16px; font-size: 13px; }
+.cm-page { max-width:1100px; margin:0 auto; font-size:13px; color:var(--text); }
+.cm-card { background:var(--surface); border:1px solid var(--border2); border-radius:10px; margin-bottom:16px; overflow:hidden; }
+.cm-hdr { display:flex; justify-content:space-between; align-items:center; background:var(--teal-bg); padding:14px 18px; border-bottom:1px solid var(--border); }
+.cm-hdr-title { color:var(--text); font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; }
+.cm-hdr-sub { font-size:11px; color:var(--text3); }
+.cm-body { padding:0; }
+.cm-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+.cm-table th { background:var(--surface2); color:var(--text3); padding:10px 18px; text-align:left; font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.4px; border-bottom:1px solid var(--border2); }
+.cm-table td { padding:12px 18px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text); }
+.cm-table tbody tr:hover td { background:var(--surface2); }
+.cm-table input[type="number"] { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:140px; box-sizing:border-box; background:var(--surface); color:var(--text); }
+.cm-table input:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
+.cm-btn-save { background:var(--teal); color:#fff; border:none; padding:8px 20px; min-height:36px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; }
+.cm-btn-save:hover { filter:brightness(.92); }
+.cm-btn-save:disabled { opacity:.7; cursor:not-allowed; }
+.cm-msg { margin:14px 18px 16px; font-size:12.5px; padding:9px 14px; border-radius:8px; display:none; }
+.cm-msg-ok  { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal); font-weight:600; }
+.cm-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red); }
+.cm-empty { text-align:center; color:var(--text3); padding:36px 18px; font-size:13px; }
+@media (max-width:700px) { .cm-table th, .cm-table td { padding:10px 12px; } .cm-table input[type="number"] { width:100px; } }
 </style>`;
 
   let _rows = [];
@@ -38,9 +32,14 @@
   function _render() {
     return CM_STYLES + `
 <div class="cm-page">
+  <div class="page-hdr">
+    <h1>Charge Master</h1>
+    <div class="breadcrumb">Set Projects / <b>Charge Master</b></div>
+  </div>
   <div class="cm-card">
     <div class="cm-hdr">
-      <span class="cm-hdr-title">CHARGE MASTER — OTHER CHARGES</span>
+      <span class="cm-hdr-title">Other Charges</span>
+      <span class="cm-hdr-sub">Edit a rate and click Save</span>
     </div>
     <div class="cm-body">
       <div id="cm-table-section"></div>
@@ -58,7 +57,7 @@
     const token = localStorage.getItem('rof-jwt') || '';
     const tableSection = document.getElementById('cm-table-section');
     if (!tableSection) return;
-    tableSection.innerHTML = '<div style="padding:10px;color:#999;font-size:12px;">Loading...</div>';
+    tableSection.innerHTML = '<div class="cm-empty">Loading...</div>';
     try {
       const res = await fetch('/api/charge-master/config', {
         headers: { Authorization: 'Bearer ' + token }
@@ -72,6 +71,7 @@
   }
 
   function _renderTable(rows) {
+    rows = rows.filter(function(r) { return r.charge_key === 'balcony_charge'; });
     _rows = rows;
     const tableSection = document.getElementById('cm-table-section');
     if (!tableSection) return;
