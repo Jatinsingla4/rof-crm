@@ -8,58 +8,104 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
-const master_js_1 = require("./master.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
+const fail = (err, res, next) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
+const PRICE_MAX = 100000000000; // ₹ 10,000 crore, the column is a whole-rupee bigint
+const AREA_MAX = 1000000;
+const floorNo = (v) => {
+    const n = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d{1,3}$/.test(v) ? Number(v) : NaN;
+    if (!Number.isInteger(n) || n < -5 || n > 300)
+        throw (0, input_js_1.bad)('Floor must be a whole number from -5 to 300');
+    return n;
+};
+const planUrl = (v) => {
+    const u = (0, input_js_1.text)(v, 'Floor plan link', 500, false);
+    if (u && !/^https?:\/\/[^\s]+$/i.test(u))
+        throw (0, input_js_1.bad)('Floor plan link must start with http:// or https://');
+    return u;
+};
+// One set of rules for a new unit, an edit and a bulk-import row. `cur` is the stored row on edit (unchanged fields keep their value).
+const unitFields = (b, cur) => {
+    const pick = (k, col, label, max, dec) => (0, input_js_1.has)(b[k]) ? (0, input_js_1.num)(b[k], label, max, dec) : cur ? (cur[col] == null ? null : Number(cur[col])) : null;
+    const f = {
+        carpet: pick('carpetAreaSqft', 'carpet_area_sqft', 'Carpet area', AREA_MAX, 4), sup: pick('superAreaSqft', 'super_area_sqft', 'Super area', AREA_MAX, 4),
+        balcony: pick('balconyAreaSqft', 'balcony_area_sqft', 'Balcony area', AREA_MAX, 4), base: pick('basePriceInr', 'base_price_inr', 'Base price', PRICE_MAX, 0), total: pick('totalPriceInr', 'total_price_inr', 'Total price', PRICE_MAX, 0),
+    };
+    if (f.carpet !== null && f.sup !== null && f.sup < f.carpet)
+        throw (0, input_js_1.bad)('Super area cannot be less than the carpet area');
+    if (f.base !== null && f.total !== null && f.total < f.base)
+        throw (0, input_js_1.bad)('Total price cannot be less than the base price');
+    return f;
+};
 // POST /api/units - Create unit
 router.post('/', async (req, res, next) => {
     try {
-        const { projectId, towerId, floor, bhkType, carpetAreaSqft, superAreaSqft, balconyAreaSqft, basePriceInr, totalPriceInr, facing, floorPlanUrl, unitTypeId, } = req.body;
-        const cleaned = (0, master_js_1.cleanBody)(req.body, ['unitNumber']);
-        if ('error' in cleaned)
-            return res.status(400).json({ error: cleaned.error });
-        const { unitNumber } = cleaned.values;
-        if (!projectId || !towerId || !unitNumber || !bhkType) {
-            return res.status(400).json({ error: 'Missing required fields' });
-        }
-        if (floor === undefined || floor === null || floor === '') {
-            return res.status(400).json({ error: 'Floor number is required for each unit' });
-        }
-        const numberError = (0, master_js_1.badNumber)(req.body, ['carpetAreaSqft', 'superAreaSqft', 'balconyAreaSqft', 'basePriceInr', 'totalPriceInr']);
-        if (numberError)
-            return res.status(400).json({ error: numberError });
-        const tower = await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2', [towerId, projectId]);
+        const b = (0, input_js_1.body)(req);
+        const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId'), towerId = (0, input_js_1.uuid)(b.towerId, 'towerId');
+        const unitNumber = (0, input_js_1.text)(b.unitNumber, 'Unit number', 50, true);
+        const bhkType = (0, input_js_1.text)(b.bhkType, 'BHK type', 50, true);
+        if (!(0, input_js_1.has)(b.floor))
+            throw (0, input_js_1.bad)('Floor number is required for each unit');
+        const floor = floorNo(b.floor);
+        const facing = (0, input_js_1.text)(b.facing, 'Facing', 30, false), floorPlanUrl = planUrl(b.floorPlanUrl);
+        const unitTypeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
+        const f = unitFields(b);
+        const tower = await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [towerId, projectId]);
         if (!tower.rows.length)
-            return res.status(400).json({ error: 'This tower does not belong to the selected project' });
-        if (unitTypeId) {
-            const ut = await index_js_1.db.query('SELECT 1 FROM unit_types WHERE id = $1 AND project_id = $2', [unitTypeId, projectId]);
-            if (!ut.rows.length)
-                return res.status(400).json({ error: 'This unit type does not belong to the selected project' });
+            throw (0, input_js_1.bad)('This tower does not belong to the selected project');
+        if (unitTypeId && !(await index_js_1.db.query('SELECT 1 FROM unit_types WHERE id = $1 AND project_id = $2', [unitTypeId, projectId])).rows.length)
+            throw (0, input_js_1.bad)('This unit type does not belong to the selected project');
+        const client = await index_js_1.db.connect();
+        let made;
+        try {
+            await client.query('BEGIN');
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext('unit|' || $1 || '|' || lower($2)))`, [towerId, unitNumber]);
+            if ((await client.query('SELECT 1 FROM units WHERE tower_id = $1 AND lower(unit_number) = lower($2)', [towerId, unitNumber])).rows.length) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({ success: false, error: 'A unit with this number already exists in this tower. Please use a different unit number.' });
+            }
+            made = (await client.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft,
+           base_price_inr, total_price_inr, facing, floor_plan_url, status, created_by_user_id, unit_type_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'available',$13,$14)
+         RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.balcony || null, f.base, f.total, facing, floorPlanUrl, req.userId, unitTypeId])).rows[0];
+            await client.query('COMMIT');
         }
-        const result = await index_js_1.db.query(`INSERT INTO units (
-        project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft,
-        super_area_sqft, balcony_area_sqft,
-        base_price_inr, total_price_inr, facing, floor_plan_url,
-        status, created_by_user_id, unit_type_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'available', $13, $14)
-       RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`, [projectId, towerId, floor, unitNumber, bhkType, carpetAreaSqft, superAreaSqft,
-            balconyAreaSqft || null,
-            basePriceInr, totalPriceInr, facing, floorPlanUrl, req.userId, unitTypeId || null]);
-        res.status(201).json({ success: true, data: result.rows[0] });
+        catch (e) {
+            await client.query('ROLLBACK').catch(() => { });
+            throw e;
+        }
+        finally {
+            client.release();
+        }
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'unit', made.id, undefined, made);
+        res.status(201).json({ success: true, data: made });
     }
     catch (error) {
         if (error.code === '23505') {
-            return res.status(409).json({
-                success: false,
-                error: 'A unit with this number already exists in this tower. Please use a different unit number.'
-            });
+            return res.status(409).json({ success: false, error: 'A unit with this number already exists in this tower. Please use a different unit number.' });
         }
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/units - List units with filters
 router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
-        const { projectId, towerId, status, bhkType, consumerName, registrationNo, page = 1, pageSize = 200 } = req.query;
+        const { projectId, towerId, status, bhkType, consumerName, registrationNo } = req.query;
+        // Paging is a number we check ourselves (it used to be pasted into the SQL text)
+        const intParam = (v, label, dflt, min, max) => {
+            if (v === undefined || v === '')
+                return dflt;
+            const n = typeof v === 'string' && /^\d{1,6}$/.test(v) ? Number(v) : NaN;
+            if (!Number.isInteger(n) || n < min || n > max)
+                throw (0, input_js_1.bad)(`${label} must be a whole number from ${min} to ${max}`);
+            return n;
+        };
+        const page = intParam(req.query.page, 'page', 1, 1, 100000), pageSize = intParam(req.query.pageSize, 'pageSize', 200, 1, 1000);
+        for (const [k, v] of Object.entries({ projectId, towerId, status, bhkType, consumerName, registrationNo }))
+            if (v !== undefined && typeof v !== 'string')
+                throw (0, input_js_1.bad)(`${k} must be given once`);
         const innerParams = [];
         let innerWhere = `WHERE 1=1`;
         if (projectId) {
@@ -125,7 +171,7 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
       FROM units u
       JOIN towers t ON u.tower_id = t.id
       JOIN projects p ON u.project_id = p.id
-      LEFT JOIN allocations a ON a.unit_id = u.id
+      LEFT JOIN allocations a ON a.unit_id = u.id AND a.status = 'allotted'
       LEFT JOIN consumers c ON c.id = a.consumer_id
       LEFT JOIN LATERAL (
         SELECT br2.main_broker_id FROM booking_records br2
@@ -133,14 +179,15 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
       ) br ON true
       LEFT JOIN brokers bk ON bk.id = br.main_broker_id
       ${innerWhere}
-      ORDER BY u.id
+      ORDER BY u.id, a.allotment_date DESC NULLS LAST
     `;
-        const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
+        innerParams.push(pageSize, (page - 1) * pageSize);
+        const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT $${innerParams.length - 1} OFFSET $${innerParams.length}`;
         const result = await index_js_1.db.query(query, innerParams);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/units/tower/:projectId - Tower-wise breakdown
@@ -166,10 +213,14 @@ router.get('/tower/:projectId', async (req, res, next) => {
        FROM units u
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN LATERAL (
+         -- money against THIS unit: receipts on its payment plan; a receipt with no plan counts only when the customer has one unit
          SELECT COALESCE(SUM(r.amount_received_inr), 0) as received
-         FROM allocations a
-         JOIN receipts r ON r.consumer_id = a.consumer_id AND r.status != 'cancelled'
-         WHERE a.unit_id = u.id
+         FROM receipts r
+         WHERE COALESCE(r.status, '') NOT IN ('cancelled', 'bounced')
+           AND (r.payment_plan_id IN (SELECT pp.id FROM payment_plans pp WHERE pp.unit_id = u.id)
+                OR (r.payment_plan_id IS NULL
+                    AND r.consumer_id IN (SELECT a.consumer_id FROM allocations a WHERE a.unit_id = u.id AND a.status = 'allotted')
+                    AND (SELECT count(*) FROM allocations a2 WHERE a2.consumer_id = r.consumer_id AND a2.status = 'allotted') = 1))
        ) r_total ON true
        WHERE u.project_id = $1
        GROUP BY t.id, t.tower_name
@@ -318,7 +369,7 @@ router.get('/tower-detail', async (req, res, next) => {
        FROM units u
        JOIN towers t ON t.id = u.tower_id
        JOIN projects p ON p.id = u.project_id
-       LEFT JOIN allocations a ON a.unit_id = u.id
+       LEFT JOIN allocations a ON a.unit_id = u.id AND a.status = 'allotted'
        LEFT JOIN consumers c ON c.id = a.consumer_id
        LEFT JOIN LATERAL (
          SELECT br2.booking_date, br2.selected_plan_name, br2.main_broker_id, br2.self_or_loan
@@ -402,78 +453,108 @@ router.get('/:id', async (req, res, next) => {
 // PATCH /api/units/:id - Update unit details
 router.patch('/:id', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { floor, facing, floorPlanUrl, basePriceInr, totalPriceInr, balconyAreaSqft } = req.body;
-        const numberError = (0, master_js_1.badNumber)(req.body, ['basePriceInr', 'totalPriceInr', 'balconyAreaSqft']);
-        if (numberError)
-            return res.status(400).json({ error: numberError });
-        const result = await index_js_1.db.query(`UPDATE units
-       SET floor = COALESCE($1, floor),
-           facing = COALESCE($2, facing),
-           floor_plan_url = COALESCE($3, floor_plan_url),
-           base_price_inr = COALESCE($4, base_price_inr),
-           total_price_inr = COALESCE($5, total_price_inr),
-           balcony_area_sqft = COALESCE($6, balcony_area_sqft),
-           updated_at = NOW()
-       WHERE id = $7
-       RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`, [floor, facing, floorPlanUrl, basePriceInr, totalPriceInr,
-            balconyAreaSqft ?? null, id]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Unit not found' });
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
+        const b = (0, input_js_1.body)(req);
+        const client = await index_js_1.db.connect();
+        let out;
+        try {
+            await client.query('BEGIN');
+            const cur = (await client.query('SELECT * FROM units WHERE id = $1 FOR UPDATE', [id])).rows[0];
+            if (!cur) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Unit not found' });
+            }
+            const floor = (0, input_js_1.has)(b.floor) ? floorNo(b.floor) : cur.floor;
+            const facing = (0, input_js_1.has)(b.facing) ? (0, input_js_1.text)(b.facing, 'Facing', 30, false) : cur.facing;
+            const floorPlanUrl = (0, input_js_1.has)(b.floorPlanUrl) ? planUrl(b.floorPlanUrl) : cur.floor_plan_url;
+            const f = unitFields({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft }, cur);
+            const same = (a, v) => (a === null && v == null) || (a !== null && v != null && Number(v) === a);
+            const moneyChanged = !same(f.base, cur.base_price_inr) || !same(f.total, cur.total_price_inr) || !same(f.balcony, cur.balcony_area_sqft);
+            if (moneyChanged) {
+                // Booking, demands and receipts were priced from these figures, so they stay as they are once the unit is sold
+                const sold = cur.status !== 'available' && cur.status !== 'locked' && cur.status !== 'held'
+                    || (await client.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length > 0;
+                if (sold)
+                    throw Object.assign((0, input_js_1.bad)('This unit already has a booking, so its price and balcony area can no longer be changed.'), { http: 409 });
+            }
+            const upd = (await client.query(`UPDATE units SET floor = $2, facing = $3, floor_plan_url = $4, base_price_inr = $5, total_price_inr = $6, balcony_area_sqft = $7, updated_at = NOW()
+         WHERE id = $1 RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`, [id, floor, facing, floorPlanUrl, f.base, f.total, f.balcony])).rows[0];
+            await client.query('COMMIT');
+            out = { cur, upd };
         }
-        res.json({ success: true, data: result.rows[0] });
+        catch (e) {
+            await client.query('ROLLBACK').catch(() => { });
+            throw e;
+        }
+        finally {
+            client.release();
+        }
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit', id, out.cur, out.upd);
+        res.json({ success: true, data: out.upd });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
-// POST /api/units/bulk-import - Bulk import units from CSV
+// POST /api/units/bulk-import - Bulk import units from CSV (each row is checked with the same rules as Add Unit)
 router.post('/bulk-import', async (req, res, next) => {
     try {
-        const { projectId, rows } = req.body;
-        if (!Array.isArray(rows))
-            return res.status(400).json({ error: 'rows must be a list of units' });
-        let created = 0;
-        let skipped = 0;
+        const b = (0, input_js_1.body)(req);
+        const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId');
+        if (!Array.isArray(b.rows))
+            throw (0, input_js_1.bad)('rows must be a list of units');
+        if (b.rows.length === 0)
+            throw (0, input_js_1.bad)('There are no rows to import');
+        if (b.rows.length > 2000)
+            throw (0, input_js_1.bad)('Import at most 2000 units at a time');
+        if (!(await index_js_1.db.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length)
+            return res.status(404).json({ error: 'Project not found' });
+        let created = 0, skipped = 0;
         const errors = [];
-        for (const row of rows) {
-            if (row.floor === undefined || row.floor === null || row.floor === '') {
-                skipped++;
-                errors.push({ unitNumber: row.unitNumber, reason: 'Floor number is required for each unit' });
-                continue;
-            }
+        for (const row of b.rows) {
+            const label = row && typeof row === 'object' ? String(row.unitNumber ?? '').slice(0, 50) : '';
             try {
-                // Resolve tower by name — create if doesn't exist
-                let towerId = row.towerId;
-                if (!towerId && row.tower) {
-                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
-             ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
-             RETURNING id`, [projectId, row.tower]);
-                    towerId = towerRes.rows[0].id;
+                if (!row || typeof row !== 'object' || Array.isArray(row))
+                    throw (0, input_js_1.bad)('Row is not valid');
+                const unitNumber = (0, input_js_1.text)(row.unitNumber, 'Unit number', 50, true), bhkType = (0, input_js_1.text)(row.bhkType, 'BHK type', 50, true);
+                if (!(0, input_js_1.has)(row.floor))
+                    throw (0, input_js_1.bad)('Floor number is required for each unit');
+                const floor = floorNo(row.floor), facing = (0, input_js_1.text)(row.facing, 'Facing', 30, false);
+                const f = unitFields({ carpetAreaSqft: row.carpetAreaSqft ?? row.carpetAreaSqm, superAreaSqft: row.superAreaSqft ?? row.superAreaSqm, basePriceInr: row.basePriceInr, totalPriceInr: row.totalPriceInr });
+                let towerId = null;
+                if ((0, input_js_1.has)(row.towerId)) {
+                    towerId = (0, input_js_1.uuid)(row.towerId, 'towerId');
+                    if (!(await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [towerId, projectId])).rows.length)
+                        throw (0, input_js_1.bad)('This tower does not belong to the project');
                 }
-                const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
-            carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
-            status, created_by_user_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
-           ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, row.floor, row.unitNumber, row.bhkType,
-                    row.carpetAreaSqft || row.carpetAreaSqm, row.superAreaSqft || row.superAreaSqm,
-                    row.basePriceInr, row.totalPriceInr, row.facing, req.userId]);
+                else {
+                    const tn = (0, input_js_1.text)(row.tower, 'Tower', 100, true);
+                    towerId = (await index_js_1.db.query('SELECT id FROM towers WHERE project_id = $1 AND lower(tower_name) = lower($2) AND deleted_at IS NULL', [projectId, tn])).rows[0]?.id
+                        ?? (await index_js_1.db.query('INSERT INTO towers (project_id, tower_name) VALUES ($1, $2) ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name RETURNING id', [projectId, tn])).rows[0].id;
+                }
+                const dup = await index_js_1.db.query('SELECT 1 FROM units WHERE tower_id = $1 AND lower(unit_number) = lower($2)', [towerId, unitNumber]);
+                if (dup.rows.length)
+                    throw (0, input_js_1.bad)('A unit with this number already exists in this tower');
+                const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'available',$11) ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.base, f.total, facing, req.userId]);
                 if (inserted.rowCount)
                     created++;
                 else {
                     skipped++;
-                    errors.push({ unitNumber: row.unitNumber, reason: 'A unit with this number already exists in this tower' });
+                    errors.push({ unitNumber: label, reason: 'A unit with this number already exists in this tower' });
                 }
             }
             catch (error) {
                 skipped++;
-                errors.push({ unitNumber: row.unitNumber, reason: error.message.split('\n')[0] });
+                // our own messages are shown as they are; a database message is not passed on
+                errors.push({ unitNumber: label, reason: error?.http ? error.message : 'This row could not be saved' });
             }
         }
-        res.json({ success: true, data: { totalRows: rows.length, created, skipped, errors } });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'unit_bulk_import', projectId, undefined, { totalRows: b.rows.length, created, skipped });
+        res.json({ success: true, data: { totalRows: b.rows.length, created, skipped, errors } });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 router.use(pg_errors_js_1.pgErrorHandler);

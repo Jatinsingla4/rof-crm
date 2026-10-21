@@ -153,3 +153,24 @@ Also: `dist/db/migrations` now holds migrations 096 and 097 (096 was missing the
 Tests after these changes (local database): `api-test-fixes.mjs` 47 of 47, `api-test-project-setup.mjs` 81 of 81, Set Master scripts 134 and 19, all passing.
 
 Still open: Neon has not been checked (data, `nav_pages`, running migrations 096 and 097), and Payment Plan Setup, Charge Master, Add-on Charges, GST Configuration and the Rate Report screen are untested. Not changed: the receipt print path outside the applicant ledger, which should be read once when Receipts are tested.
+
+---
+
+## Second pass: Project Set Up in depth and Rate Report
+
+Verified from the code and by running it (`api-test-units-rates.mjs`, 163 checks, plus the earlier two scripts here).
+
+**Found and fixed**
+- **Unit list paging was pasted into the SQL text** (`pageSize`, `page`): a crafted value could run its own sub-query. Paging is now a checked number (page 1–100000, size 1–1000); every other bad or repeated filter gives a clear 400.
+- **The unit list and tower detail showed old owners.** A cancelled or transferred allocation was joined like a live one, and a unit with two allocations could appear twice or show the wrong customer. Only a live (allotted) allocation counts now, one row per unit.
+- **Tower summary "received amount" was wrong for a customer with two units** (all of the customer's receipts were counted under every unit) and counted bounced cheques. It now counts receipts on that unit's payment plan, leaves out bounced and cancelled ones, and counts a receipt with no plan only when the customer has a single unit.
+- **Add Unit / Edit Unit rules:** floor −5…300 whole number; BHK, facing and unit number plain text with limits; floor-plan link must be http(s) (no `javascript:` links); areas ≤ 4 decimals and super area not below carpet; prices whole rupees up to ₹10,000 crore and total not below base; unit number unique in a tower in any letter case, also for parallel adds.
+- **A sold unit's price is locked.** Once a unit has a live booking, or is allotted/booked, its base price, total price and balcony area cannot change (409). Facing, floor and link stay editable. Held units can still be re-priced.
+- **Bulk import** checks every row with the same rules, caps a file at 2000 rows, reuses a tower named in another letter case, reports a plain reason per bad row (database messages are never shown), and is audited.
+- **Project fields:** land area, total units (not below the units already added), dates, PAN, Aadhaar, owner and village text, company are all checked on create and edit. Before, `12abc` silently became 12, negatives were stored, and markup went into the owner name.
+- **Audit:** creating or editing a project, tower, unit, location and bulk import is now logged.
+- A small bug in the shared number checker (whole-number strings such as `"lots"` caused a server error) is fixed.
+
+**Rate Report** (`GET /api/projects/reports/rates?projectId=`): one row per project / BHK / tower. Units with no price used to vanish from the report; they are now counted ("No price"), next to available and sold units, min / max / average price and average ₹ per sq ft (price ÷ carpet area, units without carpet area left out). The screen has a project filter, and names are escaped before they are shown.
+
+**Still open (decide later):** Unit Address / Unit Type (the master-data screens) and Reminder Master keep their earlier checks; a unit's area cannot be edited after it is added (only price, floor, facing, link and balcony).

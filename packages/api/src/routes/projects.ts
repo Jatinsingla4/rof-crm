@@ -10,6 +10,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { cleanBody } from './master.js';
 import { isScoped } from '../db/pool.js';
 import { auditChange } from '../middleware/auditLogger.js';
+import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas } from '../utils/input.js';
 
 const router = Router();
 
@@ -42,7 +43,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
   // A login limited to some projects could not see the project it creates; an admin creates projects
   if (isScoped()) return res.status(403).json({ error: 'Your login is limited to assigned projects. Ask an admin to create a new project.' });
   try {
-    const { landAreaSqft, totalUnits, possessionDate, incomeCategory, companyId } = req.body;
+    const pb = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const landAreaSqft = inHas(pb.landAreaSqft) ? inNum(pb.landAreaSqft, 'Land area', 10_000_000_000, 0) : null;
+    const totalUnits = inHas(pb.totalUnits) ? inNum(pb.totalUnits, 'Total units', 100000, 0) : null;
+    const possessionDate = inDay(pb.possessionDate, 'Possession date');
+    const incomeCategory = inText(pb.incomeCategory, 'Category', 100, false);
+    const companyId = pb.companyId;
     const cleaned = cleanBody(req.body, ['name', 'reraNumber', 'tcpLicence', 'location']);
     if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
     const { name, reraNumber, tcpLicence, location } = cleaned.values;
@@ -66,35 +72,45 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
        incomeCategory || 'Affordable', possessionDate || null, companyId || null]
     );
 
+    await auditChange(db, req, res, 'create', 'project', result.rows[0].id, undefined, result.rows[0]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
-    next(error);
+    planFail(error, res, next);
   }
 });
 
-// GET /api/projects/reports/rates — rate report (MUST be before /:id)
+// GET /api/projects/reports/rates?projectId= — rate report (MUST be before /:id)
+// One row per project / BHK type / tower. Units with no price are counted (no_price_count) instead of silently left out.
 router.get('/reports/rates', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const q = req.query.projectId;
+    if (q !== undefined && (typeof q !== 'string' || !idOk(q))) throw bad('projectId is not valid');
     const result = await db.query(`
       SELECT
+        p.id AS project_id,
         p.name AS project_name,
         u.bhk_type,
         t.tower_name AS tower,
-        COUNT(u.id) AS unit_count,
-        MIN(u.base_price_inr) AS min_price,
-        MAX(u.base_price_inr) AS max_price,
-        ROUND(AVG(u.base_price_inr)) AS avg_price,
+        COUNT(u.id)::int AS unit_count,
+        COUNT(u.id) FILTER (WHERE COALESCE(u.base_price_inr, 0) > 0)::int AS priced_count,
+        COUNT(u.id) FILTER (WHERE COALESCE(u.base_price_inr, 0) = 0)::int AS no_price_count,
+        COUNT(u.id) FILTER (WHERE u.status::text = 'available')::int AS available_count,
+        COUNT(u.id) FILTER (WHERE u.status::text NOT IN ('available', 'locked', 'held'))::int AS sold_count,
+        MIN(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0) AS min_price,
+        MAX(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0) AS max_price,
+        ROUND(AVG(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0)) AS avg_price,
+        ROUND(AVG(u.base_price_inr / u.carpet_area_sqft) FILTER (WHERE u.base_price_inr > 0 AND u.carpet_area_sqft > 0)) AS avg_rate_per_sqft,
         MIN(u.carpet_area_sqft) AS min_carpet,
         MAX(u.carpet_area_sqft) AS max_carpet
       FROM projects p
       JOIN units u ON u.project_id = p.id
       LEFT JOIN towers t ON u.tower_id = t.id
-      WHERE u.base_price_inr > 0
+      WHERE ($1::uuid IS NULL OR p.id = $1)
       GROUP BY p.id, p.name, u.bhk_type, t.id, t.tower_name
       ORDER BY p.name, u.bhk_type, t.tower_name
-    `);
+    `, [q ?? null]);
     res.json({ success: true, data: result.rows });
-  } catch (err) { next(err); }
+  } catch (err) { planFail(err, res, next); }
 });
 
 // GET /api/projects/:id/floors?towerId=
@@ -561,6 +577,21 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       const sameName = await db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1) AND id::text <> $2', [name, id]);
       if (sameName.rows.length) return res.status(409).json({ error: 'A project with this name already exists' });
     }
+    // Every field is checked before anything is saved; a field left out keeps its stored value
+    const rb = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const vb: Record<string, any> = { ...rb };
+    const TEXT_LIMITS: Record<string, number> = { envClearanceNo: 200, buildingPlanMemoNo: 200, landOwnerName: 300, landOwnerLlpin: 50, landOwnerAddress: 1000, landOwnerGpaVasikaNo: 100, saleDeedNo: 100,
+      occupationCertMemoNo: 200, deedOfDeclarationVasikaNo: 100, khasraDetails: 2000, villageName: 200, sectorName: 100, subRegistrarOffice: 200, authorisedSignatoryName: 200 };
+    for (const [k, max] of Object.entries(TEXT_LIMITS)) if (inHas(rb[k])) vb[k] = inText(rb[k], k, max, false);
+    for (const k of ['licenseDate', 'envClearanceDate', 'buildingPlanDate', 'collaborationAgreementDate', 'landOwnerGpaDate', 'saleDeedDate', 'occupationCertDate', 'deedOfDeclarationDate', 'boardResolutionDate']) if (inHas(rb[k])) vb[k] = inDay(rb[k], k);
+    if (inHas(rb.landOwnerPan)) { const p = inText(rb.landOwnerPan, 'PAN', 20, false); if (p && !/^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/.test(p)) throw bad('PAN must look like ABCDE1234F'); vb.landOwnerPan = p && p.toUpperCase(); }
+    if (inHas(rb.authorisedSignatoryAadhaar)) { const a = inText(rb.authorisedSignatoryAadhaar, 'Aadhaar', 20, false); if (a && !/^\d{4} ?\d{4} ?\d{4}$/.test(a)) throw bad('Aadhaar must be 12 digits'); vb.authorisedSignatoryAadhaar = a; }
+    if (inHas(rb.companyId)) { vb.companyId = inUuid(rb.companyId, 'companyId'); if (!(await db.query('SELECT 1 FROM companies WHERE id = $1', [vb.companyId])).rows.length) throw bad('This company does not exist'); }
+    if (inHas(rb.totalUnits)) {
+      vb.totalUnits = inNum(rb.totalUnits, 'Total units', 100000, 0);
+      const have = Number((await db.query('SELECT count(*) AS n FROM units WHERE project_id = $1', [id])).rows[0].n);
+      if (vb.totalUnits < have) throw bad(`The project already has ${have} units, so Total units cannot be less than that`);
+    }
     const {
       totalUnits,
       licenseDate,
@@ -589,7 +620,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       authorisedSignatoryAadhaar,
       boardResolutionDate,
       companyId,
-    } = req.body;
+    } = vb;
 
     const result = await db.query(
       `UPDATE projects SET
@@ -628,7 +659,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       [
         name || null,
         location || null,
-        totalUnits ? parseInt(totalUnits) : null,
+        inHas(totalUnits) ? Number(totalUnits) : null,
         licenseDate || null,
         envClearanceNo || null,
         envClearanceDate || null,
@@ -660,9 +691,10 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     );
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
+    await auditChange(db, req, res, 'update', 'project', id, undefined, result.rows[0]);
     res.json({ success: true, data: result.rows[0] });
   } catch (error) {
-    next(error);
+    planFail(error, res, next);
   }
 });
 
@@ -701,6 +733,7 @@ router.post('/:id/towers', async (req: AuthRequest, res: Response, next: NextFun
       [id, towerName]
     );
 
+    await auditChange(db, req, res, 'create', 'tower', result.rows[0].id, undefined, result.rows[0]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (error) {
     next(error);
@@ -741,6 +774,7 @@ router.delete('/:id/towers/:towerId', async (req: AuthRequest, res: Response, ne
     }
     const result = await db.query(`DELETE FROM towers WHERE id = $1 AND project_id = $2`, [req.params.towerId, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Tower not found' });
+    await auditChange(db, req, res, 'delete', 'tower', req.params.towerId, undefined, { project_id: req.params.id });
     res.json({ success: true });
   } catch (err) { next(err); }
 });
@@ -803,6 +837,7 @@ router.post('/:id/unit-locations', async (req: AuthRequest, res: Response, next:
       `INSERT INTO unit_locations (project_id, name, description) VALUES ($1, $2, $3) RETURNING *`,
       [req.params.id, name, description || null]
     );
+    await auditChange(db, req, res, 'create', 'unit_location', result.rows[0].id, undefined, result.rows[0]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { next(err); }
 });
@@ -812,6 +847,7 @@ router.delete('/:id/unit-locations/:locId', async (req: AuthRequest, res: Respon
   try {
     const result = await db.query(`DELETE FROM unit_locations WHERE id = $1 AND project_id = $2`, [req.params.locId, req.params.id]);
     if (!result.rowCount) return res.status(404).json({ error: 'Unit location not found' });
+    await auditChange(db, req, res, 'delete', 'unit_location', req.params.locId, undefined, { project_id: req.params.id });
     res.json({ success: true });
   } catch (err) { next(err); }
 });

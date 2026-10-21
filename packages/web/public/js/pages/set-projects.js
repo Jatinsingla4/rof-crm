@@ -1787,36 +1787,46 @@ Object.assign(SPJPage, {
   },
 
   // ── Rate Report
-  async loadRateReport() {
+  async loadRateReport(filterProject) {
     const el = document.getElementById('spj-rate-report');
     if (!el) return;
     try {
       const res = await Api.get('/projects/reports/rates');
-      const rows = res.data || [];
-      el.innerHTML = rows.length === 0
-        ? `<div class="empty-state"><div class="empty-icon">💰</div><div>No rate data available — add units with base prices to see the rate report</div></div>`
-        : `<table class="dash-tbl spjn-tbl">
+      const all = res.data || [];
+      const projects = [...new Map(all.map(r => [r.project_id, r.project_name])).entries()];
+      const rows = filterProject ? all.filter(r => r.project_id === filterProject) : all;
+      const money = v => v == null ? '—' : Utils.currency(v);
+      el.innerHTML = all.length === 0
+        ? `<div class="empty-state"><div class="empty-icon">💰</div><div>No units yet — add units to see the rate report</div></div>`
+        : `<div style="margin-bottom:10px"><select class="fc" style="max-width:260px" onchange="SPJPage.loadRateReport(this.value)">
+              <option value="">All projects</option>${projects.map(([id, n]) => `<option value="${Utils.esc(id)}"${id === filterProject ? ' selected' : ''}>${Utils.esc(n)}</option>`).join('')}
+            </select></div>
+          <table class="dash-tbl spjn-tbl">
             <thead><tr>
               <th>Project</th><th>BHK</th><th>Tower</th>
-              <th class="txt-right">Units</th>
-              <th class="txt-right">Min Price</th><th class="txt-right">Max Price</th><th class="txt-right">Avg Price</th>
+              <th class="txt-right">Units</th><th class="txt-right">Available</th><th class="txt-right">Sold</th><th class="txt-right">No price</th>
+              <th class="txt-right">Min Price</th><th class="txt-right">Max Price</th><th class="txt-right">Avg Price</th><th class="txt-right">Avg ₹/sqft</th>
               <th class="txt-right">Min Carpet</th><th class="txt-right">Max Carpet</th>
             </tr></thead>
             <tbody>
               ${rows.map(r=>`<tr>
-                <td class="td-bold">${r.project_name}</td>
-                <td>${r.bhk_type||'—'}</td>
-                <td>${r.tower||'—'}</td>
+                <td class="td-bold">${Utils.esc(r.project_name)}</td>
+                <td>${Utils.esc(r.bhk_type||'—')}</td>
+                <td>${Utils.esc(r.tower||'—')}</td>
                 <td class="txt-right">${r.unit_count}</td>
-                <td class="txt-right">${Utils.currency(r.min_price)}</td>
-                <td class="txt-right">${Utils.currency(r.max_price)}</td>
-                <td class="txt-right" style="font-weight:600;color:var(--teal)">${Utils.currency(r.avg_price)}</td>
+                <td class="txt-right">${r.available_count}</td>
+                <td class="txt-right">${r.sold_count}</td>
+                <td class="txt-right"${r.no_price_count ? ' style="color:var(--red,#c0392b);font-weight:600"' : ''}>${r.no_price_count}</td>
+                <td class="txt-right">${money(r.min_price)}</td>
+                <td class="txt-right">${money(r.max_price)}</td>
+                <td class="txt-right" style="font-weight:600;color:var(--teal)">${money(r.avg_price)}</td>
+                <td class="txt-right">${money(r.avg_rate_per_sqft)}</td>
                 <td class="txt-right">${r.min_carpet||0} sqft</td>
                 <td class="txt-right">${r.max_carpet||0} sqft</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
-    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
   },
 
   setInstallmentType(type) {
