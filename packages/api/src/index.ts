@@ -571,7 +571,7 @@ app.use('/api/addon-charges',       authenticateToken, addonChargesRoutes);
 app.use('/api/charge-master',       authenticateToken, chargeMasterRoutes);
 app.use('/api/plc-charges',         authenticateToken, plcChargesRoutes);
 app.use('/api/gst-configuration',   authenticateToken, gstConfigRoutes);
-app.use('/api/surrender', authenticateToken, surrenderRoutes);
+app.use('/api/surrender', authenticateToken, rbac('allocations'), surrenderRoutes);
 app.use('/api/transfers', authenticateToken, rbac('allocations'), transfersRoutes);
 app.use('/api/registry', authenticateToken, registryRoutes);
 app.use('/api/loans', authenticateToken, loansRoutes);
