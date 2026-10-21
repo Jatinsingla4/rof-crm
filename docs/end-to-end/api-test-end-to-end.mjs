@@ -17,7 +17,9 @@ const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c
 const U = Date.now().toString(36).slice(-5) + ri(0, 99), NIL = '00000000-0000-0000-0000-000000000000';
 const today = new Date().toISOString().slice(0, 10);
 let r;
-const must = async (label, p) => { const x = await p; if (x.s >= 300) { console.log(`FAIL setup: ${label} -> ${x.s} ${JSON.stringify(x.j).slice(0, 300)}`); fail++; process.exit(1); } return x.j.data ?? x.j; };
+const cleanups = [];   // run at the end, also after a failed set-up step, so a failed run leaves no GST slab behind for the scripts that follow
+const tidy = () => { for (const f of cleanups.reverse()) { try { f(); } catch {} } };
+const must = async (label, p) => { const x = await p; if (x.s >= 300) { console.log(`FAIL setup: ${label} -> ${x.s} ${JSON.stringify(x.j).slice(0, 300)}`); fail++; tidy(); console.log(`\nRESULT: ${pass} passed, ${fail} failed (seed ${SEED})`); process.exit(1); } return x.j.data ?? x.j; };
 
 // ============ 1. Build the project ============
 const co = (await must('company', A('POST', '/companies', { name: 'E2E Co ' + U }))).id;
@@ -50,6 +52,7 @@ t('PLC quote is right for every unit (flat or carpet x rate; 0 outside the locat
 let slab = (await A('GET', '/gst-configuration/gst-slabs')).j.data.find(s => s.from_date <= today && s.to_date >= today)?.id;
 const madeSlab = !slab;
 if (!slab) slab = (await must('slab', A('POST', '/gst-configuration/gst-slabs', { fromDate: new Date(Date.now() - 864e5).toISOString().slice(0, 10), toDate: new Date(Date.now() + 864e5 * 5).toISOString().slice(0, 10) }))).id;
+cleanups.push(() => { if (madeSlab) { psql(`delete from gst_tax_charge_mapping where slab_id='${slab}'`); psql(`delete from gst_tax_setup where slab_id='${slab}'`); psql(`delete from gst_slabs where id='${slab}'`); } });
 const gstPct = pick([0, 1, 5, 12, 18]);
 const taxId = (await must('tax', A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab, gstCode: `E2E ${U}`, type: 'INTRA', cgstPct: gstPct / 2, sgstPct: gstPct / 2 }))).id;
 for (const ct of ['BASIC', 'PLC', 'OTHER CHARGE']) await must('mapping ' + ct, A('POST', '/gst-configuration/gst-charge-mapping', { projectId: proj, slabId: slab, gstTaxId: taxId, chargeType: ct }));
@@ -108,6 +111,127 @@ t('rate report: sold + available = all units', roll.reduce((s, x) => s + x.sold_
 const list = (await A('GET', `/units?projectId=${proj}&pageSize=1000`)).j.data;
 t('unit list: booked units show their buyer, once each', booked.every(b => list.filter(x => x.id === b.u.id).length === 1) && list.length === units.length, `${list.length}/${units.length}`);
 const ts = (await A('GET', `/units/tower/${proj}`)).j; t('tower summary adds up to all units', ts.totals.total_units === units.length, JSON.stringify(ts.totals.total_units));
+// ============ 3b. Change one value in the middle: what moves, and what must stay exactly as it was ============
+const snap = (cons, unitId) => psql(`select json_build_object('total', pp.total_amount_inr, 'plc', coalesce(br.plc_amount,0), 'amt', (select json_agg(amount_due_inr order by installment_index) from demands d where d.payment_plan_id=pp.id), 'cgst', (select json_agg(cgst_amount order by installment_index) from demands d where d.payment_plan_id=pp.id), 'addon', (select json_agg(addon_charge_amount order by installment_index) from demands d where d.payment_plan_id=pp.id))::text from payment_plans pp join booking_records br on br.consumer_id=pp.consumer_id and br.unit_id=pp.unit_id where pp.consumer_id='${cons}' and pp.unit_id='${unitId}'`);
+const snapsNow = () => booked.map(b => snap(b.cons, b.u.id));
+const untouched = (before, label) => t(`${label}: customers already booked are not touched (totals, demands, GST, PLC)`, JSON.stringify(before) === JSON.stringify(snapsNow()), 'changed');
+const addonOf = (snapJson) => JSON.parse(snapJson).addon.reduce((s, x) => s + Number(x), 0);
+const newUnit = async (carpet, base, tag) => { const id = (await must('extra unit', A('POST', '/units', { projectId: proj, towerId: towers[0], unitNumber: `X-${tag}${ri(0, 9999)}`, floor: ri(1, 9), bhkType: '2BHK', carpetAreaSqft: carpet, superAreaSqft: carpet + 100, basePriceInr: base, totalPriceInr: base + 100000 }))).id; return { id, carpet, base }; };
+const quoteOf = async (id) => (await A('GET', `/plc-charges/quote?unitId=${id}`)).j.data.amount;
+const baseline = snapsNow();
+
+// R1: the PLC rate changes in the middle
+const x1 = await newUnit(ri(500, 900), 6000000, 'p'); await A('POST', '/plc-charges/assign', { projectId: proj, unitLocationId: locId, unitIds: [x1.id] });
+const q0 = await quoteOf(x1.id);
+const rateRow = (await A('GET', `/plc-charges?projectId=${proj}`)).j.data[0];
+const newVal = rateRow.rate_type === 'flat' ? Number(rateRow.rate_value) * 2 : Number(rateRow.rate_value) + 100;
+await A('PATCH', `/plc-charges/${rateRow.id}`, { rateValue: newVal });
+const q1 = await quoteOf(x1.id);
+t('PLC rate change: the quote for an unbooked unit moves with it', q1 !== q0 && q1 > q0, `${q0} -> ${q1}`);
+untouched(baseline, 'PLC rate change');
+const bx1 = await bookOne(x1, 'plc2'); booked.push({ ...bx1, u: x1 });
+t('PLC rate change: a booking made after it uses the new amount', bx1.plc === q1 && Number(psql(`select plc_amount from booking_records where id='${bx1.bk.id}'`)) === q1, `${bx1.plc} vs ${q1}`);
+await A('PATCH', `/plc-charges/${rateRow.id}`, { rateValue: Number(rateRow.rate_value) });
+t('PLC rate change: putting the old rate back gives the old quote again', await quoteOf(x1.id) === q0);
+const baseline2 = snapsNow();
+
+// R2: the add-on master amount changes after bookings exist, then goes back
+if (addTotalPct > 0) {
+  const cur = (await A('GET', `/addon-charges/master?projectId=${proj}`)).j.data.find(m => m.id === addon.id);
+  const body = addType === 'flat' ? { defaultAmount: Number(cur.default_amount) + 50000 } : { ratePerSqftInr: Number(cur.rate_per_sqft_inr) + 10 };
+  const before = snapsNow(); r = await A('PATCH', `/addon-charges/master/${addon.id}`, body);
+  t('add-on change: accepted and reaches every customer who has it', r.s === 200 && r.j.affectedConsumers >= booked.length, JSON.stringify(r.j));
+  const after = snapsNow();
+  const wantNew = (b) => Math.round((addType === 'flat' ? body.defaultAmount : body.ratePerSqftInr * b.u.carpet) * addTotalPct) / 100;
+  t('add-on change: each customer\'s billed add-on = new amount x the plan %', booked.every((b, i) => Math.abs(addonOf(after[i]) - wantNew(b)) <= 0.02 * nRows), after.map(addonOf).join());
+  t('add-on change: nothing else about those customers moved (price, plan amounts, GST, PLC)', booked.every((b, i) => { const x = JSON.parse(before[i]), y = JSON.parse(after[i]); return x.total === y.total && x.plc === y.plc && JSON.stringify(x.amt) === JSON.stringify(y.amt) && JSON.stringify(x.cgst) === JSON.stringify(y.cgst); }), 'moved');
+  await A('PATCH', `/addon-charges/master/${addon.id}`, addType === 'flat' ? { defaultAmount: Number(cur.default_amount) } : { ratePerSqftInr: Number(cur.rate_per_sqft_inr) });
+  t('add-on change: changing it back restores every demand exactly as it was', JSON.stringify(snapsNow()) === JSON.stringify(baseline2), 'not restored');
+  // cancel and add again for one customer: same figures
+  const b0 = booked[0], chg = psql(`select id from consumer_addon_charges where consumer_id='${b0.cons}' and status='active' limit 1`);
+  const was = snap(b0.cons, b0.u.id); await A('PATCH', `/addon-charges/consumer/${chg}/cancel`);
+  t('cancelling one customer\'s add-on takes it out of the demands', addonOf(snap(b0.cons, b0.u.id)) === 0 && addonOf(was) > 0, snap(b0.cons, b0.u.id));
+  const cur2 = (await A('GET', `/addon-charges/master?projectId=${proj}`)).j.data.find(m => m.id === addon.id);
+  await A('POST', '/addon-charges/consumer', { consumerId: b0.cons, projectId: proj, chargeMasterId: addon.id, amount: addType === 'flat' ? Number(cur2.default_amount) : Math.round(Number(cur2.rate_per_sqft_inr) * b0.u.carpet * 100) / 100 });
+  t('add-on: cancel then add again gives the same demands as before', snap(b0.cons, b0.u.id) === was, `${snap(b0.cons, b0.u.id)} vs ${was}`);
+}
+
+// R3: the area of an unbooked unit changes: quote, report and a later booking follow; booked units do not
+const x3 = await newUnit(700, 7000000, 'a'); await A('POST', '/plc-charges/assign', { projectId: proj, unitLocationId: locId, unitIds: [x3.id] });
+const q3a = await quoteOf(x3.id); const b3 = snapsNow();
+r = await A('PATCH', `/units/${x3.id}`, { carpetAreaSqft: 800, superAreaSqft: 900 }); const q3b = await quoteOf(x3.id);
+t('unit area change: PLC quote follows the carpet area (per sq ft only; flat stays)', plcType === 'flat' ? q3a === q3b : q3b > q3a, `${q3a} -> ${q3b}`);
+const rep = (await A('GET', `/projects/reports/rates?projectId=${proj}`)).j.data;
+t('unit area change: the rate report shows the new carpet area', rep.some(x => Number(x.max_carpet) >= 800), '');
+untouched(b3, 'unit area change');
+// R4: price of an unbooked unit changes before booking: the booking is priced from the new figure
+r = await A('PATCH', `/units/${x3.id}`, { basePriceInr: 7600000, totalPriceInr: 7700000 });
+const bx3 = await bookOne({ ...x3, carpet: 800, base: 7600000 }, 'price'); booked.push({ ...bx3, u: { ...x3, carpet: 800, base: 7600000 } });
+const ppTotal = Number(psql(`select total_amount_inr from payment_plans where consumer_id='${bx3.cons}'`));
+t('unit price change: the booking is priced from the new price + the PLC given (total = price + PLC)', Math.abs(ppTotal - (7600000 + bx3.plc)) <= 1, `${ppTotal} vs ${7600000 + bx3.plc}`);
+const sumAmt = Number(psql(`select sum(amount_due_inr) from demands d join payment_plans pp on pp.id=d.payment_plan_id where pp.consumer_id='${bx3.cons}'`));
+t('unit price change: the demands add up to that total (within a rupee per row)', Math.abs(sumAmt - ppTotal) <= nRows, `${sumAmt} vs ${ppTotal}`);
+
+// R5: a later GST period: a booking dated in it uses its rate, one dated today still uses the old rate
+const later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const newPct = gstPct === 18 ? 5 : 18;
+const slab2 = await A('POST', '/gst-configuration/gst-slabs', { fromDate: later(10), toDate: later(40) });
+if (slab2.s === 201) {
+  const tax2 = (await must('tax2', A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab2.j.data.id, gstCode: `E2E2 ${U}`, type: 'INTRA', cgstPct: newPct / 2, sgstPct: newPct / 2 }))).id;
+  for (const ct of ['BASIC', 'PLC', 'OTHER CHARGE']) await must('map2', A('POST', '/gst-configuration/gst-charge-mapping', { projectId: proj, slabId: slab2.j.data.id, gstTaxId: tax2, chargeType: ct }));
+  t('GST period: the old period still gives the old rate', Math.abs((await A('GET', `/gst-configuration/resolve?projectId=${proj}&chargeType=BASIC&date=${today}`)).j.data.cgstPct * 2 - gstPct) < 1e-9);
+  t('GST period: the new period gives the new rate', Math.abs((await A('GET', `/gst-configuration/resolve?projectId=${proj}&chargeType=BASIC&date=${later(15)}`)).j.data.cgstPct * 2 - newPct) < 1e-9);
+  const x5 = await newUnit(600, 5000000, 'g'); const b5 = snapsNow();
+  const cons5 = (await must('applicant', A('POST', '/consumers', { name: `E2E Buyer g ${U}`, mobile: '9' + String(Date.now() + 5).slice(-9) }))).id ?? psql(`select id from consumers where name='E2E Buyer g ${U}' limit 1`);
+  const bk5 = await must('booking later', A('POST', '/booking', { consumer_id: cons5, project_id: proj, unit_id: x5.id, selected_plan_name: planName, booking_date: later(15), booking_amount: 10000, payment_mode: 'cash' }));
+  r = await A('PATCH', `/booking/${bk5.id}`, { booking_amount: 10000, payment_mode: 'cash' });
+  const ratio = Number(psql(`select (d.cgst_amount / nullif(d.amount_due_inr,0))::numeric(8,4) from demands d join payment_plans pp on pp.id=d.payment_plan_id where pp.consumer_id='${cons5}' and d.installment_index=2`));
+  t(`GST period: a booking dated in the new period is taxed at the new rate (${newPct}%)`, r.s === 200 && Math.abs(ratio * 200 - newPct) < 0.15, `${ratio * 200} vs ${newPct}`);
+  untouched(b5, 'GST period');
+  psql(`delete from gst_tax_charge_mapping where slab_id='${slab2.j.data.id}'`); psql(`delete from gst_tax_setup where slab_id='${slab2.j.data.id}'`); psql(`delete from gst_slabs where id='${slab2.j.data.id}'`);
+} else console.log('note: GST period check skipped, a slab already covers those dates (' + slab2.s + ')');
+
+// R6: names change in the middle (tower, project)
+const b6 = snapsNow(); const oneBooked = booked[0].u.id;
+const tName = 'Renamed Tower ' + U;
+r = await A('GET', `/units?projectId=${proj}&pageSize=1000`); const towerOf = r.j.data.find(x => x.id === oneBooked).tower_id;
+psql(`update towers set tower_name='${tName}' where id='${towerOf}'`); psql(`update projects set name='E2E Project ${U} renamed' where id='${proj}'`);
+r = await A('GET', `/units?projectId=${proj}&pageSize=1000`); const row6 = r.j.data.find(x => x.id === oneBooked);
+t('rename: the unit list shows the new tower and project name for a booked unit', row6.tower_name === tName && row6.project_name === `E2E Project ${U} renamed`, JSON.stringify([row6.tower_name, row6.project_name]));
+untouched(b6, 'rename'); psql(`update projects set name='E2E Project ${U}' where id='${proj}'`);
+
+// R7: a unit moves to another location, a plan copy is edited: the booked ones keep what they were given
+const b7 = snapsNow(); const loc2 = (await must('loc2', A('POST', `/projects/${proj}/unit-locations`, { name: 'Roadside ' + U }))).id;
+const x7 = await newUnit(650, 5500000, 'm'); await A('POST', '/plc-charges/assign', { projectId: proj, unitLocationId: locId, unitIds: [x7.id] }); const q7a = await quoteOf(x7.id);
+await A('POST', '/plc-charges/assign', { projectId: proj, unitLocationId: loc2, unitIds: [x7.id, booked[0].u.id] });
+t('location move: an unbooked unit moved to a location with no rate quotes 0', await quoteOf(x7.id) === 0 && q7a > 0, `${q7a}`);
+untouched(b7, 'location move');
+const copyName = 'E2E Copy ' + U; await must('copy', A('POST', `/projects/${proj}/plans/copy`, { from: planName, to: copyName }));
+const crow = (await A('GET', `/projects/${proj}/plan-templates?planName=${encodeURIComponent(copyName)}`)).j.data.sort((p, q) => p.installment_index - q.installment_index);
+// move 5% from the second row to the first: the total stays 100, but raising the first first would break the 100% cap, so lower the second first
+r = await A('PATCH', `/projects/${proj}/plan-templates/${crow[0].id}`, { percentage: Number(crow[0].percentage) + 5 });
+t('plan copy: raising one row past 100% is refused while the other rows are unchanged', r.s === 400, r.s);
+r = await A('PATCH', `/projects/${proj}/plan-templates/${crow[1].id}`, { percentage: Number(crow[1].percentage) - 5 });
+const okLower = r.s === 200;   // the plan is incomplete (95%) for a moment: Booking must refuse it
+const cpMid = (await A('GET', `/projects/${proj}/plans`)).j.data.find(p => p.plan_name === copyName);
+if (okLower) {
+  t('plan copy: at 95% the copy is shown as not bookable', cpMid.complete === false, JSON.stringify(cpMid));
+  const xm = await newUnit(600, 6000000, 'i'); const consM = (await must('applicant', A('POST', '/consumers', { name: `E2E Buyer i ${U}`, mobile: '9' + String(Date.now() + 3).slice(-9) }))).id ?? psql(`select id from consumers where name='E2E Buyer i ${U}' limit 1`);
+  r = await A('POST', '/booking', { consumer_id: consM, project_id: proj, unit_id: xm.id, selected_plan_name: copyName, booking_date: today, booking_amount: 10000, payment_mode: 'cash' });
+  t('plan copy: a booking cannot even be started on a plan that is not 100% (it would freeze the plan)', r.s === 400 && /100%/.test(r.j.error) && psql(`select count(*) from booking_records where unit_id='${xm.id}'`) === '0', r.s + JSON.stringify(r.j));
+  r = await A('PATCH', `/projects/${proj}/plan-templates/${crow[0].id}`, { percentage: Number(crow[0].percentage) + 5 });
+  const cp = (await A('GET', `/projects/${proj}/plans`)).j.data.find(p => p.plan_name === copyName);
+  t('plan copy: raising the first row brings it back to a complete 100%', r.s === 200 && cp.complete === true, r.s + JSON.stringify(cp));
+  if (cp.complete) {
+    const x8 = await newUnit(600, 6000000, 'c'); const cons8 = (await must('applicant', A('POST', '/consumers', { name: `E2E Buyer c ${U}`, mobile: '9' + String(Date.now() + 9).slice(-9) }))).id ?? psql(`select id from consumers where name='E2E Buyer c ${U}' limit 1`);
+    const bk8 = await must('booking copy', A('POST', '/booking', { consumer_id: cons8, project_id: proj, unit_id: x8.id, selected_plan_name: copyName, booking_date: today, booking_amount: 10000, payment_mode: 'cash' }));
+    r = await A('PATCH', `/booking/${bk8.id}`, { booking_amount: 10000, payment_mode: 'cash' });
+    const d1 = Number(psql(`select amount_due_inr from demands d join payment_plans pp on pp.id=d.payment_plan_id where pp.consumer_id='${cons8}' and d.installment_index=1`)), tot8 = Number(psql(`select total_amount_inr from payment_plans where consumer_id='${cons8}'`));
+    t('plan copy: a booking on the edited copy follows the copy\'s new first-row percentage', r.s === 200 && Math.abs(d1 - tot8 * (Number(crow[0].percentage) + 5) / 100) <= 1, `${r.s} ${d1} vs ${tot8 * (Number(crow[0].percentage) + 5) / 100}`);
+    untouched(b7, 'plan copy edit');
+  }
+}
+
 // a customer gets an add-on later; the demand rows move with it
 const lateCons = booked[booked.length - 1];
 // money received on the first instalment freezes it: add-on cut is refused, a raise moves forward

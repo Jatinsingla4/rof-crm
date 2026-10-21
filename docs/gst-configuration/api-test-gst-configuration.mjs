@@ -12,7 +12,10 @@ const AF = call(await login('accounts_finance@test.local')), RO = call(await log
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const G = (p) => '/gst-configuration' + p;
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000';
-const Y = 1991 + Math.floor(Math.random() * 14) * 5;       // this run's own years, far from real data; everything is removed at the end
+// this run's own years, far from real data and from any slab or financial year already there; everything is removed at the end
+const taken = [...(await A('GET', '/gst-configuration/gst-slabs')).j.data, ...(await A('GET', '/gst-configuration/financial-years')).j.data].flatMap(x => [Number(x.from_date.slice(0, 4)), Number(x.to_date.slice(0, 4))]);
+const free = Array.from({ length: 12 }, (_, i) => 1991 + i * 5).filter(y => !taken.some(ty => ty >= y - 2 && ty <= y + 36));
+const Y = free.length ? free[Math.floor(Math.random() * free.length)] : 1991;
 const d = (y, m, dd) => `${y}-${String(m).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
 const num4 = () => String(1000 + Math.floor(Math.random() * 8999));
 const made = { fy: [], hsn: [], slab: [], tax: [], map: [], proj: [] };

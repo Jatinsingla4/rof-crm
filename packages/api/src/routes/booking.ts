@@ -215,6 +215,15 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if (!consumer_id) return res.status(400).json({ error: 'consumer_id is required' });
     if (!unit_id || String(unit_id).trim() === '') return res.status(400).json({ error: 'Unit selection is required' });
     if (!selected_plan_name || String(selected_plan_name).trim() === '') return res.status(400).json({ error: 'Payment plan is required' });
+    // A booking on a plan that is not 100% could never be completed, yet it would freeze the plan so it could not be fixed
+    if (project_id) {
+      const pl = await db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(percentage), 0)::float AS pct FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [project_id, String(selected_plan_name)]);
+      if (!pl.rows[0].n || Math.abs(pl.rows[0].pct - 100) > 0.001) {
+        return res.status(400).json({ error: pl.rows[0].n
+          ? `The payment plan "${selected_plan_name}" adds up to ${pl.rows[0].pct}%, not 100%. Finish the plan in Payment Plan Setup, or choose another plan.`
+          : `The payment plan "${selected_plan_name}" does not exist or has no installments. Choose another plan.` });
+      }
+    }
 
     const client = await db.connect();
     try {

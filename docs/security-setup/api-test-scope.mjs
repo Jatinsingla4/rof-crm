@@ -71,7 +71,8 @@ r = await one.call('POST', `/consumers/${P2.cid}/multi-applicants`, { applicants
 // the connection must come back clean: after many limited requests an unlimited one still sees everything
 await Promise.all(Array.from({ length: 24 }, () => one.call('GET', '/projects')));
 r = await A('GET', '/projects'); t('after many limited requests the unlimited admin still sees both projects', has(r, P1.pid) && has(r, P2.pid), rows(r).length);
-r = await A('GET', '/units?pageSize=500'); t('and both units', has(r, P1.uid) && has(r, P2.uid));
+// each project asked for by itself: the test database holds thousands of units after the other test scripts, and one page would miss these two
+r = await A('GET', `/units?projectId=${P1.pid}&pageSize=500`); const u1ok = has(r, P1.uid); r = await A('GET', `/units?projectId=${P2.pid}&pageSize=500`); t('and both units', u1ok && has(r, P2.uid));
 r = await A('GET', '/consumers?limit=500&pageSize=500'); t('and both applicants', has(r, P1.cid) && has(r, P2.cid));
 
 // ---------- the other logins ----------
