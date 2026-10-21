@@ -5,6 +5,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
 // ── Access, input rules ──────────────────────────────────────────────────────
 // Reading is open to every signed-in user. Changing the charge master needs master_data; giving, editing,
@@ -18,55 +19,7 @@ router.use((req, res, next) => {
         return next();
     res.status(403).json({ error: onMaster ? 'You do not have permission to change add-on charge masters' : 'You do not have permission to change customer add-on charges' });
 });
-const bad = (message) => Object.assign(new Error(message), { http: 400 });
-const fail = (err, res, next) => {
-    if (err?.http)
-        return res.status(err.http).json({ error: err.message });
-    if (err?.code === '23505')
-        return res.status(400).json({ error: 'An add-on charge with this name already exists in this project' });
-    next(err);
-};
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const uuid = (v, label) => { if (typeof v !== 'string' || !UUID.test(v))
-    throw bad(`${label} is not valid`); return v; };
-// A JSON number or a plain digit string only: "1e2", "0x10", " 5 ", [5], true are refused
-const num = (v, label, max, decimals) => {
-    const n = typeof v === 'number' ? v : typeof v === 'string' && new RegExp(`^[0-9]+(\\.[0-9]{1,${decimals}})?$`).test(v) ? Number(v) : NaN;
-    if (!Number.isFinite(n) || n < 0 || n > max || Math.abs(n * 10 ** decimals - Math.round(n * 10 ** decimals)) > 1e-6) {
-        throw bad(`${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`);
-    }
-    return n;
-};
-const has = (v) => v !== undefined && v !== null && v !== '';
-const text = (v, label, max, required) => {
-    if (!has(v)) {
-        if (required)
-            throw bad(`${label} is required`);
-        return null;
-    }
-    if (typeof v !== 'string')
-        throw bad(`${label} must be text`);
-    const t = v.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
-    if (!t) {
-        if (required)
-            throw bad(`${label} is required`);
-        return null;
-    }
-    if (t.length > max)
-        throw bad(`${label} can be at most ${max} characters`);
-    if (/[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069<>]/.test(t))
-        throw bad(`${label} contains characters that are not allowed`);
-    return t;
-};
-const day = (v) => {
-    if (!has(v))
-        return null;
-    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v || v < '1990-01-01' || v > '2100-12-31')
-        throw bad('Date must be a real date (YYYY-MM-DD)');
-    return v;
-};
-const r2 = (n) => Math.round(n * 100) / 100;
-const body = (req) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
+const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'An add-on charge with this name already exists in this project');
 const likeEsc = (v) => v.replace(/[\\%_]/g, '\\$&');
 // One customer's add-on work runs one at a time, so a double click or two users cannot double-add or half-recompute
 const lockConsumer = (client, consumerId) => client.query(`SELECT pg_advisory_xact_lock(hashtext('addon|' || $1))`, [consumerId]);
@@ -111,13 +64,13 @@ async function recomputeAddonDemands(client, consumerId, projectId, paymentPlanI
         WHERE pst.project_id = $3 AND lower(pst.plan_name) = lower($1) AND pacp.charge_master_id = $2
         GROUP BY pst.installment_index`, [planName, charge.charge_master_id, projectId]);
         for (const row of pctRes.rows) {
-            const a = r2(parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100);
+            const a = (0, input_js_1.r2)(parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100);
             if (a === 0)
                 continue;
             const w = want.get(Number(row.installment_index)) || { a: 0, c: 0, s: 0 };
-            w.a = r2(w.a + a);
-            w.c = r2(w.c + r2(a * parseFloat(charge.cgst_pct) / 100));
-            w.s = r2(w.s + r2(a * parseFloat(charge.sgst_pct) / 100));
+            w.a = (0, input_js_1.r2)(w.a + a);
+            w.c = (0, input_js_1.r2)(w.c + (0, input_js_1.r2)(a * parseFloat(charge.cgst_pct) / 100));
+            w.s = (0, input_js_1.r2)(w.s + (0, input_js_1.r2)(a * parseFloat(charge.sgst_pct) / 100));
             want.set(Number(row.installment_index), w);
         }
     }
@@ -128,7 +81,7 @@ async function recomputeAddonDemands(client, consumerId, projectId, paymentPlanI
         const w = want.get(d.idx) || { a: 0, c: 0, s: 0 };
         const diff = (w.a + w.c + w.s) - (d.a + d.c + d.s);
         if (diff < -0.005)
-            throw bad(`Instalment ${d.idx} already has a payment, so the add-on billed there (₹${(d.a + d.c + d.s).toFixed(2)} with GST) cannot be reduced. Ask accounts for a credit note or refund.`);
+            throw (0, input_js_1.bad)(`Instalment ${d.idx} already has a payment, so the add-on billed there (₹${(d.a + d.c + d.s).toFixed(2)} with GST) cannot be reduced. Ask accounts for a credit note or refund.`);
         if (diff > 0.005) {
             carry.a += w.a - d.a;
             carry.c += w.c - d.c;
@@ -142,18 +95,18 @@ async function recomputeAddonDemands(client, consumerId, projectId, paymentPlanI
     if (moved) {
         target = open.find((x) => x.idx > from) || open[0];
         if (!target)
-            throw bad('Every instalment already has a payment, so this add-on cannot be billed on a demand. Ask accounts to raise a separate demand.');
+            throw (0, input_js_1.bad)('Every instalment already has a payment, so this add-on cannot be billed on a demand. Ask accounts to raise a separate demand.');
     }
     let shifted = false;
     for (const d of open) {
         const w = want.get(d.idx) || { a: 0, c: 0, s: 0 };
         const add = d === target ? carry : { a: 0, c: 0, s: 0 };
-        if (d === target && Math.abs(r2(w.a + add.a) - d.a) > 0.005)
+        if (d === target && Math.abs((0, input_js_1.r2)(w.a + add.a) - d.a) > 0.005)
             shifted = true;
-        await client.query(`UPDATE demands SET addon_charge_amount = $2, addon_cgst_amount = $3, addon_sgst_amount = $4, updated_at = NOW() WHERE id = $1`, [d.id, r2(w.a + add.a), r2(w.c + add.c), r2(w.s + add.s)]);
+        await client.query(`UPDATE demands SET addon_charge_amount = $2, addon_cgst_amount = $3, addon_sgst_amount = $4, updated_at = NOW() WHERE id = $1`, [d.id, (0, input_js_1.r2)(w.a + add.a), (0, input_js_1.r2)(w.c + add.c), (0, input_js_1.r2)(w.s + add.s)]);
     }
     // the note is only for a change made now, not for a shift that was already in place
-    return { movedAmount: shifted ? r2(carry.a + carry.c + carry.s) : 0, movedToInstalment: shifted ? target.idx : null };
+    return { movedAmount: shifted ? (0, input_js_1.r2)(carry.a + carry.c + carry.s) : 0, movedToInstalment: shifted ? target.idx : null };
 }
 // Recompute demands for each customer, one at a time in a fixed order (no deadlocks between two admins)
 async function recomputeFor(client, consumers, batch = false) {
@@ -174,7 +127,7 @@ async function recomputeFor(client, consumers, batch = false) {
         }
     }
     if (blocked.length) {
-        throw bad(`${blocked.length} customer(s) already have payments against this add-on, so it cannot be reduced or removed: ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ' …' : ''}. Ask accounts for credit notes or refunds first.`);
+        throw (0, input_js_1.bad)(`${blocked.length} customer(s) already have payments against this add-on, so it cannot be reduced or removed: ${blocked.slice(0, 5).join(', ')}${blocked.length > 5 ? ' …' : ''}. Ask accounts for credit notes or refunds first.`);
     }
     return moves.find((m) => m.movedAmount > 0) || { movedAmount: 0, movedToInstalment: null };
 }
@@ -187,30 +140,14 @@ async function lockHolders(client, masterId) {
         await lockConsumer(client, row.consumer_id);
     return r.rows;
 }
-const inTx = async (fn) => {
-    const client = await index_js_1.db.connect();
-    try {
-        await client.query('BEGIN');
-        const out = await fn(client);
-        await client.query('COMMIT');
-        return out;
-    }
-    catch (e) {
-        await client.query('ROLLBACK').catch(() => { });
-        throw e;
-    }
-    finally {
-        client.release();
-    }
-};
 const gstPcts = (b, cur) => ({
-    cgst: has(b.cgstPct) ? num(b.cgstPct, 'CGST %', 50, 4) : cur ? Number(cur.cgst_pct) : 9,
-    sgst: has(b.sgstPct) ? num(b.sgstPct, 'SGST %', 50, 4) : cur ? Number(cur.sgst_pct) : 9,
+    cgst: (0, input_js_1.has)(b.cgstPct) ? (0, input_js_1.num)(b.cgstPct, 'CGST %', 50, 4) : cur ? Number(cur.cgst_pct) : 9,
+    sgst: (0, input_js_1.has)(b.sgstPct) ? (0, input_js_1.num)(b.sgstPct, 'SGST %', 50, 4) : cur ? Number(cur.sgst_pct) : 9,
 });
 // ── A: GET /api/addon-charges/master?projectId=uuid ──────────────────────────
 router.get('/master', async (req, res, next) => {
     try {
-        const projectId = uuid(req.query.projectId, 'projectId');
+        const projectId = (0, input_js_1.uuid)(req.query.projectId, 'projectId');
         const result = await index_js_1.db.query(`SELECT * FROM addon_charge_master WHERE project_id = $1 AND is_active = true ORDER BY charge_name ASC`, [projectId]);
         res.json({ success: true, data: result.rows });
     }
@@ -221,28 +158,28 @@ router.get('/master', async (req, res, next) => {
 // ── B: POST /api/addon-charges/master ────────────────────────────────────────
 router.post('/master', async (req, res, next) => {
     try {
-        const b = body(req);
-        const projectId = uuid(b.projectId, 'projectId');
-        const chargeName = text(b.chargeName, 'Charge name', 200, true);
-        const rateType = !has(b.rateType) ? 'flat' : b.rateType;
+        const b = (0, input_js_1.body)(req);
+        const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId');
+        const chargeName = (0, input_js_1.text)(b.chargeName, 'Charge name', 200, true);
+        const rateType = !(0, input_js_1.has)(b.rateType) ? 'flat' : b.rateType;
         if (rateType !== 'flat' && rateType !== 'per_sqft')
-            throw bad('Rate type must be flat or per_sqft');
+            throw (0, input_js_1.bad)('Rate type must be flat or per_sqft');
         const { cgst, sgst } = gstPcts(b);
         let amount = 0, rate = null;
         if (rateType === 'per_sqft') {
-            rate = num(b.ratePerSqftInr, 'Rate per sq.ft.', 1000000, 2);
+            rate = (0, input_js_1.num)(b.ratePerSqftInr, 'Rate per sq.ft.', 1000000, 2);
             if (rate <= 0)
-                throw bad('Rate per sq.ft. must be more than 0');
+                throw (0, input_js_1.bad)('Rate per sq.ft. must be more than 0');
         }
         else {
-            amount = has(b.defaultAmount) ? num(b.defaultAmount, 'Amount', 1000000000, 2) : 0;
+            amount = (0, input_js_1.has)(b.defaultAmount) ? (0, input_js_1.num)(b.defaultAmount, 'Amount', 1000000000, 2) : 0;
         }
         if (!(await index_js_1.db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
             throw Object.assign(new Error('Project not found'), { http: 404 });
-        const made = await inTx(async (c) => {
+        const made = await (0, input_js_1.inTx)(async (c) => {
             await c.query(`SELECT pg_advisory_xact_lock(hashtext('addonmaster|' || $1 || '|' || lower($2)))`, [projectId, chargeName]);
             if ((await c.query(`SELECT 1 FROM addon_charge_master WHERE project_id = $1 AND is_active AND lower(charge_name) = lower($2)`, [projectId, chargeName])).rows.length) {
-                throw bad(`An add-on charge named "${chargeName}" already exists in this project`);
+                throw (0, input_js_1.bad)(`An add-on charge named "${chargeName}" already exists in this project`);
             }
             return (await c.query(`INSERT INTO addon_charge_master (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [projectId, chargeName, amount, cgst, sgst, req.userId || null, rateType, rate])).rows[0];
@@ -257,38 +194,38 @@ router.post('/master', async (req, res, next) => {
 // ── C: PATCH /api/addon-charges/master/:id ───────────────────────────────────
 router.patch('/master/:id', async (req, res, next) => {
     try {
-        const mid = uuid(req.params.id, 'Charge master id');
-        const b = body(req);
+        const mid = (0, input_js_1.uuid)(req.params.id, 'Charge master id');
+        const b = (0, input_js_1.body)(req);
         if (b.isActive !== undefined && typeof b.isActive !== 'boolean')
-            throw bad('isActive must be true or false');
+            throw (0, input_js_1.bad)('isActive must be true or false');
         if (b.isActive === false)
-            throw bad('To switch a charge off, use Deactivate (it also cancels the active customer charges)');
-        const out = await inTx(async (c) => {
+            throw (0, input_js_1.bad)('To switch a charge off, use Deactivate (it also cancels the active customer charges)');
+        const out = await (0, input_js_1.inTx)(async (c) => {
             const cur = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 FOR UPDATE`, [mid])).rows[0];
             if (!cur)
                 throw Object.assign(new Error('Charge master not found'), { http: 404 });
-            const name = has(b.chargeName) ? text(b.chargeName, 'Charge name', 200, true) : cur.charge_name;
-            const rateType = has(b.rateType) ? b.rateType : cur.rate_type;
+            const name = (0, input_js_1.has)(b.chargeName) ? (0, input_js_1.text)(b.chargeName, 'Charge name', 200, true) : cur.charge_name;
+            const rateType = (0, input_js_1.has)(b.rateType) ? b.rateType : cur.rate_type;
             if (rateType !== 'flat' && rateType !== 'per_sqft')
-                throw bad('Rate type must be flat or per_sqft');
+                throw (0, input_js_1.bad)('Rate type must be flat or per_sqft');
             const { cgst, sgst } = gstPcts(b, cur);
             let amount = Number(cur.default_amount), rate = cur.rate_per_sqft_inr == null ? null : Number(cur.rate_per_sqft_inr);
             if (rateType === 'per_sqft') {
-                if (has(b.ratePerSqftInr))
-                    rate = num(b.ratePerSqftInr, 'Rate per sq.ft.', 1000000, 2);
+                if ((0, input_js_1.has)(b.ratePerSqftInr))
+                    rate = (0, input_js_1.num)(b.ratePerSqftInr, 'Rate per sq.ft.', 1000000, 2);
                 if (!rate || rate <= 0)
-                    throw bad('Rate per sq.ft. must be more than 0');
+                    throw (0, input_js_1.bad)('Rate per sq.ft. must be more than 0');
                 amount = 0;
             }
             else {
-                if (has(b.defaultAmount))
-                    amount = num(b.defaultAmount, 'Amount', 1000000000, 2);
+                if ((0, input_js_1.has)(b.defaultAmount))
+                    amount = (0, input_js_1.num)(b.defaultAmount, 'Amount', 1000000000, 2);
                 rate = null;
             }
             if (name.toLowerCase() !== cur.charge_name.toLowerCase()) {
                 await c.query(`SELECT pg_advisory_xact_lock(hashtext('addonmaster|' || $1 || '|' || lower($2)))`, [cur.project_id, name]);
                 if ((await c.query(`SELECT 1 FROM addon_charge_master WHERE project_id = $1 AND is_active AND lower(charge_name) = lower($2) AND id <> $3`, [cur.project_id, name, mid])).rows.length) {
-                    throw bad(`An add-on charge named "${name}" already exists in this project`);
+                    throw (0, input_js_1.bad)(`An add-on charge named "${name}" already exists in this project`);
                 }
             }
             const holders = await lockHolders(c, mid);
@@ -336,8 +273,8 @@ router.patch('/master/:id', async (req, res, next) => {
 // ── D: DELETE /api/addon-charges/master/:id (soft delete) ────────────────────
 router.delete('/master/:id', async (req, res, next) => {
     try {
-        const mid = uuid(req.params.id, 'Charge master id');
-        const out = await inTx(async (c) => {
+        const mid = (0, input_js_1.uuid)(req.params.id, 'Charge master id');
+        const out = await (0, input_js_1.inTx)(async (c) => {
             const cur = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 AND is_active FOR UPDATE`, [mid])).rows[0];
             if (!cur)
                 throw Object.assign(new Error('Charge master not found or already deactivated'), { http: 404 });
@@ -358,7 +295,7 @@ router.delete('/master/:id', async (req, res, next) => {
 // ── E: GET /api/addon-charges/consumer?consumerId=uuid ───────────────────────
 router.get('/consumer', async (req, res, next) => {
     try {
-        const consumerId = uuid(req.query.consumerId, 'consumerId');
+        const consumerId = (0, input_js_1.uuid)(req.query.consumerId, 'consumerId');
         const result = await index_js_1.db.query(`SELECT cac.*, acm.charge_name AS master_charge_name
          FROM consumer_addon_charges cac LEFT JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
         WHERE cac.consumer_id = $1 AND cac.status = 'active' ORDER BY cac.effective_date ASC, cac.created_at ASC`, [consumerId]);
@@ -371,36 +308,36 @@ router.get('/consumer', async (req, res, next) => {
 // ── F: POST /api/addon-charges/consumer ──────────────────────────────────────
 router.post('/consumer', async (req, res, next) => {
     try {
-        const b = body(req);
-        const consumerId = uuid(b.consumerId, 'consumerId'), projectId = uuid(b.projectId, 'projectId');
-        const chargeMasterId = has(b.chargeMasterId) ? uuid(b.chargeMasterId, 'chargeMasterId') : null;
-        const amt = num(b.amount, 'Amount', 1000000000, 2);
+        const b = (0, input_js_1.body)(req);
+        const consumerId = (0, input_js_1.uuid)(b.consumerId, 'consumerId'), projectId = (0, input_js_1.uuid)(b.projectId, 'projectId');
+        const chargeMasterId = (0, input_js_1.has)(b.chargeMasterId) ? (0, input_js_1.uuid)(b.chargeMasterId, 'chargeMasterId') : null;
+        const amt = (0, input_js_1.num)(b.amount, 'Amount', 1000000000, 2);
         if (amt <= 0)
-            throw bad('Amount must be more than 0');
-        const remark = text(b.remark, 'Remark', 1000, false);
-        const effectiveDate = day(b.effectiveDate) || new Date().toISOString().slice(0, 10);
-        const out = await inTx(async (c) => {
+            throw (0, input_js_1.bad)('Amount must be more than 0');
+        const remark = (0, input_js_1.text)(b.remark, 'Remark', 1000, false);
+        const effectiveDate = (0, input_js_1.day)(b.effectiveDate) || new Date().toISOString().slice(0, 10);
+        const out = await (0, input_js_1.inTx)(async (c) => {
             await lockConsumer(c, consumerId);
             if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {
-                throw bad('This customer has no active booking in this project');
+                throw (0, input_js_1.bad)('This customer has no active booking in this project');
             }
             let master = null;
             if (chargeMasterId) {
                 master = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 AND project_id = $2 AND is_active`, [chargeMasterId, projectId])).rows[0];
                 if (!master)
-                    throw bad('That add-on charge does not exist in this project (or is switched off)');
+                    throw (0, input_js_1.bad)('That add-on charge does not exist in this project (or is switched off)');
             }
-            const chargeName = master ? master.charge_name : text(b.chargeName, 'Charge name', 200, true);
+            const chargeName = master ? master.charge_name : (0, input_js_1.text)(b.chargeName, 'Charge name', 200, true);
             const { cgst, sgst } = gstPcts(b, master || undefined);
             const dup = await c.query(chargeMasterId
                 ? `SELECT 1 FROM consumer_addon_charges WHERE consumer_id = $1 AND project_id = $2 AND status = 'active' AND charge_master_id = $3`
                 : `SELECT 1 FROM consumer_addon_charges WHERE consumer_id = $1 AND project_id = $2 AND status = 'active' AND charge_master_id IS NULL AND lower(charge_name) = lower($3)`, [consumerId, projectId, chargeMasterId || chargeName]);
             if (dup.rows.length)
-                throw bad(`"${chargeName}" is already added for this customer. Edit it instead of adding it again.`);
-            const cgstAmount = r2(amt * cgst / 100), sgstAmount = r2(amt * sgst / 100);
+                throw (0, input_js_1.bad)(`"${chargeName}" is already added for this customer. Edit it instead of adding it again.`);
+            const cgstAmount = (0, input_js_1.r2)(amt * cgst / 100), sgstAmount = (0, input_js_1.r2)(amt * sgst / 100);
             const row = (await c.query(`INSERT INTO consumer_addon_charges (consumer_id, project_id, charge_master_id, charge_name, effective_date, amount, increase_amount,
            cgst_pct, sgst_pct, cgst_amount, sgst_amount, total_amount, remark, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13) RETURNING *`, [consumerId, projectId, chargeMasterId, chargeName, effectiveDate, amt, cgst, sgst, cgstAmount, sgstAmount, r2(amt + cgstAmount + sgstAmount), remark, req.userId || null])).rows[0];
+         VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13) RETURNING *`, [consumerId, projectId, chargeMasterId, chargeName, effectiveDate, amt, cgst, sgst, cgstAmount, sgstAmount, (0, input_js_1.r2)(amt + cgstAmount + sgstAmount), remark, req.userId || null])).rows[0];
             const moved = await recomputeFor(c, [{ consumer_id: consumerId, project_id: projectId }]);
             return { row, moved };
         });
@@ -414,28 +351,28 @@ router.post('/consumer', async (req, res, next) => {
 // One customer charge, changed only while it is active
 async function changeCharge(req, res, next, kind) {
     try {
-        const cid = uuid(req.params.id, 'Charge id');
-        const b = body(req);
-        const remark = kind === 'edit' ? text(b.remark, 'Remark', 1000, false) : null;
-        const waive = kind === 'waive' ? text(b.waiveRemark, 'Waive-off remark', 1000, true) : null;
-        const amount = kind === 'edit' && has(b.amount) ? num(b.amount, 'Amount', 1000000000, 2) : null;
-        const increase = kind === 'edit' && has(b.increaseAmount) ? num(b.increaseAmount, 'Increase amount', 1000000000, 2) : null;
+        const cid = (0, input_js_1.uuid)(req.params.id, 'Charge id');
+        const b = (0, input_js_1.body)(req);
+        const remark = kind === 'edit' ? (0, input_js_1.text)(b.remark, 'Remark', 1000, false) : null;
+        const waive = kind === 'waive' ? (0, input_js_1.text)(b.waiveRemark, 'Waive-off remark', 1000, true) : null;
+        const amount = kind === 'edit' && (0, input_js_1.has)(b.amount) ? (0, input_js_1.num)(b.amount, 'Amount', 1000000000, 2) : null;
+        const increase = kind === 'edit' && (0, input_js_1.has)(b.increaseAmount) ? (0, input_js_1.num)(b.increaseAmount, 'Increase amount', 1000000000, 2) : null;
         if (amount !== null && amount <= 0)
-            throw bad('Amount must be more than 0');
-        const out = await inTx(async (c) => {
+            throw (0, input_js_1.bad)('Amount must be more than 0');
+        const out = await (0, input_js_1.inTx)(async (c) => {
             const pre = (await c.query(`SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`, [cid])).rows[0];
             if (!pre)
                 throw Object.assign(new Error('Charge not found'), { http: 404 });
             await lockConsumer(c, pre.consumer_id);
             const cur = (await c.query(`SELECT * FROM consumer_addon_charges WHERE id = $1 FOR UPDATE`, [cid])).rows[0];
             if (cur.status !== 'active')
-                throw bad(`This charge is already ${cur.status}`);
+                throw (0, input_js_1.bad)(`This charge is already ${cur.status}`);
             let upd;
             if (kind === 'edit') {
                 const amt = amount ?? Number(cur.amount), inc = increase ?? Number(cur.increase_amount || 0), base = amt + inc;
-                const cg = r2(base * Number(cur.cgst_pct) / 100), sg = r2(base * Number(cur.sgst_pct) / 100);
+                const cg = (0, input_js_1.r2)(base * Number(cur.cgst_pct) / 100), sg = (0, input_js_1.r2)(base * Number(cur.sgst_pct) / 100);
                 upd = (await c.query(`UPDATE consumer_addon_charges SET amount = $2, increase_amount = $3, cgst_amount = $4, sgst_amount = $5, total_amount = $6,
-             remark = COALESCE($7, remark), updated_at = now() WHERE id = $1 RETURNING *`, [cid, amt, inc, cg, sg, r2(base + cg + sg), remark])).rows[0];
+             remark = COALESCE($7, remark), updated_at = now() WHERE id = $1 RETURNING *`, [cid, amt, inc, cg, sg, (0, input_js_1.r2)(base + cg + sg), remark])).rows[0];
             }
             else if (kind === 'cancel') {
                 upd = (await c.query(`UPDATE consumer_addon_charges SET status = 'cancelled', cancelled_at = now(), updated_at = now() WHERE id = $1 RETURNING id, status`, [cid])).rows[0];
@@ -461,19 +398,19 @@ router.patch('/consumer/:id/waive', (req, res, next) => changeCharge(req, res, n
 router.get('/consumers', async (req, res, next) => {
     try {
         const q = req.query;
-        const projectId = uuid(q.projectId, 'projectId');
+        const projectId = (0, input_js_1.uuid)(q.projectId, 'projectId');
         const conditions = ['p.id = $1', "br.status != 'cancelled'"];
         const params = [projectId];
         const add = (sql, v) => { params.push(v); conditions.push(sql.replace('$$', '$' + params.length)); };
-        if (has(q.towerId))
-            add('t.id = $$', uuid(q.towerId, 'towerId'));
+        if ((0, input_js_1.has)(q.towerId))
+            add('t.id = $$', (0, input_js_1.uuid)(q.towerId, 'towerId'));
         for (const [key, sql] of [['unitType', "u.bhk_type ILIKE $$ ESCAPE '\\'"], ['paymentPlan', "br.selected_plan_name ILIKE $$ ESCAPE '\\'"],
             ['registrationNo', "c.registration_no ILIKE $$ ESCAPE '\\'"], ['unitNo', "u.unit_number ILIKE $$ ESCAPE '\\'"]]) {
-            const v = text(q[key], key, 100, false);
+            const v = (0, input_js_1.text)(q[key], key, 100, false);
             if (v)
                 add(sql, `%${likeEsc(v)}%`);
         }
-        const nm = text(q.name, 'name', 100, false);
+        const nm = (0, input_js_1.text)(q.name, 'name', 100, false);
         if (nm) {
             params.push(`%${likeEsc(nm)}%`);
             conditions.push(`(c.first_name ILIKE $${params.length} ESCAPE '\\' OR c.last_name ILIKE $${params.length} ESCAPE '\\')`);

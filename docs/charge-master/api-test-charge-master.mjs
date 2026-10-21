@@ -66,7 +66,8 @@ r = await A('PATCH', K, { rate_value: 1300 });
 
 // preview: a project with no GST mapping gets a clear 422, then one with a mapping is priced (18% GST = 9 + 9)
 r = await A('GET', `/charge-master/balcony-preview?projectId=${proj}&balconyAreaSqft=50`); t('preview with no GST mapping -> 422 with a message', r.s === 422 && /GST/.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j));
-const slab = psql(`insert into gst_slabs(from_date,to_date) values ('1990-01-01','2099-12-31') on conflict (from_date,to_date) do update set is_active=true returning id`).split('\n')[0];
+// its own slab, removed again at the end so GST Configuration tests (slabs must not overlap) start clean
+const slab = psql(`insert into gst_slabs(from_date,to_date) values ('2025-04-01','2099-12-31') returning id`).split('\n')[0];
 const tax = psql(`insert into gst_tax_setup(slab_id,gst_code,type,cgst_pct,sgst_pct) values ('${slab}','CM${Date.now().toString(36)}','INTRA',9,9) returning id`).split('\n')[0];
 psql(`insert into gst_tax_charge_mapping(project_id,slab_id,gst_tax_id,charge_type) values ('${proj}','${slab}','${tax}','BASIC')`);
 const pv = (q) => A('GET', '/charge-master/balcony-preview?' + q);
@@ -85,4 +86,5 @@ r = await pv(`projectId=00000000-0000-0000-0000-000000000000&balconyAreaSqft=5`)
 // config row always present for booking
 t('balcony row exists', psql(`select count(*) from charge_master_config where charge_key='balcony_charge'`) === '1');
 await A('PATCH', K, { rate_value: orig });
+psql(`delete from gst_tax_charge_mapping where slab_id='${slab}'`); psql(`delete from gst_tax_setup where slab_id='${slab}'`); psql(`delete from gst_slabs where id='${slab}'`);
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

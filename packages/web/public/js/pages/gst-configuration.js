@@ -713,8 +713,8 @@
 
     let cgst = 0, sgst = 0, utgst = 0, igst = 0;
     if (_gstType === 'INTRA') {
-      cgst = igstPct / 2;
-      sgst = igstPct / 2;
+      cgst = Math.round(igstPct / 2 * 1000) / 1000;
+      sgst = cgst;
     } else if (_gstType === 'INTER') {
       igst = igstPct;
     } else {
@@ -919,9 +919,10 @@
     rateSelect.innerHTML = '<option value="">Loading...</option>';
     try {
       const r = await _api('GET', '/gst-tax-setup?slabId=' + slabId);
-      const rows = r.data || [];
+      // Booking charges CGST + SGST, so only INTRA rates can be mapped to a charge
+      const rows = (r.data || []).filter(t => t.type === 'INTRA');
       if (rows.length === 0) {
-        rateSelect.innerHTML = '<option value="">No rates for this slab</option>';
+        rateSelect.innerHTML = '<option value="">No INTRA rates for this slab</option>';
         return;
       }
       rateSelect.innerHTML = '<option value="">&lt;-Select-&gt;</option>' +
