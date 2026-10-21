@@ -1,7 +1,7 @@
 "use strict";
 /**
  * Consumer Routes - Module B
- * All consumer endpoints: create, list, get, update, KYC, remarks
+ * All consumer endpoints: create, list, get, update, KYC, remarks, co-applicants
  */
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -16,340 +16,284 @@ const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
+const rbac_js_1 = require("../middleware/rbac.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
-const photoStorage = multer_1.default.diskStorage({
-    destination(_req, _file, cb) {
-        cb(null, path_1.default.join(__dirname, '../../uploads/consumer-photos'));
-    },
-    filename(req, file, cb) {
-        const ext = path_1.default.extname(file.originalname).toLowerCase();
-        cb(null, `${req.params.id}${ext}`);
-    },
-});
-const photoUpload = (0, multer_1.default)({
-    storage: photoStorage,
+const input_js_1 = require("../utils/input.js");
+const applicant_js_1 = require("../utils/applicant.js");
+// ---------- photo uploads: the file extension comes from the checked image type, never from the file name ----------
+const EXT = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' };
+const photoUploader = (dir, prefix) => (0, multer_1.default)({
+    storage: multer_1.default.diskStorage({
+        destination(_req, _file, cb) { cb(null, path_1.default.join(__dirname, '../../uploads', dir)); },
+        filename(req, file, cb) { cb(null, `${prefix(req)}${EXT[file.mimetype]}`); },
+    }),
     limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter(_req, file, cb) {
-        if (/^image\/(jpeg|jpg|png|gif)$/.test(file.mimetype)) {
-            cb(null, true);
-        }
-        else {
-            cb(new Error('Only jpeg, jpg, png, gif images are allowed'));
-        }
-    },
+    fileFilter(_req, file, cb) { EXT[file.mimetype] ? cb(null, true) : cb(new Error('Only jpeg, jpg, png, gif images are allowed')); },
 });
-const coPhotoStorage = multer_1.default.diskStorage({
-    destination(_req, _file, cb) {
-        cb(null, path_1.default.join(__dirname, '../../uploads/co-applicant-photos'));
-    },
-    filename(req, file, cb) {
-        const ext = path_1.default.extname(file.originalname).toLowerCase();
-        cb(null, `co-${req.params.id}${ext}`);
-    },
-});
-const coPhotoUpload = (0, multer_1.default)({
-    storage: coPhotoStorage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter(_req, file, cb) {
-        if (/^image\/(jpeg|jpg|png|gif)$/.test(file.mimetype)) {
-            cb(null, true);
+const onePhoto = (m) => (req, res, next) => m.single('photo')(req, res, (err) => err
+    ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large — maximum size is 5MB' : err.message })
+    : next());
+const photoUpload = onePhoto(photoUploader('consumer-photos', r => r.params.id));
+const coPhotoUpload = onePhoto(photoUploader('co-applicant-photos', r => `co-${r.params.id}`));
+const addlPhotoUpload = onePhoto(photoUploader('multi-applicant-photos', r => `addl-${r.params.applicantId}`));
+// Removes the previous photo, unless the new one was saved under the same name
+const dropOldPhoto = (oldUrl, newUrl) => {
+    if (!oldUrl || oldUrl === newUrl)
+        return;
+    const oldPath = path_1.default.join(__dirname, '../../', oldUrl.replace(/^\//, ''));
+    if ((0, fs_1.existsSync)(oldPath)) {
+        try {
+            (0, fs_1.unlinkSync)(oldPath);
         }
-        else {
-            cb(new Error('Only jpeg, jpg, png, gif images are allowed'));
-        }
-    },
-});
-const addlPhotoStorage = multer_1.default.diskStorage({
-    destination(_req, _file, cb) {
-        cb(null, path_1.default.join(__dirname, '../../uploads/multi-applicant-photos'));
-    },
-    filename(req, file, cb) {
-        const ext = path_1.default.extname(file.originalname).toLowerCase();
-        cb(null, `addl-${req.params.applicantId}${ext}`);
-    },
-});
-const addlPhotoUpload = (0, multer_1.default)({
-    storage: addlPhotoStorage,
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter(_req, file, cb) {
-        if (/^image\/(jpeg|jpg|png|gif)$/.test(file.mimetype)) {
-            cb(null, true);
-        }
-        else {
-            cb(new Error('Only jpeg, jpg, png, gif images are allowed'));
-        }
-    },
-});
+        catch { /* ignore if already deleted */ }
+    }
+};
 const router = (0, express_1.Router)();
-// POST /api/consumers - Create consumer
+// Every route with :id first checks that the applicant id is a real id and visible to this login (project scope applies)
+router.param('id', async (req, res, next, id) => {
+    try {
+        (0, input_js_1.uuid)(id, 'Applicant id');
+        if (!(await index_js_1.db.query(`SELECT 1 FROM consumers WHERE id = $1`, [id])).rows.length)
+            return res.status(404).json({ error: 'Applicant not found' });
+        next();
+    }
+    catch (e) {
+        (0, input_js_1.failWith)(e, res, next);
+    }
+});
+router.param('applicantId', async (req, res, next, applicantId) => {
+    try {
+        (0, input_js_1.uuid)(applicantId, 'Additional applicant id');
+        if (!(await index_js_1.db.query(`SELECT 1 FROM co_applicants WHERE id = $1 AND consumer_id = $2 AND applicant_number > 2`, [applicantId, req.params.id])).rows.length)
+            return res.status(404).json({ error: 'Additional applicant not found for this applicant' });
+        next();
+    }
+    catch (e) {
+        (0, input_js_1.failWith)(e, res, next);
+    }
+});
+// ---------- field rules (one table drives create, update, co-applicant and additional applicants) ----------
+const T = (label, max) => (v) => (0, input_js_1.text)(v, label, max, false);
+const money = (label, max) => (v) => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, label, max, 2) : null);
+const flagOf = (label) => (v) => {
+    if (v === null || v === '')
+        return false;
+    if (v === true || v === 'true')
+        return true;
+    if (v === false || v === 'false')
+        return false;
+    throw (0, input_js_1.bad)(`${label} must be true or false`);
+};
+const addr = (label) => T(label, 300);
+const FIELDS = {
+    first_name: T('First name', 100), last_name: T('Last name', 100), middle_name: T('Middle name', 100),
+    salutation: T('Salutation', 20), dob: v => (0, applicant_js_1.birthDay)(v), gender: applicant_js_1.genderOf, profession: T('Profession', 100), nationality: T('Nationality', 100),
+    annual_income: money('Annual income', 1e11), education: T('Education', 100), company: T('Company', 200), ppp_id: T('Parivar Pehchan Patra', 100),
+    alt_mobile: v => (0, applicant_js_1.mobileNo)(v, 'Alternate mobile'), source_of_enquiry: T('Source of enquiry', 100), referred_by: T('Referred by', 200),
+    email: v => (0, applicant_js_1.emailAddr)(v), email_2: v => (0, applicant_js_1.emailAddr)(v, 'Second email'), pan_no: v => (0, applicant_js_1.panNo)(v), aadhaar_no: v => (0, applicant_js_1.aadhaarNo)(v),
+    passport_no: v => (0, applicant_js_1.passportNo)(v), father_name: T('Father name', 150), anniversary_date: v => (0, applicant_js_1.pastDay)(v, 'Anniversary date'),
+    marital_status: T('Marital status', 30), no_of_children: v => (0, applicant_js_1.children)(v), designation: T('Designation', 100), has_poa: flagOf('Has POA'),
+    phone_no: v => (0, applicant_js_1.phoneNo)(v, 'Phone'), fax_no: v => (0, applicant_js_1.phoneNo)(v, 'Fax'), form_no: T('Form number', 100), registration_no: T('Registration number', 100),
+    mailing_address_type: T('Mailing address type', 30), communication_mode: T('Communication mode', 30), poa_details: T('POA details', 1000),
+    company_name: T('Company name', 200), company_reg_no: T('Company registration number', 50), company_gstin: v => (0, applicant_js_1.gstinNo)(v, 'Company GSTIN'),
+    authorized_person: T('Authorised person', 150), authorized_designation: T('Authorised designation', 100),
+    nominee_name: T('Nominee name', 150), nominee_relation: T('Nominee relation', 50), nominee_dob: v => (0, applicant_js_1.pastDay)(v, 'Nominee date of birth'),
+    nominee_share: money('Nominee share', 100), finance_bank: T('Finance bank', 150), loan_amount: money('Loan amount', 1e10), loan_sanction_date: v => (0, input_js_1.day)(v, 'Loan sanction date'),
+    relationship: T('Relation', 50), applicant_type: v => {
+        const t = (0, input_js_1.text)(v, 'Applicant type', 30, false);
+        if (t !== null && !/^[a-z_]{2,30}$/.test(t))
+            throw (0, input_js_1.bad)('Applicant type is not valid');
+        return t;
+    },
+};
+// address blocks: present / office / perm (+ comm for the main applicant)
+for (const blk of ['present', 'office', 'perm', 'comm']) {
+    FIELDS[`${blk}_${blk === 'comm' ? 'address_line1' : 'address'}`] = addr('Address');
+    FIELDS[`${blk}_city`] = T('City', 100);
+    FIELDS[`${blk}_state`] = T('State', 100);
+    FIELDS[`${blk}_country`] = T('Country', 100);
+    FIELDS[`${blk}_pin`] = (v, b) => (0, applicant_js_1.pinCode)(v, 'PIN code', b[`${blk}_country`]);
+    for (const k of ['phone', 'fax', 'mobile'])
+        FIELDS[`${blk}_${k}_no`] = v => (0, applicant_js_1.phoneNo)(v, `${blk} ${k}`);
+}
+FIELDS.present_address_line2 = addr('Address line 2');
+// the body names differ from the column names for the first address line
+const ALIAS = { present_address_line1: 'present_address', office_address_line1: 'office_address', perm_address_line1: 'perm_address', pan: 'pan_no', aadhaar: 'aadhaar_no', relation: 'relationship' };
+const CO_COLS = new Set(['first_name', 'last_name', 'middle_name', 'salutation', 'relationship', 'pan_no', 'aadhaar_no', 'mobile', 'email', 'dob', 'gender', 'father_name', 'anniversary_date', 'marital_status', 'no_of_children', 'passport_no', 'email_2', 'designation', 'has_poa', 'nationality', 'profession', 'applicant_type', 'poa_details', 'mailing_address_type', 'communication_mode',
+    ...['present', 'office', 'perm'].flatMap(p => [`${p}_address`, `${p}_city`, `${p}_state`, `${p}_pin`, `${p}_country`, `${p}_phone_no`, `${p}_fax_no`, `${p}_mobile_no`])]);
+// Cleans every field that is present in the body (blank text becomes null). Unknown keys are ignored.
+const cleanFields = (src, only) => {
+    const b = {};
+    for (const [k, v] of Object.entries(src))
+        b[ALIAS[k] ?? k] = v;
+    const out = {};
+    for (const [col, fn] of Object.entries(FIELDS)) {
+        if (b[col] === undefined || (only && !only.has(col)))
+            continue;
+        out[col] = fn(b[col], b, col);
+    }
+    return out;
+};
+// Body keys of the co-applicant (Booking form) → the same names as the main applicant
+const coSource = (b) => {
+    const s = {};
+    for (const [k, v] of Object.entries(b)) {
+        if (k.startsWith('co_applicant_'))
+            s[k.slice(13) === 'relation' ? 'relationship' : k.slice(13)] = v;
+        else if (/^co_(present|office|perm)_/.test(k))
+            s[k.slice(3)] = v;
+        else if (k === 'co_mailing_address_type' || k === 'co_communication_mode' || k === 'co_poa_details')
+            s[k.slice(3)] = v;
+    }
+    return s;
+};
+const mask = (v) => (typeof v === 'string' && v.length > 4 ? 'XXXX' + v.slice(-4) : v);
+const forAudit = (o) => { const c = { ...o }; for (const k of ['aadhaar_no', 'pan_no', 'passport_no'])
+    if (k in c)
+        c[k] = mask(c[k]); return c; };
+const sha = (s) => (0, crypto_1.createHash)('sha256').update(s).digest('hex');
+const lock = (c, key) => c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [key]);
+const conflict = (m) => (0, input_js_1.bad)(m, 409);
+// Our own client errors answer with their code; database errors go on to pgErrorHandler at the end of this router
+const fail = (err, res, next) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
+// The same PAN / mobile cannot belong to two applicants of one project
+const checkIdentity = async (c, project, selfId, mobile, pan) => {
+    if (pan) {
+        const o = (await c.query(`SELECT name, mobile FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND upper(pan_no) = $2 AND ($3::uuid IS NULL OR id <> $3) LIMIT 1`, [project, pan, selfId])).rows[0];
+        if (o)
+            throw conflict(`This PAN already belongs to applicant "${o.name}" (mobile ${o.mobile}) in this project. Use that applicant instead of creating another.`);
+    }
+    if (mobile) {
+        const o = (await c.query(`SELECT name FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND mobile = $2 AND ($3::uuid IS NULL OR id <> $3) LIMIT 1`, [project, mobile, selfId])).rows[0];
+        if (o)
+            throw conflict(`This mobile number already belongs to applicant "${o.name}" in this project.`);
+    }
+};
+// Names for the NOT NULL name column
+const personName = (name, first, last, type) => {
+    const n = (0, input_js_1.has)(name) ? (0, input_js_1.text)(name, 'Name', 255, false) : null;
+    if (n)
+        return type === 'company' ? n : (0, applicant_js_1.titleCase)(n);
+    const f = [first, last].filter(Boolean).map(s => (0, applicant_js_1.titleCase)(String(s))).join(' ');
+    return f || null;
+};
+const hasLetter = (s) => /\p{L}/u.test(s);
+const prepCo = (b, main) => {
+    if (b.applicant_type !== 'multiple' || !(0, input_js_1.has)(b.co_applicant_first_name))
+        return null;
+    const co = cleanFields(coSource(b), CO_COLS);
+    const mob = (0, input_js_1.has)(b.co_applicant_mobile) ? (0, applicant_js_1.mobileNo)(b.co_applicant_mobile, 'Co-applicant mobile') : null;
+    if (mob)
+        co.mobile = mob;
+    if (!co.first_name)
+        throw (0, input_js_1.bad)('Co-applicant first name is required');
+    if (co.pan_no && co.pan_no === main.pan)
+        throw (0, input_js_1.bad)('The co-applicant PAN is the same as the main applicant PAN');
+    if (co.aadhaar_no && co.aadhaar_no === main.aadhaar)
+        throw (0, input_js_1.bad)('The co-applicant Aadhaar is the same as the main applicant Aadhaar');
+    if (co.mobile && co.mobile === main.mobile)
+        throw (0, input_js_1.bad)('The co-applicant mobile is the same as the main applicant mobile');
+    co.name = [co.first_name, co.last_name].filter(Boolean).join(' ');
+    co.applicant_type = co.applicant_type || 'co_applicant';
+    co.marital_status = co.marital_status || 'not_specified';
+    co.no_of_children = co.no_of_children ?? 0;
+    co.has_poa = co.has_poa ?? false;
+    for (const p of ['present', 'office', 'perm'])
+        co[`${p}_country`] = co[`${p}_country`] || 'India';
+    co.mailing_address_type = co.mailing_address_type || 'present';
+    co.communication_mode = co.communication_mode || 'email';
+    return co;
+};
+const insertCols = (client, table, row, conflictTarget) => {
+    const cols = Object.keys(row);
+    const sql = `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map((_, i) => `$${i + 1}`).join(', ')})`
+        + (conflictTarget ? ` ON CONFLICT ${conflictTarget} DO UPDATE SET ${cols.filter(c => c !== 'consumer_id' && c !== 'applicant_number').map(c => `${c} = EXCLUDED.${c}`).join(', ')}, updated_at = NOW()` : '')
+        + ' RETURNING id';
+    return client.query(sql, cols.map(c => row[c]));
+};
+// POST /api/consumers - Create an applicant. The same mobile in the same project returns the existing applicant (details are filled in, never blanked).
 router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'maker'), async (req, res, next) => {
     try {
-        for (const k of ['name', 'first_name', 'last_name', 'middle_name', 'mobile', 'email', 'pan', 'pan_no', 'aadhaar', 'aadhaar_no']) {
-            const v = (req.body || {})[k];
-            if (v !== undefined && v !== null && typeof v !== 'string' && !(typeof v === 'number' && !['name', 'first_name', 'last_name', 'middle_name'].includes(k)))
-                return res.status(400).json({ error: `${k.replace(/_/g, ' ')} must be text` });
-        }
-        const { 
-        // Legacy / simple fields
-        name, mobile, email, aadhaar, pan, incomeCategory, income_category, projectId, project_id, 
-        // Extended booking form fields
-        first_name, last_name, middle_name, salutation, dob, gender, profession, nationality, annual_income, education, company, ppp_id, pan_no, aadhaar_no, alt_mobile, source_of_enquiry, referred_by, lead_stage, form_no, 
-        // Applicant type
-        applicant_type, 
-        // Company applicant fields
-        company_name, company_reg_no, company_gstin, authorized_person, authorized_designation, 
-        // Co-applicant fields
-        co_applicant_first_name, co_applicant_last_name, co_applicant_salutation, co_applicant_pan_no, co_applicant_aadhaar_no, co_applicant_mobile, co_applicant_email, co_applicant_dob, co_applicant_relation, co_applicant_middle_name, co_applicant_gender, co_applicant_father_name, co_applicant_anniversary_date, co_applicant_marital_status, co_applicant_no_of_children, co_applicant_passport_no, co_applicant_email_2, co_applicant_designation, co_applicant_has_poa, co_applicant_nationality, co_applicant_profession, 
-        // Co-applicant type + address (migration 041)
-        co_applicant_type, co_present_address, co_present_city, co_present_state, co_present_pin, co_present_country, co_present_phone_no, co_present_fax_no, co_present_mobile_no, co_office_address, co_office_city, co_office_state, co_office_pin, co_office_country, co_office_phone_no, co_office_fax_no, co_office_mobile_no, co_perm_address, co_perm_city, co_perm_state, co_perm_pin, co_perm_country, co_perm_phone_no, co_perm_fax_no, co_perm_mobile_no, co_mailing_address_type, co_communication_mode, co_poa_details, 
-        // Addresses
-        present_address_line1, present_address_line2, present_city, present_state, present_pin, present_country, present_phone_no, present_fax_no, present_mobile_no, office_address_line1, office_city, office_state, office_pin, office_country, office_phone_no, office_fax_no, office_mobile_no, perm_address_line1, perm_city, perm_state, perm_pin, perm_country, perm_phone_no, perm_fax_no, perm_mobile_no, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, comm_phone_no, comm_fax_no, comm_mobile_no, mailing_address_type, communication_mode, 
-        // Nominee
-        nominee_name, nominee_relation, nominee_dob, nominee_share, 
-        // Finance
-        finance_bank, loan_amount, loan_sanction_date, 
-        // Legacy applicant fields (migration 035)
-        father_name, anniversary_date, marital_status = 'not_specified', no_of_children = 0, passport_no, email_2, designation, has_poa = false, phone_no, fax_no, registration_no, } = req.body;
-        const consumerMobile = mobile || req.body.mobile;
-        const titleCase = (s) => s ? s.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ') : '';
-        const consumerName = name
-            ? titleCase(name)
-            : [first_name, last_name].filter(Boolean).map(titleCase).join(' ') || 'Unknown';
-        const projId = projectId || project_id || null;
-        const incomeCat = incomeCategory || income_category || null;
-        if (!consumerMobile) {
-            return res.status(400).json({ error: 'Mobile number is required' });
-        }
-        // SHA-256 hash Aadhaar & PAN
-        const rawAadhaar = aadhaar || aadhaar_no;
-        const rawPan = pan || pan_no;
-        const aadhaarHash = rawAadhaar ? (0, crypto_1.createHash)('sha256').update(rawAadhaar.replace(/\s/g, '')).digest('hex') : null;
-        const panHash = rawPan ? (0, crypto_1.createHash)('sha256').update(rawPan.toUpperCase().trim()).digest('hex') : null;
-        const result = await index_js_1.db.query(`INSERT INTO consumers (
-         name, mobile, email, aadhaar_hash, aadhaar_no, pan_hash, pan_no, parivar_pehchan_patra,
-         income_category, lead_stage, project_id, created_by_user_id,
-         first_name, last_name, middle_name, salutation, dob, gender, profession, nationality,
-         annual_income, education, company, alt_mobile,
-         source_of_enquiry, referred_by,
-         present_address, present_address_line2, present_city, present_state, present_pin, present_country,
-         present_phone_no, present_fax_no, present_mobile_no,
-         office_address, office_city, office_state, office_pin, office_country,
-         office_phone_no, office_fax_no, office_mobile_no,
-         perm_address, perm_city, perm_state, perm_pin, perm_country,
-         perm_phone_no, perm_fax_no, perm_mobile_no,
-         comm_address_line1, comm_pin, comm_city, comm_state, comm_country,
-         comm_phone_no, comm_fax_no, comm_mobile_no,
-         mailing_address_type, communication_mode,
-         phone_no, fax_no,
-         nominee_name, nominee_relation, nominee_dob, nominee_share,
-         finance_bank, loan_amount, loan_sanction_date, form_no,
-         applicant_type, company_name, company_reg_no, company_gstin, authorized_person, authorized_designation,
-         father_name, anniversary_date, marital_status, no_of_children,
-         passport_no, email_2, designation, has_poa,
-         registration_no
-       )
-       VALUES (
-         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-         $14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,
-         $27,$28,$29,$30,$31,$32,$33,$34,$35,
-         $36,$37,$38,$39,$40,$41,$42,$43,
-         $44,$45,$46,$47,$48,$49,$50,$51,
-         $52,$53,$54,$55,$56,$57,$58,$59,
-         $60,$61,$62,$63,
-         $64,$65,$66,$67,
-         $68,$69,$70,$71,
-         $72,$73,$74,$75,$76,$77,
-         $78,$79,$80,$81,$82,$83,$84,$85,
-         $86
-       )
-       ON CONFLICT (project_id, mobile) DO UPDATE SET
-         updated_at = NOW(),
-         first_name = EXCLUDED.first_name,
-         last_name = EXCLUDED.last_name,
-         salutation = EXCLUDED.salutation,
-         email = EXCLUDED.email,
-         middle_name = EXCLUDED.middle_name,
-         father_name = EXCLUDED.father_name,
-         dob = EXCLUDED.dob,
-         gender = EXCLUDED.gender,
-         pan_no = EXCLUDED.pan_no,
-         aadhaar_no = EXCLUDED.aadhaar_no,
-         nationality = EXCLUDED.nationality,
-         profession = EXCLUDED.profession,
-         company = EXCLUDED.company,
-         designation = EXCLUDED.designation
-       RETURNING id, name, mobile, email, lead_stage, project_id, created_at`, [
-            consumerName, consumerMobile, email || null, aadhaarHash, rawAadhaar || null, panHash, rawPan || null, ppp_id || null,
-            incomeCat, lead_stage || 'enquiry', projId, req.userId,
-            first_name || null, last_name || null, middle_name || null, salutation || null,
-            dob || null, gender || null, profession || null, nationality || null,
-            annual_income ? parseFloat(annual_income) : null, education || null, company || null,
-            alt_mobile || null,
-            source_of_enquiry || null, referred_by || null,
-            // present address
-            present_address_line1 || null, present_address_line2 || null, present_city || null,
-            present_state || null, present_pin || null, present_country || 'India',
-            present_phone_no || null, present_fax_no || null, present_mobile_no || null,
-            // office address
-            office_address_line1 || null, office_city || null, office_state || null, office_pin || null, office_country || 'India',
-            office_phone_no || null, office_fax_no || null, office_mobile_no || null,
-            // perm address
-            perm_address_line1 || null, perm_city || null, perm_state || null, perm_pin || null, perm_country || 'India',
-            perm_phone_no || null, perm_fax_no || null, perm_mobile_no || null,
-            // comm address
-            comm_address_line1 || null, comm_pin || null, comm_city || null, comm_state || null, comm_country || 'India',
-            comm_phone_no || null, comm_fax_no || null, comm_mobile_no || null,
-            mailing_address_type || 'present', communication_mode || 'email',
-            phone_no || null, fax_no || null,
-            // nominee
-            nominee_name || null, nominee_relation || null, nominee_dob || null,
-            nominee_share ? parseFloat(nominee_share) : 100,
-            // finance
-            finance_bank || null, loan_amount ? parseFloat(loan_amount) : null, loan_sanction_date || null, form_no || null,
-            // applicant meta
-            applicant_type || 'individual',
-            company_name || null, company_reg_no || null, company_gstin || null,
-            authorized_person || null, authorized_designation || null,
-            father_name || null, anniversary_date || null, marital_status || 'not_specified',
-            no_of_children ? parseInt(no_of_children) : 0,
-            passport_no || null, email_2 || null, designation || null,
-            has_poa === true || has_poa === 'true',
-            registration_no || null,
-        ]);
-        const consumer = result.rows[0];
-        // If multiple applicant type and co-applicant data provided, insert co-applicant record
-        if ((applicant_type === 'multiple') && co_applicant_first_name) {
-            const coName = `${co_applicant_first_name || ''} ${co_applicant_last_name || ''}`.trim();
-            await index_js_1.db.query(`INSERT INTO co_applicants
-           (consumer_id, name, first_name, last_name, salutation, relationship,
-            pan_no, aadhaar_no, mobile, email, dob,
-            middle_name, gender, father_name, anniversary_date, marital_status,
-            no_of_children, passport_no, email_2, designation, has_poa,
-            nationality, profession, applicant_number,
-            applicant_type,
-            present_address, present_city, present_state, present_pin, present_country,
-            present_phone_no, present_fax_no, present_mobile_no,
-            office_address, office_city, office_state, office_pin, office_country,
-            office_phone_no, office_fax_no, office_mobile_no,
-            perm_address, perm_city, perm_state, perm_pin, perm_country,
-            perm_phone_no, perm_fax_no, perm_mobile_no,
-            mailing_address_type, communication_mode, poa_details)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
-                 $25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44,$45,$46,
-                 $47,$48,$49,$50,$51,$52)
-         ON CONFLICT (consumer_id, applicant_number) DO UPDATE SET
-           name                 = EXCLUDED.name,
-           first_name           = EXCLUDED.first_name,
-           last_name            = EXCLUDED.last_name,
-           salutation           = EXCLUDED.salutation,
-           relationship         = EXCLUDED.relationship,
-           pan_no               = EXCLUDED.pan_no,
-           aadhaar_no           = EXCLUDED.aadhaar_no,
-           mobile               = EXCLUDED.mobile,
-           email                = EXCLUDED.email,
-           dob                  = EXCLUDED.dob,
-           middle_name          = EXCLUDED.middle_name,
-           gender               = EXCLUDED.gender,
-           father_name          = EXCLUDED.father_name,
-           anniversary_date     = EXCLUDED.anniversary_date,
-           marital_status       = EXCLUDED.marital_status,
-           no_of_children       = EXCLUDED.no_of_children,
-           passport_no          = EXCLUDED.passport_no,
-           email_2              = EXCLUDED.email_2,
-           designation          = EXCLUDED.designation,
-           has_poa              = EXCLUDED.has_poa,
-           nationality          = EXCLUDED.nationality,
-           profession           = EXCLUDED.profession,
-           applicant_type       = EXCLUDED.applicant_type,
-           present_address      = EXCLUDED.present_address,
-           present_city         = EXCLUDED.present_city,
-           present_state        = EXCLUDED.present_state,
-           present_pin          = EXCLUDED.present_pin,
-           present_country      = EXCLUDED.present_country,
-           present_phone_no     = EXCLUDED.present_phone_no,
-           present_fax_no       = EXCLUDED.present_fax_no,
-           present_mobile_no    = EXCLUDED.present_mobile_no,
-           office_address       = EXCLUDED.office_address,
-           office_city          = EXCLUDED.office_city,
-           office_state         = EXCLUDED.office_state,
-           office_pin           = EXCLUDED.office_pin,
-           office_country       = EXCLUDED.office_country,
-           office_phone_no      = EXCLUDED.office_phone_no,
-           office_fax_no        = EXCLUDED.office_fax_no,
-           office_mobile_no     = EXCLUDED.office_mobile_no,
-           perm_address         = EXCLUDED.perm_address,
-           perm_city            = EXCLUDED.perm_city,
-           perm_state           = EXCLUDED.perm_state,
-           perm_pin             = EXCLUDED.perm_pin,
-           perm_country         = EXCLUDED.perm_country,
-           perm_phone_no        = EXCLUDED.perm_phone_no,
-           perm_fax_no          = EXCLUDED.perm_fax_no,
-           perm_mobile_no       = EXCLUDED.perm_mobile_no,
-           mailing_address_type = EXCLUDED.mailing_address_type,
-           communication_mode   = EXCLUDED.communication_mode,
-           poa_details          = EXCLUDED.poa_details,
-           updated_at           = NOW()`, [
-                consumer.id,
-                coName,
-                co_applicant_first_name || null,
-                co_applicant_last_name || null,
-                co_applicant_salutation || null,
-                co_applicant_relation || null,
-                co_applicant_pan_no || null,
-                co_applicant_aadhaar_no || null,
-                co_applicant_mobile || null,
-                co_applicant_email || null,
-                co_applicant_dob || null,
-                co_applicant_middle_name || null,
-                co_applicant_gender || null,
-                co_applicant_father_name || null,
-                co_applicant_anniversary_date || null,
-                co_applicant_marital_status || 'not_specified',
-                co_applicant_no_of_children ? parseInt(co_applicant_no_of_children) : 0,
-                co_applicant_passport_no || null,
-                co_applicant_email_2 || null,
-                co_applicant_designation || null,
-                co_applicant_has_poa === true || co_applicant_has_poa === 'true',
-                co_applicant_nationality || null,
-                co_applicant_profession || null,
-                2,
-                // new fields (migration 041)
-                co_applicant_type || 'co_applicant',
-                co_present_address || null, co_present_city || null, co_present_state || null, co_present_pin || null, co_present_country || 'India',
-                co_present_phone_no || null, co_present_fax_no || null, co_present_mobile_no || null,
-                co_office_address || null, co_office_city || null, co_office_state || null, co_office_pin || null, co_office_country || 'India',
-                co_office_phone_no || null, co_office_fax_no || null, co_office_mobile_no || null,
-                co_perm_address || null, co_perm_city || null, co_perm_state || null, co_perm_pin || null, co_perm_country || 'India',
-                co_perm_phone_no || null, co_perm_fax_no || null, co_perm_mobile_no || null,
-                co_mailing_address_type || 'present', co_communication_mode || 'email', co_poa_details || null,
-            ]);
-        }
-        res.status(201).json({ success: true, data: consumer });
+        const b = (0, input_js_1.body)(req);
+        const mobile = (0, applicant_js_1.mobileNo)(b.mobile, 'Mobile number', true);
+        const project = (0, input_js_1.has)(b.projectId ?? b.project_id) ? (0, input_js_1.uuid)(b.projectId ?? b.project_id, 'Project') : null;
+        const f = cleanFields(b);
+        const name = personName(b.name, f.first_name, f.last_name, f.applicant_type);
+        if (!name || !hasLetter(name))
+            throw (0, input_js_1.bad)('Applicant name is required');
+        const inc = b.incomeCategory ?? b.income_category;
+        if ((0, input_js_1.has)(inc) && !applicant_js_1.INCOME_CATS.includes(inc))
+            throw (0, input_js_1.bad)(`Income category must be one of ${applicant_js_1.INCOME_CATS.join(', ')}`);
+        const stage = b.lead_stage ?? b.leadStage;
+        if ((0, input_js_1.has)(stage) && !applicant_js_1.LEAD_STAGES.includes(stage))
+            throw (0, input_js_1.bad)(`Lead stage must be one of ${applicant_js_1.LEAD_STAGES.join(', ')}`);
+        if ((0, input_js_1.has)(stage) && stage !== 'enquiry' && stage !== 'interested')
+            throw (0, input_js_1.bad)('A new applicant can only start as enquiry or interested');
+        const co = prepCo({ ...b, applicant_type: f.applicant_type || 'individual' }, { mobile, pan: f.pan_no ?? null, aadhaar: f.aadhaar_no ?? null });
+        const row = {
+            present_country: 'India', office_country: 'India', perm_country: 'India', comm_country: 'India',
+            mailing_address_type: 'present', communication_mode: 'email', nominee_share: 100, applicant_type: 'individual',
+            marital_status: 'not_specified', no_of_children: 0, has_poa: false,
+        };
+        for (const [k, v] of Object.entries(f))
+            if (v !== null)
+                row[k] = v;
+        Object.assign(row, { name, mobile, project_id: project, lead_stage: stage || 'enquiry', income_category: inc || null, parivar_pehchan_patra: f.ppp_id ?? null, created_by_user_id: req.userId });
+        delete row.ppp_id;
+        if (row.pan_no)
+            row.pan_hash = sha(row.pan_no);
+        if (row.aadhaar_no)
+            row.aadhaar_hash = sha(row.aadhaar_no);
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            if (project && !(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [project])).rows.length)
+                throw (0, input_js_1.bad)('Project not found', 404);
+            await lock(c, `consumer:${project || ''}:${mobile}`);
+            if (row.pan_no)
+                await lock(c, `consumer-pan:${project || ''}:${row.pan_no}`);
+            const ex = (await c.query(`SELECT id, pan_no FROM consumers WHERE project_id IS NOT DISTINCT FROM $1 AND mobile = $2 FOR UPDATE`, [project, mobile])).rows[0];
+            let id, reused = false;
+            if (ex) {
+                if (ex.pan_no && row.pan_no && ex.pan_no.toUpperCase() !== row.pan_no)
+                    throw conflict('This mobile number already belongs to an applicant with a different PAN.');
+                await checkIdentity(c, project, ex.id, null, row.pan_no ?? null);
+                const upd = {};
+                for (const [k, v] of Object.entries(row))
+                    if (v !== null && !['project_id', 'mobile', 'created_by_user_id', 'lead_stage', 'income_category', 'name'].includes(k) && !/_country$|^mailing_address_type$|^communication_mode$|^nominee_share$|^applicant_type$|^marital_status$|^no_of_children$|^has_poa$/.test(k))
+                        upd[k] = v;
+                for (const k of ['applicant_type', 'marital_status', 'no_of_children', 'has_poa'])
+                    if (f[k] !== undefined && f[k] !== null)
+                        upd[k] = row[k];
+                const cols = Object.keys(upd);
+                if (cols.length)
+                    await c.query(`UPDATE consumers SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = NOW() WHERE id = $1`, [ex.id, ...cols.map(k => upd[k])]);
+                id = ex.id;
+                reused = true;
+            }
+            else {
+                await checkIdentity(c, project, null, null, row.pan_no ?? null);
+                id = (await insertCols(c, 'consumers', row)).rows[0].id;
+            }
+            if (co)
+                await insertCols(c, 'co_applicants', { ...co, consumer_id: id, applicant_number: 2 }, '(consumer_id, applicant_number)');
+            const data = (await c.query(`SELECT id, name, mobile, email, lead_stage, project_id, created_at FROM consumers WHERE id = $1`, [id])).rows[0];
+            return { data, reused };
+        });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, out.reused ? 'update' : 'create', 'consumer', out.data.id, {}, forAudit({ name: out.data.name, mobile: out.data.mobile, project_id: project, ...(out.reused ? { reused: true } : {}) }));
+        res.status(out.reused ? 200 : 201).json({ success: true, reused: out.reused, data: out.data });
     }
     catch (error) {
-        if (error.code === '23505') {
-            return res.status(409).json({
-                error: 'A consumer with this mobile number already exists for this project',
-                code: 'DUPLICATE_CONSUMER',
-            });
-        }
-        next(error);
+        fail(error, res, next);
     }
 });
-// GET /api/consumers - List all consumers (with search & filter)
-router.get('/', async (req, res, next) => {
-    const { projectId, leadStage, search, unitNo, mobile, regNo, dob, pan, address, city, state, email, firstName, middleName, lastName, secondApplicant, secondApplicantPan, hasConfirmedBooking, page = 1, pageSize = 20, sortBy = 'created_at', sortOrder = 'desc', } = req.query;
-    try {
-        let query = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
-                        u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
-                        COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
-                        b.name as broker_name, b.firm_name as broker_company_name,
-                        co.name as second_applicant_name,
-                        p.name as project_name,
-                        al.allotment_date,
-                        (SELECT COUNT(*) FROM documents WHERE consumer_id = c.id) as document_count
-                 FROM consumers c
+// GET /api/consumers - List applicants (search, filters, paging)
+const SORTS = {
+    created_at: 'c.created_at', name: 'c.name', mobile: 'c.mobile', email: 'c.email', lead_stage: 'c.lead_stage',
+    unit_number: 'u.unit_number', project_name: 'p.name', allotment_date: 'al.allotment_date',
+    registration_no: 'COALESCE(c.registration_no, br.registration_no)', registration_date: 'br.booking_date',
+};
+const LIST_FROM = `FROM consumers c
                  LEFT JOIN units u ON c.allocated_unit_id = u.id
                  LEFT JOIN towers t ON u.tower_id = t.id
                  LEFT JOIN LATERAL (
@@ -359,147 +303,99 @@ router.get('/', async (req, res, next) => {
                  ) br ON true
                  LEFT JOIN brokers b ON br.main_broker_id = b.id
                  LEFT JOIN LATERAL (
-                   SELECT name FROM co_applicants WHERE consumer_id = c.id LIMIT 1
+                   SELECT name FROM co_applicants WHERE consumer_id = c.id ORDER BY applicant_number LIMIT 1
                  ) co ON true
                  LEFT JOIN projects p ON c.project_id = p.id
                  LEFT JOIN LATERAL (
                    SELECT allotment_date FROM allocations
                    WHERE consumer_id = c.id AND unit_id = c.allocated_unit_id
                    ORDER BY (status = 'allotted') DESC, created_at DESC LIMIT 1
-                 ) al ON true
-                 WHERE 1=1`;
+                 ) al ON true`;
+router.get('/', async (req, res, next) => {
+    try {
+        const q = req.query;
+        for (const [k, v] of Object.entries(q))
+            if (typeof v !== 'string')
+                throw (0, input_js_1.bad)(`${k} is not valid`);
+        const intIn = (v, label, dflt, min, max) => {
+            if (v === undefined || v === '')
+                return dflt;
+            if (!/^\d{1,9}$/.test(v) || Number(v) < min || Number(v) > max)
+                throw (0, input_js_1.bad)(`${label} must be a whole number from ${min} to ${max}`);
+            return Number(v);
+        };
+        const page = intIn(q.page, 'page', 1, 1, 1000000), pageSize = intIn(q.pageSize, 'pageSize', 20, 1, 1000);
+        const sortCol = q.sortBy === undefined || q.sortBy === '' ? SORTS.created_at : SORTS[q.sortBy];
+        if (!sortCol)
+            throw (0, input_js_1.bad)(`sortBy must be one of ${Object.keys(SORTS).join(', ')}`);
+        if (q.sortOrder !== undefined && q.sortOrder !== '' && !['asc', 'desc'].includes(q.sortOrder))
+            throw (0, input_js_1.bad)('sortOrder must be asc or desc');
         const params = [];
-        if (projectId) {
-            query += ` AND c.project_id = $${params.length + 1}`;
-            params.push(projectId);
+        const w = [];
+        const add = (sql, ...vals) => { let i = params.length; params.push(...vals); w.push(sql.replace(/\?/g, () => `$${++i}`)); };
+        if (q.projectId)
+            add('c.project_id = ?', (0, input_js_1.uuid)(q.projectId, 'projectId'));
+        if (q.leadStage) {
+            if (!applicant_js_1.LEAD_STAGES.includes(q.leadStage))
+                throw (0, input_js_1.bad)(`leadStage must be one of ${applicant_js_1.LEAD_STAGES.join(', ')}`);
+            add('c.lead_stage = ?', q.leadStage);
         }
-        if (leadStage) {
-            query += ` AND c.lead_stage = $${params.length + 1}`;
-            params.push(leadStage);
+        if (q.unitNo)
+            add(`u.unit_number ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.unitNo));
+        if (q.mobile)
+            add(`c.mobile LIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.mobile));
+        if (q.regNo)
+            add(`COALESCE(c.registration_no, br.registration_no) ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.regNo));
+        if (q.dob)
+            add('c.dob = ?', (0, applicant_js_1.pastDay)(q.dob, 'dob'));
+        if (q.pan)
+            add(`c.pan_no ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.pan));
+        if (q.city)
+            add(`c.present_city ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.city));
+        if (q.address)
+            add(`c.present_address ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.address));
+        if (q.state)
+            add(`c.present_state ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.state));
+        if (q.email)
+            add(`c.email ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.email));
+        if (q.firstName)
+            add(`c.first_name ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.firstName));
+        if (q.middleName)
+            add(`c.middle_name ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.middleName));
+        if (q.lastName)
+            add(`c.last_name ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.lastName));
+        if (q.secondApplicant)
+            add(`co.name ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.secondApplicant));
+        if (q.secondApplicantPan)
+            add(`EXISTS (SELECT 1 FROM co_applicants ca WHERE ca.consumer_id = c.id AND ca.pan_no ILIKE ? ESCAPE '\\')`, (0, applicant_js_1.likeOf)(q.secondApplicantPan));
+        if (q.search) {
+            const s = (0, applicant_js_1.likeOf)(q.search);
+            add(`(c.name ILIKE ? ESCAPE '\\' OR c.mobile LIKE ? ESCAPE '\\' OR c.email ILIKE ? ESCAPE '\\' OR u.unit_number ILIKE ? ESCAPE '\\')`, s, s, s, s);
         }
-        if (unitNo) {
-            query += ` AND u.unit_number ILIKE $${params.length + 1}`;
-            params.push(`%${unitNo}%`);
-        }
-        if (mobile) {
-            query += ` AND c.mobile LIKE $${params.length + 1}`;
-            params.push(`%${mobile}%`);
-        }
-        if (regNo) {
-            query += ` AND c.registration_no ILIKE $${params.length + 1}`;
-            params.push(`%${regNo}%`);
-        }
-        if (dob) {
-            query += ` AND c.dob::date = $${params.length + 1}`;
-            params.push(dob);
-        }
-        if (pan) {
-            query += ` AND c.pan_no ILIKE $${params.length + 1}`;
-            params.push(`%${pan}%`);
-        }
-        if (city) {
-            query += ` AND c.present_city ILIKE $${params.length + 1}`;
-            params.push(`%${city}%`);
-        }
-        if (address) {
-            query += ` AND c.present_address ILIKE $${params.length + 1}`;
-            params.push(`%${address}%`);
-        }
-        if (state) {
-            query += ` AND c.present_state ILIKE $${params.length + 1}`;
-            params.push(`%${state}%`);
-        }
-        if (email) {
-            query += ` AND c.email ILIKE $${params.length + 1}`;
-            params.push(`%${email}%`);
-        }
-        if (firstName) {
-            query += ` AND c.first_name ILIKE $${params.length + 1}`;
-            params.push(`%${firstName}%`);
-        }
-        if (middleName) {
-            query += ` AND c.middle_name ILIKE $${params.length + 1}`;
-            params.push(`%${middleName}%`);
-        }
-        if (lastName) {
-            query += ` AND c.last_name ILIKE $${params.length + 1}`;
-            params.push(`%${lastName}%`);
-        }
-        if (secondApplicant) {
-            query += ` AND co.name ILIKE $${params.length + 1}`;
-            params.push(`%${secondApplicant}%`);
-        }
-        if (secondApplicantPan) {
-            query += ` AND EXISTS (SELECT 1 FROM co_applicants ca WHERE ca.consumer_id = c.id AND ca.pan_no ILIKE $${params.length + 1})`;
-            params.push(`%${secondApplicantPan}%`);
-        }
-        if (search) {
-            query += ` AND (c.name ILIKE $${params.length + 1} OR c.mobile LIKE $${params.length + 2} OR c.email ILIKE $${params.length + 3} OR u.unit_number ILIKE $${params.length + 4})`;
-            params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-        }
-        if (String(hasConfirmedBooking) === 'true') {
-            query += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
-        }
-        // Sorting
-        query += ` ORDER BY ${sortBy} ${sortOrder === 'desc' ? 'DESC' : 'ASC'}`;
-        // Pagination
-        const offset = (page - 1) * pageSize;
-        query += ` LIMIT ${pageSize} OFFSET ${offset}`;
-        // Build count query matching the data query filters
-        let countQuery = `SELECT COUNT(*) FROM consumers c LEFT JOIN units u ON c.allocated_unit_id = u.id${secondApplicant ? ' LEFT JOIN co_applicants co ON co.consumer_id = c.id' : ''} WHERE 1=1`;
-        const countParams = [];
-        if (projectId) {
-            countQuery += ` AND c.project_id = $${countParams.length + 1}`;
-            countParams.push(projectId);
-        }
-        if (leadStage) {
-            countQuery += ` AND c.lead_stage = $${countParams.length + 1}`;
-            countParams.push(leadStage);
-        }
-        if (unitNo) {
-            countQuery += ` AND u.unit_number ILIKE $${countParams.length + 1}`;
-            countParams.push(`%${unitNo}%`);
-        }
-        if (mobile) {
-            countQuery += ` AND c.mobile LIKE $${countParams.length + 1}`;
-            countParams.push(`%${mobile}%`);
-        }
-        if (regNo) {
-            countQuery += ` AND c.registration_no ILIKE $${countParams.length + 1}`;
-            countParams.push(`%${regNo}%`);
-        }
-        if (pan) {
-            countQuery += ` AND c.pan_no ILIKE $${countParams.length + 1}`;
-            countParams.push(`%${pan}%`);
-        }
-        if (secondApplicant) {
-            countQuery += ` AND co.name ILIKE $${countParams.length + 1}`;
-            countParams.push(`%${secondApplicant}%`);
-        }
-        if (search) {
-            countQuery += ` AND (c.name ILIKE $${countParams.length + 1} OR c.mobile LIKE $${countParams.length + 2} OR c.email ILIKE $${countParams.length + 3} OR u.unit_number ILIKE $${countParams.length + 4})`;
-            countParams.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
-        }
-        if (String(hasConfirmedBooking) === 'true') {
-            countQuery += ` AND EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`;
-        }
+        if (q.hasConfirmedBooking === 'true')
+            w.push(`EXISTS (SELECT 1 FROM booking_records br2 WHERE br2.consumer_id = c.id AND br2.status IN ('active','complete'))`);
+        if (q.hasLoan === 'true')
+            w.push(`c.loan_amount > 0`);
+        const where = w.length ? 'WHERE ' + w.join(' AND ') : '';
+        const sql = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
+                        u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
+                        COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
+                        b.name as broker_name, b.firm_name as broker_company_name,
+                        co.name as second_applicant_name,
+                        p.name as project_name,
+                        al.allotment_date,
+                        (SELECT COUNT(*) FROM documents WHERE consumer_id = c.id) as document_count
+                 ${LIST_FROM} ${where}
+                 ORDER BY ${sortCol} ${q.sortOrder === 'asc' ? 'ASC' : 'DESC'} NULLS LAST, c.id
+                 LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
         const [dataResult, countResult] = await Promise.all([
-            index_js_1.db.query(query, params),
-            index_js_1.db.query(countQuery, countParams),
+            index_js_1.db.query(sql, params),
+            index_js_1.db.query(`SELECT COUNT(*) ${LIST_FROM} ${where}`, params),
         ]);
-        res.json({
-            success: true,
-            data: dataResult.rows,
-            pagination: {
-                page: page,
-                pageSize: pageSize,
-                total: parseInt(countResult.rows[0].count),
-            },
-        });
+        res.json({ success: true, data: dataResult.rows, pagination: { page, pageSize, total: parseInt(countResult.rows[0].count) } });
     }
     catch (error) {
-        console.error('Database error:', error);
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/consumers/:id - Get consumer detail
@@ -507,13 +403,13 @@ router.get('/:id', async (req, res, next) => {
     try {
         const { id } = req.params;
         const result = await index_js_1.db.query(`SELECT c.id, c.name, c.first_name, c.last_name, c.middle_name, c.photo_url,
-              c.salutation, c.dob, c.gender, c.profession, c.nationality,
+              c.salutation, to_char(c.dob, 'YYYY-MM-DD') AS dob, c.gender, c.profession, c.nationality,
               c.annual_income, c.education, c.company, c.ppp_id, c.alt_mobile,
               c.mobile, c.email, c.email_2,
-              c.aadhaar_no, c.aadhaar_hash, c.pan_no, c.parivar_pehchan_patra,
+              c.aadhaar_no, c.pan_no, c.parivar_pehchan_patra,
               c.registration_no, c.form_no, c.project_id,
               c.income_category, c.lead_stage, c.allocated_unit_id, c.created_at,
-              c.father_name, c.anniversary_date, c.marital_status,
+              c.father_name, to_char(c.anniversary_date, 'YYYY-MM-DD') AS anniversary_date, c.marital_status,
               c.no_of_children, c.passport_no, c.designation, c.has_poa,
               c.present_address, c.present_address_line2, c.present_city, c.present_state, c.present_pin, c.present_country,
               c.present_phone_no, c.present_fax_no, c.present_mobile_no,
@@ -524,8 +420,8 @@ router.get('/:id', async (req, res, next) => {
               c.comm_address_line1, c.comm_pin, c.comm_city, c.comm_state, c.comm_country,
               c.comm_phone_no, c.comm_fax_no, c.comm_mobile_no,
               c.phone_no, c.fax_no,
-              c.nominee_name, c.nominee_relation, c.nominee_dob, c.nominee_share,
-              c.finance_bank, c.loan_amount, c.loan_sanction_date,
+              c.nominee_name, c.nominee_relation, to_char(c.nominee_dob, 'YYYY-MM-DD') AS nominee_dob, c.nominee_share,
+              c.finance_bank, c.loan_amount, to_char(c.loan_sanction_date, 'YYYY-MM-DD') AS loan_sanction_date,
               c.applicant_type, c.company_name, c.company_reg_no, c.company_gstin,
               c.authorized_person, c.authorized_designation,
               c.mailing_address_type, c.communication_mode,
@@ -558,385 +454,330 @@ router.get('/:id', async (req, res, next) => {
         next(error);
     }
 });
-// PATCH /api/consumers/:id - Update consumer
+// PATCH /api/consumers/:id - Update an applicant. Only the fields sent are changed; sending a blank clears an optional field.
+const STAGE_NEEDS_UNIT = ['allotted', 'onboarded'], STAGE_NEEDS_PROCESS = ['cancelled', 'transferred'];
 router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant', 'maker'), async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { name, email, incomeCategory, income_category, leadStage, lead_stage, present_address_line1, present_city, present_state, present_pin, present_country, present_phone_no, present_fax_no, present_mobile_no, office_address_line1, office_city, office_state, office_pin, office_country, office_phone_no, office_fax_no, office_mobile_no, perm_address_line1, perm_city, perm_state, perm_pin, perm_country, perm_phone_no, perm_fax_no, perm_mobile_no, mobile, alt_mobile, profession, nationality, company, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, comm_phone_no, comm_fax_no, comm_mobile_no, phone_no, fax_no, 
-        // Previously missing from PATCH
-        salutation, first_name, last_name, middle_name, dob, gender, education, annual_income, pan_no, aadhaar_no, ppp_id, 
-        // New fields (migration 035)
-        father_name, anniversary_date, marital_status, no_of_children, passport_no, email_2, designation, has_poa, } = req.body;
-        const result = await index_js_1.db.query(`UPDATE consumers
-       SET email               = COALESCE($2,  email),
-           income_category     = COALESCE($3,  income_category),
-           lead_stage          = COALESCE($4,  lead_stage),
-           present_address     = COALESCE($5,  present_address),
-           present_city        = COALESCE($6,  present_city),
-           present_state       = COALESCE($7,  present_state),
-           present_pin         = COALESCE($8,  present_pin),
-           present_country     = COALESCE($9,  present_country),
-           present_phone_no    = COALESCE($10, present_phone_no),
-           present_fax_no      = COALESCE($11, present_fax_no),
-           present_mobile_no   = COALESCE($12, present_mobile_no),
-           office_address      = COALESCE($13, office_address),
-           office_city         = COALESCE($14, office_city),
-           office_state        = COALESCE($15, office_state),
-           office_pin          = COALESCE($16, office_pin),
-           office_country      = COALESCE($17, office_country),
-           office_phone_no     = COALESCE($18, office_phone_no),
-           office_fax_no       = COALESCE($19, office_fax_no),
-           office_mobile_no    = COALESCE($20, office_mobile_no),
-           perm_address        = COALESCE($21, perm_address),
-           perm_city           = COALESCE($22, perm_city),
-           perm_state          = COALESCE($23, perm_state),
-           perm_pin            = COALESCE($24, perm_pin),
-           perm_country        = COALESCE($25, perm_country),
-           perm_phone_no       = COALESCE($26, perm_phone_no),
-           perm_fax_no         = COALESCE($27, perm_fax_no),
-           perm_mobile_no      = COALESCE($28, perm_mobile_no),
-           mobile              = COALESCE($29, mobile),
-           alt_mobile          = COALESCE($30, alt_mobile),
-           profession          = COALESCE($31, profession),
-           nationality         = COALESCE($32, nationality),
-           company             = COALESCE($33, company),
-           mailing_address_type= COALESCE($34, mailing_address_type),
-           communication_mode  = COALESCE($35, communication_mode),
-           comm_address_line1  = COALESCE($36, comm_address_line1),
-           comm_pin            = COALESCE($37, comm_pin),
-           comm_city           = COALESCE($38, comm_city),
-           comm_state          = COALESCE($39, comm_state),
-           comm_country        = COALESCE($40, comm_country),
-           comm_phone_no       = COALESCE($41, comm_phone_no),
-           comm_fax_no         = COALESCE($42, comm_fax_no),
-           comm_mobile_no      = COALESCE($43, comm_mobile_no),
-           phone_no            = COALESCE($44, phone_no),
-           fax_no              = COALESCE($45, fax_no),
-           salutation          = COALESCE($46, salutation),
-           first_name          = COALESCE($47, first_name),
-           last_name           = COALESCE($48, last_name),
-           name                = COALESCE(NULLIF(REGEXP_REPLACE(TRIM(COALESCE(INITCAP(COALESCE($47, first_name)), '') || ' ' || COALESCE(INITCAP(COALESCE($48, last_name)), '')), '\s+', ' ', 'g'), ''), $1, name),
-           middle_name         = COALESCE($49, middle_name),
-           dob                 = COALESCE($50, dob),
-           gender              = COALESCE($51, gender),
-           education           = COALESCE($52, education),
-           annual_income       = COALESCE($53, annual_income),
-           pan_no              = COALESCE($54, pan_no),
-           aadhaar_no          = COALESCE($55, aadhaar_no),
-           parivar_pehchan_patra = COALESCE($56, parivar_pehchan_patra),
-           father_name         = COALESCE($57, father_name),
-           anniversary_date    = COALESCE($58, anniversary_date),
-           marital_status      = COALESCE($59, marital_status),
-           no_of_children      = COALESCE($60, no_of_children),
-           passport_no         = COALESCE($61, passport_no),
-           email_2             = COALESCE($62, email_2),
-           designation         = COALESCE($63, designation),
-           has_poa             = COALESCE($64, has_poa),
-           updated_at          = NOW()
-       WHERE id = $65
-       RETURNING id, name, email, income_category, lead_stage,
-                 mailing_address_type, communication_mode,
-                 comm_address_line1, comm_pin, comm_city, comm_state, comm_country,
-                 updated_at`, [
-            name || null, email || null,
-            incomeCategory || income_category || null,
-            leadStage || lead_stage || null,
-            present_address_line1 || null, present_city || null, present_state || null,
-            present_pin || null, present_country || null,
-            present_phone_no || null, present_fax_no || null, present_mobile_no || null,
-            office_address_line1 || null, office_city || null, office_state || null, office_pin || null, office_country || null,
-            office_phone_no || null, office_fax_no || null, office_mobile_no || null,
-            perm_address_line1 || null, perm_city || null, perm_state || null,
-            perm_pin || null, perm_country || null,
-            perm_phone_no || null, perm_fax_no || null, perm_mobile_no || null,
-            mobile || null, alt_mobile || null,
-            profession || null, nationality || null, company || null,
-            mailing_address_type || null, communication_mode || null,
-            comm_address_line1 || null, comm_pin || null, comm_city || null,
-            comm_state || null, comm_country || null,
-            comm_phone_no || null, comm_fax_no || null, comm_mobile_no || null,
-            phone_no || null, fax_no || null,
-            salutation || null, first_name || null, last_name || null, middle_name || null,
-            dob || null, gender || null, education || null,
-            annual_income ? parseFloat(annual_income) : null,
-            pan_no || null, aadhaar_no || null, ppp_id || null,
-            father_name || null, anniversary_date || null, marital_status || null,
-            no_of_children != null ? parseInt(no_of_children) : null,
-            passport_no || null, email_2 || null, designation || null,
-            has_poa != null ? (has_poa === true || has_poa === 'true') : null,
-            id,
-        ]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Consumer not found' });
+        const id = req.params.id;
+        const b = (0, input_js_1.body)(req);
+        const f = cleanFields(b);
+        const upd = {};
+        for (const [k, v] of Object.entries(f)) {
+            // These always keep a value
+            if (v === null && k === 'applicant_type')
+                upd[k] = 'individual';
+            else if (v === null && k === 'marital_status')
+                upd[k] = 'not_specified';
+            else if (v === null && k === 'no_of_children')
+                upd[k] = 0;
+            else if (v === null && k === 'nominee_share')
+                upd[k] = 100;
+            else
+                upd[k] = v;
         }
-        res.json({ success: true, data: result.rows[0] });
+        delete upd.ppp_id;
+        if (f.ppp_id !== undefined)
+            upd.parivar_pehchan_patra = f.ppp_id;
+        if (b.mobile !== undefined)
+            upd.mobile = (0, applicant_js_1.mobileNo)(b.mobile, 'Mobile number', true);
+        const inc = b.incomeCategory ?? b.income_category;
+        if (inc !== undefined) {
+            if (inc !== null && inc !== '' && !applicant_js_1.INCOME_CATS.includes(inc))
+                throw (0, input_js_1.bad)(`Income category must be one of ${applicant_js_1.INCOME_CATS.join(', ')}`);
+            upd.income_category = inc || null;
+        }
+        const stage = b.leadStage ?? b.lead_stage;
+        if (stage !== undefined) {
+            if (!applicant_js_1.LEAD_STAGES.includes(stage))
+                throw (0, input_js_1.bad)(`Lead stage must be one of ${applicant_js_1.LEAD_STAGES.join(', ')}`);
+            upd.lead_stage = stage;
+        }
+        if (upd.pan_no !== undefined)
+            upd.pan_hash = upd.pan_no ? sha(upd.pan_no) : null;
+        if (upd.aadhaar_no !== undefined)
+            upd.aadhaar_hash = upd.aadhaar_no ? sha(upd.aadhaar_no) : null;
+        if (b.name !== undefined && !(0, input_js_1.has)(b.name) && f.first_name === undefined && f.last_name === undefined)
+            throw (0, input_js_1.bad)('Name cannot be blank');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const cur0 = (await c.query(`SELECT project_id FROM consumers WHERE id = $1`, [id])).rows[0];
+            if (!cur0)
+                throw (0, input_js_1.bad)('Applicant not found', 404);
+            // same lock names as create, so two people taking one mobile / PAN at once are told apart
+            if (upd.mobile)
+                await lock(c, `consumer:${cur0.project_id || ''}:${upd.mobile}`);
+            if (upd.pan_no)
+                await lock(c, `consumer-pan:${cur0.project_id || ''}:${upd.pan_no}`);
+            const cur = (await c.query(`SELECT * FROM consumers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            if (!cur)
+                throw (0, input_js_1.bad)('Applicant not found', 404);
+            if (f.first_name !== undefined || f.last_name !== undefined || b.name !== undefined) {
+                const nm = personName(b.name, f.first_name !== undefined ? f.first_name : cur.first_name, f.last_name !== undefined ? f.last_name : cur.last_name, upd.applicant_type ?? cur.applicant_type)
+                    ?? (b.name === undefined ? cur.name : null);
+                if (!nm || !hasLetter(nm))
+                    throw (0, input_js_1.bad)('Name cannot be blank');
+                upd.name = nm;
+            }
+            if (upd.mobile !== undefined || upd.pan_no)
+                await checkIdentity(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
+            if (upd.dob !== undefined && cur.applicant_type === 'company')
+                delete upd.dob;
+            if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {
+                if (STAGE_NEEDS_UNIT.includes(upd.lead_stage) && !cur.allocated_unit_id)
+                    throw conflict(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);
+                if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('active','complete') LIMIT 1`, [id])).rows.length) {
+                    throw conflict(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
+                }
+            }
+            const asText = (v) => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : v === null || v === undefined ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? String(Number(v)) : String(v));
+            const cols = Object.keys(upd).filter(k => upd[k] !== undefined && asText(upd[k]) !== asText(cur[k]));
+            const shown = `id, name, email, income_category, lead_stage, mailing_address_type, communication_mode,
+                  comm_address_line1, comm_pin, comm_city, comm_state, comm_country, updated_at`;
+            if (!cols.length)
+                return { cur, row: (await c.query(`SELECT ${shown} FROM consumers WHERE id = $1`, [id])).rows[0], changed: [] };
+            const row = (await c.query(`UPDATE consumers SET ${cols.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = NOW() WHERE id = $1
+        RETURNING ${shown}`, [id, ...cols.map(k => upd[k])])).rows[0];
+            return { cur, row, changed: cols };
+        });
+        if (out.changed.length) {
+            const pick = (o) => forAudit(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, o[k] instanceof Date ? o[k].toLocaleDateString('en-CA') : o[k] ?? null])));
+            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'consumer', id, pick(out.cur), forAudit(Object.fromEntries(out.changed.filter(k => !k.endsWith('_hash')).map(k => [k, upd[k]]))));
+        }
+        res.locals.auditLogged = true; // nothing worth logging when nothing changed
+        res.json({ success: true, data: out.row, changed: out.changed.filter(k => !k.endsWith('_hash')) });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
-// POST /api/consumers/:id/photo - Upload consumer photo
-router.post('/:id/photo', photoUpload.single('photo'), async (req, res, next) => {
+// POST /api/consumers/:id/photo - Upload applicant photo
+router.post('/:id/photo', photoUpload, async (req, res, next) => {
     try {
         const { id } = req.params;
-        if (!req.file) {
+        if (!req.file)
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        }
-        // Delete old photo from disk if one exists
-        const existing = await index_js_1.db.query(`SELECT photo_url FROM consumers WHERE id = $1`, [id]);
-        if (existing.rows[0]?.photo_url) {
-            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if ((0, fs_1.existsSync)(oldPath)) {
-                try {
-                    (0, fs_1.unlinkSync)(oldPath);
-                }
-                catch { /* ignore if already deleted */ }
-            }
-        }
+        const old = (await index_js_1.db.query(`SELECT photo_url FROM consumers WHERE id = $1`, [id])).rows[0]?.photo_url;
         const photoUrl = `/uploads/consumer-photos/${req.file.filename}`;
         await index_js_1.db.query(`UPDATE consumers SET photo_url = $1, updated_at = NOW() WHERE id = $2`, [photoUrl, id]);
+        dropOldPhoto(old, photoUrl);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ error: 'File too large — maximum size is 5MB' });
-        }
         next(err);
     }
 });
-// POST /api/consumers/:id/co-applicant-photo - Upload co-applicant photo
-router.post('/:id/co-applicant-photo', coPhotoUpload.single('photo'), async (req, res, next) => {
+// POST /api/consumers/:id/co-applicant-photo - Upload co-applicant (second applicant) photo
+router.post('/:id/co-applicant-photo', async (req, res, next) => {
+    try {
+        if (!(await index_js_1.db.query(`SELECT 1 FROM co_applicants WHERE consumer_id = $1 AND applicant_number = 2`, [req.params.id])).rows.length)
+            return res.status(404).json({ error: 'This applicant has no co-applicant' });
+        next();
+    }
+    catch (err) {
+        next(err);
+    }
+}, coPhotoUpload, async (req, res, next) => {
     try {
         const { id } = req.params;
-        if (!req.file) {
+        if (!req.file)
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        }
-        const existing = await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE consumer_id = $1`, [id]);
-        if (existing.rows[0]?.photo_url) {
-            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if ((0, fs_1.existsSync)(oldPath)) {
-                try {
-                    (0, fs_1.unlinkSync)(oldPath);
-                }
-                catch { /* ignore */ }
-            }
-        }
+        const old = (await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE consumer_id = $1 AND applicant_number = 2`, [id])).rows[0]?.photo_url;
         const photoUrl = `/uploads/co-applicant-photos/${req.file.filename}`;
-        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE consumer_id = $2`, [photoUrl, id]);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE consumer_id = $2 AND applicant_number = 2`, [photoUrl, id]);
+        dropOldPhoto(old, photoUrl);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ error: 'File too large — maximum size is 5MB' });
-        }
         next(err);
     }
 });
-// POST /api/consumers/:id/kyc-documents - Upload KYC document
+// POST /api/consumers/:id/kyc-documents - Register a KYC document
+const KYC_TYPES = ['aadhaar', 'pan', 'income_cert', 'affidavit', 'bank_details', 'photo', 'address_proof'];
 router.post('/:id/kyc-documents', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { documentType, fileUrl, expiryDate } = req.body;
+        const b = (0, input_js_1.body)(req);
+        if (typeof b.documentType !== 'string' || !KYC_TYPES.includes(b.documentType))
+            throw (0, input_js_1.bad)(`documentType must be one of ${KYC_TYPES.join(', ')}`);
+        const url = (0, input_js_1.text)(b.fileUrl, 'fileUrl', 1000, true);
+        if (!/^(\/uploads\/[\w./-]+|https:\/\/[^\s]+)$/.test(url) || url.includes('..'))
+            throw (0, input_js_1.bad)('fileUrl must be an uploaded file path or an https link');
+        const expiry = (0, input_js_1.day)(b.expiryDate, 'expiryDate');
         const result = await index_js_1.db.query(`INSERT INTO kyc_documents (consumer_id, document_type, file_url, expiry_date, uploaded_by_user_id)
        VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, document_type, file_url, expiry_date`, [id, documentType, fileUrl, expiryDate, req.userId]);
-        res.status(201).json({
-            success: true,
-            data: result.rows[0],
-        });
+       RETURNING id, document_type, file_url, to_char(expiry_date, 'YYYY-MM-DD') AS expiry_date`, [req.params.id, b.documentType, url, expiry, req.userId]);
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'consumer_kyc_document', result.rows[0].id, {}, { consumer_id: req.params.id, document_type: b.documentType });
+        res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // POST /api/consumers/:id/remarks - Add remark
 router.post('/:id/remarks', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { channel, subject, notes, followUpDate, tags } = req.body;
+        const b = (0, input_js_1.body)(req);
+        const channel = (0, input_js_1.text)(b.channel, 'channel', 50, false), subject = (0, input_js_1.text)(b.subject, 'subject', 255, false);
+        const notes = (0, input_js_1.text)(b.notes, 'notes', 5000, true);
+        const follow = (0, input_js_1.day)(b.followUpDate, 'followUpDate');
+        if (b.tags !== undefined && b.tags !== null && (!Array.isArray(b.tags) || b.tags.length > 20))
+            throw (0, input_js_1.bad)('tags must be a list of at most 20 words');
+        const tags = (b.tags || []).map((t) => (0, input_js_1.text)(t, 'tag', 40, true));
         const result = await index_js_1.db.query(`INSERT INTO remarks (consumer_id, user_id, channel, subject, notes, follow_up_date, tags)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, channel, subject, notes, timestamp`, [id, req.userId, channel, subject, notes, followUpDate, JSON.stringify(tags || [])]);
-        res.status(201).json({
-            success: true,
-            data: result.rows[0],
-        });
+       RETURNING id, channel, subject, notes, timestamp`, [req.params.id, req.userId, channel, subject, notes, follow, tags]);
+        res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/consumers/:id/remarks - Get remarks log
 router.get('/:id/remarks', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const result = await index_js_1.db.query(`SELECT id, channel, subject, notes, timestamp, follow_up_date, tags
+        const result = await index_js_1.db.query(`SELECT id, channel, subject, notes, timestamp, to_char(follow_up_date, 'YYYY-MM-DD') AS follow_up_date, tags
        FROM remarks WHERE consumer_id = $1
-       ORDER BY timestamp DESC`, [id]);
-        res.json({
-            success: true,
-            data: result.rows,
-        });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// POST /api/consumers/:id/base-rate - Update base rate and log to audit
-router.post('/:id/base-rate', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { baseRate } = req.body;
-        const consumerResult = await index_js_1.db.query(`SELECT allocated_unit_id FROM consumers WHERE id = $1`, [id]);
-        if (consumerResult.rows.length === 0 || !consumerResult.rows[0].allocated_unit_id) {
-            return res.status(400).json({ error: 'Consumer has no allocated unit' });
-        }
-        const unitId = consumerResult.rows[0].allocated_unit_id;
-        // Get old basic price
-        const unitResult = await index_js_1.db.query(`SELECT basic_price FROM units WHERE id = $1`, [unitId]);
-        const oldPrice = unitResult.rows[0].basic_price;
-        const client = await index_js_1.db.connect();
-        try {
-            await client.query('BEGIN');
-            await client.query(`UPDATE units SET basic_price = $1, updated_at = NOW() WHERE id = $2`, [baseRate, unitId]);
-            await client.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, old_value, new_value, remarks)
-         VALUES ($1, $2, 'BASE_RATE_UPDATE', $3, $4, 'Manual update from Pricing Matrix')`, [id, req.userId, JSON.stringify({ basic_price: oldPrice }), JSON.stringify({ basic_price: baseRate })]);
-            await client.query('COMMIT');
-            res.json({ success: true, message: 'Base rate updated successfully' });
-        }
-        catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        }
-        finally {
-            client.release();
-        }
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// POST /api/consumers/:id/multi-applicants - Save/replace all multi applicants (applicant_number >= 2)
-router.post('/:id/multi-applicants', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const applicants = req.body.applicants || [];
-        const client = await index_js_1.db.connect();
-        try {
-            await client.query('BEGIN');
-            // Remove existing additional applicants (keep co-applicant at applicant_number = 2)
-            await client.query(`DELETE FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2`, [id]);
-            const inserted = [];
-            for (let i = 0; i < applicants.length; i++) {
-                const a = applicants[i];
-                const coName = `${a.first_name || ''} ${a.last_name || ''}`.trim();
-                const r = await client.query(`INSERT INTO co_applicants
-             (consumer_id, name, first_name, last_name, salutation, relationship,
-              pan_no, aadhaar_no, mobile, email, dob,
-              middle_name, gender, father_name, anniversary_date, marital_status,
-              no_of_children, passport_no, email_2, designation, has_poa,
-              nationality, profession, applicant_number)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
-           RETURNING id, applicant_number`, [
-                    id, coName,
-                    a.first_name || null, a.last_name || null, a.salutation || null, a.relation || null,
-                    a.pan_no || null, a.aadhaar_no || null, a.mobile || null, a.email || null, a.dob || null,
-                    a.middle_name || null, a.gender || null, a.father_name || null, a.anniversary_date || null,
-                    a.marital_status || 'not_specified',
-                    a.no_of_children ? parseInt(a.no_of_children) : 0,
-                    a.passport_no || null, a.email_2 || null, a.designation || null,
-                    a.has_poa === true || a.has_poa === 'true',
-                    a.nationality || null, a.profession || null,
-                    i + 3,
-                ]);
-                inserted.push(r.rows[0]);
-            }
-            await client.query('COMMIT');
-            res.status(201).json({ success: true, data: inserted });
-        }
-        catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        }
-        finally {
-            client.release();
-        }
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// GET /api/consumers/:id/multi-applicants - List multi applicants
-router.get('/:id/multi-applicants', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await index_js_1.db.query(`SELECT id, consumer_id, name, first_name, last_name, salutation, relationship,
-              pan_no, aadhaar_no, mobile, email, dob,
-              middle_name, gender, father_name, anniversary_date, marital_status,
-              no_of_children, passport_no, email_2, designation, has_poa,
-              nationality, profession, photo_url, applicant_number
-       FROM co_applicants
-       WHERE consumer_id = $1 AND applicant_number > 2
-       ORDER BY applicant_number`, [id]);
+       ORDER BY timestamp DESC`, [req.params.id]);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
         next(error);
     }
 });
-// DELETE /api/consumers/:id/multi-applicants/:applicantId - Delete one multi applicant and renumber
-router.delete('/:id/multi-applicants/:applicantId', async (req, res, next) => {
+// POST /api/consumers/:id/base-rate - Update the unit's basic price from the Pricing Matrix. A unit that already has a booking keeps its price.
+router.post('/:id/base-rate', async (req, res, next) => {
     try {
-        const { id, applicantId } = req.params;
-        const client = await index_js_1.db.connect();
-        try {
-            await client.query('BEGIN');
-            await client.query(`DELETE FROM co_applicants WHERE id = $1 AND consumer_id = $2 AND applicant_number > 2`, [applicantId, id]);
-            // Renumber remaining additional applicants (>2) starting at 3
-            const remaining = await client.query(`SELECT id FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2 ORDER BY applicant_number`, [id]);
-            for (let i = 0; i < remaining.rows.length; i++) {
-                await client.query(`UPDATE co_applicants SET applicant_number = $1 WHERE id = $2`, [i + 3, remaining.rows[i].id]);
+        if (!(0, rbac_js_1.hasPermission)(req.userRole, 'master_data', 'edit'))
+            return res.status(403).json({ error: 'Changing a unit price needs the master data permission' });
+        const id = req.params.id;
+        const rate = (0, input_js_1.num)((0, input_js_1.body)(req).baseRate, 'baseRate', 1e10, 2);
+        if (rate <= 0)
+            throw (0, input_js_1.bad)('baseRate must be more than 0');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const cons = (await c.query(`SELECT allocated_unit_id FROM consumers WHERE id = $1`, [id])).rows[0];
+            if (!cons?.allocated_unit_id)
+                throw (0, input_js_1.bad)('Consumer has no allocated unit');
+            const u = (await c.query(`SELECT id, basic_price, status FROM units WHERE id = $1 FOR UPDATE`, [cons.allocated_unit_id])).rows[0];
+            if (!u)
+                throw (0, input_js_1.bad)('Unit not found', 404);
+            if ((await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status,'') <> 'cancelled' LIMIT 1`, [u.id])).rows.length) {
+                throw conflict('This unit already has a booking, so its price can no longer be changed.');
             }
-            await client.query('COMMIT');
-            res.json({ success: true });
-        }
-        catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        }
-        finally {
-            client.release();
-        }
+            await c.query(`UPDATE units SET basic_price = $1, updated_at = NOW() WHERE id = $2`, [rate, u.id]);
+            await c.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, old_value, new_value, remarks)
+         VALUES ($1, $2, 'BASE_RATE_UPDATE', $3, $4, 'Manual update from Pricing Matrix')`, [id, req.userId, JSON.stringify({ basic_price: u.basic_price }), JSON.stringify({ basic_price: rate })]);
+            return { unitId: u.id, old: u.basic_price };
+        });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit', out.unitId, { basic_price: out.old }, { basic_price: rate });
+        res.json({ success: true, message: 'Base rate updated successfully' });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// POST /api/consumers/:id/multi-applicants - Save/replace all additional applicants (applicant_number 3 and up)
+router.post('/:id/multi-applicants', async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        const list = (0, input_js_1.body)(req).applicants ?? [];
+        if (!Array.isArray(list) || list.length > 10)
+            throw (0, input_js_1.bad)('applicants must be a list of at most 10 people');
+        const main = (await index_js_1.db.query(`SELECT mobile, pan_no, aadhaar_no FROM consumers WHERE id = $1`, [id])).rows[0];
+        const seen = { pan: new Set(), mobile: new Set(), aadhaar: new Set() };
+        const rows = list.map((a, i) => {
+            if (!a || typeof a !== 'object' || Array.isArray(a))
+                throw (0, input_js_1.bad)(`Applicant ${i + 3} is not valid`);
+            const who = `Applicant ${i + 3}`;
+            let r;
+            try {
+                r = cleanFields(a, CO_COLS);
+                if ((0, input_js_1.has)(a.mobile))
+                    r.mobile = (0, applicant_js_1.mobileNo)(a.mobile, 'Mobile');
+                if (!r.first_name)
+                    throw (0, input_js_1.bad)('First name is required');
+            }
+            catch (e) {
+                throw e?.http ? (0, input_js_1.bad)(`${who}: ${e.message}`) : e;
+            }
+            for (const [label, key, set, mainVal] of [['PAN', 'pan_no', seen.pan, main.pan_no && String(main.pan_no).toUpperCase()], ['mobile', 'mobile', seen.mobile, main.mobile], ['Aadhaar', 'aadhaar_no', seen.aadhaar, main.aadhaar_no]]) {
+                const v = r[key];
+                if (!v)
+                    continue;
+                if (v === mainVal)
+                    throw (0, input_js_1.bad)(`${who}: the ${label} is the same as the main applicant`);
+                if (set.has(v))
+                    throw (0, input_js_1.bad)(`${who}: the ${label} is repeated for another applicant in this list`);
+                set.add(v);
+            }
+            r.name = [r.first_name, r.last_name].filter(Boolean).join(' ');
+            r.marital_status = r.marital_status || 'not_specified';
+            r.no_of_children = r.no_of_children ?? 0;
+            r.has_poa = r.has_poa ?? false;
+            return { ...r, consumer_id: id, applicant_number: i + 3 };
+        });
+        const inserted = await (0, input_js_1.inTx)(async (c) => {
+            await lock(c, `multi:${id}`);
+            await c.query(`DELETE FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2`, [id]);
+            const out = [];
+            for (const r of rows)
+                out.push({ id: (await insertCols(c, 'co_applicants', r)).rows[0].id, applicant_number: r.applicant_number });
+            return out;
+        });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'consumer_applicants', id, {}, { additional_applicants: rows.map((r) => r.name) });
+        res.status(201).json({ success: true, data: inserted });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/consumers/:id/multi-applicants - List additional applicants
+router.get('/:id/multi-applicants', async (req, res, next) => {
+    try {
+        const result = await index_js_1.db.query(`SELECT id, consumer_id, name, first_name, last_name, salutation, relationship,
+              pan_no, aadhaar_no, mobile, email, to_char(dob, 'YYYY-MM-DD') AS dob,
+              middle_name, gender, father_name, to_char(anniversary_date, 'YYYY-MM-DD') AS anniversary_date, marital_status,
+              no_of_children, passport_no, email_2, designation, has_poa,
+              nationality, profession, photo_url, applicant_number
+       FROM co_applicants
+       WHERE consumer_id = $1 AND applicant_number > 2
+       ORDER BY applicant_number`, [req.params.id]);
+        res.json({ success: true, data: result.rows });
     }
     catch (error) {
         next(error);
     }
 });
-// POST /api/consumers/:id/multi-applicant-photo/:applicantId - Upload photo for a specific multi applicant
-router.post('/:id/multi-applicant-photo/:applicantId', addlPhotoUpload.single('photo'), async (req, res, next) => {
+// DELETE /api/consumers/:id/multi-applicants/:applicantId - Delete one additional applicant and renumber the rest
+router.delete('/:id/multi-applicants/:applicantId', async (req, res, next) => {
     try {
-        const { applicantId } = req.params;
-        if (!req.file) {
+        const { id, applicantId } = req.params;
+        await (0, input_js_1.inTx)(async (c) => {
+            await lock(c, `multi:${id}`);
+            await c.query(`DELETE FROM co_applicants WHERE id = $1 AND consumer_id = $2 AND applicant_number > 2`, [applicantId, id]);
+            const remaining = await c.query(`SELECT id FROM co_applicants WHERE consumer_id = $1 AND applicant_number > 2 ORDER BY applicant_number`, [id]);
+            // two steps: moving straight to the new numbers could meet the (consumer, number) unique rule halfway
+            await c.query(`UPDATE co_applicants SET applicant_number = applicant_number + 1000 WHERE consumer_id = $1 AND applicant_number > 2`, [id]);
+            for (let i = 0; i < remaining.rows.length; i++)
+                await c.query(`UPDATE co_applicants SET applicant_number = $1 WHERE id = $2`, [i + 3, remaining.rows[i].id]);
+        });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'delete', 'consumer_applicants', applicantId, {}, {});
+        res.json({ success: true });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// POST /api/consumers/:id/multi-applicant-photo/:applicantId - Upload photo for one additional applicant
+router.post('/:id/multi-applicant-photo/:applicantId', addlPhotoUpload, async (req, res, next) => {
+    try {
+        const { id, applicantId } = req.params;
+        if (!req.file)
             return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        }
-        const existing = await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE id = $1`, [applicantId]);
-        if (existing.rows[0]?.photo_url) {
-            const oldPath = path_1.default.join(__dirname, '../../', existing.rows[0].photo_url.replace(/^\//, ''));
-            if ((0, fs_1.existsSync)(oldPath)) {
-                try {
-                    (0, fs_1.unlinkSync)(oldPath);
-                }
-                catch { /* ignore */ }
-            }
-        }
+        const old = (await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE id = $1 AND consumer_id = $2`, [applicantId, id])).rows[0]?.photo_url;
         const photoUrl = `/uploads/multi-applicant-photos/${req.file.filename}`;
-        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2`, [photoUrl, applicantId]);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2 AND consumer_id = $3`, [photoUrl, applicantId, id]);
+        dropOldPhoto(old, photoUrl);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        if (err.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ error: 'File too large — maximum size is 5MB' });
-        }
         next(err);
     }
 });
