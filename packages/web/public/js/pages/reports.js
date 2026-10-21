@@ -5678,7 +5678,7 @@ Pages.reports = async function(params = {}) {
       .rpt-nav-item { padding:7px 14px; font-size:12px; cursor:pointer; border-radius:8px; margin:1px 8px; color:var(--text2); transition:background .15s }
       .rpt-nav-item:hover { background:var(--surface2); color:var(--text) }
       .rpt-nav-item.active { background:var(--teal-bg); color:var(--teal); font-weight:600 }
-      @media (max-width:900px) { .rptn { grid-template-columns:minmax(0,1fr) !important } .rptn .rpt-side { position:static !important } }
+      @media (max-width:900px) { .rptn { grid-template-columns:minmax(0,1fr) !important } .rptn .rpt-side { position:static !important; max-height:230px; overflow-y:auto } }
       #rpt-main { min-width:0 }
       #rpt-main .sp { border-radius:10px; overflow:hidden }
       #rpt-main .sp-hdr { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:14px 18px; background:var(--teal-bg); border-bottom:1px solid var(--border) }

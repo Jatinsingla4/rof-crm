@@ -1,0 +1,116 @@
+/* ROF CRM — Responsive layer (loads after rof.css and set-master.css)
+   Part 1: mobile navigation drawer (works with js/responsive.js)
+   Part 2: page-level safety rules for tablets and phones
+   Desktop (wider than 900px) is not touched by anything here. */
+
+#nav-toggle, #nav-backdrop, #nav-user { display:none }
+
+/* ═══════════════════════════════════════════════
+   PART 1 — HEADER + NAVIGATION DRAWER  (≤ 900px)
+═══════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  html, body { max-width:100vw; overflow-x:hidden }
+
+  /* top bar: ☰  logo  ·····  theme  logout */
+  #topbar { padding:0 10px; gap:8px }
+  #nav-toggle {
+    display:inline-flex; flex-direction:column; justify-content:center; gap:4px; flex-shrink:0;
+    width:36px; height:34px; padding:0 9px; border-radius:9px; cursor:pointer;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18);
+  }
+  #nav-toggle span { display:block; height:2px; border-radius:2px; background:#fff; transition:transform .2s, opacity .2s }
+  body.nav-open #nav-toggle span:nth-child(1) { transform:translateY(6px) rotate(45deg) }
+  body.nav-open #nav-toggle span:nth-child(2) { opacity:0 }
+  body.nav-open #nav-toggle span:nth-child(3) { transform:translateY(-6px) rotate(-45deg) }
+  .logo-zone { min-width:0; padding-right:0; gap:8px; flex:1 1 auto; overflow:hidden }
+  .logo-tagline, .ip-notice, .tb-date, .tb-user, .topbar-right .tb-link:not([onclick*="logout"]) { display:none }
+  .logo-name { white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+  .topbar-right { gap:6px; flex-shrink:0 }
+  .theme-toggle { padding:4px 8px }
+  .theme-toggle #theme-label { display:none }
+
+  /* the menu bar becomes a slide-in drawer */
+  #navbar {
+    position:fixed; top:44px; left:0; bottom:0; height:auto; width:min(88vw, 340px);
+    flex-direction:column; align-items:stretch; gap:2px; padding:12px 10px 28px;
+    overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch;
+    transform:translateX(-104%); transition:transform .22s ease; z-index:350;
+    border-bottom:none; border-right:2px solid var(--accent); box-shadow:none;
+  }
+  body.nav-open #navbar { transform:none; box-shadow:0 0 40px rgba(0,0,0,0.5) }
+  #nav-backdrop {
+    display:block; position:fixed; top:44px; left:0; right:0; bottom:0; z-index:340;
+    background:rgba(0,0,0,0.5); opacity:0; pointer-events:none; transition:opacity .2s;
+  }
+  body.nav-open #nav-backdrop { opacity:1; pointer-events:auto }
+  body.nav-open { overflow:hidden }
+
+  #nav-user {
+    display:flex; flex-direction:column; gap:2px; padding:4px 12px 12px; margin-bottom:6px;
+    border-bottom:1px solid rgba(255,255,255,0.12);
+  }
+  #nav-user b { font-size:13px; font-weight:600; color:#fff }
+  #nav-user span { font-size:11px; color:rgba(255,255,255,0.6) }
+
+  .nav-item { display:block }
+  .nav-btn { width:100%; justify-content:space-between; padding:12px 12px; margin:1px 0; font-size:13px; border-radius:10px }
+  .nav-right .nav-btn { justify-content:flex-start }
+  .dd {
+    position:static; box-shadow:none; background:transparent; min-width:0 !important; animation:none;
+    border:none; border-left:2px solid rgba(255,255,255,0.14); border-radius:0;
+    margin:2px 0 8px 14px; padding:2px 0 2px 6px;
+  }
+  .dd-link { padding:11px 10px; font-size:12.5px; white-space:normal; flex-wrap:wrap }
+  .dd-link:hover { box-shadow:none }
+  .sub-dd, .sub-sub-dd {
+    position:static; box-shadow:none; background:transparent; min-width:0 !important; animation:none;
+    border:none; border-left:2px solid rgba(255,255,255,0.12); border-radius:0;
+    margin:2px 0 4px 10px; padding:0 0 0 6px; flex:1 0 100%; width:100%;
+  }
+  .nav-right {
+    margin:12px 0 0; padding-top:12px; border-top:1px solid rgba(255,255,255,0.14);
+    flex-direction:column; align-items:stretch; gap:2px;
+  }
+  .nav-right .nav-btn { border:none; border-radius:10px; margin:1px 0; padding:12px 12px; font-size:13px }
+  .nav-item.open > .dd, .dd-link.open > .sub-dd, .dd-link.open > .sub-sub-dd { animation:none }
+}
+@media (max-width: 420px) {
+  .logo-box { width:30px; height:30px }
+  .logo-name { font-size:12px }
+}
+
+/* ═══════════════════════════════════════════════
+   PART 2 — PAGE CONTENT SAFETY RULES
+   (Set Master pages bring their own responsive CSS, so they are left out.)
+═══════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  #content { padding:14px 12px; max-width:100vw; min-width:0 }
+  #content:not(:has(.sm)) .page-hdr { flex-wrap:wrap; gap:6px }
+  #content:not(:has(.sm)) .page-hdr .breadcrumb { margin-left:0; width:100% }
+  #content:not(:has(.sm)) .tbl-hdr { flex-wrap:wrap; gap:8px }
+  #content:not(:has(.sm)) .tbl-actions { margin-left:0; flex-wrap:wrap }
+  /* wide tables scroll sideways inside their own box instead of widening the page */
+  #content:not(:has(.sm)) table { display:block; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch }
+  #content:not(:has(.sm)) img, #content:not(:has(.sm)) canvas, #content:not(:has(.sm)) iframe { max-width:100% }
+  #content:not(:has(.sm)) pre { max-width:100%; overflow-x:auto }
+  .modal, .modal-box { max-width:96vw !important }
+}
+
+@media (max-width: 700px) {
+  /* two-or-more-column grids written inline become one column (auto-fit / auto-fill grids already adapt) */
+  #content:not(:has(.sm)) [style*="grid-template-columns"]:not([style*="auto-fit"]):not([style*="auto-fill"]) {
+    grid-template-columns:minmax(0, 1fr) !important;
+  }
+  #content:not(:has(.sm)) [style*="grid-column"] { grid-column:auto !important }
+  /* inputs with a fixed pixel width must not push the page wider than the screen */
+  #content:not(:has(.sm)) input[style*="width"], #content:not(:has(.sm)) select[style*="width"],
+  #content:not(:has(.sm)) textarea[style*="width"] { max-width:100% }
+  #content:not(:has(.sm)) .fc { max-width:100% }
+  /* button rows and segmented toggles wrap onto a second line instead of running off the screen */
+  #content:not(:has(.sm)) [style*="display:flex"]:not([style*="flex-wrap:nowrap"]):not([style*="flex-direction:column"]) { flex-wrap:wrap }
+  #content:not(:has(.sm)) .btg { flex-wrap:wrap; max-width:100% }
+  #content:not(:has(.sm)) .sp-grid, #content:not(:has(.sm)) .g2, #content:not(:has(.sm)) .g3, #content:not(:has(.sm)) .g4 {
+    grid-template-columns:minmax(0, 1fr);
+  }
+  .toast, #toast-container { max-width:94vw }
+}

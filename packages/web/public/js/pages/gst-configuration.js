@@ -38,7 +38,7 @@
 .gstc-table td.gstc-left { text-align:left; }
 .gstc-msg-success { background:var(--teal-bg); border:1px solid var(--teal); color:var(--teal); padding:9px 14px; border-radius:8px; margin-bottom:10px; font-size:12.5px; font-weight:600; }
 .gstc-msg-error { background:var(--red-bg); border:1px solid var(--red); color:var(--red); padding:9px 14px; border-radius:8px; margin-bottom:10px; font-size:12.5px; }
-@media (max-width:900px) { .gstc-page { flex-direction:column } .gstc-sidebar { width:100%; min-width:0; position:static; display:flex; flex-wrap:wrap; padding:6px } .gstc-tab-btn { width:auto; margin:2px } }
+@media (max-width:900px) { .gstc-page { flex-direction:column; align-items:stretch } .gstc-sidebar { width:100%; min-width:0; position:static; display:flex; flex-wrap:wrap; padding:6px } .gstc-tab-btn { width:auto; margin:2px } }
 </style>`;
 
   // ── STATE ──────────────────────────────────────────────────────────────────
