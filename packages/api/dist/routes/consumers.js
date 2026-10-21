@@ -14,6 +14,7 @@ const path_1 = __importDefault(require("path"));
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
+const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
@@ -84,6 +85,11 @@ const router = (0, express_1.Router)();
 // POST /api/consumers - Create consumer
 router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'maker'), async (req, res, next) => {
     try {
+        for (const k of ['name', 'first_name', 'last_name', 'middle_name', 'mobile', 'email', 'pan', 'pan_no', 'aadhaar', 'aadhaar_no']) {
+            const v = (req.body || {})[k];
+            if (v !== undefined && v !== null && typeof v !== 'string' && !(typeof v === 'number' && !['name', 'first_name', 'last_name', 'middle_name'].includes(k)))
+                return res.status(400).json({ error: `${k.replace(/_/g, ' ')} must be text` });
+        }
         const { 
         // Legacy / simple fields
         name, mobile, email, aadhaar, pan, incomeCategory, income_category, projectId, project_id, 
@@ -1308,5 +1314,6 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         next(err);
     }
 });
+router.use(pg_errors_js_1.pgErrorHandler);
 exports.default = router;
 //# sourceMappingURL=consumers.js.map

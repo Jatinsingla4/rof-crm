@@ -11,6 +11,7 @@ import multer from 'multer';
 import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
 import { AuthRequest } from '../index.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall, buildInterestRows } from '../utils/payment-waterfall.js';
@@ -87,6 +88,10 @@ const router = Router();
 // POST /api/consumers - Create consumer
 router.post('/', requireProcess('new_applicant', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    for (const k of ['name', 'first_name', 'last_name', 'middle_name', 'mobile', 'email', 'pan', 'pan_no', 'aadhaar', 'aadhaar_no']) {
+      const v = (req.body || {})[k];
+      if (v !== undefined && v !== null && typeof v !== 'string' && !(typeof v === 'number' && !['name', 'first_name', 'last_name', 'middle_name'].includes(k))) return res.status(400).json({ error: `${k.replace(/_/g, ' ')} must be text` });
+    }
     const {
       // Legacy / simple fields
       name, mobile, email, aadhaar, pan, incomeCategory, income_category, projectId, project_id,
@@ -1579,5 +1584,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     next(err);
   }
 });
+
+router.use(pgErrorHandler);
 
 export default router;

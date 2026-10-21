@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildApplicantFileHtml = buildApplicantFileHtml;
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
@@ -356,13 +357,27 @@ router.post('/', async (req, res, next) => {
         }
     }
     catch (err) {
+        // These two are the customer's mistake (or a race), not a server fault
+        if (/^Double Booking Prevented/.test(err?.message || ''))
+            return res.status(409).json({ error: err.message.replace(/^Double Booking Prevented: /, '') });
+        if (/^Selected unit does not exist/.test(err?.message || ''))
+            return res.status(400).json({ error: err.message });
+        if (/^Project not found/.test(err?.message || ''))
+            return res.status(404).json({ error: err.message });
         next(err);
     }
 });
 // GET /api/booking
 router.get('/', async (req, res, next) => {
     try {
-        const { project_id, consumer_id, status, page = 1, pageSize = 20 } = req.query;
+        const { project_id, consumer_id, status } = req.query;
+        const whole = (v, dflt, max) => (v === undefined ? dflt : typeof v === 'string' && /^\d{1,6}$/.test(v) && +v >= 1 && +v <= max ? +v : NaN);
+        const page = whole(req.query.page, 1, 100000), pageSize = whole(req.query.pageSize, 20, 1000);
+        if (Number.isNaN(page) || Number.isNaN(pageSize))
+            return res.status(400).json({ error: 'page and pageSize must be whole numbers (pageSize up to 1000)' });
+        for (const [k, v] of Object.entries({ project_id, consumer_id, status }))
+            if (v !== undefined && typeof v !== 'string')
+                return res.status(400).json({ error: `${k} must be given once` });
         const params = [];
         let where = 'WHERE 1=1';
         if (project_id) {
@@ -3034,5 +3049,7 @@ router.get('/:id', async (req, res, next) => {
         next(err);
     }
 });
+// A bad id, number or text from the form is the caller's mistake: 400, not a server error
+router.use(pg_errors_js_1.pgErrorHandler);
 exports.default = router;
 //# sourceMappingURL=booking.js.map
