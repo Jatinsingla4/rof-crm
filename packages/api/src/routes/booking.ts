@@ -18,6 +18,7 @@ import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { recomputeAddonDemands } from './addon-charges.js';
 import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
+import { nextReceiptNumber } from '../utils/receipt-number.js';
 
 const router = Router();
 
@@ -992,7 +993,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
               : safeLocalDate(new Date());
-            const receiptNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+            const receiptNum = await nextReceiptNumber(client);
             const stepGReceiptRes = await client.query(
               `INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,

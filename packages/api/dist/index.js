@@ -23,6 +23,7 @@ const units_js_1 = __importDefault(require("./routes/units.js"));
 const allocations_js_1 = __importDefault(require("./routes/allocations.js"));
 const payments_js_1 = __importDefault(require("./routes/payments.js"));
 const demands_js_1 = __importDefault(require("./routes/demands.js"));
+const receipts_js_1 = __importDefault(require("./routes/receipts.js"));
 const documents_js_1 = __importDefault(require("./routes/documents.js"));
 const communications_js_1 = __importDefault(require("./routes/communications.js"));
 const users_js_1 = __importDefault(require("./routes/users.js"));
@@ -451,6 +452,7 @@ app.use('/api/consumers', exports.authenticateToken, rbac('consumers'), consumer
 app.use('/api/units', exports.authenticateToken, rbac('units'), units_js_1.default);
 app.use('/api/allocations', exports.authenticateToken, rbac('allocations'), allocations_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), demands_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipts_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), payments_js_1.default);
 app.use('/api/documents', exports.authenticateToken, rbac('documents'), documents_js_1.default);
 app.use('/api/communications', exports.authenticateToken, rbac('communications'), communications_js_1.default);

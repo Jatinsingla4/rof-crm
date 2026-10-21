@@ -21,6 +21,7 @@ exports.cascadeOverpaymentExcess = cascadeOverpaymentExcess;
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("./gst-receipt-split.js");
+const receipt_number_js_1 = require("./receipt-number.js");
 function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
@@ -467,7 +468,7 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
             break;
         const nextId = nextDemand.rows[0].id;
         const nextIdx = nextDemand.rows[0].installment_index;
-        const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
+        const advanceNum = await (0, receipt_number_js_1.nextReceiptNumber)(client, '-ADV');
         const advanceReceiptRes = await client.query(`INSERT INTO receipts
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,

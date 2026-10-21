@@ -19,6 +19,7 @@ const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const receipt_number_js_1 = require("../utils/receipt-number.js");
 const router = (0, express_1.Router)();
 // ---------- input rules for Booking ----------
 // Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
@@ -914,7 +915,7 @@ router.patch('/:id', async (req, res, next) => {
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
                             : safeLocalDate(new Date());
-                        const receiptNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
+                        const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client);
                         const stepGReceiptRes = await client.query(`INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
                   payment_method, transaction_ref, received_date, received_by_user_id,

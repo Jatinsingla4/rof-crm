@@ -19,6 +19,7 @@ import unitRoutes from './routes/units.js';
 import allocationRoutes from './routes/allocations.js';
 import paymentRoutes from './routes/payments.js';
 import demandRoutes from './routes/demands.js';
+import receiptRoutes from './routes/receipts.js';
 import documentRoutes from './routes/documents.js';
 import communicationRoutes from './routes/communications.js';
 import userRoutes from './routes/users.js';
@@ -542,6 +543,7 @@ app.use('/api/consumers',      authenticateToken, rbac('consumers'),      consum
 app.use('/api/units',          authenticateToken, rbac('units'),          unitRoutes);
 app.use('/api/allocations',    authenticateToken, rbac('allocations'),    allocationRoutes);
 app.use('/api/payments',       authenticateToken, rbac('payments'),       demandRoutes);
+app.use('/api/payments',       authenticateToken, rbac('payments'),       receiptRoutes);
 app.use('/api/payments',       authenticateToken, rbac('payments'),       paymentRoutes);
 app.use('/api/documents',      authenticateToken, rbac('documents'),      documentRoutes);
 app.use('/api/communications', authenticateToken, rbac('communications'), communicationRoutes);

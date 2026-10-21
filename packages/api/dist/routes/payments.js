@@ -8,9 +8,9 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
-const processPermission_js_1 = require("../middleware/processPermission.js");
+const input_js_1 = require("../utils/input.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
-const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -117,156 +117,6 @@ router.get('/overdue', async (req, res, next) => {
         next(error);
     }
 });
-// POST /api/payments/receipts - Record payment receipt
-router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', 'maker'), async (req, res, next) => {
-    try {
-        const { consumerId, amountReceivedInr, paymentDate, paymentMode, referenceNumber, bankName, branch, remarks, baseAmount, plcAmount, edcAmount, idcAmount, otherChargeAmount, otherChargeDesc, interestAmount, isOtherPayment, isAdjustment, companyBankAccountId, 
-        // legacy fields
-        paymentPlanId: legacyPlanId, installmentIndex: legacyIdx, paymentMethod, transactionRef, receivedDate, } = req.body;
-        const amount = amountReceivedInr || baseAmount;
-        if (!consumerId || !amount) {
-            return res.status(400).json({ error: 'consumerId and amount are required' });
-        }
-        // Look up the consumer's payment plan
-        const planResult = await index_js_1.db.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId]);
-        let resolvedPlanId = legacyPlanId || (planResult.rows[0]?.id) || null;
-        // Fallback: find any payment plan for this consumer's project
-        if (!resolvedPlanId) {
-            const projResult = await index_js_1.db.query(`SELECT pp.id FROM payment_plans pp
-         JOIN units u ON u.id = pp.unit_id
-         JOIN booking_records br ON br.consumer_id = $1
-         WHERE u.project_id = (
-           SELECT u2.project_id FROM units u2
-           JOIN booking_records br2 ON br2.unit_id = u2.id AND br2.consumer_id = $1
-           LIMIT 1
-         )
-         LIMIT 1`, [consumerId]);
-            resolvedPlanId = projResult.rows[0]?.id || null;
-        }
-        // Get next installment_index for this plan (null if no plan; receipts.payment_plan_id is now nullable)
-        let resolvedIdx = (legacyIdx != null ? Number(legacyIdx) : null);
-        // Auto-increment only when a plan exists, no index given, AND it's not an explicit "Other" payment
-        if (resolvedPlanId && resolvedIdx == null && !isOtherPayment) {
-            const idxResult = await index_js_1.db.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 as next_idx FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [resolvedPlanId]);
-            resolvedIdx = idxResult.rows[0].next_idx;
-        }
-        const receiptDate = paymentDate || receivedDate || new Date().toISOString().split('T')[0];
-        const method = paymentMode || paymentMethod || 'cash';
-        const ref = referenceNumber || transactionRef || null;
-        // Generate receipt number REC-YYYY-XXXXX
-        const receiptNumber = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
-        const bankNameVal = bankName || null;
-        const branchVal = branch || null;
-        const chequeNoVal = req.body.chequeNo || req.body.cheque_no || null;
-        const chequeDateVal = req.body.chequeDate || req.body.cheque_date || null;
-        // Cheque duplicate check — only for cheque payments
-        if (chequeNoVal && chequeNoVal.trim()) {
-            const dupCheck = await index_js_1.db.query(`SELECT id, cheque_no, status
-         FROM receipts
-         WHERE cheque_no = $1
-           AND status NOT IN ('bounced', 'cancelled')
-         LIMIT 1`, [chequeNoVal.trim()]);
-            if (dupCheck.rows.length > 0) {
-                return res.status(409).json({
-                    success: false,
-                    error: `Cheque No. "${chequeNoVal.trim()}" is already in use (status: ${dupCheck.rows[0].status}). Only bounced or cancelled cheques can be reused.`,
-                });
-            }
-        }
-        const result = await index_js_1.db.query(`INSERT INTO receipts
-         (payment_plan_id, installment_index, consumer_id, amount_received_inr,
-          payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,
-          plc_amount, edc_amount, idc_amount, other_charge_amount, other_charge_desc, interest_amount,
-          bank_name, branch, cheque_no, cheque_date, status, approval_status, print_status, is_adjustment,
-          company_bank_account_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending', 'pending', 'not_printed', $20, $21)
-       RETURNING id, receipt_number, amount_received_inr, plc_amount, edc_amount, idc_amount, other_charge_amount, interest_amount, status`, [resolvedPlanId, resolvedIdx, consumerId, amount, method, ref, receiptDate, req.userId, receiptNumber,
-            parseFloat(plcAmount || 0), parseFloat(edcAmount || 0), parseFloat(idcAmount || 0),
-            parseFloat(otherChargeAmount || 0), otherChargeDesc || null, parseFloat(interestAmount || 0),
-            bankNameVal, branchVal, chequeNoVal, chequeDateVal, !!isAdjustment, companyBankAccountId || null]);
-        const receiptId = result.rows[0].id;
-        // Auto-match receipt to demand, then apply partial/full/excess payment logic
-        const matchClient = await index_js_1.db.connect();
-        try {
-            await matchClient.query('BEGIN');
-            let gstDemandId = null;
-            if (resolvedPlanId && resolvedIdx != null) {
-                const matchedDemand = await matchClient.query(`SELECT d.id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
-                  d.installment_index, d.consumer_id
-           FROM demands d
-           WHERE d.payment_plan_id = $1
-             AND d.installment_index = $2
-             AND d.status != 'paid'
-           ORDER BY d.created_at ASC
-           LIMIT 1`, [resolvedPlanId, resolvedIdx]);
-                if (matchedDemand.rows[0]) {
-                    const demand = matchedDemand.rows[0];
-                    await matchClient.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
-                    gstDemandId = demand.id;
-                    // Sum all non-cancelled receipts linked to this demand
-                    const paidResult = await matchClient.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
-             FROM receipts
-             WHERE demand_id = $1 AND status != 'cancelled'`, [demand.id]);
-                    const totalPaid = parseFloat(paidResult.rows[0].total_paid);
-                    const amountDue = parseFloat(demand.amount_due_inr)
-                        + parseFloat(demand.cgst_amount || 0)
-                        + parseFloat(demand.sgst_amount || 0);
-                    if (totalPaid >= amountDue) {
-                        // Fully paid (or excess)
-                        await matchClient.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
-                        // Cascade any excess forward via the shared cascade function
-                        // (also used by booking.ts's Step-G receipts) -- hops across as
-                        // many successive unpaid demands as needed until it's fully
-                        // absorbed or no further demand remains.
-                        const excess = totalPaid - amountDue;
-                        if (excess > 0) {
-                            await (0, payment_waterfall_js_1.cascadeOverpaymentExcess)(matchClient, demand.consumer_id, resolvedPlanId, demand.id, excess, method, req.userId || null, receiptId);
-                        }
-                    }
-                    else {
-                        // Partial payment
-                        await matchClient.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [demand.id]);
-                    }
-                }
-            }
-            // Resolve and persist cgst_amount/sgst_amount for this receipt --
-            // always independent of demand linkage, using the receipt's own
-            // project + received_date.
-            const bookingInfo = await matchClient.query(`SELECT project_id FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`, [consumerId]);
-            const gstProjectId = bookingInfo.rows[0]?.project_id || null;
-            const gstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(matchClient, parseFloat(amount), gstProjectId, receiptDate);
-            await matchClient.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [gstSplit.cgstAmount, gstSplit.sgstAmount, receiptId]);
-            await matchClient.query('COMMIT');
-        }
-        catch (matchErr) {
-            await matchClient.query('ROLLBACK');
-            console.error('Demand auto-match failed, rolled back:', matchErr.message);
-        }
-        finally {
-            matchClient.release();
-        }
-        // Auto-raise installment 1 if this is the first valid receipt against it
-        if (resolvedPlanId && resolvedIdx === 1) {
-            const autoRaiseClient = await index_js_1.db.connect();
-            try {
-                await autoRaiseClient.query('BEGIN');
-                await (0, payment_waterfall_js_1.checkAndAutoRaiseInstallment1)(autoRaiseClient, resolvedPlanId, receiptId, receiptDate, req.userId || null);
-                await autoRaiseClient.query('COMMIT');
-            }
-            catch (autoRaiseErr) {
-                await autoRaiseClient.query('ROLLBACK');
-                console.error('Installment-1 auto-raise failed, rolled back:', autoRaiseErr.message);
-            }
-            finally {
-                autoRaiseClient.release();
-            }
-        }
-        res.status(201).json({ success: true, data: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
 // GET /api/payments/dashboard - Payment dashboard KPIs
 router.get('/dashboard', async (req, res, next) => {
     try {
@@ -297,323 +147,6 @@ router.get('/dashboard', async (req, res, next) => {
                 },
             },
         });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// GET /api/payments/receipts - List all receipts (with optional filters)
-router.get('/receipts', async (req, res, next) => {
-    try {
-        const { consumerId, projectId, towerId, status, fromDate, toDate, registrationNo, firstName, unitAddress, receiptNo, brokerId, printStatus, approvalStatus, page = 1, pageSize = 50, } = req.query;
-        let query = `SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index,
-                        r.consumer_id, r.amount_received_inr, r.payment_method,
-                        r.cgst_amount, r.sgst_amount,
-                        r.transaction_ref, r.received_date, r.created_at,
-                        r.status, r.approval_status, r.bank_name,
-                        r.print_status, r.printed_at,
-                        r.plc_amount, r.edc_amount, r.idc_amount,
-                        r.other_charge_amount, r.other_charge_desc, r.interest_amount,
-                        c.name as consumer_name, c.mobile,
-                        c.registration_no, c.first_name, c.last_name,
-                        pp.project_id,
-                        p.name as project_name,
-                        u.unit_number,
-                        t.id::text as tower_id, t.tower_name,
-                        u_creator.name AS generated_by_name,
-                        u_printer.name AS printed_by_name,
-                        COALESCE(b.firm_name, b.name, 'Direct') AS broker_name,
-                        b.id AS broker_id
-                 FROM receipts r
-                 JOIN consumers c ON r.consumer_id = c.id
-                 JOIN payment_plans pp ON r.payment_plan_id = pp.id
-                 LEFT JOIN projects p ON p.id = pp.project_id
-                 LEFT JOIN units u ON u.id = pp.unit_id
-                 LEFT JOIN towers t ON t.id = u.tower_id
-                 LEFT JOIN users u_creator ON u_creator.id = r.received_by_user_id
-                 LEFT JOIN users u_printer ON u_printer.id = r.printed_by
-                 LEFT JOIN LATERAL (
-                   SELECT br2.main_broker_id
-                   FROM booking_records br2
-                   WHERE br2.consumer_id = r.consumer_id
-                   ORDER BY br2.created_at DESC LIMIT 1
-                 ) latest_booking ON true
-                 LEFT JOIN brokers b ON b.id = latest_booking.main_broker_id
-                 WHERE 1=1`;
-        const params = [];
-        if (consumerId) {
-            query += ` AND r.consumer_id = $${params.length + 1}`;
-            params.push(consumerId);
-            const consumerParamIndex = params.length;
-            query += ` AND r.payment_plan_id = (
-        SELECT pp2.id FROM payment_plans pp2
-        WHERE pp2.consumer_id = $${consumerParamIndex}
-          AND pp2.unit_id = (
-            SELECT br.unit_id FROM booking_records br
-            WHERE br.consumer_id = $${consumerParamIndex}
-              AND br.status IN ('complete','pending_payment','active')
-            ORDER BY br.created_at DESC LIMIT 1
-          )
-        ORDER BY pp2.created_at DESC LIMIT 1
-      )`;
-        }
-        if (projectId) {
-            query += ` AND pp.project_id = $${params.length + 1}`;
-            params.push(projectId);
-        }
-        if (towerId) {
-            query += ` AND t.id = $${params.length + 1}`;
-            params.push(towerId);
-        }
-        if (fromDate) {
-            query += ` AND r.received_date >= $${params.length + 1}`;
-            params.push(fromDate);
-        }
-        if (toDate) {
-            query += ` AND r.received_date <= $${params.length + 1}`;
-            params.push(toDate);
-        }
-        if (registrationNo) {
-            query += ` AND c.registration_no ILIKE $${params.length + 1}`;
-            params.push(`%${registrationNo}%`);
-        }
-        if (firstName) {
-            query += ` AND c.first_name ILIKE $${params.length + 1}`;
-            params.push(`%${firstName}%`);
-        }
-        if (unitAddress) {
-            query += ` AND u.unit_number ILIKE $${params.length + 1}`;
-            params.push(`%${unitAddress}%`);
-        }
-        if (receiptNo) {
-            query += ` AND r.receipt_number ILIKE $${params.length + 1}`;
-            params.push(`%${receiptNo}%`);
-        }
-        if (brokerId) {
-            query += ` AND b.id = $${params.length + 1}`;
-            params.push(brokerId);
-        }
-        if (printStatus) {
-            query += ` AND r.print_status = $${params.length + 1}`;
-            params.push(printStatus);
-        }
-        if (approvalStatus) {
-            query += ` AND r.approval_status = $${params.length + 1}`;
-            params.push(approvalStatus);
-        }
-        query += ` ORDER BY r.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await index_js_1.db.query(query, params);
-        res.json({ success: true, data: result.rows });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// GET /api/payments/receipts/pending-cheques - List cheques pending action
-router.get('/receipts/pending-cheques', async (req, res, next) => {
-    try {
-        const { project_id, unit_address, tower_id, from_date, to_date, cheque_no, registration_no, first_name } = req.query;
-        const params = [];
-        let whereExtra = '';
-        if (project_id) {
-            params.push(project_id);
-            whereExtra += ` AND p.id = $${params.length}`;
-        }
-        if (unit_address) {
-            params.push(`%${unit_address}%`);
-            whereExtra += ` AND u.unit_number ILIKE $${params.length}`;
-        }
-        if (tower_id) {
-            params.push(tower_id);
-            whereExtra += ` AND t.id = $${params.length}`;
-        }
-        if (from_date) {
-            params.push(from_date);
-            whereExtra += ` AND r.created_at::date >= $${params.length}`;
-        }
-        if (to_date) {
-            params.push(to_date);
-            whereExtra += ` AND r.created_at::date <= $${params.length}`;
-        }
-        if (cheque_no) {
-            params.push(`%${cheque_no}%`);
-            whereExtra += ` AND r.cheque_no ILIKE $${params.length}`;
-        }
-        if (registration_no) {
-            params.push(`%${registration_no}%`);
-            whereExtra += ` AND c.registration_no ILIKE $${params.length}`;
-        }
-        if (first_name) {
-            params.push(`%${first_name}%`);
-            whereExtra += ` AND c.name ILIKE $${params.length}`;
-        }
-        const result = await index_js_1.db.query(`
-      SELECT
-        r.id,
-        r.receipt_number,
-        r.cheque_no,
-        r.amount_received_inr AS amount,
-        r.payment_method,
-        r.status,
-        r.cheque_date,
-        r.deposit_date,
-        r.clearing_date,
-        r.hold_remark,
-        r.clearing_bank_id,
-        r.bank_name,
-        r.branch,
-        r.created_at AS receipt_date,
-        c.name AS consumer_name,
-        c.registration_no AS registration_number,
-        u.unit_number AS unit_address,
-        t.tower_name,
-        ba.name AS clearing_bank_name,
-        comp.name AS company_name
-      FROM receipts r
-      JOIN consumers c ON c.id = r.consumer_id
-      LEFT JOIN allocations al ON al.consumer_id = c.id
-      LEFT JOIN units u ON u.id = al.unit_id
-      LEFT JOIN towers t ON t.id = u.tower_id
-      LEFT JOIN banks ba ON ba.id = r.clearing_bank_id
-      LEFT JOIN projects p ON p.id = al.project_id
-      LEFT JOIN companies comp ON comp.id = p.company_id
-      WHERE r.payment_method::text IN ('cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan')
-        AND r.status IN ('pending', 'deposited', 'on_hold')
-        ${whereExtra}
-      ORDER BY r.created_at DESC
-    `, params);
-        res.json({ success: true, data: result.rows, total: result.rows.length });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// GET /api/payments/receipts/:id - Fetch single receipt with all fields
-router.get('/receipts/:id', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await index_js_1.db.query(`SELECT r.*, c.name AS consumer_name, c.mobile
-       FROM receipts r
-       JOIN consumers c ON r.consumer_id = c.id
-       WHERE r.id = $1`, [id]);
-        if (result.rows.length === 0)
-            return res.status(404).json({ error: 'Receipt not found' });
-        res.json({ success: true, data: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id - Edit receipt instrument / amount fields
-router.patch('/receipts/:id', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { paymentMethod, transactionRef, bankName, branch, chequeNo, chequeDate, receivedDate, amountReceivedInr, plcAmount, edcAmount, idcAmount, interestAmount, otherChargeAmount, otherChargeDesc } = req.body;
-        const existing = await index_js_1.db.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref,
-              received_date, amount_received_inr
-       FROM receipts WHERE id = $1`, [id]);
-        if (existing.rows.length === 0)
-            return res.status(404).json({ error: 'Receipt not found' });
-        const receipt = existing.rows[0];
-        if (receipt.approval_status === 'approved') {
-            return res.status(403).json({ error: 'Cannot edit an approved receipt' });
-        }
-        if (receipt.status === 'cancelled') {
-            return res.status(403).json({ error: 'Cannot edit a cancelled receipt' });
-        }
-        if (transactionRef && transactionRef !== receipt.transaction_ref) {
-            const dup = await index_js_1.db.query(`SELECT id FROM receipts WHERE transaction_ref = $1 AND id != $2`, [transactionRef, id]);
-            if (dup.rows.length > 0) {
-                return res.status(409).json({ error: 'Transaction reference already exists on another receipt' });
-            }
-        }
-        const isPending = receipt.approval_status === 'pending';
-        // received_date drives GST-rate resolution (computeReceiptGstSplit is
-        // otherwise only ever called once, at receipt creation) -- if the date
-        // is actually changing, re-resolve the rate for the new date so
-        // cgst_amount/sgst_amount don't go stale.
-        let newCgstAmount = null;
-        let newSgstAmount = null;
-        const existingDateStr = receipt.received_date
-            ? new Date(receipt.received_date).toISOString().split('T')[0]
-            : null;
-        if (receivedDate && receivedDate !== existingDateStr) {
-            const bookingInfo = await index_js_1.db.query(`SELECT project_id FROM booking_records WHERE consumer_id = $1 ORDER BY created_at ASC LIMIT 1`, [receipt.consumer_id]);
-            const gstProjectId = bookingInfo.rows[0]?.project_id || null;
-            const gstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(index_js_1.db, parseFloat(receipt.amount_received_inr), gstProjectId, receivedDate);
-            newCgstAmount = gstSplit.cgstAmount;
-            newSgstAmount = gstSplit.sgstAmount;
-        }
-        const result = await index_js_1.db.query(`UPDATE receipts SET
-         payment_method  = COALESCE($1, payment_method),
-         transaction_ref = COALESCE($2, transaction_ref),
-         bank_name       = COALESCE($3, bank_name),
-         branch          = COALESCE($4, branch),
-         cheque_no       = COALESCE($5, cheque_no),
-         cheque_date     = COALESCE($6::date, cheque_date),
-         received_date   = COALESCE($7::date, received_date),
-         cgst_amount = COALESCE($9::numeric, cgst_amount),
-         sgst_amount = COALESCE($10::numeric, sgst_amount),
-         plc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($11::numeric, plc_amount)
-           ELSE plc_amount END,
-         edc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($12::numeric, edc_amount)
-           ELSE edc_amount END,
-         idc_amount = CASE WHEN $8::boolean
-           THEN COALESCE($13::numeric, idc_amount)
-           ELSE idc_amount END,
-         interest_amount = CASE WHEN $8::boolean
-           THEN COALESCE($14::numeric, interest_amount)
-           ELSE interest_amount END,
-         other_charge_amount = CASE WHEN $8::boolean
-           THEN COALESCE($15::numeric, other_charge_amount)
-           ELSE other_charge_amount END,
-         other_charge_desc = CASE WHEN $8::boolean
-           THEN COALESCE($16, other_charge_desc)
-           ELSE other_charge_desc END,
-         updated_at = NOW()
-       WHERE id = $17
-       RETURNING *`, [
-            paymentMethod || null,
-            transactionRef || null,
-            bankName || null,
-            branch || null,
-            chequeNo || null,
-            chequeDate || null,
-            receivedDate || null,
-            isPending,
-            newCgstAmount,
-            newSgstAmount,
-            plcAmount != null ? plcAmount : null,
-            edcAmount != null ? edcAmount : null,
-            idcAmount != null ? idcAmount : null,
-            interestAmount != null ? interestAmount : null,
-            otherChargeAmount != null ? otherChargeAmount : null,
-            otherChargeDesc != null ? otherChargeDesc : null,
-            id,
-        ]);
-        res.json({ success: true, receipt: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id/approve - Approve a pending receipt (Authentication)
-router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const result = await index_js_1.db.query(`UPDATE receipts 
-       SET status = 'authorized', 
-           authorized_by = $1, 
-           authorized_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $2 AND status = 'pending'
-       RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Pending receipt not found or already authorized' });
-        }
-        res.json({ success: true, data: result.rows[0], message: 'Receipt authorized successfully' });
     }
     catch (error) {
         next(error);
@@ -851,17 +384,21 @@ router.patch('/draw-refunds/:id/complete', async (req, res, next) => {
 router.patch('/receipts/:id/bounce', async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
-        const { id } = req.params;
-        const { reason, penaltyAmount = 500 } = req.body;
+        const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
+        const b = (0, input_js_1.body)(req);
+        const reason = (0, input_js_1.text)(b.reason, 'reason', 200, false);
+        const penaltyAmount = (0, input_js_1.has)(b.penaltyAmount) ? (0, input_js_1.num)(b.penaltyAmount, 'penaltyAmount', 1000000, 2) : 500;
         await client.query('BEGIN');
         // 1. Get receipt details
-        const receiptRes = await client.query(`SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index
+        const receiptRes = await client.query(`SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index, status
        FROM receipts WHERE id = $1 FOR UPDATE`, [id]);
         if (receiptRes.rows.length === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Receipt not found' });
         }
         let { consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index } = receiptRes.rows[0];
+        if (receiptRes.rows[0].status === 'bounced' || receiptRes.rows[0].status === 'cancelled')
+            throw (0, input_js_1.bad)(`Receipt is already ${receiptRes.rows[0].status}`, 409);
         // 1b. If receipt has no payment_plan_id, fall back to linked demand's plan
         if (!payment_plan_id && demand_id) {
             const demandPlan = await client.query(`SELECT payment_plan_id, installment_index FROM demands WHERE id = $1`, [demand_id]);
@@ -901,12 +438,13 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
         // 4. Log the bounce
         await client.query(`INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
        VALUES ($1, $2, CURRENT_DATE, $3, $4)`, [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']);
+        await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'receipt', id, { status: receiptRes.rows[0].status }, { status: 'bounced', penalty_amount_inr: penaltyAmount, reason });
         await client.query('COMMIT');
         res.json({ success: true, message: 'Receipt marked as bounced.' });
     }
     catch (error) {
-        await client.query('ROLLBACK');
-        next(error);
+        await client.query('ROLLBACK').catch(() => { });
+        (0, input_js_1.failWith)(error, res, next);
     }
     finally {
         client.release();
@@ -916,8 +454,8 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
 router.post('/receipts/:id/cancel', async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
-        const { id } = req.params;
-        const reason = req.body?.reason || 'Cancelled by user';
+        const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
+        const reason = (0, input_js_1.text)((0, input_js_1.body)(req).reason, 'reason', 200, false) || 'Cancelled by user';
         await client.query('BEGIN');
         const receiptResult = await client.query(`SELECT id, receipt_number, status, approval_status,
               demand_id, payment_plan_id, amount_received_inr, consumer_id, installment_index
@@ -930,6 +468,10 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         if (receipt.status === 'cancelled') {
             await client.query('ROLLBACK');
             return res.status(403).json({ error: 'Receipt is already cancelled' });
+        }
+        if (receipt.status === 'bounced') {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'A bounced receipt has already been taken out of the account and cannot be cancelled' });
         }
         if (receipt.approval_status === 'approved') {
             await client.query('ROLLBACK');
@@ -1010,6 +552,7 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         catch (auditErr) {
             console.error('Audit log failed (non-fatal):', auditErr.message);
         }
+        await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'receipt', id, { status: receipt.status }, { status: 'cancelled', reason });
         await client.query('COMMIT');
         return res.json({
             success: true,
@@ -1019,26 +562,11 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         });
     }
     catch (error) {
-        await client.query('ROLLBACK');
-        next(error);
+        await client.query('ROLLBACK').catch(() => { });
+        (0, input_js_1.failWith)(error, res, next);
     }
     finally {
         client.release();
-    }
-});
-// PATCH /api/payments/receipts/:id/mark-printed - Record who printed this receipt
-router.patch('/receipts/:id/mark-printed', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const existing = await index_js_1.db.query(`SELECT id FROM receipts WHERE id = $1`, [id]);
-        if (existing.rows.length === 0) {
-            return res.status(404).json({ error: 'Receipt not found' });
-        }
-        await index_js_1.db.query(`UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2`, [req.userId, id]);
-        res.json({ success: true, printedBy: req.userName, printedAt: new Date() });
-    }
-    catch (error) {
-        next(error);
     }
 });
 // ── RECEIPT HTML HELPERS ─────────────────────────────────────────────────────
@@ -2627,121 +2155,6 @@ router.get('/clearing-banks/:projectId', async (req, res, next) => {
        WHERE project_id = $1 AND is_active = true
        ORDER BY bank_name`, [projectId]);
         res.json({ success: true, data: fallbackResult.rows });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id/deposit - Mark cheque as deposited
-router.patch('/receipts/:id/deposit', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { deposit_date } = req.body;
-        if (!deposit_date) {
-            return res.status(400).json({ error: 'deposit_date is required' });
-        }
-        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
-        if (receiptRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Receipt not found' });
-        }
-        const receipt = receiptRes.rows[0];
-        if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
-            return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be deposited' });
-        }
-        if (receipt.status !== 'pending') {
-            return res.status(400).json({ error: `Cannot deposit: receipt is '${receipt.status}', must be 'pending'` });
-        }
-        const result = await index_js_1.db.query(`UPDATE receipts
-       SET status = 'deposited', deposit_date = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, receipt_number, status, deposit_date, amount_received_inr`, [deposit_date, id]);
-        res.json({ success: true, message: 'Cheque marked as deposited', data: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id/clear - Mark cheque as cleared
-router.patch('/receipts/:id/clear', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { clearing_date, clearing_bank_id } = req.body;
-        if (!clearing_date) {
-            return res.status(400).json({ error: 'clearing_date is required' });
-        }
-        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
-        if (receiptRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Receipt not found' });
-        }
-        const receipt = receiptRes.rows[0];
-        if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
-            return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be cleared' });
-        }
-        if (!['pending', 'deposited', 'on_hold'].includes(receipt.status)) {
-            return res.status(400).json({ error: `Cannot clear: receipt is '${receipt.status}', must be 'pending', 'deposited', or 'on_hold'` });
-        }
-        const result = await index_js_1.db.query(`UPDATE receipts
-       SET status = 'cleared',
-           clearing_date = $1,
-           clearing_bank_id = $2,
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING id, receipt_number, status, clearing_date, clearing_bank_id, amount_received_inr`, [clearing_date, clearing_bank_id || null, id]);
-        res.json({ success: true, message: 'Cheque marked as cleared', data: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id/release-hold - Release a cheque from hold back to pending
-router.patch('/receipts/:id/release-hold', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
-        if (receiptRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Receipt not found' });
-        }
-        const receipt = receiptRes.rows[0];
-        if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
-            return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be released from hold' });
-        }
-        if (receipt.status !== 'on_hold') {
-            return res.status(400).json({ error: 'Cannot release: receipt is not on hold' });
-        }
-        const result = await index_js_1.db.query(`UPDATE receipts
-       SET status = 'pending', hold_remark = NULL, updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, receipt_number, status, hold_remark, amount_received_inr`, [id]);
-        res.json({ success: true, message: 'Cheque released from hold', data: result.rows[0] });
-    }
-    catch (error) {
-        next(error);
-    }
-});
-// PATCH /api/payments/receipts/:id/hold - Put cheque on hold
-router.patch('/receipts/:id/hold', async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        const { hold_remark } = req.body;
-        if (!hold_remark || !hold_remark.trim()) {
-            return res.status(400).json({ error: 'hold_remark is required' });
-        }
-        const receiptRes = await index_js_1.db.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1`, [id]);
-        if (receiptRes.rows.length === 0) {
-            return res.status(404).json({ error: 'Receipt not found' });
-        }
-        const receipt = receiptRes.rows[0];
-        if (!['cheque', 'bank_transfer', 'demand_draft', 'cash', 'card', 'tds_challan'].includes(receipt.payment_method)) {
-            return res.status(400).json({ error: 'Only cheque, draft, online, cash, card, or TDS challan receipts can be put on hold' });
-        }
-        if (['cleared', 'bounced', 'cancelled'].includes(receipt.status)) {
-            return res.status(400).json({ error: `Cannot hold: receipt is '${receipt.status}'` });
-        }
-        const result = await index_js_1.db.query(`UPDATE receipts
-       SET status = 'on_hold', hold_remark = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, receipt_number, status, hold_remark, amount_received_inr`, [hold_remark.trim(), id]);
-        res.json({ success: true, message: 'Cheque put on hold', data: result.rows[0] });
     }
     catch (error) {
         next(error);

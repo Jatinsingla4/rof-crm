@@ -13,6 +13,7 @@ import { resolveRate } from './gst-resolver.js';
 import { computeInclusiveGstSplit } from './gst-backward-derive.js';
 import { computeReceiptGstSplit } from './gst-receipt-split.js';
 
+import { nextReceiptNumber } from './receipt-number.js';
 export interface WaterfallReceipt {
   id: string;
   amount_received_inr: number;
@@ -678,7 +679,7 @@ export async function cascadeOverpaymentExcess(
     if (!nextDemand.rows[0]) break;
     const nextId = nextDemand.rows[0].id;
     const nextIdx = nextDemand.rows[0].installment_index;
-    const advanceNum = `REC-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}-ADV`;
+    const advanceNum = await nextReceiptNumber(client, '-ADV');
     const advanceReceiptRes = await client.query(
       `INSERT INTO receipts
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
