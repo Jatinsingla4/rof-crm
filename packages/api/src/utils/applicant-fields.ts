@@ -56,7 +56,7 @@ export const cleanFields = (src: Record<string, any>, only?: Set<string>, errors
   for (const [k, v] of Object.entries(src)) b[ALIAS[k] ?? k] = v;
   const out: Record<string, any> = {};
   for (const [col, fn] of Object.entries(FIELDS)) {
-    if (b[col] === undefined || (only && !only.has(col))) continue;
+    if (b[col] === undefined || (only && !only.has(col)) || (!only && col === 'relationship')) continue;   // relationship exists only for co-applicants
     try { out[col] = fn(b[col], b, col); } catch (e: any) { if (!errors || !e?.http) throw e; errors[col] = { e, raw: b[col] }; }
   }
   return out;

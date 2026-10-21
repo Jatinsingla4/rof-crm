@@ -57,11 +57,11 @@ export async function resolveRate(
         };
       }
     }
-    throw new Error(
+    throw Object.assign(new Error(
       `No GST mapping found for project "${projectName}" (${projectId}), ` +
       `charge type "${chargeType}", as of ${bookingDate}. ` +
       `Please configure this in Set Master -> GST Configuration -> GST TAX CHARGE MAPPING before completing this booking.`
-    );
+    ), { http: 422 });
   }
   return {
     cgstPct: parseFloat(r.rows[0].cgst_pct) / 100,

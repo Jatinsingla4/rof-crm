@@ -66,8 +66,8 @@ const cleanFields = (src, only, errors) => {
         b[exports.ALIAS[k] ?? k] = v;
     const out = {};
     for (const [col, fn] of Object.entries(exports.FIELDS)) {
-        if (b[col] === undefined || (only && !only.has(col)))
-            continue;
+        if (b[col] === undefined || (only && !only.has(col)) || (!only && col === 'relationship'))
+            continue; // relationship exists only for co-applicants
         try {
             out[col] = fn(b[col], b, col);
         }

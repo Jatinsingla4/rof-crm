@@ -284,6 +284,7 @@ router.get('/check-form-no', async (req, res, next) => {
     }
 });
 // POST /api/booking
+const holds = async (q, consumerId, unitId) => (await q.query(`SELECT 1 FROM allocations WHERE consumer_id = $1 AND unit_id <> $2 AND status NOT IN ('cancelled','transferred') LIMIT 1`, [consumerId, unitId])).rows.length > 0;
 router.post('/', async (req, res, next) => {
     try {
         const o = parseNew((0, input_js_1.body)(req));
@@ -304,6 +305,8 @@ router.post('/', async (req, res, next) => {
             const consumerRow = (await client.query(`SELECT id, project_id, nationality, registration_no FROM consumers WHERE id = $1`, [consumer_id])).rows[0];
             if (!consumerRow)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
+            if (await holds(client, consumer_id, unit_id))
+                throw conflict('This applicant already holds another unit. Surrender or transfer that unit first, or create a new applicant.');
             if (consumerRow.project_id && consumerRow.project_id !== project_id) {
                 throw conflict('This applicant belongs to another project. Create a new applicant for this project to book this unit.');
             }
@@ -834,6 +837,9 @@ router.patch('/:id', async (req, res, next) => {
                         + parseFloat(booking.other_charge_amount || 0)
                         - parseFloat(booking.company_inaugural_disc || 0)
                         + balconyChargeAmount;
+                    await client.query(`SELECT id FROM consumers WHERE id = $1 FOR UPDATE`, [booking.consumer_id]);
+                    if (await holds(client, booking.consumer_id, booking.unit_id))
+                        throw conflict('This applicant already holds another unit. Surrender or transfer that unit first, or create a new applicant.');
                     const allocRow = await client.query(`INSERT INTO allocations
                (consumer_id, unit_id, project_id, status, allotment_date, allocated_date, created_by_user_id)
              VALUES ($1, $2, $3, 'booked', NULL, NOW(), $4)

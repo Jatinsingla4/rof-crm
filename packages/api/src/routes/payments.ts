@@ -483,7 +483,7 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
     const id = uuid(req.params.id, 'Receipt id');
     const b = body(req);
     const reason = text(b.reason, 'reason', 200, false);
-    const penaltyAmount = has(b.penaltyAmount) ? num(b.penaltyAmount, 'penaltyAmount', 1_000_000, 2) : 500;
+    const penaltyAmount = has(b.penaltyAmount) ? num(b.penaltyAmount, 'penaltyAmount', 1_000_000, 0) : 500;
 
     await client.query('BEGIN');
 

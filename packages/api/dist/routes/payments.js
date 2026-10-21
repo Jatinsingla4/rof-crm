@@ -387,7 +387,7 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         const b = (0, input_js_1.body)(req);
         const reason = (0, input_js_1.text)(b.reason, 'reason', 200, false);
-        const penaltyAmount = (0, input_js_1.has)(b.penaltyAmount) ? (0, input_js_1.num)(b.penaltyAmount, 'penaltyAmount', 1000000, 2) : 500;
+        const penaltyAmount = (0, input_js_1.has)(b.penaltyAmount) ? (0, input_js_1.num)(b.penaltyAmount, 'penaltyAmount', 1000000, 0) : 500;
         await client.query('BEGIN');
         // 1. Get receipt details
         const receiptRes = await client.query(`SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index, status
