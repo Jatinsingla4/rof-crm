@@ -13,6 +13,9 @@
 ═══════════════════════════════════════════════ */
 :root {
   --transition: all 0.2s ease;
+  /* Aliases: older pages reference these names, which the themes never defined */
+  --bg2: var(--surface2);
+  --primary: var(--teal);
 }
 [data-theme="dark"] {
   --bg: #0d0d0f;
