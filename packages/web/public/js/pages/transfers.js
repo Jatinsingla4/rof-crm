@@ -656,7 +656,6 @@
         present_mobile_no:     document.getElementById('tr-b-cmobile')?.value?.trim() || null,
         phone_no:              document.getElementById('tr-b-phone')?.value?.trim() || null,
         project_id:            s.project_id || null,
-        lead_stage:            'allotted',
       };
 
       const cRes = await fetch('/api/consumers', {
@@ -679,6 +678,7 @@
         remarks: _formData.remarks,
         transferNo: _formData.transferNo,
         applicationDate: _formData.applicationDate,
+        transferDate: _formData.transferDate,
         transferType: _formData.transferType,
         transferAmountInr: _formData.transferAmountInr,
         staxAmount: _formData.staxAmount,

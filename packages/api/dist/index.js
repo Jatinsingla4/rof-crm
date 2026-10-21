@@ -481,7 +481,7 @@ app.use('/api/charge-master', exports.authenticateToken, charge_master_js_1.defa
 app.use('/api/plc-charges', exports.authenticateToken, plc_charges_js_1.default);
 app.use('/api/gst-configuration', exports.authenticateToken, gst_configuration_js_1.default);
 app.use('/api/surrender', exports.authenticateToken, surrender_js_1.default);
-app.use('/api/transfers', exports.authenticateToken, transfers_js_1.default);
+app.use('/api/transfers', exports.authenticateToken, rbac('allocations'), transfers_js_1.default);
 app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
 app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
 app.use('/api/payments', exports.authenticateToken, receipt_process_js_1.default);
