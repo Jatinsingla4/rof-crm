@@ -4,7 +4,20 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const rbac_js_1 = require("../middleware/rbac.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const router = (0, express_1.Router)();
+// Reading is open (the booking form needs the preview); changing a rate needs the master_data permission
+router.use((req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || (0, rbac_js_1.hasPermission)(req.userRole, 'master_data', 'edit'))
+        return next();
+    res.status(403).json({ error: 'You do not have permission to change charge rates' });
+});
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Only a JSON number or a plain digit string with up to 2 decimals counts ("1e2", "0x10", " 5 ", [5], true are refused)
+const money = (v) => typeof v === 'number' ? v
+    : typeof v === 'string' && /^[0-9]+(\.[0-9]{1,2})?$/.test(v) ? Number(v) : NaN;
+const MAX_RATE = 1000000;
 // GET /api/charge-master/config - list all charge master config rows
 router.get('/config', async (req, res, next) => {
     try {
@@ -18,27 +31,52 @@ router.get('/config', async (req, res, next) => {
         next(error);
     }
 });
-// PATCH /api/charge-master/config/:chargeKey - update rate_value for a charge
+// PATCH /api/charge-master/config/:chargeKey - update rate_value (and cap_value where the charge allows it)
 router.patch('/config/:chargeKey', async (req, res, next) => {
     try {
         const { chargeKey } = req.params;
-        const { rate_value, cap_value } = req.body;
-        if (rate_value === undefined || rate_value === null || isNaN(parseFloat(rate_value))) {
-            return res.status(400).json({ error: 'rate_value is required and must be a number' });
+        const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+        const { rate_value, cap_value } = body;
+        const rate = money(rate_value);
+        if (!Number.isFinite(rate) || rate < 0 || rate > MAX_RATE) {
+            return res.status(400).json({ error: `Rate must be a number from 0 to ${MAX_RATE.toLocaleString('en-IN')}, up to 2 decimals` });
         }
-        const existing = await index_js_1.db.query(`SELECT is_cap_configurable FROM charge_master_config WHERE charge_key = $1`, [chargeKey]);
-        if (existing.rows.length === 0) {
-            return res.status(404).json({ error: 'Charge config not found' });
+        let cap;
+        if (cap_value !== undefined) {
+            cap = cap_value === null ? null : money(cap_value);
+            if (cap !== null && (!Number.isFinite(cap) || cap < 0 || cap > 1e9)) {
+                return res.status(400).json({ error: 'Cap must be a number from 0 to 1,000,000,000, up to 2 decimals' });
+            }
         }
-        if (cap_value !== undefined && !existing.rows[0].is_cap_configurable) {
-            return res.status(400).json({ error: 'cap_value is not configurable for this charge' });
+        // One transaction with a row lock, so two admins saving together cannot overwrite each other unseen
+        const client = await index_js_1.db.connect();
+        let prev, upd;
+        try {
+            await client.query('BEGIN');
+            const cur = await client.query(`SELECT * FROM charge_master_config WHERE charge_key = $1 FOR UPDATE`, [chargeKey]);
+            if (cur.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Charge config not found' });
+            }
+            prev = cur.rows[0];
+            if (cap !== undefined && !prev.is_cap_configurable) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'cap_value is not configurable for this charge' });
+            }
+            upd = (await client.query(`UPDATE charge_master_config SET rate_value = $1, cap_value = $2, updated_at = NOW(), updated_by = $3
+         WHERE charge_key = $4
+         RETURNING id, charge_key, charge_name, rate_value, rate_unit, cap_value, is_cap_configurable, updated_at, updated_by`, [rate, cap === undefined ? prev.cap_value : cap, req.userId, chargeKey])).rows[0];
+            await client.query('COMMIT');
         }
-        const result = await index_js_1.db.query(`UPDATE charge_master_config
-       SET rate_value = $1, updated_at = NOW(), updated_by = $2
-       WHERE charge_key = $3
-       RETURNING id, charge_key, charge_name, rate_value, rate_unit, cap_value,
-                 is_cap_configurable, updated_at, updated_by`, [parseFloat(rate_value), req.userId, chargeKey]);
-        res.json({ success: true, data: result.rows[0] });
+        catch (e) {
+            await client.query('ROLLBACK').catch(() => { });
+            throw e;
+        }
+        finally {
+            client.release();
+        }
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'charge_master_config', upd.id, prev, upd);
+        res.json({ success: true, data: upd });
     }
     catch (error) {
         next(error);
@@ -55,14 +93,33 @@ router.get('/balcony-preview', async (req, res, next) => {
         if (!projectId || balconyAreaSqft === undefined) {
             return res.status(400).json({ success: false, error: 'projectId and balconyAreaSqft required' });
         }
+        const area = money(balconyAreaSqft);
+        if (typeof projectId !== 'string' || !UUID.test(projectId))
+            return res.status(400).json({ success: false, error: 'projectId is not valid' });
+        if (!Number.isFinite(area) || area > 100000)
+            return res.status(400).json({ success: false, error: 'balconyAreaSqft must be a number from 0 to 100000' });
+        if (bookingDate !== undefined && (typeof bookingDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(bookingDate) || isNaN(Date.parse(bookingDate)))) {
+            return res.status(400).json({ success: false, error: 'bookingDate must be YYYY-MM-DD' });
+        }
         const resolveDate = bookingDate || new Date().toISOString().split('T')[0];
         const projRes = await index_js_1.db.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
-        const projectName = projRes.rows[0]?.name || projectId;
+        if (!projRes.rows.length)
+            return res.status(404).json({ success: false, error: 'Project not found' });
+        const projectName = projRes.rows[0].name;
         const configRow = await index_js_1.db.query(`SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`);
         const rate = parseFloat(configRow.rows[0]?.rate_value || 0);
         const cap = configRow.rows[0]?.cap_value != null ? parseFloat(configRow.rows[0].cap_value) : null;
-        const { cgstPct, sgstPct } = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, projectName, 'BASIC', resolveDate);
-        const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(parseFloat(balconyAreaSqft), rate, cap, cgstPct, sgstPct);
+        let cgstPct, sgstPct;
+        try {
+            ({ cgstPct, sgstPct } = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, projectName, 'BASIC', resolveDate));
+        }
+        catch (e) {
+            // A project with no GST mapping is a set-up gap the user can fix, not a server fault
+            if (/^No GST mapping found/.test(e?.message))
+                return res.status(422).json({ success: false, error: e.message });
+            throw e;
+        }
+        const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(area, rate, cap, cgstPct, sgstPct);
         res.json({
             success: true,
             data: { balconyChargeAmount, balconyCgstAmount, balconySgstAmount },

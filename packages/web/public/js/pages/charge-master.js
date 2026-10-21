@@ -85,7 +85,7 @@
     rows.forEach(function(r) {
       html += '<tr>' +
         '<td>' + _esc(r.charge_name) + '</td>' +
-        '<td><input type="number" step="0.01" min="0" id="cm-rate-' + r.charge_key + '" value="' + parseFloat(r.rate_value) + '"></td>' +
+        '<td><input type="number" step="0.01" min="0" max="1000000" id="cm-rate-' + r.charge_key + '" value="' + parseFloat(r.rate_value) + '"></td>' +
         '<td>' + _esc(r.rate_unit) + '</td>' +
         '<td>' + (r.cap_value != null ? _fmtNum(r.cap_value) + (r.is_cap_configurable ? '' : ' (fixed)') : '—') + '</td>' +
         '<td><button class="cm-btn-save" onclick="ChargeMaster.save(\'' + r.charge_key + '\')">SAVE</button></td>' +
@@ -99,7 +99,8 @@
     const input = document.getElementById('cm-rate-' + chargeKey);
     if (!input) return;
     const rateValue = parseFloat(input.value);
-    if (isNaN(rateValue) || rateValue < 0) { _showMsg('Please enter a valid rate.', false); return; }
+    if (!/^\d+(\.\d{1,2})?$/.test(input.value.trim()) || rateValue > 1000000) { _showMsg('Rate must be a number from 0 to 10,00,000, up to 2 decimals.', false); return; }
+    const btn = input.closest('tr').querySelector('button'); btn.disabled = true;
 
     const token = localStorage.getItem('rof-jwt') || '';
     _clearMsg();
@@ -115,6 +116,7 @@
       await _loadConfig();
     } catch (e) {
       _showMsg('Error: ' + e.message, false);
+      btn.disabled = false;
     }
   }
 
