@@ -592,7 +592,7 @@
         res = await fetch('/api/addon-charges/consumer/' + _editingChargeId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ amount: amount, increaseAmount: 0, remark: remark || null })
+          body: JSON.stringify({ amount: amount, remark: remark || null })
         });
       } else {
         res = await fetch('/api/addon-charges/consumer', {

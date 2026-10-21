@@ -427,12 +427,13 @@
       const results = await Promise.all(promises);
       const succeeded = results.filter(function(r) { return r && r.success; }).length;
       const failed = results.length - succeeded;
+      const firstErr = (results.find(function(r) { return r && !r.success && r.error; }) || {}).error;
 
       if (progressEl) progressEl.style.display = 'none';
       if (failed === 0) {
         _showFormMsg('Charge applied to ' + succeeded + ' customer' + (succeeded !== 1 ? 's' : '') + '.', true);
       } else {
-        _showFormMsg('Applied to ' + succeeded + ' customers. ' + failed + ' failed.', succeeded > 0);
+        _showFormMsg('Applied to ' + succeeded + ' customers. ' + failed + ' failed' + (firstErr ? ' (' + firstErr + ')' : '') + '.', succeeded > 0);
       }
 
       // Uncheck all

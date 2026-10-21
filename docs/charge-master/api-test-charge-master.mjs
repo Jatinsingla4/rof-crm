@@ -85,4 +85,4 @@ r = await pv(`projectId=00000000-0000-0000-0000-000000000000&balconyAreaSqft=5`)
 // config row always present for booking
 t('balcony row exists', psql(`select count(*) from charge_master_config where charge_key='balcony_charge'`) === '1');
 await A('PATCH', K, { rate_value: orig });
-console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);
+console.log(`\nRESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

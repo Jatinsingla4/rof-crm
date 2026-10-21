@@ -1,10 +1,57 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { hasPermission } from '../middleware/rbac.js';
+import { auditChange } from '../middleware/auditLogger.js';
 
 const router = Router();
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Access, input rules ──────────────────────────────────────────────────────
+// Reading is open to every signed-in user. Changing the charge master needs master_data; giving, editing,
+// cancelling or waiving a customer's charge changes their demands, so it needs payments "edit".
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.method === 'GET' || req.method === 'HEAD') return next();
+  const onMaster = req.path.startsWith('/master');
+  const action = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'edit';
+  if (onMaster ? hasPermission(req.userRole, 'master_data', action) : hasPermission(req.userRole, 'payments', 'edit')) return next();
+  res.status(403).json({ error: onMaster ? 'You do not have permission to change add-on charge masters' : 'You do not have permission to change customer add-on charges' });
+});
+
+const bad = (message: string) => Object.assign(new Error(message), { http: 400 });
+const fail = (err: any, res: Response, next: NextFunction) => {
+  if (err?.http) return res.status(err.http).json({ error: err.message });
+  if (err?.code === '23505') return res.status(400).json({ error: 'An add-on charge with this name already exists in this project' });
+  next(err);
+};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid = (v: any, label: string): string => { if (typeof v !== 'string' || !UUID.test(v)) throw bad(`${label} is not valid`); return v; };
+// A JSON number or a plain digit string only: "1e2", "0x10", " 5 ", [5], true are refused
+const num = (v: any, label: string, max: number, decimals: number): number => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && new RegExp(`^[0-9]+(\\.[0-9]{1,${decimals}})?$`).test(v) ? Number(v) : NaN;
+  if (!Number.isFinite(n) || n < 0 || n > max || Math.abs(n * 10 ** decimals - Math.round(n * 10 ** decimals)) > 1e-6) {
+    throw bad(`${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`);
+  }
+  return n;
+};
+const has = (v: any) => v !== undefined && v !== null && v !== '';
+const text = (v: any, label: string, max: number, required: boolean): string | null => {
+  if (!has(v)) { if (required) throw bad(`${label} is required`); return null; }
+  if (typeof v !== 'string') throw bad(`${label} must be text`);
+  const t = v.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+  if (!t) { if (required) throw bad(`${label} is required`); return null; }
+  if (t.length > max) throw bad(`${label} can be at most ${max} characters`);
+  if (/[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069<>]/.test(t)) throw bad(`${label} contains characters that are not allowed`);
+  return t;
+};
+const day = (v: any): string | null => {
+  if (!has(v)) return null;
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v || v < '1990-01-01' || v > '2100-12-31') throw bad('Date must be a real date (YYYY-MM-DD)');
+  return v;
+};
+const body = (req: AuthRequest) => (req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {});
+const likeEsc = (v: string) => v.replace(/[\\%_]/g, '\\$&');
+// One customer's add-on work runs one at a time, so a double click or two users cannot double-add or half-recompute
+const lockConsumer = (client: any, consumerId: string) => client.query(`SELECT pg_advisory_xact_lock(hashtext('addon|' || $1))`, [consumerId]);
 
 async function getPaymentPlanInfo(
   client: any,
@@ -39,6 +86,7 @@ export async function recomputeAddonDemands(
   paymentPlanId: string,
   planName: string,
 ): Promise<void> {
+  await lockConsumer(client, consumerId);
   await client.query(
     `UPDATE demands
      SET addon_charge_amount = 0,
@@ -69,10 +117,11 @@ export async function recomputeAddonDemands(
        FROM plan_addon_charge_pct pacp
        JOIN plan_schedule_templates pst
          ON pst.id = pacp.plan_schedule_template_id
-       WHERE pst.plan_name        = $1
+       WHERE pst.project_id       = $3
+         AND lower(pst.plan_name) = lower($1)
          AND pacp.charge_master_id = $2
        GROUP BY pst.installment_index`,
-      [planName, charge.charge_master_id],
+      [planName, charge.charge_master_id, projectId],
     );
 
     for (const row of pctRes.rows) {
@@ -103,538 +152,291 @@ export async function recomputeAddonDemands(
   }
 }
 
+
+// Recompute demands for each customer, one at a time in a fixed order (no deadlocks between two admins)
+async function recomputeFor(client: any, consumers: { consumer_id: string; project_id: string }[]) {
+  for (const row of consumers) {
+    const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
+    if (planInfo) await recomputeAddonDemands(client, row.consumer_id, row.project_id, planInfo.paymentPlanId, planInfo.planName);
+  }
+}
+// Locks every customer holding an active charge of this master (sorted), returns them
+async function lockHolders(client: any, masterId: string) {
+  const r = await client.query(
+    `SELECT DISTINCT consumer_id, project_id FROM consumer_addon_charges WHERE charge_master_id = $1 AND status = 'active' ORDER BY consumer_id`, [masterId]);
+  for (const row of r.rows) await lockConsumer(client, row.consumer_id);
+  return r.rows as { consumer_id: string; project_id: string }[];
+}
+const inTx = async <T>(fn: (c: any) => Promise<T>): Promise<T> => {
+  const client = await db.connect();
+  try { await client.query('BEGIN'); const out = await fn(client); await client.query('COMMIT'); return out; }
+  catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
+  finally { client.release(); }
+};
+const gstPcts = (b: any, cur?: { cgst_pct: any; sgst_pct: any }) => ({
+  cgst: has(b.cgstPct) ? num(b.cgstPct, 'CGST %', 50, 4) : cur ? Number(cur.cgst_pct) : 9,
+  sgst: has(b.sgstPct) ? num(b.sgstPct, 'SGST %', 50, 4) : cur ? Number(cur.sgst_pct) : 9,
+});
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 // ── A: GET /api/addon-charges/master?projectId=uuid ──────────────────────────
 router.get('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId } = req.query;
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-
-    const result = await db.query(
-      `SELECT * FROM addon_charge_master
-       WHERE project_id = $1 AND is_active = true
-       ORDER BY charge_name ASC`,
-      [projectId],
-    );
-    return res.json({ success: true, data: result.rows });
-  } catch (err) {
-    next(err);
-  }
+    const projectId = uuid(req.query.projectId, 'projectId');
+    const result = await db.query(`SELECT * FROM addon_charge_master WHERE project_id = $1 AND is_active = true ORDER BY charge_name ASC`, [projectId]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── B: POST /api/addon-charges/master ────────────────────────────────────────
 router.post('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, chargeName, defaultAmount, cgstPct, sgstPct, rateType, ratePerSqftInr } = req.body;
-    if (!projectId || !chargeName) {
-      return res.status(400).json({ error: 'projectId and chargeName are required' });
+    const b = body(req);
+    const projectId = uuid(b.projectId, 'projectId');
+    const chargeName = text(b.chargeName, 'Charge name', 200, true)!;
+    const rateType = !has(b.rateType) ? 'flat' : b.rateType;
+    if (rateType !== 'flat' && rateType !== 'per_sqft') throw bad('Rate type must be flat or per_sqft');
+    const { cgst, sgst } = gstPcts(b);
+    let amount = 0, rate: number | null = null;
+    if (rateType === 'per_sqft') {
+      rate = num(b.ratePerSqftInr, 'Rate per sq.ft.', 1_000_000, 2);
+      if (rate <= 0) throw bad('Rate per sq.ft. must be more than 0');
+    } else {
+      amount = has(b.defaultAmount) ? num(b.defaultAmount, 'Amount', 1_000_000_000, 2) : 0;
     }
-
-    const isPerSqft = rateType === 'per_sqft';
-
-    const result = await db.query(
-      `INSERT INTO addon_charge_master
-         (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [
-        projectId,
-        chargeName,
-        isPerSqft ? 0 : parseFloat(defaultAmount || 0),
-        parseFloat(cgstPct ?? 9),
-        parseFloat(sgstPct ?? 9),
-        req.userId || null,
-        isPerSqft ? 'per_sqft' : 'flat',
-        isPerSqft ? parseFloat(ratePerSqftInr || 0) : null,
-      ],
-    );
-    return res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    next(err);
-  }
+    if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw Object.assign(new Error('Project not found'), { http: 404 });
+    const made = await inTx(async (c) => {
+      await c.query(`SELECT pg_advisory_xact_lock(hashtext('addonmaster|' || $1 || '|' || lower($2)))`, [projectId, chargeName]);
+      if ((await c.query(`SELECT 1 FROM addon_charge_master WHERE project_id = $1 AND is_active AND lower(charge_name) = lower($2)`, [projectId, chargeName])).rows.length) {
+        throw bad(`An add-on charge named "${chargeName}" already exists in this project`);
+      }
+      return (await c.query(
+        `INSERT INTO addon_charge_master (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+        [projectId, chargeName, amount, cgst, sgst, req.userId || null, rateType, rate])).rows[0];
+    });
+    await auditChange(db, req, res, 'create', 'addon_charge_master', made.id, undefined, made);
+    res.status(201).json({ success: true, data: made });
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── C: PATCH /api/addon-charges/master/:id ───────────────────────────────────
 router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
-
-    const { id } = req.params;
-    const { chargeName, defaultAmount, cgstPct, sgstPct, isActive, rateType, ratePerSqftInr } = req.body;
-    const isPerSqft = rateType === 'per_sqft';
-
-    const masterRes = await client.query(
-      `UPDATE addon_charge_master SET
-         charge_name       = COALESCE($2, charge_name),
-         default_amount    = COALESCE($3, default_amount),
-         cgst_pct          = COALESCE($4, cgst_pct),
-         sgst_pct          = COALESCE($5, sgst_pct),
-         is_active         = COALESCE($6, is_active),
-         rate_type         = COALESCE($7, rate_type),
-         rate_per_sqft_inr = CASE
-                                WHEN $7::varchar IS NULL THEN rate_per_sqft_inr
-                                WHEN $7 = 'per_sqft' THEN $8
-                                ELSE NULL
-                              END,
-         updated_at        = now()
-       WHERE id = $1
-       RETURNING *`,
-      [
-        id,
-        chargeName || null,
-        defaultAmount != null ? (isPerSqft ? 0 : parseFloat(defaultAmount)) : null,
-        cgstPct != null ? parseFloat(cgstPct) : null,
-        sgstPct != null ? parseFloat(sgstPct) : null,
-        isActive != null ? isActive : null,
-        rateType || null,
-        isPerSqft ? parseFloat(ratePerSqftInr || 0) : null,
-      ],
-    );
-
-    if (masterRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Charge master not found' });
-    }
-
-    const master = masterRes.rows[0];
-    const newAmount = parseFloat(master.default_amount || 0);
-    const newCgstPct = parseFloat(master.cgst_pct || 0);
-    const newSgstPct = parseFloat(master.sgst_pct || 0);
-    const newRatePerSqft = parseFloat(master.rate_per_sqft_inr || 0);
-
-    // Cascade to all active consumer charges of this type.
-    // GST computed on (amount + increase_amount) to preserve
-    // per-consumer escalations (Option A).
-    // per_sqft charges recompute each consumer's own amount from
-    // their own unit's carpet_area_sqft (via their most recent
-    // non-cancelled booking record); flat charges keep the single
-    // shared-amount path unchanged.
-    const cascadeRes = master.rate_type === 'per_sqft'
-      ? await client.query(
-          `UPDATE consumer_addon_charges cac
-           SET amount       = computed.new_amount,
-               cgst_pct     = $2, sgst_pct = $3,
-               cgst_amount  = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2),
-               sgst_amount  = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
-               total_amount = (computed.new_amount + COALESCE(cac.increase_amount,0))
-                 + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2)
-                 + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
-               updated_at   = NOW()
-           FROM (
-             SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id,
-                    ROUND($4::numeric * u.carpet_area_sqft, 2) AS new_amount
-             FROM consumer_addon_charges cac2
-             JOIN booking_records br ON br.consumer_id = cac2.consumer_id AND br.project_id = cac2.project_id AND br.status != 'cancelled'
-             JOIN units u ON u.id = br.unit_id
-             WHERE cac2.charge_master_id = $1 AND cac2.status = 'active'
-             ORDER BY cac2.id, br.created_at DESC
-           ) computed
-           WHERE cac.id = computed.charge_id
-           RETURNING cac.consumer_id, cac.project_id`,
-          [id, newCgstPct, newSgstPct, newRatePerSqft],
-        )
-      : await client.query(
-          `UPDATE consumer_addon_charges
-           SET amount       = $2,
-               cgst_pct     = $3,
-               sgst_pct     = $4,
-               cgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2),
-               sgst_amount  = ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
-               total_amount = ($2 + COALESCE(increase_amount, 0))
-                 + ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2)
-                 + ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
-               updated_at   = NOW()
-           WHERE charge_master_id = $1
-             AND status = 'active'
-           RETURNING consumer_id, project_id`,
-          [id, newAmount, newCgstPct, newSgstPct],
-        );
-
-    // Dedupe by consumer_id (multiple booking_records per consumer
-    // can otherwise cause the same consumer to be recomputed twice).
-    const seen = new Set<string>();
-    const uniqueConsumers = cascadeRes.rows.filter((r) => {
-      if (seen.has(r.consumer_id)) return false;
-      seen.add(r.consumer_id);
-      return true;
-    });
-
-    for (const row of uniqueConsumers) {
-      const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
-      if (planInfo) {
-        await recomputeAddonDemands(
-          client, row.consumer_id, row.project_id,
-          planInfo.paymentPlanId, planInfo.planName,
-        );
+    const mid = uuid(req.params.id, 'Charge master id');
+    const b = body(req);
+    if (b.isActive !== undefined && typeof b.isActive !== 'boolean') throw bad('isActive must be true or false');
+    if (b.isActive === false) throw bad('To switch a charge off, use Deactivate (it also cancels the active customer charges)');
+    const out = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 FOR UPDATE`, [mid])).rows[0];
+      if (!cur) throw Object.assign(new Error('Charge master not found'), { http: 404 });
+      const name = has(b.chargeName) ? text(b.chargeName, 'Charge name', 200, true)! : cur.charge_name;
+      const rateType = has(b.rateType) ? b.rateType : cur.rate_type;
+      if (rateType !== 'flat' && rateType !== 'per_sqft') throw bad('Rate type must be flat or per_sqft');
+      const { cgst, sgst } = gstPcts(b, cur);
+      let amount = Number(cur.default_amount), rate: number | null = cur.rate_per_sqft_inr == null ? null : Number(cur.rate_per_sqft_inr);
+      if (rateType === 'per_sqft') {
+        if (has(b.ratePerSqftInr)) rate = num(b.ratePerSqftInr, 'Rate per sq.ft.', 1_000_000, 2);
+        if (!rate || rate <= 0) throw bad('Rate per sq.ft. must be more than 0');
+        amount = 0;
+      } else {
+        if (has(b.defaultAmount)) amount = num(b.defaultAmount, 'Amount', 1_000_000_000, 2);
+        rate = null;
       }
-    }
-
-    await client.query('COMMIT');
-    return res.json({ success: true, data: master, affectedConsumers: uniqueConsumers.length });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
+      if (name.toLowerCase() !== cur.charge_name.toLowerCase()) {
+        await c.query(`SELECT pg_advisory_xact_lock(hashtext('addonmaster|' || $1 || '|' || lower($2)))`, [cur.project_id, name]);
+        if ((await c.query(`SELECT 1 FROM addon_charge_master WHERE project_id = $1 AND is_active AND lower(charge_name) = lower($2) AND id <> $3`, [cur.project_id, name, mid])).rows.length) {
+          throw bad(`An add-on charge named "${name}" already exists in this project`);
+        }
+      }
+      const holders = await lockHolders(c, mid);
+      const master = (await c.query(
+        `UPDATE addon_charge_master SET charge_name = $2, default_amount = $3, cgst_pct = $4, sgst_pct = $5, rate_type = $6,
+           rate_per_sqft_inr = $7, is_active = COALESCE($8, is_active), updated_at = now() WHERE id = $1 RETURNING *`,
+        [mid, name, amount, cgst, sgst, rateType, rate, b.isActive ?? null])).rows[0];
+      // Active customer charges follow the master: GST is on (amount + increase) so per-customer increases are kept;
+      // per-sq.ft. charges are priced from each customer's own unit
+      if (rateType === 'per_sqft') {
+        await c.query(
+          `UPDATE consumer_addon_charges cac
+              SET amount = computed.new_amount, cgst_pct = $2, sgst_pct = $3,
+                  cgst_amount = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2),
+                  sgst_amount = ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
+                  total_amount = (computed.new_amount + COALESCE(cac.increase_amount,0))
+                    + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2)
+                    + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
+                  updated_at = NOW()
+             FROM (SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id, ROUND($4::numeric * u.carpet_area_sqft, 2) AS new_amount
+                     FROM consumer_addon_charges cac2
+                     JOIN booking_records br ON br.consumer_id = cac2.consumer_id AND br.project_id = cac2.project_id AND br.status != 'cancelled'
+                     JOIN units u ON u.id = br.unit_id
+                    WHERE cac2.charge_master_id = $1 AND cac2.status = 'active'
+                    ORDER BY cac2.id, br.created_at DESC) computed
+            WHERE cac.id = computed.charge_id`, [mid, cgst, sgst, rate]);
+      } else {
+        await c.query(
+          `UPDATE consumer_addon_charges
+              SET amount = $2, cgst_pct = $3, sgst_pct = $4,
+                  cgst_amount = ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2),
+                  sgst_amount = ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+                  total_amount = ($2 + COALESCE(increase_amount, 0)) + ROUND(($2 + COALESCE(increase_amount, 0)) * $3 / 100, 2)
+                    + ROUND(($2 + COALESCE(increase_amount, 0)) * $4 / 100, 2),
+                  updated_at = NOW()
+            WHERE charge_master_id = $1 AND status = 'active'`, [mid, amount, cgst, sgst]);
+      }
+      await recomputeFor(c, holders);
+      return { cur, master, affected: holders.length };
+    });
+    await auditChange(db, req, res, 'update', 'addon_charge_master', mid, out.cur, out.master);
+    res.json({ success: true, data: out.master, affectedConsumers: out.affected });
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── D: DELETE /api/addon-charges/master/:id (soft delete) ────────────────────
 router.delete('/master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
-
-    const { id } = req.params;
-
-    const masterRes = await client.query(
-      `UPDATE addon_charge_master
-       SET is_active = false, updated_at = now()
-       WHERE id = $1
-       RETURNING id`,
-      [id],
-    );
-
-    if (masterRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Charge master not found' });
-    }
-
-    // Cascade: cancel all active consumer charges of this type
-    // (mirrors the per-consumer cancel pattern in H below) and
-    // recompute their demands so the addon amount drops out of
-    // the APF/demand letter/interest calc.
-    const cascadeRes = await client.query(
-      `UPDATE consumer_addon_charges
-       SET status       = 'cancelled',
-           cancelled_at = now(),
-           updated_at   = now()
-       WHERE charge_master_id = $1
-         AND status = 'active'
-       RETURNING consumer_id, project_id`,
-      [id],
-    );
-
-    // Dedupe by consumer_id (multiple booking_records per consumer
-    // can otherwise cause the same consumer to be recomputed twice).
-    const seen = new Set<string>();
-    const uniqueConsumers = cascadeRes.rows.filter((r) => {
-      if (seen.has(r.consumer_id)) return false;
-      seen.add(r.consumer_id);
-      return true;
+    const mid = uuid(req.params.id, 'Charge master id');
+    const out = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 AND is_active FOR UPDATE`, [mid])).rows[0];
+      if (!cur) throw Object.assign(new Error('Charge master not found or already deactivated'), { http: 404 });
+      const holders = await lockHolders(c, mid);
+      await c.query(`UPDATE addon_charge_master SET is_active = false, updated_at = now() WHERE id = $1`, [mid]);
+      // Active customer charges of this type are cancelled and their demands recomputed
+      await c.query(`UPDATE consumer_addon_charges SET status = 'cancelled', cancelled_at = now(), updated_at = now() WHERE charge_master_id = $1 AND status = 'active'`, [mid]);
+      await recomputeFor(c, holders);
+      return { cur, affected: holders.length };
     });
-
-    for (const row of uniqueConsumers) {
-      const planInfo = await getPaymentPlanInfo(client, row.consumer_id, row.project_id);
-      if (planInfo) {
-        await recomputeAddonDemands(
-          client, row.consumer_id, row.project_id,
-          planInfo.paymentPlanId, planInfo.planName,
-        );
-      }
-    }
-
-    await client.query('COMMIT');
-    return res.json({ success: true, affectedConsumers: uniqueConsumers.length });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
+    await auditChange(db, req, res, 'delete', 'addon_charge_master', mid, out.cur, { ...out.cur, is_active: false });
+    res.json({ success: true, affectedConsumers: out.affected });
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── E: GET /api/addon-charges/consumer?consumerId=uuid ───────────────────────
 router.get('/consumer', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.query;
-    if (!consumerId) return res.status(400).json({ error: 'consumerId is required' });
-
+    const consumerId = uuid(req.query.consumerId, 'consumerId');
     const result = await db.query(
       `SELECT cac.*, acm.charge_name AS master_charge_name
-       FROM consumer_addon_charges cac
-       LEFT JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
-       WHERE cac.consumer_id = $1 AND cac.status = 'active'
-       ORDER BY cac.effective_date ASC, cac.created_at ASC`,
-      [consumerId],
-    );
-    return res.json({ success: true, data: result.rows });
-  } catch (err) {
-    next(err);
-  }
+         FROM consumer_addon_charges cac LEFT JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
+        WHERE cac.consumer_id = $1 AND cac.status = 'active' ORDER BY cac.effective_date ASC, cac.created_at ASC`, [consumerId]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { fail(err, res, next); }
 });
 
 // ── F: POST /api/addon-charges/consumer ──────────────────────────────────────
 router.post('/consumer', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const {
-    consumerId, projectId, chargeMasterId,
-    chargeName, amount, cgstPct, sgstPct,
-    remark, effectiveDate,
-  } = req.body;
-
-  if (!consumerId || !projectId || !chargeName) {
-    return res.status(400).json({ error: 'consumerId, projectId and chargeName are required' });
-  }
-
-  const amt = parseFloat(amount || 0);
-  const cPct = parseFloat(cgstPct ?? 9);
-  const sPct = parseFloat(sgstPct ?? 9);
-  const amountWithIncrease = amt;
-  const cgstAmount = Math.round(amountWithIncrease * cPct / 100 * 100) / 100;
-  const sgstAmount = Math.round(amountWithIncrease * sPct / 100 * 100) / 100;
-  const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
-
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
-
-    const result = await client.query(
-      `INSERT INTO consumer_addon_charges
-         (consumer_id, project_id, charge_master_id,
-          charge_name, effective_date, amount,
-          increase_amount, cgst_pct, sgst_pct,
-          cgst_amount, sgst_amount, total_amount,
-          remark, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
-       RETURNING *`,
-      [
-        consumerId,
-        projectId,
-        chargeMasterId || null,
-        chargeName,
-        effectiveDate || new Date().toISOString().slice(0, 10),
-        amt,
-        0,
-        cPct,
-        sPct,
-        cgstAmount,
-        sgstAmount,
-        totalAmount,
-        remark || null,
-        req.userId || null,
-      ],
-    );
-
-    const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
-    if (planInfo) {
-      await recomputeAddonDemands(
-        client, consumerId, projectId,
-        planInfo.paymentPlanId, planInfo.planName,
-      );
-    }
-
-    await client.query('COMMIT');
-    return res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
+    const b = body(req);
+    const consumerId = uuid(b.consumerId, 'consumerId'), projectId = uuid(b.projectId, 'projectId');
+    const chargeMasterId = has(b.chargeMasterId) ? uuid(b.chargeMasterId, 'chargeMasterId') : null;
+    const amt = num(b.amount, 'Amount', 1_000_000_000, 2);
+    if (amt <= 0) throw bad('Amount must be more than 0');
+    const remark = text(b.remark, 'Remark', 1000, false);
+    const effectiveDate = day(b.effectiveDate) || new Date().toISOString().slice(0, 10);
+    const out = await inTx(async (c) => {
+      await lockConsumer(c, consumerId);
+      if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {
+        throw bad('This customer has no active booking in this project');
+      }
+      let master: any = null;
+      if (chargeMasterId) {
+        master = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 AND project_id = $2 AND is_active`, [chargeMasterId, projectId])).rows[0];
+        if (!master) throw bad('That add-on charge does not exist in this project (or is switched off)');
+      }
+      const chargeName = master ? master.charge_name : text(b.chargeName, 'Charge name', 200, true)!;
+      const { cgst, sgst } = gstPcts(b, master || undefined);
+      const dup = await c.query(
+        chargeMasterId
+          ? `SELECT 1 FROM consumer_addon_charges WHERE consumer_id = $1 AND project_id = $2 AND status = 'active' AND charge_master_id = $3`
+          : `SELECT 1 FROM consumer_addon_charges WHERE consumer_id = $1 AND project_id = $2 AND status = 'active' AND charge_master_id IS NULL AND lower(charge_name) = lower($3)`,
+        [consumerId, projectId, chargeMasterId || chargeName]);
+      if (dup.rows.length) throw bad(`"${chargeName}" is already added for this customer. Edit it instead of adding it again.`);
+      const cgstAmount = r2(amt * cgst / 100), sgstAmount = r2(amt * sgst / 100);
+      const row = (await c.query(
+        `INSERT INTO consumer_addon_charges (consumer_id, project_id, charge_master_id, charge_name, effective_date, amount, increase_amount,
+           cgst_pct, sgst_pct, cgst_amount, sgst_amount, total_amount, remark, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,0,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+        [consumerId, projectId, chargeMasterId, chargeName, effectiveDate, amt, cgst, sgst, cgstAmount, sgstAmount, r2(amt + cgstAmount + sgstAmount), remark, req.userId || null])).rows[0];
+      await recomputeFor(c, [{ consumer_id: consumerId, project_id: projectId }]);
+      return row;
+    });
+    await auditChange(db, req, res, 'create', 'consumer_addon_charge', out.id, undefined, out);
+    res.status(201).json({ success: true, data: out });
+  } catch (err) { fail(err, res, next); }
 });
 
-// ── G: PATCH /api/addon-charges/consumer/:id ─────────────────────────────────
-router.patch('/consumer/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { id } = req.params;
-  const { amount, increaseAmount, remark } = req.body;
-
-  const existing = await db.query(
-    `SELECT consumer_id, project_id, cgst_pct, sgst_pct
-     FROM consumer_addon_charges WHERE id = $1`,
-    [id],
-  );
-  if (existing.rows.length === 0) return res.status(404).json({ error: 'Charge not found' });
-
-  const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
-  const cgstPct = parseFloat(existing.rows[0].cgst_pct);
-  const sgstPct = parseFloat(existing.rows[0].sgst_pct);
-  const amt = parseFloat(amount || 0);
-  const inc = parseFloat(increaseAmount || 0);
-  const amountWithIncrease = amt + inc;
-  const cgstAmount = Math.round(amountWithIncrease * cgstPct / 100 * 100) / 100;
-  const sgstAmount = Math.round(amountWithIncrease * sgstPct / 100 * 100) / 100;
-  const totalAmount = amountWithIncrease + cgstAmount + sgstAmount;
-
-  const client = await db.connect();
+// One customer charge, changed only while it is active
+async function changeCharge(req: AuthRequest, res: Response, next: NextFunction, kind: 'edit' | 'cancel' | 'waive') {
   try {
-    await client.query('BEGIN');
-
-    const result = await client.query(
-      `UPDATE consumer_addon_charges SET
-         amount          = $2,
-         increase_amount = $3,
-         cgst_amount     = $4,
-         sgst_amount     = $5,
-         total_amount    = $6,
-         remark          = COALESCE($7, remark),
-         updated_at      = now()
-       WHERE id = $1
-       RETURNING *`,
-      [id, amt, inc, cgstAmount, sgstAmount, totalAmount, remark || null],
-    );
-
-    const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
-    if (planInfo) {
-      await recomputeAddonDemands(
-        client, consumerId, projectId,
-        planInfo.paymentPlanId, planInfo.planName,
-      );
-    }
-
-    await client.query('COMMIT');
-    return res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
-});
-
-// ── H: PATCH /api/addon-charges/consumer/:id/cancel ──────────────────────────
-router.patch('/consumer/:id/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { id } = req.params;
-
-  const existing = await db.query(
-    `SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`,
-    [id],
-  );
-  if (existing.rows.length === 0) return res.status(404).json({ error: 'Charge not found' });
-
-  const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
-
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-
-    const result = await client.query(
-      `UPDATE consumer_addon_charges SET
-         status       = 'cancelled',
-         cancelled_at = now(),
-         updated_at   = now()
-       WHERE id = $1
-       RETURNING id, status`,
-      [id],
-    );
-
-    const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
-    if (planInfo) {
-      await recomputeAddonDemands(
-        client, consumerId, projectId,
-        planInfo.paymentPlanId, planInfo.planName,
-      );
-    }
-
-    await client.query('COMMIT');
-    return res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
-});
-
-// ── I: PATCH /api/addon-charges/consumer/:id/waive ───────────────────────────
-router.patch('/consumer/:id/waive', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const { id } = req.params;
-  const { waiveRemark } = req.body;
-
-  const existing = await db.query(
-    `SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`,
-    [id],
-  );
-  if (existing.rows.length === 0) return res.status(404).json({ error: 'Charge not found' });
-
-  const { consumer_id: consumerId, project_id: projectId } = existing.rows[0];
-
-  const client = await db.connect();
-  try {
-    await client.query('BEGIN');
-
-    const result = await client.query(
-      `UPDATE consumer_addon_charges SET
-         status       = 'waived',
-         waive_remark = $2,
-         updated_at   = now()
-       WHERE id = $1
-       RETURNING id, status`,
-      [id, waiveRemark || null],
-    );
-
-    const planInfo = await getPaymentPlanInfo(client, consumerId, projectId);
-    if (planInfo) {
-      await recomputeAddonDemands(
-        client, consumerId, projectId,
-        planInfo.paymentPlanId, planInfo.planName,
-      );
-    }
-
-    await client.query('COMMIT');
-    return res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    next(err);
-  } finally {
-    client.release();
-  }
-});
+    const cid = uuid(req.params.id, 'Charge id');
+    const b = body(req);
+    const remark = kind === 'edit' ? text(b.remark, 'Remark', 1000, false) : null;
+    const waive = kind === 'waive' ? text(b.waiveRemark, 'Waive-off remark', 1000, true) : null;
+    const amount = kind === 'edit' && has(b.amount) ? num(b.amount, 'Amount', 1_000_000_000, 2) : null;
+    const increase = kind === 'edit' && has(b.increaseAmount) ? num(b.increaseAmount, 'Increase amount', 1_000_000_000, 2) : null;
+    if (amount !== null && amount <= 0) throw bad('Amount must be more than 0');
+    const out = await inTx(async (c) => {
+      const pre = (await c.query(`SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`, [cid])).rows[0];
+      if (!pre) throw Object.assign(new Error('Charge not found'), { http: 404 });
+      await lockConsumer(c, pre.consumer_id);
+      const cur = (await c.query(`SELECT * FROM consumer_addon_charges WHERE id = $1 FOR UPDATE`, [cid])).rows[0];
+      if (cur.status !== 'active') throw bad(`This charge is already ${cur.status}`);
+      let upd: any;
+      if (kind === 'edit') {
+        const amt = amount ?? Number(cur.amount), inc = increase ?? Number(cur.increase_amount || 0), base = amt + inc;
+        const cg = r2(base * Number(cur.cgst_pct) / 100), sg = r2(base * Number(cur.sgst_pct) / 100);
+        upd = (await c.query(
+          `UPDATE consumer_addon_charges SET amount = $2, increase_amount = $3, cgst_amount = $4, sgst_amount = $5, total_amount = $6,
+             remark = COALESCE($7, remark), updated_at = now() WHERE id = $1 RETURNING *`, [cid, amt, inc, cg, sg, r2(base + cg + sg), remark])).rows[0];
+      } else if (kind === 'cancel') {
+        upd = (await c.query(`UPDATE consumer_addon_charges SET status = 'cancelled', cancelled_at = now(), updated_at = now() WHERE id = $1 RETURNING id, status`, [cid])).rows[0];
+      } else {
+        upd = (await c.query(`UPDATE consumer_addon_charges SET status = 'waived', waive_remark = $2, updated_at = now() WHERE id = $1 RETURNING id, status`, [cid, waive])).rows[0];
+      }
+      await recomputeFor(c, [pre]);
+      return { cur, upd };
+    });
+    await auditChange(db, req, res, 'update', 'consumer_addon_charge', cid, out.cur, out.upd);
+    res.json({ success: true, data: out.upd });
+  } catch (err) { fail(err, res, next); }
+}
+// ── G / H / I: edit, cancel, waive a customer's charge ───────────────────────
+router.patch('/consumer/:id', (req: AuthRequest, res: Response, next: NextFunction) => changeCharge(req, res, next, 'edit'));
+router.patch('/consumer/:id/cancel', (req: AuthRequest, res: Response, next: NextFunction) => changeCharge(req, res, next, 'cancel'));
+router.patch('/consumer/:id/waive', (req: AuthRequest, res: Response, next: NextFunction) => changeCharge(req, res, next, 'waive'));
 
 // ── J: GET /api/addon-charges/consumers?projectId=uuid&... ───────────────────
 router.get('/consumers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, towerId, unitType, paymentPlan, registrationNo, name, unitNo } = req.query as Record<string, string>;
-    if (!projectId) return res.status(400).json({ error: 'projectId is required' });
-
-    const conditions: string[] = ['p.id = $1', 'br.status != \'cancelled\''];
-    const params: (string | number)[] = [projectId];
-    let idx = 2;
-
-    if (towerId)        { conditions.push(`t.id = $${idx++}`);                                      params.push(towerId); }
-    if (unitType)       { conditions.push(`u.bhk_type ILIKE $${idx++}`);                            params.push(`%${unitType}%`); }
-    if (paymentPlan)    { conditions.push(`br.selected_plan_name ILIKE $${idx++}`);                 params.push(`%${paymentPlan}%`); }
-    if (registrationNo) { conditions.push(`c.registration_no ILIKE $${idx++}`);                    params.push(`%${registrationNo}%`); }
-    if (name)           { conditions.push(`(c.first_name ILIKE $${idx} OR c.last_name ILIKE $${idx})`); params.push(`%${name}%`); idx++; }
-    if (unitNo)         { conditions.push(`u.unit_number ILIKE $${idx++}`);                         params.push(`%${unitNo}%`); }
-
-    const where = 'WHERE ' + conditions.join(' AND ');
-
+    const q = req.query as Record<string, any>;
+    const projectId = uuid(q.projectId, 'projectId');
+    const conditions: string[] = ['p.id = $1', "br.status != 'cancelled'"];
+    const params: string[] = [projectId];
+    const add = (sql: string, v: string) => { params.push(v); conditions.push(sql.replace('$$', '$' + params.length)); };
+    if (has(q.towerId)) add('t.id = $$', uuid(q.towerId, 'towerId'));
+    for (const [key, sql] of [['unitType', "u.bhk_type ILIKE $$ ESCAPE '\\'"], ['paymentPlan', "br.selected_plan_name ILIKE $$ ESCAPE '\\'"],
+      ['registrationNo', "c.registration_no ILIKE $$ ESCAPE '\\'"], ['unitNo', "u.unit_number ILIKE $$ ESCAPE '\\'"]] as const) {
+      const v = text(q[key], key, 100, false);
+      if (v) add(sql, `%${likeEsc(v)}%`);
+    }
+    const nm = text(q.name, 'name', 100, false);
+    if (nm) { params.push(`%${likeEsc(nm)}%`); conditions.push(`(c.first_name ILIKE $${params.length} ESCAPE '\\' OR c.last_name ILIKE $${params.length} ESCAPE '\\')`); }
     const result = await db.query(
-      `SELECT
-         c.id AS consumer_id,
-         c.first_name,
-         c.last_name,
-         TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS full_name,
-         c.registration_no,
-         br.id AS booking_id,
-         br.booking_date,
-         br.selected_plan_name AS payment_plan,
-         u.id AS unit_id,
-         u.unit_number,
-         u.bhk_type AS unit_type,
-         u.super_area_sqft,
-         u.carpet_area_sqft,
-         t.tower_name,
-         p.name AS project_name,
-         COALESCE(
-           (SELECT SUM(cac.total_amount)
-            FROM consumer_addon_charges cac
-            WHERE cac.consumer_id = c.id
-            AND cac.status = 'active'), 0
-         ) AS addon_total
-       FROM consumers c
-       JOIN booking_records br ON br.consumer_id = c.id
-       JOIN units u ON u.id = br.unit_id
-       LEFT JOIN towers t ON t.id = u.tower_id
-       JOIN projects p ON p.id = br.project_id
-       ${where}
-       ORDER BY c.registration_no ASC`,
-      params,
-    );
-    return res.json({ success: true, data: result.rows });
-  } catch (err) {
-    next(err);
-  }
+      `SELECT c.id AS consumer_id, c.first_name, c.last_name,
+              TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS full_name, c.registration_no,
+              br.id AS booking_id, br.booking_date, br.selected_plan_name AS payment_plan,
+              u.id AS unit_id, u.unit_number, u.bhk_type AS unit_type, u.super_area_sqft, u.carpet_area_sqft,
+              t.tower_name, p.name AS project_name,
+              COALESCE((SELECT SUM(cac.total_amount) FROM consumer_addon_charges cac WHERE cac.consumer_id = c.id AND cac.status = 'active'), 0) AS addon_total
+         FROM consumers c
+         JOIN booking_records br ON br.consumer_id = c.id
+         JOIN units u ON u.id = br.unit_id
+         LEFT JOIN towers t ON t.id = u.tower_id
+         JOIN projects p ON p.id = br.project_id
+        WHERE ${conditions.join(' AND ')}
+        ORDER BY c.registration_no ASC`, params);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { fail(err, res, next); }
 });
 
 export default router;
