@@ -14,6 +14,7 @@ import bcrypt from 'bcryptjs';
 
 // Route imports
 import consumerRoutes from './routes/consumers.js';
+import photoRoutes from './routes/photos.js';
 import unitRoutes from './routes/units.js';
 import allocationRoutes from './routes/allocations.js';
 import paymentRoutes from './routes/payments.js';
@@ -241,6 +242,11 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
   } catch {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
+  // A web address may only carry a short-lived link token made for exactly that page; the login token never goes in a URL
+  const viaQuery = !(authHeader && authHeader.split(' ')[1]);
+  if (viaQuery ? decoded.purpose !== 'link' || decoded.p !== req.originalUrl.split('?')[0] : decoded.purpose === 'link') {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
 
   try {
     const user = await loadAuthUser(decoded.userId);
@@ -312,6 +318,7 @@ app.use(express.static(webPublicDir));
 // Serve uploaded consumer photos
 const uploadsDir = path.join(__dirname, '../uploads');
 app.use('/uploads', express.static(uploadsDir));
+app.use('/api/photos', photoRoutes);
 
 // ============================================
 // HEALTH CHECK
@@ -346,6 +353,14 @@ const loginFailures = new Map<string, { count: number; until: number }>();
 
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req: Request, res: Response, next: NextFunction) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+
+// Opening a letter, receipt or applicant file in a new tab needs a link: valid 2 minutes, for that one page only
+app.post('/api/auth/link-token', authenticateToken, (req: AuthRequest, res: Response) => {
+  const path = (req.body || {}).path;
+  if (typeof path !== 'string' || !/^\/api\/[A-Za-z0-9/_.\-]+$/.test(path) || path.includes('..')) return res.status(400).json({ error: 'path is not valid' });
+  const { iat, exp, purpose, p, ...claims } = jwt.decode(req.headers['authorization']!.split(' ')[1]) as any;
+  res.json({ token: jwt.sign({ ...claims, purpose: 'link', p: path }, JWT_SECRET!, { algorithm: 'HS256', expiresIn: '2m' }) });
+});
 
 app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body;

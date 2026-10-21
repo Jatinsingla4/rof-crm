@@ -45,3 +45,8 @@ Applicants are created from **Booking** (and the Applicants page) and feed Booki
 ## Not changed
 - Photos are stored on the server disk, which a serverless host does not keep — move to object storage before relying on them live.
 - The printable applicant file link still takes the login token in the web address (known audit item).
+
+## Second round (photos, links, old data)
+- **Photos are kept in the database** (`applicant_photos`, migration 110), so they survive a serverless host. The image type is read from the file itself (a page or script sent as "image/png" is refused); the picture is served from `/api/photos/...` with `nosniff` and a locked-down content policy. The address holds a random id, like the old files did.
+- **The login token no longer goes in web addresses.** Letters, receipts and applicant files still open in a new tab, but through a link token (`POST /api/auth/link-token`) that is valid 2 minutes and only for that one page; the login token in a `?token=` address is refused. The page script `js/links.js` swaps the token automatically for every existing link and `window.open`, so no page had to be rewritten. A link token cannot be used as a login, cannot make another link token, and an expired, forged or re-pointed one is refused.
+- **Old records with values the new rules refuse** (a short PIN, a bad e-mail…): editing something else on that applicant works; sending the old value back unchanged is accepted, a new bad value is still refused. `legacy-data-check.sql` is a read-only query that lists such records on the live database.

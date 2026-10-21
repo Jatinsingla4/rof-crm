@@ -1171,7 +1171,7 @@ const DocsPage = {
       });
       const json=await res.json();
       const docId=json.data?.documentId||json.documentId;
-      if(docId){win.location.href=`/api/documents/${docId}/html?token=${token}`;return;}
+      if(docId){win.location.href=await linkUrl(`/api/documents/${docId}/html?token=x`);return;}
       throw new Error(json.error||'No document returned');
     } catch(err){win.document.body.innerHTML=`<p style="color:red;font-family:Arial;padding:20px;">Error: ${err.message}</p>`;}
   },

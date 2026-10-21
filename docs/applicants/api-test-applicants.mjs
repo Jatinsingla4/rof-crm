@@ -1,7 +1,7 @@
 // Applicants (consumers): roles, field rules, duplicates, list/search/paging, update, photos, KYC, remarks, base rate, additional applicants, random input.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-applicants.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -199,23 +199,59 @@ r = await A('PATCH', `/consumers/${ub}`, { email: 'booked@x.com', present_city: 
 const aud = psql(`select count(*) from audit_logs where resource_id='${ua}'`); t('audit: updates leave audit rows', Number(aud) >= 5, aud);
 t('audit: PAN and Aadhaar are masked in the log', psql(`select count(*) from audit_logs where resource_id='${ua}' and (new_values::text like '%${PNEW}%' or previous_values::text like '%${PNEW}%')`) === '0' && psql(`select count(*) from audit_logs where resource_id='${ua}' and new_values::text like '%XXXX%'`) !== '0');
 
-// ---------- photos ----------
-const here = dirname(fileURLToPath(import.meta.url)); const upDir = join(here, '../../packages/api/uploads');
+// ---------- photos (kept in the database) ----------
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('JFIF test image bytes')]);
 const up = async (path, type, name, buf = png, tok) => { const fd = new FormData(); if (type) fd.append('photo', new Blob([buf], { type }), name); const rr = await fetch(B + path, { method: 'POST', headers: { authorization: 'Bearer ' + (tok || '') }, body: fd }); let j = null; try { j = await rr.json(); } catch {} return { s: rr.status, j }; };
 const tokA = await login('super_admin@test.local');
-r = await up(`/consumers/${ua}/photo`, 'image/png', 'evil.html', png, tokA); t('photo: file called evil.html but sent as png is stored as .png', r.s === 200 && /\/uploads\/consumer-photos\/[\w-]+\.png$/.test(r.j?.data?.photo_url || ''), r.s + JSON.stringify(r.j));
-t('photo: the file is on disk', existsSync(join(upDir, 'consumer-photos', `${ua}.png`)));
-r = await up(`/consumers/${ua}/photo`, 'image/png', 'again.png', png, tokA); t('photo: uploading again with the same type keeps the new file (it used to be deleted)', r.s === 200 && existsSync(join(upDir, 'consumer-photos', `${ua}.png`)), r.s);
-r = await up(`/consumers/${ua}/photo`, 'image/jpeg', 'x.jpg', png, tokA); t('photo: replacing with a jpeg removes the old png', r.s === 200 && existsSync(join(upDir, 'consumer-photos', `${ua}.jpg`)) && !existsSync(join(upDir, 'consumer-photos', `${ua}.png`)), r.s);
-for (const [n, ty, nm] of [['html', 'text/html', 'a.png'], ['svg', 'image/svg+xml', 'a.svg'], ['pdf', 'application/pdf', 'a.pdf'], ['script', 'application/javascript', 'a.js']]) { r = await up(`/consumers/${ua}/photo`, ty, nm, Buffer.from('<script>1</script>'), tokA); t(`photo: ${n} is refused (400)`, r.s === 400, r.s + JSON.stringify(r.j)); }
+const show = (url) => fetch(B + url.replace(/^\/api/, ''));
+r = await up(`/consumers/${ua}/photo`, 'image/png', 'evil.html', png, tokA); t('photo: saved, the address is a database photo address', r.s === 200 && new RegExp(`^/api/photos/consumer/${ua}\\?v=\\d+$`).test(r.j?.data?.photo_url || ''), r.s + JSON.stringify(r.j));
+let pic = await show(r.j.data.photo_url); t('photo: shows without a login header (as an <img> needs), as image/png, same bytes', pic.status === 200 && pic.headers.get('content-type') === 'image/png' && Buffer.from(await pic.arrayBuffer()).equals(png), pic.status);
+t('photo: nosniff and a locked-down content policy are sent', pic.headers.get('x-content-type-options') === 'nosniff' && /default-src 'none'/.test(pic.headers.get('content-security-policy') || ''));
+t('photo: the bytes are in the database, not on disk', psql(`select count(*) from applicant_photos where kind='consumer' and owner_id='${ua}'`) === '1');
+r = await A('GET', `/consumers/${ua}`); t('photo: the applicant detail carries the photo address', /\/api\/photos\/consumer\//.test(r.j.data.photo_url || ''), r.j.data.photo_url);
+r = await up(`/consumers/${ua}/photo`, 'image/png', 'again.png', png, tokA); t('photo: uploading again replaces it (one row)', r.s === 200 && psql(`select count(*) from applicant_photos where owner_id='${ua}'`) === '1', r.s);
+r = await up(`/consumers/${ua}/photo`, 'image/jpeg', 'x.jpg', jpg, tokA); pic = await show(r.j.data.photo_url); t('photo: replaced by a jpeg, now served as image/jpeg', pic.status === 200 && pic.headers.get('content-type') === 'image/jpeg', pic.status);
+r = await up(`/consumers/${ua}/photo`, 'image/png', 'page.png', Buffer.from('<html><script>alert(1)</script></html>'), tokA); t('photo: HTML sent as "image/png" is refused (the file itself is checked) -> 400', r.s === 400, r.s + JSON.stringify(r.j));
+r = await up(`/consumers/${ua}/photo`, 'text/html', 'a.png', png, tokA); t('photo: a real image whose declared type is wrong is stored under its true type', r.s === 200 && (await show(r.j.data.photo_url)).headers.get('content-type') === 'image/png', r.s);
+for (const [n, ty, nm, buf] of [['svg', 'image/svg+xml', 'a.svg', Buffer.from('<svg onload=alert(1)/>')], ['pdf', 'application/pdf', 'a.pdf', Buffer.from('%PDF-1.4')], ['script', 'application/javascript', 'a.js', Buffer.from('alert(1)')], ['empty file', 'image/png', 'e.png', Buffer.alloc(0)], ['png signature missing', 'image/png', 'n.png', Buffer.from('not an image at all')]]) { r = await up(`/consumers/${ua}/photo`, ty, nm, buf, tokA); t(`photo: ${n} is refused (400)`, r.s === 400, r.s + JSON.stringify(r.j)); }
 r = await up(`/consumers/${ua}/photo`, null, null, png, tokA); t('photo: no file -> 400', r.s === 400, r.s);
-r = await up(`/consumers/${ua}/photo`, 'image/png', 'big.png', Buffer.alloc(5 * 1024 * 1024 + 10), tokA); t('photo: over 5 MB -> 400', r.s === 400, r.s);
-r = await up(`/consumers/${NIL}/photo`, 'image/png', 'x.png', png, tokA); t('photo: unknown applicant -> 404 and nothing written', r.s === 404 && !existsSync(join(upDir, 'consumer-photos', `${NIL}.png`)), r.s);
-r = await up(`/consumers/..%2F..%2Fpwned/photo`, 'image/png', 'x.png', png, tokA); t('photo: path-traversal id -> 400 and nothing written outside the folder', r.s === 400 && !existsSync(join(upDir, '..', 'pwned.png')) && !existsSync(join(upDir, '../../pwned.png')), r.s);
+r = await up(`/consumers/${ua}/photo`, 'image/png', 'big.png', Buffer.concat([png, Buffer.alloc(5 * 1024 * 1024 + 10)]), tokA); t('photo: over 5 MB -> 400', r.s === 400, r.s);
+r = await up(`/consumers/${NIL}/photo`, 'image/png', 'x.png', png, tokA); t('photo: unknown applicant -> 404 and nothing saved', r.s === 404 && psql(`select count(*) from applicant_photos where owner_id='${NIL}'`) === '0', r.s);
+r = await up(`/consumers/..%2F..%2Fpwned/photo`, 'image/png', 'x.png', png, tokA); t('photo: path-traversal id -> 400', r.s === 400, r.s);
 r = await up(`/consumers/${ua}/photo`, 'image/png', 'x.png', png, await login('read_only_viewer@test.local')); t('photo: read_only_viewer -> 403', r.s === 403, r.s);
 r = await up(`/consumers/${ua}/co-applicant-photo`, 'image/png', 'x.png', png, tokA); t('photo: co-applicant photo for an applicant with no co-applicant -> 404', r.s === 404, r.s);
-r = await up(`/consumers/${cm}/co-applicant-photo`, 'image/png', 'x.png', png, tokA); t('photo: co-applicant photo saved for the second applicant', r.s === 200, r.s + JSON.stringify(r.j));
+r = await up(`/consumers/${cm}/co-applicant-photo`, 'image/png', 'x.png', png, tokA); t('photo: co-applicant photo saved for the second applicant', r.s === 200 && (await show(r.j.data.photo_url)).status === 200, r.s + JSON.stringify(r.j));
+for (const u of [`/photos/consumer/${NIL}`, `/photos/evil/${ua}`, '/photos/consumer/not-an-id', `/photos/co/${ua}`]) { pic = await fetch(B + u); t(`photo: ${u.replace(ua, '<id>')} -> 404`, pic.status === 404, pic.status); }
+
+// ---------- links for new tabs (the login token never goes in a web address) ----------
+const hs = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const forge = (claims, secret = 'test-secret') => { const h = hs({ alg: 'HS256', typ: 'JWT' }), p = hs(claims), sg = createHmac('sha256', secret).update(h + '.' + p).digest('base64url'); return `${h}.${p}.${sg}`; };
+const rawGet = async (path) => (await fetch(B + path)).status;
+const filePath = `/consumers/${ua}/applicant-file`;
+t('link: the login token in a web address is refused -> 401', await rawGet(`${filePath}?token=${tokA}`) === 401);
+r = await A('POST', '/auth/link-token', { path: '/api' + filePath }); const lt = r.j?.token; t('link: a link token is issued', r.s === 200 && !!lt, r.s);
+const fs1 = await rawGet(`${filePath}?token=${lt}`); t('link: the link token opens that page (applicant file loads)', fs1 === 200, fs1);
+t('link: the same token does not open another applicant\'s page -> 401', await rawGet(`/consumers/${ub}/applicant-file?token=${lt}`) === 401);
+t('link: nor another kind of page -> 401', await rawGet(`/consumers/${ua}/remarks?token=${lt}`) === 401);
+r = await fetch(B + `/consumers?pageSize=1`, { headers: { authorization: 'Bearer ' + lt } }); t('link: a link token is not accepted as a login (header) -> 401', r.status === 401, r.status);
+const claims = JSON.parse(Buffer.from(lt.split('.')[1], 'base64url').toString());
+t('link: it lives about 2 minutes', claims.exp - claims.iat === 120, claims.exp - claims.iat);
+t('link: expired link token -> 401', await rawGet(`${filePath}?token=${forge({ ...claims, exp: Math.floor(Date.now() / 1000) - 5 })}`) === 401);
+t('link: link token signed with another secret -> 401', await rawGet(`${filePath}?token=${forge(claims, 'wrong')}`) === 401);
+t('link: link token with the page changed after signing -> 401', await rawGet(`/consumers/${ub}/applicant-file?token=${lt.split('.').slice(0, 2).join('.')}.${lt.split('.')[2]}`) === 401);
+t('link: ordinary token forged to carry a purpose of "link" for a wrong page -> 401', await rawGet(`${filePath}?token=${forge({ ...claims, p: '/api/other' })}`) === 401);
+for (const [n, path] of [['not a string', 5], ['empty', ''], ['outside /api', '/etc/passwd'], ['with ..', '/api/../x'], ['with a query', '/api/x?a=1'], ['with spaces', '/api/a b'], ['missing', undefined]]) { r = await A('POST', '/auth/link-token', { path }); t(`link: path ${n} -> 400`, r.s === 400, r.s); }
+r = await fetch(B + '/auth/link-token', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: '/api/x' }) }); t('link: no login -> 401', r.status === 401, r.status);
+r = await fetch(B + '/auth/link-token', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + lt }, body: JSON.stringify({ path: '/api/x' }) }); t('link: a link token cannot make another link token -> 401', r.status === 401, r.status);
+
+// ---------- old records with values today\'s rules refuse ----------
+const lg = await newOne({ name: 'Legacy Person' });
+psql(`update consumers set present_pin='12', email='old-mail', mobile='12345', present_city='Old', dob='2015-01-01' where id='${lg}'`);
+r = await A('PATCH', `/consumers/${lg}`, { present_pin: '12', email: 'old-mail', mobile: '12345', dob: '2015-01-01', present_city: 'New City' }); t('legacy: sending old bad values back unchanged while editing the city -> 200', r.s === 200 && psql(`select present_city from consumers where id='${lg}'`) === 'New City', r.s + JSON.stringify(r.j));
+t('legacy: the old values were left as they were', psql(`select (present_pin='12' and email='old-mail' and mobile='12345')::text from consumers where id='${lg}'`) === 'true');
+for (const [n, p] of [['a different bad PIN', { present_pin: '13' }], ['a different bad email', { email: 'old-mail2' }], ['a different bad mobile', { mobile: '12346' }], ['a new minor date of birth', { dob: '2016-01-01' }]]) { r = await A('PATCH', `/consumers/${lg}`, p); t(`legacy: ${n} is still refused -> 400`, r.s === 400, r.s); }
+r = await A('PATCH', `/consumers/${lg}`, { present_pin: '122001', email: 'fixed@x.com', mobile: mob(), dob: '1990-01-01' }); t('legacy: replacing the old values with good ones works', r.s === 200, r.s + JSON.stringify(r.j));
 
 // ---------- KYC and remarks ----------
 const kb = (p) => ({ documentType: 'pan', fileUrl: 'https://files.example.com/pan.pdf', ...p });

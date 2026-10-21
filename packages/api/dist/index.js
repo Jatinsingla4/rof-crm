@@ -18,6 +18,7 @@ const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 // Route imports
 const consumers_js_1 = __importDefault(require("./routes/consumers.js"));
+const photos_js_1 = __importDefault(require("./routes/photos.js"));
 const units_js_1 = __importDefault(require("./routes/units.js"));
 const allocations_js_1 = __importDefault(require("./routes/allocations.js"));
 const payments_js_1 = __importDefault(require("./routes/payments.js"));
@@ -181,6 +182,11 @@ const authenticateToken = async (req, res, next) => {
     catch {
         return res.status(401).json({ error: 'Invalid or expired token' });
     }
+    // A web address may only carry a short-lived link token made for exactly that page; the login token never goes in a URL
+    const viaQuery = !(authHeader && authHeader.split(' ')[1]);
+    if (viaQuery ? decoded.purpose !== 'link' || decoded.p !== req.originalUrl.split('?')[0] : decoded.purpose === 'link') {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+    }
     try {
         const user = await loadAuthUser(decoded.userId);
         if (!user || user.is_active === false || user.token_version !== (decoded.tv ?? 0)) {
@@ -250,6 +256,7 @@ app.use(express_1.default.static(webPublicDir));
 // Serve uploaded consumer photos
 const uploadsDir = path_1.default.join(__dirname, '../uploads');
 app.use('/uploads', express_1.default.static(uploadsDir));
+app.use('/api/photos', photos_js_1.default);
 // ============================================
 // HEALTH CHECK
 // ============================================
@@ -277,6 +284,14 @@ const LOGIN_LOCK_MS = 15 * 60 * 1000;
 const loginFailures = new Map();
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+// Opening a letter, receipt or applicant file in a new tab needs a link: valid 2 minutes, for that one page only
+app.post('/api/auth/link-token', exports.authenticateToken, (req, res) => {
+    const path = (req.body || {}).path;
+    if (typeof path !== 'string' || !/^\/api\/[A-Za-z0-9/_.\-]+$/.test(path) || path.includes('..'))
+        return res.status(400).json({ error: 'path is not valid' });
+    const { iat, exp, purpose, p, ...claims } = jsonwebtoken_1.default.decode(req.headers['authorization'].split(' ')[1]);
+    res.json({ token: jsonwebtoken_1.default.sign({ ...claims, purpose: 'link', p: path }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '2m' }) });
+});
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {

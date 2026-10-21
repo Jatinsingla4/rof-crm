@@ -9,8 +9,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const crypto_1 = require("crypto");
-const fs_1 = require("fs");
-const path_1 = __importDefault(require("path"));
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
@@ -22,33 +20,23 @@ const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
-// ---------- photo uploads: the file extension comes from the checked image type, never from the file name ----------
-const EXT = { 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' };
-const photoUploader = (dir, prefix) => (0, multer_1.default)({
-    storage: multer_1.default.diskStorage({
-        destination(_req, _file, cb) { cb(null, path_1.default.join(__dirname, '../../uploads', dir)); },
-        filename(req, file, cb) { cb(null, `${prefix(req)}${EXT[file.mimetype]}`); },
-    }),
-    limits: { fileSize: 5 * 1024 * 1024 },
-    fileFilter(_req, file, cb) { EXT[file.mimetype] ? cb(null, true) : cb(new Error('Only jpeg, jpg, png, gif images are allowed')); },
-});
-const onePhoto = (m) => (req, res, next) => m.single('photo')(req, res, (err) => err
+// ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
+const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
+const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
+const memory = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const photoUpload = (req, res, next) => memory.single('photo')(req, res, (err) => err
     ? res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large — maximum size is 5MB' : err.message })
     : next());
-const photoUpload = onePhoto(photoUploader('consumer-photos', r => r.params.id));
-const coPhotoUpload = onePhoto(photoUploader('co-applicant-photos', r => `co-${r.params.id}`));
-const addlPhotoUpload = onePhoto(photoUploader('multi-applicant-photos', r => `addl-${r.params.applicantId}`));
-// Removes the previous photo, unless the new one was saved under the same name
-const dropOldPhoto = (oldUrl, newUrl) => {
-    if (!oldUrl || oldUrl === newUrl)
-        return;
-    const oldPath = path_1.default.join(__dirname, '../../', oldUrl.replace(/^\//, ''));
-    if ((0, fs_1.existsSync)(oldPath)) {
-        try {
-            (0, fs_1.unlinkSync)(oldPath);
-        }
-        catch { /* ignore if already deleted */ }
-    }
+// Saves the uploaded file for one owner and returns the address the page shows it from
+const savePhoto = async (req, kind, ownerId) => {
+    const type = req.file && sniff(req.file.buffer);
+    if (!req.file)
+        throw (0, input_js_1.bad)('Image file is required (jpeg, jpg, png, gif, max 5MB)');
+    if (!type)
+        throw (0, input_js_1.bad)('Only jpeg, jpg, png, gif images are allowed');
+    await index_js_1.db.query(`INSERT INTO applicant_photos (kind, owner_id, content_type, data) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (kind, owner_id) DO UPDATE SET content_type = EXCLUDED.content_type, data = EXCLUDED.data, updated_at = NOW()`, [kind, ownerId, type, req.file.buffer]);
+    return `/api/photos/${kind}/${ownerId}?v=${Date.now()}`;
 };
 const router = (0, express_1.Router)();
 // Every route with :id first checks that the applicant id is a real id and visible to this login (project scope applies)
@@ -124,7 +112,8 @@ const ALIAS = { present_address_line1: 'present_address', office_address_line1: 
 const CO_COLS = new Set(['first_name', 'last_name', 'middle_name', 'salutation', 'relationship', 'pan_no', 'aadhaar_no', 'mobile', 'email', 'dob', 'gender', 'father_name', 'anniversary_date', 'marital_status', 'no_of_children', 'passport_no', 'email_2', 'designation', 'has_poa', 'nationality', 'profession', 'applicant_type', 'poa_details', 'mailing_address_type', 'communication_mode',
     ...['present', 'office', 'perm'].flatMap(p => [`${p}_address`, `${p}_city`, `${p}_state`, `${p}_pin`, `${p}_country`, `${p}_phone_no`, `${p}_fax_no`, `${p}_mobile_no`])]);
 // Cleans every field that is present in the body (blank text becomes null). Unknown keys are ignored.
-const cleanFields = (src, only) => {
+// With `errors` given, a field that fails its rule is collected instead of thrown (update uses it to let old, untouched data pass).
+const cleanFields = (src, only, errors) => {
     const b = {};
     for (const [k, v] of Object.entries(src))
         b[ALIAS[k] ?? k] = v;
@@ -132,7 +121,14 @@ const cleanFields = (src, only) => {
     for (const [col, fn] of Object.entries(FIELDS)) {
         if (b[col] === undefined || (only && !only.has(col)))
             continue;
-        out[col] = fn(b[col], b, col);
+        try {
+            out[col] = fn(b[col], b, col);
+        }
+        catch (e) {
+            if (!errors || !e?.http)
+                throw e;
+            errors[col] = { e, raw: b[col] };
+        }
     }
     return out;
 };
@@ -149,6 +145,7 @@ const coSource = (b) => {
     }
     return s;
 };
+const asText = (v) => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : v === null || v === undefined ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? String(Number(v)) : String(v));
 const mask = (v) => (typeof v === 'string' && v.length > 4 ? 'XXXX' + v.slice(-4) : v);
 const forAudit = (o) => { const c = { ...o }; for (const k of ['aadhaar_no', 'pan_no', 'passport_no'])
     if (k in c)
@@ -460,7 +457,8 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
     try {
         const id = req.params.id;
         const b = (0, input_js_1.body)(req);
-        const f = cleanFields(b);
+        const errs = {};
+        const f = cleanFields(b, undefined, errs);
         const upd = {};
         for (const [k, v] of Object.entries(f)) {
             // These always keep a value
@@ -478,8 +476,16 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
         delete upd.ppp_id;
         if (f.ppp_id !== undefined)
             upd.parivar_pehchan_patra = f.ppp_id;
-        if (b.mobile !== undefined)
-            upd.mobile = (0, applicant_js_1.mobileNo)(b.mobile, 'Mobile number', true);
+        if (b.mobile !== undefined) {
+            try {
+                upd.mobile = (0, applicant_js_1.mobileNo)(b.mobile, 'Mobile number', true);
+            }
+            catch (e) {
+                if (!e?.http || !(0, input_js_1.has)(b.mobile))
+                    throw e;
+                errs.mobile = { e, raw: b.mobile };
+            }
+        }
         const inc = b.incomeCategory ?? b.income_category;
         if (inc !== undefined) {
             if (inc !== null && inc !== '' && !applicant_js_1.INCOME_CATS.includes(inc))
@@ -510,6 +516,10 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             const cur = (await c.query(`SELECT * FROM consumers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
+            // Old records may hold values that today's rules refuse; sending such a value back unchanged is fine, a new bad value is not
+            for (const [col, { e, raw }] of Object.entries(errs))
+                if (asText(typeof raw === 'string' ? raw.trim() : raw) !== asText(cur[col]))
+                    throw e;
             if (f.first_name !== undefined || f.last_name !== undefined || b.name !== undefined) {
                 const nm = personName(b.name, f.first_name !== undefined ? f.first_name : cur.first_name, f.last_name !== undefined ? f.last_name : cur.last_name, upd.applicant_type ?? cur.applicant_type)
                     ?? (b.name === undefined ? cur.name : null);
@@ -528,7 +538,6 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
                     throw conflict(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
                 }
             }
-            const asText = (v) => (v instanceof Date ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}` : v === null || v === undefined ? '' : /^-?\d+(\.\d+)?$/.test(String(v)) ? String(Number(v)) : String(v));
             const cols = Object.keys(upd).filter(k => upd[k] !== undefined && asText(upd[k]) !== asText(cur[k]));
             const shown = `id, name, email, income_category, lead_stage, mailing_address_type, communication_mode,
                   comm_address_line1, comm_pin, comm_city, comm_state, comm_country, updated_at`;
@@ -552,42 +561,26 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
 // POST /api/consumers/:id/photo - Upload applicant photo
 router.post('/:id/photo', photoUpload, async (req, res, next) => {
     try {
-        const { id } = req.params;
-        if (!req.file)
-            return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        const old = (await index_js_1.db.query(`SELECT photo_url FROM consumers WHERE id = $1`, [id])).rows[0]?.photo_url;
-        const photoUrl = `/uploads/consumer-photos/${req.file.filename}`;
-        await index_js_1.db.query(`UPDATE consumers SET photo_url = $1, updated_at = NOW() WHERE id = $2`, [photoUrl, id]);
-        dropOldPhoto(old, photoUrl);
+        const photoUrl = await savePhoto(req, 'consumer', req.params.id);
+        await index_js_1.db.query(`UPDATE consumers SET photo_url = $1, updated_at = NOW() WHERE id = $2`, [photoUrl, req.params.id]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
 // POST /api/consumers/:id/co-applicant-photo - Upload co-applicant (second applicant) photo
-router.post('/:id/co-applicant-photo', async (req, res, next) => {
+router.post('/:id/co-applicant-photo', photoUpload, async (req, res, next) => {
     try {
-        if (!(await index_js_1.db.query(`SELECT 1 FROM co_applicants WHERE consumer_id = $1 AND applicant_number = 2`, [req.params.id])).rows.length)
+        const co = (await index_js_1.db.query(`SELECT id FROM co_applicants WHERE consumer_id = $1 AND applicant_number = 2`, [req.params.id])).rows[0];
+        if (!co)
             return res.status(404).json({ error: 'This applicant has no co-applicant' });
-        next();
-    }
-    catch (err) {
-        next(err);
-    }
-}, coPhotoUpload, async (req, res, next) => {
-    try {
-        const { id } = req.params;
-        if (!req.file)
-            return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        const old = (await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE consumer_id = $1 AND applicant_number = 2`, [id])).rows[0]?.photo_url;
-        const photoUrl = `/uploads/co-applicant-photos/${req.file.filename}`;
-        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE consumer_id = $2 AND applicant_number = 2`, [photoUrl, id]);
-        dropOldPhoto(old, photoUrl);
+        const photoUrl = await savePhoto(req, 'co', req.params.id);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2`, [photoUrl, co.id]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
 // POST /api/consumers/:id/kyc-documents - Register a KYC document
@@ -766,19 +759,15 @@ router.delete('/:id/multi-applicants/:applicantId', async (req, res, next) => {
     }
 });
 // POST /api/consumers/:id/multi-applicant-photo/:applicantId - Upload photo for one additional applicant
-router.post('/:id/multi-applicant-photo/:applicantId', addlPhotoUpload, async (req, res, next) => {
+router.post('/:id/multi-applicant-photo/:applicantId', photoUpload, async (req, res, next) => {
     try {
-        const { id, applicantId } = req.params;
-        if (!req.file)
-            return res.status(400).json({ error: 'Image file is required (jpeg, jpg, png, gif, max 5MB)' });
-        const old = (await index_js_1.db.query(`SELECT photo_url FROM co_applicants WHERE id = $1 AND consumer_id = $2`, [applicantId, id])).rows[0]?.photo_url;
-        const photoUrl = `/uploads/multi-applicant-photos/${req.file.filename}`;
-        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2 AND consumer_id = $3`, [photoUrl, applicantId, id]);
-        dropOldPhoto(old, photoUrl);
+        const { applicantId } = req.params;
+        const photoUrl = await savePhoto(req, 'addl', applicantId);
+        await index_js_1.db.query(`UPDATE co_applicants SET photo_url = $1 WHERE id = $2 AND consumer_id = $3`, [photoUrl, applicantId, req.params.id]);
         res.json({ success: true, data: { photo_url: photoUrl } });
     }
     catch (err) {
-        next(err);
+        fail(err, res, next);
     }
 });
 // GET /api/consumers/:id/applicant-file

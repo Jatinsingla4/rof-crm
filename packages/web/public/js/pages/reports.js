@@ -4560,7 +4560,7 @@ const ReportsPage = {
   async openReceiptForm(consumerId) {
     const token = Auth.getToken() || localStorage.getItem('rof-jwt') || '';
     try {
-      const res = await fetch(`/api/payments/receipt-form/${consumerId}?token=${encodeURIComponent(token)}`, {
+      const res = await fetch(`/api/payments/receipt-form/${consumerId}`, {
         headers: { 'Authorization': 'Bearer ' + token }
       });
       if (!res.ok) {
