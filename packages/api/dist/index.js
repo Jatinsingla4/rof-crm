@@ -99,7 +99,7 @@ const authLimiter = (0, express_rate_limit_1.default)({
 });
 const apiLimiter = (0, express_rate_limit_1.default)({
     windowMs: 60 * 1000, // 1 minute
-    max: isDev ? 5000 : 300,
+    max: isDev ? Number(process.env.API_RATE_MAX || 5000) : 300, // API_RATE_MAX: the click-through test sends more than 5000 a minute
     message: { error: 'Too many requests, please slow down' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -484,7 +484,7 @@ app.use('/api/surrender', exports.authenticateToken, rbac('allocations'), surren
 app.use('/api/transfers', exports.authenticateToken, rbac('allocations'), transfers_js_1.default);
 app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
 app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
-app.use('/api/payments', exports.authenticateToken, receipt_process_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_process_js_1.default);
 app.use('/api/payments', exports.authenticateToken, financial_ops_js_1.default);
 app.use('/api/payments', exports.authenticateToken, outgoing_payments_js_1.default);
 app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);

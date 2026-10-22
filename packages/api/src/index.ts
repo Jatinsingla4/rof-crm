@@ -102,7 +102,7 @@ const authLimiter = rateLimit({
 
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: isDev ? 5000 : 300,
+  max: isDev ? Number(process.env.API_RATE_MAX || 5000) : 300,   // API_RATE_MAX: the click-through test sends more than 5000 a minute
   message: { error: 'Too many requests, please slow down' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -575,7 +575,7 @@ app.use('/api/surrender', authenticateToken, rbac('allocations'), surrenderRoute
 app.use('/api/transfers', authenticateToken, rbac('allocations'), transfersRoutes);
 app.use('/api/registry', authenticateToken, registryRoutes);
 app.use('/api/loans', authenticateToken, loansRoutes);
-app.use('/api/payments', authenticateToken, receiptProcessRoutes);
+app.use('/api/payments', authenticateToken, rbac('payments'), receiptProcessRoutes);
 app.use('/api/payments', authenticateToken, financialOpsRoutes);
 app.use('/api/payments', authenticateToken, outgoingPaymentsRoutes);
 app.use('/api/test-data', authenticateToken, testDataImportRoutes);

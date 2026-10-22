@@ -3,6 +3,7 @@
  * Payment plans, demand letters, receipts, HRERA Rule 15 penal interest
  */
 
+import { releaseTdsForReceipt } from '../utils/tds.js';
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
@@ -521,6 +522,7 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
       `UPDATE receipts SET status = 'bounced', updated_at = NOW() WHERE id = $1`,
       [id]
     );
+    await releaseTdsForReceipt(client, id, 'Receipt bounced');
 
     // 3. Re-open the demand if linked, but only if no other valid receipt still covers it
     if (demand_id) {
@@ -619,6 +621,7 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
       `UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
       [id]
     );
+    await releaseTdsForReceipt(client, id, 'Receipt cancelled');
 
     // Step 2: Revert demand status AND delivery_status if linked and paid
     if (receipt.demand_id) {

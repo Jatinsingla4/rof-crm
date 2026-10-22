@@ -715,7 +715,15 @@ Pages.receipts = async function(params = {}) {
     <div data-panel-group="rec" data-panel="tds-report" style="display:none">
       <div class="sp" style="margin-bottom:12px">
         <div class="sp-hdr"><div class="sp-title">TDS CHALLAN REPORT</div></div>
+        <div class="sp-body">
+          <div class="sp-grid">
+            <div class="fg"><label class="fl">Status</label><select class="fc" id="tds-f-status"><option value="">All</option><option value="available">Available</option><option value="partially_assigned">Partially assigned</option><option value="fully_assigned">Fully assigned</option></select></div>
+            <div class="fg"><label class="fl">Challan No. or Bank</label><input class="fc" id="tds-f-search" maxlength="100"></div>
+          </div>
+          <button class="btn btn-fetch" style="margin:12px 0" onclick="ReceiptsPage.loadTDSReport()">SEARCH</button>
+        </div>
         <div id="tds-report-body"></div>
+        <div id="tds-detail-body"></div>
       </div>
     </div>
 
@@ -725,11 +733,11 @@ Pages.receipts = async function(params = {}) {
         <div class="sp-hdr"><div class="sp-title">UPLOAD TDS CHALLAN</div></div>
         <div class="sp-body">
           <div class="sp-grid">
-            <div class="fg"><label class="fl">Challan Number</label><input class="fc" id="tds-no"></div>
+            <div class="fg"><label class="fl">Challan Number</label><input class="fc" id="tds-no" maxlength="50"></div>
             <div class="fg"><label class="fl">Challan Date</label><input type="date" class="fc" id="tds-date"></div>
-            <div class="fg"><label class="fl">Amount</label><input type="number" class="fc" id="tds-amount" placeholder="0.00"></div>
-            <div class="fg"><label class="fl">Bank Name</label><input class="fc" id="tds-bank"></div>
-            <div class="fg"><label class="fl">File (PDF/Image)</label><input type="file" class="fc" id="tds-file"></div>
+            <div class="fg"><label class="fl">Amount</label><input type="number" class="fc" id="tds-amount" placeholder="0.00" min="0.01" step="0.01"></div>
+            <div class="fg"><label class="fl">Bank Name</label><input class="fc" id="tds-bank" maxlength="255"></div>
+            <div class="fg"><label class="fl">File (PDF/Image)</label><input type="file" class="fc" id="tds-file" accept="application/pdf,image/png,image/jpeg"></div>
           </div>
           <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.uploadTDS()">UPLOAD CHALLAN</button>
         </div>
@@ -743,7 +751,9 @@ Pages.receipts = async function(params = {}) {
         <div class="sp-body">
           <div class="sp-grid">
             <div class="fg"><label class="fl">Select Challan</label><select class="fc" id="ass-challan-sel"><option>— Select —</option></select></div>
-            <div class="fg"><label class="fl">Receipt No.</label><input class="fc" id="ass-receipt-no" placeholder="Search Receipt"></div>
+            <div class="fg"><label class="fl">Receipt No. or Applicant</label><input class="fc" id="ass-receipt-no" placeholder="Type 2 letters to search" maxlength="100" oninput="ReceiptsPage.searchTDSReceipt()"></div>
+            <div class="fg"><label class="fl">Receipt</label><select class="fc" id="ass-receipt-sel"><option value="">— Search first —</option></select></div>
+            <div class="fg"><label class="fl">Amount</label><input type="number" class="fc" id="ass-amount" placeholder="0.00" min="0.01" step="0.01"></div>
           </div>
           <button class="btn btn-fetch" style="margin-top:15px" onclick="ReceiptsPage.assignTDS()">ASSIGN TDS</button>
         </div>
@@ -1050,7 +1060,7 @@ const ReceiptsPage = {
   async reject(id, btn) {
     btn.disabled = true; btn.textContent = '…';
     try {
-      await Api.patch(`/payments/receipts/${id}/reject`, { reason: 'Rejected by approver' });
+      await Api.post(`/payments/receipts/${id}/cancel`, { reason: 'Rejected by approver' });
       Utils.warn('Receipt rejected');
       btn.closest('tr').style.opacity = '0.4';
     } catch (err) { Utils.error(err.message); btn.disabled = false; btn.textContent = 'Reject'; }
@@ -1567,44 +1577,127 @@ const ReceiptsPage = {
     });
   },
 
+  // challan money keeps its paise (Utils.currency rounds to whole rupees)
+  inr(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); },
+
   async loadTDSReport() {
     const el = document.getElementById('tds-report-body');
     if (!el) return;
     el.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
     try {
-      const res = await Api.get('/payments/tds/challans');
-      const list = res.data || res || [];
+      const res = await Api.get('/payments/tds/challans', { params: { status: document.getElementById('tds-f-status')?.value, search: document.getElementById('tds-f-search')?.value.trim() } });
+      const list = res.data || [];
+      const t = res.totals || { amount: 0, assigned: 0, balance: 0 };
       el.innerHTML = `
+        <div style="margin:0 0 10px;font-size:12px;color:var(--text2)">${res.total || 0} challans. Total ${ReceiptsPage.inr(t.amount)}, assigned ${ReceiptsPage.inr(t.assigned)}, balance ${ReceiptsPage.inr(t.balance)}</div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Challan No</th><th>Date</th><th>Bank</th><th>Amount</th><th>Status</th></tr></thead>
+            <thead><tr><th>Challan No</th><th>Date</th><th>Bank</th><th>Amount</th><th>Assigned</th><th>Balance</th><th>Status</th><th>File</th><th></th></tr></thead>
             <tbody>
-              ${list.map(t => `<tr>
-                <td class="td-mono">${t.challan_number}</td>
-                <td>${Utils.date(t.challan_date)}</td>
-                <td>${t.bank_name || '—'}</td>
-                <td class="td-bold">${Utils.currency(t.amount)}</td>
-                <td>${Utils.chip(t.status)}</td>
-              </tr>`).join('')}
+              ${list.length ? list.map(c => `<tr>
+                <td class="td-mono">${Utils.esc(c.challan_number)}</td>
+                <td>${Utils.date(c.challan_date)}</td>
+                <td>${Utils.esc(c.bank_name || '—')}</td>
+                <td class="td-bold">${ReceiptsPage.inr(c.amount)}</td>
+                <td>${ReceiptsPage.inr(c.assigned_amount)}</td>
+                <td>${ReceiptsPage.inr(c.balance)}</td>
+                <td>${Utils.chip(c.status.replace(/_/g, ' '))}</td>
+                <td>${c.has_file ? `<button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.openChallanFile('${c.id}')">View</button>` : '—'}</td>
+                <td><button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.showChallan('${c.id}')">Assignments</button></td>
+              </tr>`).join('') : '<tr><td colspan="9" style="text-align:center;color:var(--text3);padding:20px">No challans found</td></tr>'}
             </tbody>
           </table>
         </div>`;
-    } catch (err) { el.innerHTML = err.message; }
+    } catch (err) { el.innerHTML = Utils.esc(err.message); }
+  },
+
+  async openChallanFile(id) {
+    try {
+      const r = await fetch(`${ROF.API_BASE}/payments/tds/challans/${id}/file`, { headers: { Authorization: `Bearer ${Auth.getToken()}` } });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'File not found');
+      window.open(URL.createObjectURL(await r.blob()), '_blank');
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async showChallan(id) {
+    const el = document.getElementById('tds-detail-body');
+    if (!el) return;
+    try {
+      const c = (await Api.get(`/payments/tds/challans/${id}`)).data;
+      el.innerHTML = `
+        <div class="sp-hdr" style="margin-top:16px"><div class="sp-title">ASSIGNMENTS OF ${Utils.esc(c.challan_number)}</div></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Receipt</th><th>Applicant</th><th>Amount</th><th>Assigned</th><th>Status</th><th></th></tr></thead>
+          <tbody>${c.assignments.length ? c.assignments.map(a => `<tr>
+            <td class="td-mono">${Utils.esc(a.receipt_number || '—')}</td>
+            <td>${Utils.esc(a.consumer_name || '—')}</td>
+            <td class="td-bold">${ReceiptsPage.inr(a.amount_assigned)}</td>
+            <td>${Utils.date(a.assigned_at)}</td>
+            <td>${a.released_at ? Utils.esc('Released: ' + (a.release_reason || '')) : 'Active'}</td>
+            <td>${a.released_at ? '' : `<button class="btn btn-danger btn-sm" onclick="ReceiptsPage.releaseTDS('${a.id}','${c.id}')">Release</button>`}</td>
+          </tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">Nothing assigned yet</td></tr>'}</tbody>
+        </table></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async releaseTDS(assignmentId, challanId) {
+    if (!confirm('Take this assignment back? The amount returns to the challan balance.')) return;
+    try {
+      await Api.post(`/payments/tds/assignments/${assignmentId}/release`, { reason: 'Released by user' });
+      Utils.success('Assignment released');
+      this.loadTDSReport();
+      this.showChallan(challanId);
+    } catch (err) { Utils.error(err.message); }
   },
 
   async uploadTDS() {
-    const data = {
-      challanNumber: document.getElementById('tds-no').value,
-      challanDate: document.getElementById('tds-date').value,
-      amount: document.getElementById('tds-amount').value,
-      bankName: document.getElementById('tds-bank').value
-    };
-    if (!data.challanNumber || !data.amount) return Utils.error('Challan No and Amount required');
+    const v = (id) => document.getElementById(id).value.trim();
+    if (!v('tds-no') || !v('tds-date') || !v('tds-amount')) return Utils.error('Challan No, Date and Amount are required');
+    const fd = new FormData();
+    fd.append('challanNumber', v('tds-no'));
+    fd.append('challanDate', v('tds-date'));
+    fd.append('amount', v('tds-amount'));
+    if (v('tds-bank')) fd.append('bankName', v('tds-bank'));
+    const f = document.getElementById('tds-file').files[0];
+    if (f) fd.append('file', f);
     try {
-      await Api.post('/payments/tds/challans', data);
+      await Api.uploadFile('/payments/tds/challans', fd);
       Utils.success('TDS Challan Uploaded');
+      ['tds-no', 'tds-date', 'tds-amount', 'tds-bank', 'tds-file'].forEach(id => { document.getElementById(id).value = ''; });
       switchTab('rec', 'tds-report');
       this.loadTDSReport();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  _tdsSearchTimer: null,
+  searchTDSReceipt() {
+    clearTimeout(this._tdsSearchTimer);
+    this._tdsSearchTimer = setTimeout(async () => {
+      const sel = document.getElementById('ass-receipt-sel');
+      const q = document.getElementById('ass-receipt-no').value.trim();
+      if (!sel) return;
+      if (q.length < 2) { sel.innerHTML = '<option value="">— Search first —</option>'; return; }
+      try {
+        const rows = (await Api.get('/payments/tds/receipts', { params: { search: q } })).data || [];
+        sel.innerHTML = rows.length
+          ? rows.map(r => `<option value="${r.id}">${Utils.esc(r.receipt_number || '')} | ${Utils.esc(r.consumer_name || '')} | ${ReceiptsPage.inr(r.amount_received_inr)}, TDS ${ReceiptsPage.inr(r.tds_assigned)}</option>`).join('')
+          : '<option value="">— No receipt found —</option>';
+      } catch (err) { Utils.error(err.message); }
+    }, 300);
+  },
+
+  async assignTDS() {
+    const challanId = document.getElementById('ass-challan-sel').value;
+    const receiptId = document.getElementById('ass-receipt-sel').value;
+    const amount = document.getElementById('ass-amount').value.trim();
+    if (!challanId) return Utils.error('Select a challan');
+    if (!receiptId) return Utils.error('Search and select a receipt');
+    if (!amount || !(Number(amount) > 0)) return Utils.error('Enter the amount to assign');
+    try {
+      await Api.post('/payments/tds/assign', { challanId, receiptId, amount });
+      Utils.success('TDS assigned to the receipt');
+      document.getElementById('ass-amount').value = '';
+      this.loadAssignTDS();
     } catch (err) { Utils.error(err.message); }
   },
 
@@ -1869,14 +1962,16 @@ const ReceiptsPage = {
 
   async loadAssignTDS() {
     try {
-      const res = await Api.get('/payments/tds/challans');
-      const list = res.data || res || [];
+      const res = await Api.get('/payments/tds/challans', { params: { pageSize: 500 } });
+      const list = res.data || [];
       const sel = document.getElementById('ass-challan-sel');
       if (sel) {
+        const keep = sel.value;
         sel.innerHTML = '<option value="">— Select Challan —</option>' + 
-          list.filter(t => t.status === 'available').map(t => `<option value="${t.id}">${t.challan_number} (Bal: ${Utils.currency(t.amount)})</option>`).join('');
+          list.filter(t => Number(t.balance) > 0).map(t => `<option value="${t.id}">${Utils.esc(t.challan_number)} (Bal: ${ReceiptsPage.inr(t.balance)})</option>`).join('');
+        sel.value = keep;
       }
-    } catch {}
+    } catch (err) { Utils.error(err.message); }
   },
 
   async init(params = {}) {

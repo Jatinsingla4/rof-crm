@@ -163,6 +163,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('applicant_transfer'
             const move = (sql, p) => c.query(sql, p);
             await move(`UPDATE demands SET consumer_id = $1, updated_at = NOW() WHERE payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $2 AND unit_id = $3)`, [newId, oldId, unitId]);
             await move(`UPDATE receipts SET consumer_id = $1, updated_at = NOW() WHERE payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $2 AND unit_id = $3)`, [newId, oldId, unitId]);
+            await move(`UPDATE tds_assignments SET consumer_id = $1 WHERE consumer_id = $2 AND receipt_id IN (SELECT id FROM receipts WHERE consumer_id = $1)`, [newId, oldId]); // TDS follows its receipts
             await move(`UPDATE payment_plans SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`, [newId, oldId, unitId]);
             await move(`UPDATE booking_records SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`, [newId, oldId, unitId]);
             await move(`UPDATE penal_interests SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);

@@ -4,6 +4,7 @@
  * Payment plans, demand letters, receipts, HRERA Rule 15 penal interest
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+const tds_js_1 = require("../utils/tds.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
@@ -411,6 +412,7 @@ router.patch('/receipts/:id/bounce', async (req, res, next) => {
         installment_index = installment_index ?? 999;
         // 2. Update receipt status
         await client.query(`UPDATE receipts SET status = 'bounced', updated_at = NOW() WHERE id = $1`, [id]);
+        await (0, tds_js_1.releaseTdsForReceipt)(client, id, 'Receipt bounced');
         // 3. Re-open the demand if linked, but only if no other valid receipt still covers it
         if (demand_id) {
             const stillValid = await client.query(`SELECT id FROM receipts WHERE demand_id = $1
@@ -479,6 +481,7 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         }
         // Step 1: Cancel the receipt
         await client.query(`UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [id]);
+        await (0, tds_js_1.releaseTdsForReceipt)(client, id, 'Receipt cancelled');
         // Step 2: Revert demand status AND delivery_status if linked and paid
         if (receipt.demand_id) {
             await client.query(`UPDATE demands
