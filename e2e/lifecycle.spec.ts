@@ -15,6 +15,8 @@ test.describe.configure({ mode: 'serial' });
 let page: Page;
 let problems: string[] = [];
 let dialogs: string[] = [];   // every alert/confirm text the screens showed
+// after a click: let the request start, then wait until the network is quiet (a fixed 500 ms was too short on a busy machine)
+const settle = async () => { await page.waitForTimeout(150); await page.waitForLoadState('networkidle'); };
 let token = '';
 const api = async (method: string, path: string, body?: any) => {
   const r = await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -67,9 +69,9 @@ test('Booking: fill the form for a new applicant and a unit, save', async () => 
   await go('/booking');
   await expect(content()).toContainText(/unit information/i);
   await content().locator('select[name=project_id]').selectOption({ label: S.projectName });
-  await page.waitForTimeout(500);
+  await settle();
   await content().locator('select[name=bhk_type]').selectOption({ index: 1 });
-  await page.waitForTimeout(300);
+  await settle();
   await page.locator('#bk-tower').selectOption({ label: S.towerName });
   await page.locator('#bk-floor').selectOption({ index: 1 });
   await page.locator('#bk-unit-select').selectOption({ index: 1 });
@@ -189,13 +191,13 @@ test('Receipts: Receipt List, every mode and status filter, and the new receipt 
     for (const v of opts) {
       await page.locator(sel).selectOption(v);
       await page.getByRole('button', { name: 'FETCH', exact: true }).first().click();
-      await page.waitForTimeout(500);
+      await settle();
       await clean();
     }
     await page.locator(sel).selectOption('');
   }
   await page.locator('#list-from').fill(later(-1)); await page.locator('#list-to').fill(later(-2));
-  await page.getByRole('button', { name: 'FETCH', exact: true }).first().click(); await page.waitForTimeout(500); await clean();
+  await page.getByRole('button', { name: 'FETCH', exact: true }).first().click(); await settle(); await clean();
   await page.locator('#list-from').fill(''); await page.locator('#list-to').fill('');
 });
 
@@ -206,16 +208,16 @@ test('Receipts: Receipt Print finds the receipt by registration number and by re
   await expect(page.locator('#rp-results-body')).toContainText(S.rcptNo);
   await page.locator('#rp-reg-no').fill(''); await page.locator('#rp-receipt-no').fill(S.rcptNo);
   for (const v of await page.locator('#rp-print-status option').evaluateAll(o => o.map((x: any) => x.value))) {
-    await page.locator('#rp-print-status').selectOption(v); await page.locator('#rp-search-btn').click(); await page.waitForTimeout(500); await clean();
+    await page.locator('#rp-print-status').selectOption(v); await page.locator('#rp-search-btn').click(); await settle(); await clean();
   }
   await page.locator('#rp-print-status').selectOption('');
-  await page.locator('#rp-receipt-no').fill(`NOPE-${U}`); await page.locator('#rp-search-btn').click(); await page.waitForTimeout(600); await clean();
+  await page.locator('#rp-receipt-no').fill(`NOPE-${U}`); await page.locator('#rp-search-btn').click(); await settle(); await clean();
   await page.locator('#rp-receipt-no').fill('');
 });
 
 test('Receipts: Journal Entry tabs open, FETCH works, placeholder buttons say so', async () => {
   await tab('journal');
-  for (const t of ['dc', 'report', 'reversal', 'entry']) { await page.locator(`#je-tab-${t}`).click(); await page.waitForTimeout(300); await clean(); }
+  for (const t of ['dc', 'report', 'reversal', 'entry']) { await page.locator(`#je-tab-${t}`).click(); await settle(); await clean(); }
   await page.locator('#je-reg-filter').fill(S.reg);
   await page.locator('#je-fetch-btn').click();
   await expect(page.locator('#je-results-container')).toBeVisible();
@@ -264,7 +266,7 @@ test('TDS: Challan Report, every status filter, search, the scan opens', async (
   await tab('tds-report');
   await expect(page.locator('#tds-report-body')).toContainText(S.challanNo);
   for (const v of await page.locator('#tds-f-status option').evaluateAll(o => o.map((x: any) => x.value))) {
-    await page.locator('#tds-f-status').selectOption(v); await page.getByRole('button', { name: 'SEARCH' }).click(); await page.waitForTimeout(500); await clean();
+    await page.locator('#tds-f-status').selectOption(v); await page.getByRole('button', { name: 'SEARCH' }).click(); await settle(); await clean();
     if (v === 'fully_assigned') await expect(page.locator('#tds-report-body')).not.toContainText(S.challanNo);
   }
   await page.locator('#tds-f-status').selectOption('');
@@ -372,7 +374,7 @@ test('Receipts: a bounced receipt gives its TDS back too', async () => {
 const pcClean = async () => { expect(await page.locator('body').innerText()).not.toMatch(/\bundefined\b|\bNaN\b|\[object Object\]/); };
 const pc = () => page.locator('#pc-tbody');
 const pcRow = (no: string) => page.locator('#pc-tbody tr', { hasText: no });
-const pcFetch = async () => { await page.getByRole('button', { name: 'FETCH', exact: true }).click(); await page.waitForTimeout(600); };
+const pcFetch = async () => { await page.getByRole('button', { name: 'FETCH', exact: true }).click(); await settle(); };
 const pcOpen = async () => { await page.goto(`/pending-cheques.html?project_id=${S.project}`); await expect(page.locator('#pc-tbody')).not.toContainText('Loading'); await expect(page.locator('#pc-tbody tr').first()).toBeVisible(); };
 const rcpt = async (id: string) => (await api('GET', `/payments/receipts/${id}`)).j.data;
 const cheque = async (label: string, amount = 5000) => {
@@ -463,6 +465,7 @@ test('Pending cheques: CLEAR without a clearing date uses today (or says why), a
   dialogs = [];
   await page.getByRole('button', { name: /^CLEAR/ }).click();
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
+  await expect.poll(async () => (await rcpt(S.chq.D.id)).status).not.toBe('pending');
   const st = (await rcpt(S.chq.D.id)).status;
   // whichever way it goes, the message must match what the database holds
   if (/Success: 1/.test(dialogs.join())) expect(st).toBe('cleared'); else expect(st).toBe('pending');
@@ -550,9 +553,8 @@ test('Pending cheques: select all, double click on CLEAR, and a mixed selection'
   dialogs = [];
   await page.getByRole('button', { name: /^CLEAR/ }).dblclick();
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
-  await page.waitForTimeout(800);
-  expect((await rcpt(f.id)).status).toBe('cleared');
-  expect((await rcpt(g.id)).status).toBe('cleared');     // a held cheque can be cleared directly
+  await expect.poll(async () => (await rcpt(f.id)).status).toBe('cleared');
+  await expect.poll(async () => (await rcpt(g.id)).status).toBe('cleared');     // a held cheque can be cleared directly
   expect(dialogs.join()).not.toMatch(/undefined|NaN/);
   const st: Record<string, string> = {}; for (const [l, c] of Object.entries<any>(S.chq)) st[l] = (await rcpt(c.id)).status;
   expect(st).toEqual({ A: 'cleared', B: 'pending', C: 'bounced', D: 'cleared', E: 'cleared' });
@@ -570,7 +572,7 @@ test('Transfer Fee Setup: wrong input is refused, a saved fee is stored and come
   await page.getByRole('button', { name: 'SAVE', exact: true }).click();
   await expect(page.locator('#tfs-msg')).toContainText(/select a project/i);
   await page.locator('#tfs-project').selectOption({ label: S.projectName });
-  await page.waitForTimeout(500);
+  await settle();
   expect((await api('GET', `/transfers/fee-master?projectId=${S.project}`)).s).toBe(404);   // nothing saved yet, screen shows defaults
   await expect(page.locator('#tfs-fee')).toHaveValue(new RegExp('^0(\\.0+)?$'));
   for (const [id, v] of [['tfs-fee', '-5'], ['tfs-cgst', '150'], ['tfs-admin', '2000000000'], ['tfs-stax', '-1']]) {
@@ -593,7 +595,7 @@ test('Transfer Fee Setup: wrong input is refused, a saved fee is stored and come
   await expect(page.locator('#tfs-fee')).toHaveValue(new RegExp('^0(\\.0+)?$')); await expect(page.locator('#tfs-admin')).toHaveValue(new RegExp('^0(\\.0+)?$'));
   await page.locator('#tfs-foc').uncheck();
   // re-open: the saved values are back
-  await go('/transfer-fee-setup'); await page.locator('#tfs-project').selectOption({ label: S.projectName }); await page.waitForTimeout(600);
+  await go('/transfer-fee-setup'); await page.locator('#tfs-project').selectOption({ label: S.projectName }); await settle();
   await expect(page.locator('#tfs-fee')).toHaveValue(new RegExp('^5000(\\.0+)?$')); await expect(page.locator('#tfs-cgst')).toHaveValue(new RegExp('^9(\\.0+)?$'));
   await clean();
 });
@@ -625,7 +627,7 @@ test('Transfers: search by project, registration number, name and unit; wrong va
   await page.locator('#tr-f-name').fill(''); await page.locator('#tr-f-unit').fill(`L1-${U}`); await fetchBtn.click();
   await expect(page.locator('#tr-search-results')).toContainText(S.reg);
   for (const [id, v] of [['tr-f-regno', `NOPE${U}`], ['tr-f-name', '%'], ['tr-f-unit', "L1'; drop table units;--"], ['tr-f-regno', '<b>x</b>']]) {
-    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await page.waitForTimeout(500);
+    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle();
     await expect(page.locator('#tr-search-results')).toContainText(/No allotted consumers found|Error/);
     await page.locator(`#${id}`).fill('');
   }
@@ -725,7 +727,7 @@ test('Transfer Date Edit: find the transfer by registration number, name and pro
   await fetchBtn.click(); await expect(page.locator('#tde-tbody')).toContainText(S.trNo.length ? `Buyer${U}` : '');
   await page.locator('#tde-regno').fill(S.reg); await fetchBtn.click();
   await expect(page.locator('#tde-tbody tr')).toHaveCount(1);       // the seller's registration number finds the transfer
-  await page.locator('#tde-regno').fill(`NOPE${U}`); await fetchBtn.click(); await page.waitForTimeout(400);
+  await page.locator('#tde-regno').fill(`NOPE${U}`); await fetchBtn.click(); await settle();
   await expect(page.locator('#tde-count')).toContainText(/^0 /);
   await page.locator('#tde-regno').fill(''); await page.locator('#tde-fname').fill(`Buyer${U}`); await fetchBtn.click();
   await expect(page.locator('#tde-tbody tr')).toHaveCount(1);
@@ -739,7 +741,7 @@ test('Transfer Date Edit: find the transfer by registration number, name and pro
   await td.fill(later(-1)); await ad.fill(later(-3)); await save.click(); await expect(msg).toContainText(/Saved/);
   const now = (await api('GET', `/transfers/${id}`)).j.data;
   expect(sameDay(now.transfer_date, later(-1))).toBe(true); expect(sameDay(now.application_date, later(-3))).toBe(true);
-  await page.locator('#tde-fetch-btn').click(); await page.waitForTimeout(400);
+  await page.locator('#tde-fetch-btn').click(); await settle();
   await expect(page.locator(`#tde-td-${id}`)).toHaveValue(new RegExp(`^(${later(-1)}|${later(-2)})$`));   // the reloaded row shows the stored date
   await clean();
 });
@@ -753,11 +755,11 @@ test('Transfer Report: every filter, CSV, and the unit shows with the new owner'
   await expect(row).toContainText(`Buyer${U}`); await expect(row).toContainText(`L1-${U}`);
   expect(await row.innerText()).not.toContain(`Lifecycle${U}`);   // the seller is no longer the owner
   for (const [id, v, n] of [['trr-regno', S.reg, 1], ['trr-regno', `NOPE${U}`, 0], ['trr-fname', `Buyer${U}`, 1], ['trr-fname', 'zzzz', 0], ['trr-unit', `L1-${U}`, 1], ['trr-unit', `L3-${U}`, 0]] as any[]) {
-    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await page.waitForTimeout(400);
+    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle();
     if (n) await expect(page.locator('#trr-tbody tr')).toHaveCount(1); else await expect(page.locator('#trr-tbody')).toContainText(/No records found/);
     await page.locator(`#${id}`).fill('');
   }
-  await fetchBtn.click(); await page.waitForTimeout(400);
+  await fetchBtn.click(); await settle();
   await expect(page.locator('#trr-count')).toContainText(/1 /);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /CSV/ }).click()]);
   const csv = require('fs').readFileSync(await dl.path(), 'utf8');
@@ -775,15 +777,15 @@ test('Transfer Detail: filters, the date range, the amounts and the Letter', asy
   await expect(row).toContainText('50,000'); await expect(row).toContainText('540');
   // search by registration number, name and unit, one at a time
   for (const [id, v] of [['trd-regno', S.reg], ['trd-fname', `Buyer${U}`], ['trd-unit', `L1-${U}`]]) {
-    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await page.waitForTimeout(500);
+    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle();
     await expect(page.locator('#trd-tbody tr'), `search by ${id}`).toHaveCount(1); await expect(page.locator('#trd-tbody')).not.toContainText('No records');
     await page.locator(`#${id}`).fill('');
   }
   await page.locator('#trd-regno').fill(`NOPE${U}`); await fetchBtn.click(); await expect(page.locator('#trd-tbody')).toContainText(/No records found/); await page.locator('#trd-regno').fill('');
   // the date range: a range that does not hold the transfer must show nothing, one that holds it must show it
-  await page.locator('#trd-from').fill(later(-30)); await page.locator('#trd-to').fill(later(-20)); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#trd-from').fill(later(-30)); await page.locator('#trd-to').fill(later(-20)); await fetchBtn.click(); await settle();
   await expect(page.locator('#trd-tbody'), 'transfers outside the date range are hidden').toContainText(/No records found/);
-  await page.locator('#trd-from').fill(later(-10)); await page.locator('#trd-to').fill(later(1)); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#trd-from').fill(later(-10)); await page.locator('#trd-to').fill(later(1)); await fetchBtn.click(); await settle();
   await expect(page.locator('#trd-tbody tr')).toHaveCount(1); await expect(page.locator('#trd-tbody')).toContainText(`Buyer${U}`);
   await page.locator('#trd-from').fill(''); await page.locator('#trd-to').fill('');
   // the letter
@@ -841,11 +843,11 @@ test('Surrender: the search needs a project and finds the unit holder; wrong val
   await expect(surRow()).toContainText(`Buyer${U}`);
   expect(await content().innerText()).not.toContain(`Lifecycle${U}`);        // the seller no longer holds the unit
   for (const [id, v, n] of [['sur-regno', S.buyerReg, 1], ['sur-regno', `NOPE${U}`, 0], ['sur-name', `Buyer${U}`, 1], ['sur-name', 'zzzz', 0], ['sur-unit', `L1-${U}`, 1], ['sur-unit', `L4-${U}`, 0], ['sur-unit', "x' or '1'='1", 0]] as any[]) {
-    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await page.waitForTimeout(500);
+    await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle();
     expect(await surRow().count(), `${id}=${v}`).toBe(n);
     await page.locator(`#${id}`).fill('');
   }
-  await fetchBtn.click(); await page.waitForTimeout(500);
+  await fetchBtn.click(); await settle();
   await clean();
 });
 
@@ -890,7 +892,7 @@ test('Surrender: the form shows the applicant, the checks refuse a wrong date an
 test('Surrender: after surrendering, the holder is gone from the search and cannot be surrendered again', async () => {
   await go('/surrender');
   await page.locator('#sur-project').selectOption({ label: S.projectName });
-  await page.locator('.sur-btn-fetch').first().click(); await page.waitForTimeout(500);
+  await page.locator('.sur-btn-fetch').first().click(); await settle();
   expect(await surRow().count()).toBe(0);
   const alloc = (await api('GET', `/allocations?consumerId=${S.buyer}&status=all`)).j.data.find((a: any) => a.unit_id === S.unit);
   const again = await api('POST', '/surrender', { consumerId: S.buyer, allocationId: alloc.id, type: 'surrender' });
@@ -933,7 +935,7 @@ test('Surrender restore: filters, Restore puts the unit holder back, a second re
   await page.locator('#res-project').selectOption({ label: S.projectName }); await fetchBtn().click();
   await expect(row()).toHaveCount(1);
   for (const [id, v, n] of [['res-regno', `NOPE${U}`, 0], ['res-name', 'zzzz', 0], ['res-regno', S.buyerReg, 1], ['res-name', `Buyer${U}`, 1]] as any[]) {
-    await page.locator(`#${id}`).fill(v); await fetchBtn().click(); await page.waitForTimeout(400);
+    await page.locator(`#${id}`).fill(v); await fetchBtn().click(); await settle();
     await page.locator('#res-project').selectOption({ label: S.projectName }).catch(() => {});
     expect(await row().count(), `${id}=${v}`).toBe(n);
     await page.locator(`#${id}`).fill('');
@@ -994,7 +996,7 @@ test('Allotment form: the booked applicant is offered with the unit filled in; e
   await page.locator('#allot-remarks').fill('lifecycle allotment');
   await btn.dblclick();
   await expect(toast(/allotted successfully/i).first()).toBeVisible();
-  await page.waitForTimeout(600);
+  await settle();
   const al = (await allocOf(alt.A.id)).filter(a => a.status === 'allotted'); expect(al.length, 'one allotment, not two').toBe(1);
   alt.A.alloc = al[0].id;
   expect((await unitOf(S.units[1])).status).toBe('allotted');
@@ -1021,14 +1023,14 @@ test('Allotment Letter: the search by project, unit and registration number, the
   const reg = (await api('GET', `/consumers/${alt.A.id}`)).j.data.registration_no;
   await fetchBtn.click();
   await expect(content().locator('#letter-search-body')).toContainText(ALT_A);
-  await page.locator('#letter-unit-search').fill(`L2-${U}`); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#letter-unit-search').fill(`L2-${U}`); await fetchBtn.click(); await settle();
   await expect(content().locator('#letter-search-body')).toContainText(ALT_A);
-  await page.locator('#letter-unit-search').fill(`L4-${U}`); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#letter-unit-search').fill(`L4-${U}`); await fetchBtn.click(); await settle();
   await expect(content().locator('#letter-search-body')).not.toContainText(ALT_A);
-  await page.locator('#letter-unit-search').fill(''); await page.locator('#letter-reg-search').fill(reg || `NOPE${U}`); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#letter-unit-search').fill(''); await page.locator('#letter-reg-search').fill(reg || `NOPE${U}`); await fetchBtn.click(); await settle();
   await clean();
   await page.locator('#letter-reg-search').fill('');
-  await page.locator('#letter-proj-sel').selectOption({ label: S.projectName }); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#letter-proj-sel').selectOption({ label: S.projectName }); await fetchBtn.click(); await settle();
   // bulk generation: the first click makes letters, the second makes none
   await allotTab('allot');                                  // the button is on the Allotment Form tab
   const before = Number(psql(`select count(*) from allotment_letters`));
@@ -1036,7 +1038,7 @@ test('Allotment Letter: the search by project, unit and registration number, the
   await expect(toast(/allotment letter\(s\) generated/i).first()).toBeVisible();
   const mid = Number(psql(`select count(*) from allotment_letters`)); expect(mid).toBeGreaterThan(before);
   expect(Number(psql(`select count(*) from allocations where status='allotted' and allotment_letter_id is null`))).toBe(0);
-  await page.getByRole('button', { name: 'Bulk Generate Letters' }).click(); await page.waitForTimeout(800);
+  await page.getByRole('button', { name: 'Bulk Generate Letters' }).click(); await settle();
   expect(Number(psql(`select count(*) from allotment_letters`))).toBe(mid);
 });
 
@@ -1044,8 +1046,8 @@ test('Search Allotment: every filter, wrong values, the date range', async () =>
   await go('/allotment'); await allotTab('search');
   const body = content().locator('#allot-search-body');
   const fetchBtn = content().locator('[data-panel=search] .btn-fetch');
-  await fetchBtn.click(); await page.waitForTimeout(600);
-  const set = async (id: string, v: string) => { await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await page.waitForTimeout(500); };
+  await fetchBtn.click(); await settle();
+  const set = async (id: string, v: string) => { await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle(); };
   await set('searchUnitAddress', `L2-${U}`); await expect(body).toContainText(ALT_A);
   await set('searchUnitAddress', `L4-${U}`); await expect(body).toContainText(/No allotments found/); await set('searchUnitAddress', "x' or '1'='1"); await expect(body).toContainText(/No allotments found/);
   await set('searchUnitAddress', ''); await set('searchFirstName', `Alt${'A'}${U}`); await expect(body).toContainText(ALT_A);
@@ -1060,7 +1062,7 @@ test('Search Allotment: every filter, wrong values, the date range', async () =>
   await clean();
   await set('searchDateFrom', ''); await set('searchDateTo', ''); await set('searchUnitAddress', '');
   await page.locator('#search-project').selectOption({ label: S.projectName }).catch(() => {});
-  await fetchBtn.click(); await page.waitForTimeout(600); await clean();
+  await fetchBtn.click(); await settle(); await clean();
 });
 
 test('Allotment Letter: Search Allotment opens the letter of one allotment', async () => {
@@ -1112,9 +1114,9 @@ test('Customer Unit Shifting Report (reached from the menu): filters and the shi
   await page.locator('#sr-project').selectOption({ label: S.projectName }); await page.locator('#sr-from').fill(later(-1)); await page.locator('#sr-to').fill(later(1)); await fetchBtn.click();
   await expect(content().locator('#shifting-report-body')).toContainText(ALT_A);
   await expect(content().locator('#shifting-report-body')).toContainText('lifecycle shift');
-  await page.locator('#sr-from').fill(later(-30)); await page.locator('#sr-to').fill(later(-20)); await fetchBtn.click(); await page.waitForTimeout(500);
+  await page.locator('#sr-from').fill(later(-30)); await page.locator('#sr-to').fill(later(-20)); await fetchBtn.click(); await settle();
   await expect(content().locator('#shifting-report-body')).toContainText(/No shifting records/);
-  await page.locator('#sr-from').fill(later(3)); await page.locator('#sr-to').fill(later(1)); await fetchBtn.click(); await page.waitForTimeout(500); await clean();
+  await page.locator('#sr-from').fill(later(3)); await page.locator('#sr-to').fill(later(1)); await fetchBtn.click(); await settle(); await clean();
 });
 
 test('Unit Shifting: wrong orders are refused (a taken unit, the unit already held, an applicant without a unit)', async () => {
@@ -1157,7 +1159,7 @@ test('Cancel Allotment: needs a pick, cancels, keeps the 29,500 forfeiture, free
   await page.locator('#cancel-allot-sel').selectOption(alt.A.alloc);
   await btn.dblclick();
   await expect(toast(/Allotment cancelled/i).first()).toBeVisible();
-  await page.waitForTimeout(600);
+  await settle();
   const cn = (await surList('cancellation')).filter(x => x.consumer_id === alt.A.id); expect(cn.length, 'one cancellation, the double click did not make two').toBe(1);
   alt.cancel = cn[0];
   expect((await unitOf(S.units[2])).status).toBe('available');
@@ -1199,14 +1201,14 @@ test('Waitlist: the queue shows in order, a cancellation gives the unit to the f
   psql(`insert into waitlists (consumer_id, project_id, position_ordered) values ('${W1.id}','${S.project}',1), ('${W2.id}','${S.project}',2)`);
   await go('/allotment'); await allotTab('waitlist');
   const body = content().locator('#waitlist-body');
-  await page.getByRole('button', { name: 'Refresh' }).click(); await page.waitForTimeout(500);
+  await page.getByRole('button', { name: 'Refresh' }).click(); await settle();
   await expect(body.locator('tr', { hasText: nameRe(W1.name) })).toContainText(/#1/); await expect(body.locator('tr', { hasText: nameRe(W2.name) })).toContainText(/#2/);
   await expect(body.locator('tr', { hasText: nameRe(W1.name) })).toContainText(/waiting/i);
   await allotTab('cancel');
   await page.locator('#cancel-allot-sel').selectOption(alt.A.alloc.length ? (await allocOf(alt.A.id)).find(a => a.status === 'allotted').id : '');
   await page.getByRole('button', { name: 'Confirm Cancellation' }).click();
   await expect(toast(/Allotment cancelled/i).first()).toBeVisible();
-  await page.waitForTimeout(600);
+  await settle();
   const w1 = (await api('GET', `/consumers/${W1.id}`)).j.data; expect(w1.allocated_unit_id, 'the first in the queue got the unit').toBe(S.units[2]); expect(w1.lead_stage).toBe('allotted');
   expect((await api('GET', `/consumers/${W2.id}`)).j.data.allocated_unit_id).toBeFalsy();
   expect((await unitOf(S.units[2])).status).toBe('allotted');
@@ -1251,7 +1253,7 @@ test('E-Draw Import: a file with results is read, refunds are made once, wrong f
   expect((await api('GET', `/consumers/${alt.W1.id}`)).j.data.allocated_unit_id).toBe(S.units[2]);
   // the same file again must not double the refund
   await page.locator('#edraw-file').setInputFiles({ name: 'draw.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-  await importBtn.click(); await page.waitForTimeout(900);
+  await importBtn.click(); await settle();
   expect(Number(psql(`select count(*) from draw_refunds where consumer_id='${alt.W2.id}'`))).toBe(1);
   await clean();
 });
