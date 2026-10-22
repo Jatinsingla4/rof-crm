@@ -7,15 +7,8 @@ Pages.demandRaise = async function(params = {}) {
   // Load projects once (shared by all views)
   let projects = [];
   try {
-    const pRes = await Api.get('/units', { params: { page: 1, pageSize: 300 } });
-    const units = pRes.data || pRes || [];
-    const seen = new Set();
-    projects = units.reduce((acc, u) => {
-      const id = u.project_id || u.projectId;
-      const name = u.project_name || u.projectName;
-      if (id && name && !seen.has(id)) { seen.add(id); acc.push({ id, name }); }
-      return acc;
-    }, []);
+    // every project, not only those whose units fall in the first page of units
+    projects = (await window.ProjectCache.load()).map(p => ({ id: p.id, name: p.name }));
   } catch {}
 
   const viewTitles = {

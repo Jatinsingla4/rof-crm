@@ -200,8 +200,16 @@ router.get('/list', async (req, res, next) => {
         const search = query(q.search, 'search');
         if (search) {
             const s = add((0, applicant_js_1.likeOf)(search));
-            where += ` AND (oc.name ILIKE ${s} OR nc.name ILIKE ${s} OR u.unit_number ILIKE ${s} OR t.transfer_no ILIKE ${s})`;
+            where += ` AND (oc.name ILIKE ${s} OR nc.name ILIKE ${s} OR u.unit_number ILIKE ${s} OR t.transfer_no ILIKE ${s} OR oc.registration_no ILIKE ${s} OR nc.registration_no ILIKE ${s})`;
         }
+        const from = (0, input_js_1.day)(q.dateFrom, 'dateFrom');
+        if (from)
+            where += ` AND t.transfer_date >= ${add(from)}`;
+        const to = (0, input_js_1.day)(q.dateTo, 'dateTo');
+        if (to)
+            where += ` AND t.transfer_date <= ${add(to)}`;
+        if (from && to && from > to)
+            throw (0, input_js_1.bad)('dateFrom must not be after dateTo');
         const pageSize = int(q.pageSize, 'pageSize', 1, 200, 20), page = int(q.page, 'page', 1, 100000, 1);
         const FROM = `FROM ownership_transfers t JOIN consumers oc ON t.old_consumer_id = oc.id JOIN consumers nc ON t.new_consumer_id = nc.id
                   JOIN units u ON t.unit_id = u.id JOIN projects p ON p.id = u.project_id WHERE TRUE ${where}`;

@@ -202,6 +202,9 @@ table.trd-tbl tbody tr:hover td { background:var(--surface2) }
       if (projectId) qs.set('projectId', projectId);
       const search = firstName || regNo || unitAddress;
       if (search) qs.set('search', search);
+      const dateFrom = document.getElementById('trd-from')?.value, dateTo = document.getElementById('trd-to')?.value;
+      if (dateFrom) qs.set('dateFrom', dateFrom);
+      if (dateTo)   qs.set('dateTo', dateTo);
       qs.set('page',     '1');
       qs.set('pageSize', '100');
 

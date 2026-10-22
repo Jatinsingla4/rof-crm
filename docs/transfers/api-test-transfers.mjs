@@ -123,6 +123,12 @@ let tno = 0; const TN = () => `TR${U}${++tno}`;
   r = await A('GET', `/transfers/unit-owner/${S.u}`); t('after: the unit\'s owner is now the buyer, transfer count 1', r.s === 200 && r.j.data.id === nb && r.j.data.transfer_count === 1, r.s + JSON.stringify(r.j).slice(0, 120));
   r = await A('GET', `/transfers/history/${S.u}`); t('after: history lists one transfer with both names', r.s === 200 && r.j.data.length === 1 && r.j.data[0].new_consumer_id === nb, r.s);
   r = await A('GET', `/transfers/list?search=${encodeURIComponent('Bk Buyer')}&pageSize=200`); t('after: the list finds it by name', r.s === 200 && r.j.data.some(x => x.id === tid) && r.j.total >= 1, r.s);
+  { const reg = psql(`select registration_no from consumers where id='${S.c}'`) || psql(`select registration_no from booking_records where consumer_id='${nb}' limit 1`);
+    r = await A('GET', `/transfers/list?projectId=${P1}&search=${encodeURIComponent(reg)}`); t('after: the list finds it by the seller\'s registration number', r.s === 200 && r.j.data.some(x => x.id === tid), r.s + ' ' + reg);
+    r = await A('GET', `/transfers/list?projectId=${P1}&dateFrom=${later(-3)}&dateTo=${later(-1)}`); t('after: dateFrom/dateTo hold a transfer dated inside the range', r.s === 200 && r.j.data.some(x => x.id === tid), r.s);
+    r = await A('GET', `/transfers/list?projectId=${P1}&dateFrom=${later(-30)}&dateTo=${later(-20)}`); t('after: dateFrom/dateTo leave out a transfer dated outside the range', r.s === 200 && !r.j.data.some(x => x.id === tid), r.s);
+    r = await A('GET', `/transfers/list?dateFrom=${later(2)}&dateTo=${later(1)}`); t('after: a backwards date range -> 400', r.s === 400, r.s);
+    r = await A('GET', '/transfers/list?dateFrom=junk'); t('after: a junk dateFrom -> 400', r.s === 400, r.s); }
   r = await A('GET', `/transfers/report?projectId=${P1}`); t('after: the report shows the unit with its current owner', r.s === 200 && r.j.data.some(x => x.consumer_id === nb && x.no_of_transfers === 1), r.s + JSON.stringify(r.j).slice(0, 100));
   r = await xfer(S, await person()); t('after: the old seller cannot transfer the unit again -> 400', r.s === 400, r.s);
   const third = await person(); r = await xfer({ u: S.u, c: nb }, third, { transferNo: TN() }); t('after: the buyer can pass it on (second transfer)', r.s === 201, r.s + JSON.stringify(r.j)); const tid2 = r.j.data?.id;

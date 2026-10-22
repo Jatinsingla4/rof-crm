@@ -40,7 +40,7 @@ const PC = {
           const json = await res.json();
           const sel  = document.getElementById('pc-tower');
           if (sel) {
-            (json.data || json || []).forEach(t => {
+            (json.towers || json.data || []).forEach(t => {
               const o = document.createElement('option');
               o.value       = t.tower_id || t.id || t.tower_name;
               o.textContent = t.tower_name;
@@ -243,7 +243,7 @@ const PC = {
       const clearingDate   = document.querySelector('.pc-clearing-date[data-id="' + id + '"]')?.value || '';
       const clearingBankId = document.querySelector('.pc-clearing-bank[data-id="' + id + '"]')?.value || '';
       const body = {};
-      if (clearingDate)   body.clearing_date    = clearingDate;
+      body.clearing_date = clearingDate || new Date().toLocaleDateString('en-CA');   // left blank = cleared today
       if (clearingBankId) body.clearing_bank_id = clearingBankId;
 
       try {

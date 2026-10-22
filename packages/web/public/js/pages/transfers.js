@@ -117,9 +117,9 @@
     const token = localStorage.getItem('rof-jwt') || '';
     const params = new URLSearchParams();
     if (projectId) params.set('projectId', projectId);
-    if (regno) params.set('registrationNo', regno);
+    if (regno) params.set('regNo', regno);
     if (name) params.set('firstName', name);
-    if (unit) params.set('unitNumber', unit);
+    if (unit) params.set('unitNo', unit);
     params.set('leadStage', 'allotted');
     params.set('pageSize', '100');
 
@@ -364,6 +364,19 @@
       await _loadFeeMaster(_sellerData.project_id);
     }
     await _loadUsers();
+    _restoreForm();
+  }
+
+  // Back from the buyer step: put back what was typed on this step
+  function _restoreForm() {
+    const f = _formData;
+    if (!f || !f.transferDate) return;
+    const ids = { 'tr-transfer-no': 'transferNo', 'tr-app-date': 'applicationDate', 'tr-transfer-date': 'transferDate', 'tr-transfer-amt': 'transferAmountInr', 'tr-fee': 'transferFee', 'tr-admin': 'adminCharges',
+      'tr-basic-price': 'basicPrice', 'tr-gstin': 'gstin', 'tr-broker-co': 'brokerCompany', 'tr-main-broker': 'mainBroker', 'tr-salesperson': 'salesPersonName', 'tr-receipt-no': 'transferReceiptNo', 'tr-remarks': 'remarks' };
+    Object.entries(ids).forEach(([id, k]) => { if (f[k] != null) _setVal(id, f[k]); });
+    const radio = document.querySelector(`input[name="tr-atype"][value="${f.transferType}"]`);
+    if (radio) radio.checked = true;
+    _calcTax();
   }
 
   async function _loadFeeMaster(projectId) {

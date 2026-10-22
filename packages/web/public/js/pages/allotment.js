@@ -329,6 +329,7 @@ Pages.allotment = async function(params = {}) {
 
 const AllotmentPage = {
   _allotments: [],
+  _busy: {},   // a second click while the first is on its way would only show a wrong error
   _allottedConsumers: [],
 
   async init(params) {
@@ -342,7 +343,12 @@ const AllotmentPage = {
     if (params.tab) {
       setTimeout(() => {
         const btn = document.querySelector(`[data-group="allot"][data-tab="${params.tab}"]`);
-        if (btn) btn.click();
+        if (btn) { btn.click(); return; }
+        // the shifting report and the address edit are reached only from the menu and have no tab button
+        if (document.querySelector(`[data-panel-group="allot"][data-panel="${params.tab}"]`)) {
+          Utils.switchTab('allot', params.tab);
+          if (params.tab === 'shifting-report') this.loadShiftingReport();
+        }
       }, 100);
     }
   },
@@ -363,7 +369,7 @@ const AllotmentPage = {
       // For shifting — allotted consumers only
       const shiftSel = document.getElementById('shift-consumer');
       if (shiftSel) shiftSel.innerHTML = '<option value="">— Select Allotted Consumer —</option>' +
-        allotted.map(c => `<option value="${c.id}" data-unit="${c.allocated_unit_id||''}">${c.name||`${c.first_name||''} ${c.last_name||''}`} · ${c.mobile||''}</option>`).join('');
+        allotted.map(c => `<option value="${c.id}" data-unit="${c.allocated_unit_id||''}" data-unitno="${c.unit_number||''}" data-project="${c.project_id||''}">${c.name||`${c.first_name||''} ${c.last_name||''}`} · ${c.mobile||''}</option>`).join('');
 
       // For address edit — all consumers
       const addrSel = document.getElementById('addr-consumer');
@@ -436,10 +442,6 @@ const AllotmentPage = {
       if (sel) sel.innerHTML = '<option value="">— Select Unit —</option>' +
         list.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber} · Tower ${u.tower||'—'} · ${u.bhk_type||u.bhkType||'—'}</option>`).join('');
 
-      // Also populate shift new unit
-      const shiftSel = document.getElementById('shift-new-unit');
-      if (shiftSel) shiftSel.innerHTML = '<option value="">— Select New Unit —</option>' +
-        list.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber} · Tower ${u.tower||'—'} · ${u.bhk_type||u.bhkType||'—'}</option>`).join('');
     } catch {}
   },
 
@@ -448,8 +450,12 @@ const AllotmentPage = {
     if (!el) return;
     try {
       const params = { page: 1, pageSize: 100 };
-      const isSearchTab = targetId === 'allot-search-body';
-      if (isSearchTab) {
+      const isLetterTab = targetId === 'letter-search-body';   // same table as Search Allotment (it has the letter link), with its own three filters
+      const isSearchTab = targetId === 'allot-search-body' || isLetterTab;
+      if (isLetterTab) {
+        const reg = document.getElementById('letter-reg-search')?.value?.trim(); if (reg) params.registrationNo = reg;
+        const unit = document.getElementById('letter-unit-search')?.value?.trim(); if (unit) params.unitAddress = unit;
+      } else if (isSearchTab) {
         params.status = 'all';
         const regNo = document.getElementById('searchRegNo')?.value?.trim();
         if (regNo) params.registrationNo = regNo;
@@ -462,7 +468,7 @@ const AllotmentPage = {
         const dateTo = document.getElementById('searchDateTo')?.value;
         if (dateTo) params.dateTo = dateTo;
       }
-      const projSel = document.getElementById('search-project');
+      const projSel = document.getElementById(isLetterTab ? 'letter-proj-sel' : 'search-project');
       if (projSel?.value) params.projectId = projSel.value;
 
       const res = await Api.get('/allocations', { params });
@@ -572,21 +578,38 @@ const AllotmentPage = {
     if (!unitId) { Utils.warn('Please select a unit'); return; }
     if (!projectId) { Utils.warn('Please select a project'); return; }
 
+    if (this._busy.allot) return;
+    this._busy.allot = true;
     try {
       await Api.post('/allocations', { consumerId, unitId, projectId, allotmentDate, remarks });
       Utils.success('Unit allotted successfully');
-      await Promise.allSettled([this.loadAllotmentList('allot-list-body'), this.loadAvailableUnits()]);
+      await Promise.allSettled([this.loadAllotmentList('allot-list-body'), this.loadAvailableUnits(), this.loadConsumers()]);   // the consumer lists (form, shifting, address) change with every allotment
       
       // Clear form
       document.getElementById('allot-remarks').value = '';
     } catch (err) { Utils.error(err.message); }
+    finally { this._busy.allot = false; }
   },
 
-  onShiftConsumerChange() {
+  async onShiftConsumerChange() {
     const sel = document.getElementById('shift-consumer');
     const opt = sel?.options[sel.selectedIndex];
     const unitInput = document.getElementById('shift-current-unit');
-    if (unitInput) unitInput.value = opt?.dataset?.unit || '';
+    if (unitInput) unitInput.value = opt?.dataset?.unitno || opt?.dataset?.unit || '';
+    await this.loadShiftTargets(opt?.dataset?.project || '');
+  },
+
+  // A unit can be shifted to only when it is available, in the project the applicant is already in
+  async loadShiftTargets(projectId) {
+    const sel = document.getElementById('shift-new-unit');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— Select New Unit —</option>';
+    if (!projectId) return;
+    try {
+      const res = await Api.get('/units', { params: { status: 'available', projectId, pageSize: 300 } });
+      const list = res.data || res || [];
+      sel.innerHTML += list.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber} · Tower ${u.tower||'—'} · ${u.bhk_type||u.bhkType||'—'}</option>`).join('');
+    } catch {}
   },
 
   async shiftUnit() {
@@ -599,15 +622,18 @@ const AllotmentPage = {
     if (!newUnitId) { Utils.warn('Please select the new unit'); return; }
 
     const result = document.getElementById('shift-result');
+    if (this._busy.shift) return;
+    this._busy.shift = true;
     try {
       const res = await Api.post('/allocations/shift', { consumerId, newUnitId, reason, shiftDate });
       const data = res.data || res;
       result.innerHTML = `<div class="alert alert-success">✓ Unit shifted successfully. New unit: <strong>${data.new_unit_number||newUnitId}</strong></div>`;
       await this.loadConsumers();
       await this.loadAvailableUnits();
+      await this.loadShiftTargets('');
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
-    }
+    } finally { this._busy.shift = false; }
   },
 
   clearShiftForm() {
@@ -620,6 +646,7 @@ const AllotmentPage = {
   async loadShiftingList() {
     const el = document.getElementById('shifting-list-body');
     if (!el) return;
+    await this.loadConsumers();   // applicants allotted or cancelled since the page opened
     // Show shifting history if endpoint exists
     try {
       const res = await Api.get('/allocations/shifts', { params: { pageSize: 50 } });
@@ -682,13 +709,17 @@ const AllotmentPage = {
     const allotId = document.getElementById('cancel-allot-sel')?.value;
     if (!allotId) { Utils.warn('Please select an allotment to cancel'); return; }
 
+    if (this._busy.cancel) return;
     Utils.confirm('Cancel this allotment? ₹29,500 forfeiture will be deducted. This cannot be undone.', async () => {
+      if (this._busy.cancel) return;
+      this._busy.cancel = true;
       try {
         const reason = document.getElementById('cancel-reason')?.value;
         await Api.post(`/allocations/${allotId}/cancel`, { reason });
         Utils.success('Allotment cancelled. Forfeiture deducted and unit released.');
-        await this.loadAllotmentList('allot-list-body');
+        await Promise.allSettled([this.loadAllotmentList('allot-list-body'), this.loadConsumers()]);
       } catch (err) { Utils.error(err.message); }
+      finally { this._busy.cancel = false; }
     });
   },
 

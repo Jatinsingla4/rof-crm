@@ -186,7 +186,10 @@ router.get('/list', async (req: AuthRequest, res: Response, next: NextFunction) 
     let where = '';
     if (has(q.projectId)) where += ` AND u.project_id = ${add(uuid(q.projectId, 'projectId'))}`;
     const search = query(q.search, 'search');
-    if (search) { const s = add(likeOf(search)); where += ` AND (oc.name ILIKE ${s} OR nc.name ILIKE ${s} OR u.unit_number ILIKE ${s} OR t.transfer_no ILIKE ${s})`; }
+    if (search) { const s = add(likeOf(search)); where += ` AND (oc.name ILIKE ${s} OR nc.name ILIKE ${s} OR u.unit_number ILIKE ${s} OR t.transfer_no ILIKE ${s} OR oc.registration_no ILIKE ${s} OR nc.registration_no ILIKE ${s})`; }
+    const from = day(q.dateFrom, 'dateFrom'); if (from) where += ` AND t.transfer_date >= ${add(from)}`;
+    const to = day(q.dateTo, 'dateTo');       if (to) where += ` AND t.transfer_date <= ${add(to)}`;
+    if (from && to && from > to) throw bad('dateFrom must not be after dateTo');
     const pageSize = int(q.pageSize, 'pageSize', 1, 200, 20), page = int(q.page, 'page', 1, 100000, 1);
     const FROM = `FROM ownership_transfers t JOIN consumers oc ON t.old_consumer_id = oc.id JOIN consumers nc ON t.new_consumer_id = nc.id
                   JOIN units u ON t.unit_id = u.id JOIN projects p ON p.id = u.project_id WHERE TRUE ${where}`;

@@ -300,6 +300,7 @@
 
   function _switchTab(tab) {
     _tab = tab;
+    _kept = {};
     _view = 'search';
     _consumers = [];
     _detail = null;
@@ -315,6 +316,11 @@
     if (tab === 'report')    _loadReportProjects();
     if (tab === 'restore')   _loadRestoreProjects();
   }
+
+  // The screens are drawn again after every FETCH; the filters the user chose must survive that
+  let _kept = {};
+  const _save = (...ids) => ids.forEach(id => { const el = document.getElementById(id); if (el) _kept[id] = el.value; });
+  const _reapply = (...ids) => Object.entries(_kept).forEach(([id, v]) => { const el = document.getElementById(id); if (el && (!ids.length || ids.includes(id))) el.value = v; });   // the project lists arrive later, and put back only their own select
 
   // ── SEARCH ACTION ──────────────────────────────────────────────────────────
   async function _search() {
@@ -338,7 +344,9 @@
       });
       const data = await res.json();
       _consumers = data.data || [];
+      _save('sur-project', 'sur-regno', 'sur-name', 'sur-unit');
       _render();
+      _reapply();
     } catch (e) {
       alert('Error fetching consumers: ' + e.message);
     } finally {
@@ -350,6 +358,7 @@
   // ── SHOW FORM ──────────────────────────────────────────────────────────────
   async function _showForm(idx) {
     _selectedConsumer = _consumers[idx];
+    _busy = false;
     _view = 'form';
     _render();
 
@@ -372,6 +381,7 @@
   }
 
   function _back() {
+    _busy = false;
     _view = 'search';
     _detail = null;
     _render();
@@ -1010,8 +1020,9 @@
   }
 
   // ── SUBMIT ─────────────────────────────────────────────────────────────────
+  let _busy = false;   // a second click while the first is on its way would only show a wrong 'already surrendered' error
   async function _submitSurrender() {
-    if (!_detail || !_selectedConsumer) return;
+    if (!_detail || !_selectedConsumer || _busy) return;
 
     const d = _detail;
     const surrenderDate = document.getElementById('sur-date')?.value;
@@ -1035,6 +1046,7 @@
 
     const msgEl = document.getElementById('sur-form-msg');
 
+    _busy = true;
     try {
       const res = await fetch('/api/surrender', {
         method: 'POST',
@@ -1070,8 +1082,10 @@
       if (!data.success) throw new Error(data.error || 'Submission failed');
 
       if (msgEl) msgEl.innerHTML = `<div class="sur-success-msg">Surrender processed successfully.</div>`;
+      _consumers = _consumers.filter(c => c.consumer_id !== d.consumer.id);   // no longer a unit holder
       setTimeout(() => _back(), 2000);
     } catch (e) {
+      _busy = false;
       if (msgEl) msgEl.innerHTML = `<div class="sur-error-msg">Error: ${e.message}</div>`;
     }
   }
@@ -1106,6 +1120,7 @@
       if (sel) {
         sel.innerHTML = '<option value="">--Select--</option>' +
           _projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        _reapply('sur-project');
       }
     } catch(e) {}
   }
@@ -1133,10 +1148,10 @@
         <td class="sur-right">${_fmt(r.refund_amount_inr || 0)}</td>
         <td>
           <span style="padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;background:
-            ${r.status==='restored' ? 'var(--teal-bg);color:var(--teal)'
-              : r.status==='approved' ? 'var(--blue-bg);color:var(--blue)'
+            ${(r.status||r.refund_status)==='restored' ? 'var(--teal-bg);color:var(--teal)'
+              : (r.status||r.refund_status)==='approved' ? 'var(--blue-bg);color:var(--blue)'
               : 'var(--surface2);color:var(--text2)'}">
-            ${r.status || 'pending'}
+            ${r.status || r.refund_status || 'pending'}
           </span>
         </td>
         <td>${_fmtDate(r.created_at)}</td>
@@ -1207,6 +1222,7 @@
       if (sel) {
         sel.innerHTML = '<option value="">-- All Projects --</option>'
           + _reportProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        _reapply('rep-project');
       }
     } catch(e) {}
   }
@@ -1259,8 +1275,10 @@
       });
 
       _reportRows = rows;
+      _save('rep-project', 'rep-type', 'rep-from', 'rep-to');
       const container = document.getElementById('content') || document.body;
       container.innerHTML = SUR_STYLES + _renderTabBar() + _renderReport();
+      _reapply();
       _loadReportProjects();
 
     } catch(e) {
@@ -1278,7 +1296,8 @@
     ).join('');
 
     const rows = _restoreRows.map((r, i) => {
-      const canRestore = r.status !== 'restored';
+      const state = r.status || r.refund_status;   // a cancellation keeps its state in refund_status
+      const canRestore = state !== 'restored';
       return `<tr>
         <td>${i+1}</td>
         <td>${r.registration_no || '—'}</td>
@@ -1288,13 +1307,13 @@
         <td>${_fmtDate(r.surrender_date || r.cancellation_date)}</td>
         <td>
           <span style="padding:3px 10px;border-radius:999px;font-size:11px;font-weight:600;
-            background:${r.status==='restored' ? 'var(--teal-bg);color:var(--teal)' : 'var(--red-bg);color:var(--red)'}">
-            ${r.status || 'pending'}
+            background:${state==='restored' ? 'var(--teal-bg);color:var(--teal)' : 'var(--red-bg);color:var(--red)'}">
+            ${state || 'pending'}
           </span>
         </td>
         <td>
           ${canRestore
-            ? `<button onclick="SurrenderApp.restore('${r.id}','${_restoreType}','${r.consumer_id}','${r.allocation_id}','${r.unit_id}','${r.booking_record_id||''}')"
+            ? `<button onclick="SurrenderApp.restore('${r.id}','${_restoreType}','${r.consumer_id}','${r.allocation_id}','${r.unit_id||''}','${r.booking_record_id||''}')"
                 style="background:var(--teal);color:#fff;border:none;padding:5px 16px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer">
                 Restore
                </button>`
@@ -1368,6 +1387,7 @@
       if (sel) {
         sel.innerHTML = '<option value="">-- Select --</option>'
           + _restoreProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        _reapply('res-project');
       }
     } catch(e) {}
   }
@@ -1385,9 +1405,12 @@
         headers: { 'Authorization': 'Bearer ' + _tok() }
       });
       const data = await res.json();
-      _restoreRows = data.data || [];
+      const rn = (document.getElementById('res-regno')?.value || '').trim().toLowerCase(), nm = (document.getElementById('res-name')?.value || '').trim().toLowerCase();
+      _restoreRows = (data.data || []).filter(r => (!rn || (r.registration_no || '').toLowerCase().includes(rn)) && (!nm || (r.full_name || r.name || '').toLowerCase().includes(nm)));
+      _save('res-project', 'res-regno', 'res-name');
       const container = document.getElementById('content') || document.body;
       container.innerHTML = SUR_STYLES + _renderTabBar() + _renderRestore();
+      _reapply();
       _loadRestoreProjects();
     } catch(e) {
       alert('Error: ' + e.message);
@@ -1419,8 +1442,9 @@
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'Restore failed');
 
-      if (msgEl) msgEl.innerHTML = `<div class="sur-success-msg">Applicant restored successfully.</div>`;
-      await _fetchRestore();
+      await _fetchRestore();   // draws the screen again, so the message goes in after it
+      const done = document.getElementById('sur-restore-msg');
+      if (done) done.innerHTML = `<div class="sur-success-msg">Applicant restored successfully.</div>`;
 
     } catch(e) {
       if (msgEl) msgEl.innerHTML = `<div class="sur-error-msg">Error: ${e.message}</div>`;
