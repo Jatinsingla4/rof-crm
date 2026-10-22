@@ -485,8 +485,8 @@ app.use('/api/transfers', exports.authenticateToken, rbac('allocations'), transf
 app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
 app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_process_js_1.default);
-app.use('/api/payments', exports.authenticateToken, financial_ops_js_1.default);
-app.use('/api/payments', exports.authenticateToken, outgoing_payments_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), financial_ops_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), outgoing_payments_js_1.default);
 app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);
 app.use('/api/roles', exports.authenticateToken, roles_js_1.default);
 app.use('/api/companies', exports.authenticateToken, companies_js_1.default);

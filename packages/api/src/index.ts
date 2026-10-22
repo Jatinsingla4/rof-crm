@@ -576,8 +576,8 @@ app.use('/api/transfers', authenticateToken, rbac('allocations'), transfersRoute
 app.use('/api/registry', authenticateToken, registryRoutes);
 app.use('/api/loans', authenticateToken, loansRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), receiptProcessRoutes);
-app.use('/api/payments', authenticateToken, financialOpsRoutes);
-app.use('/api/payments', authenticateToken, outgoingPaymentsRoutes);
+app.use('/api/payments', authenticateToken, rbac('payments'), financialOpsRoutes);
+app.use('/api/payments', authenticateToken, rbac('payments'), outgoingPaymentsRoutes);
 app.use('/api/test-data', authenticateToken, testDataImportRoutes);
 app.use('/api/roles',          authenticateToken, rolesRoutes);
 app.use('/api/companies',      authenticateToken, companiesRoutes);
