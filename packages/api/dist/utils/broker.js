@@ -1,10 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.flagPaidCommission = exports.brokerOk = void 0;
+exports.flagPaidCommission = exports.mappedOk = exports.brokerOk = void 0;
 // What booking and surrender need to know about brokers and their commission.
 const input_js_1 = require("./input.js");
 // The broker of a booking exists and is active; a direct booking has none
-const brokerOk = async (q, type, brokerId, mainBrokerId) => {
+const brokerOk = async (q, type, brokerId, mainBrokerId, projectId = null) => {
     if (type === 'direct' && (brokerId || mainBrokerId))
         throw (0, input_js_1.bad)('A direct booking cannot have a broker. Choose the Broker sale type, or clear the broker.');
     for (const [label, id] of [['broker', brokerId], ['main broker', mainBrokerId]]) {
@@ -15,9 +15,18 @@ const brokerOk = async (q, type, brokerId, mainBrokerId) => {
             throw (0, input_js_1.bad)(`The ${label} does not exist`);
         if (b.status !== 'active')
             throw (0, input_js_1.bad)(`The ${label} is ${b.status}, only an active broker can take a booking`);
+        if (projectId)
+            await (0, exports.mappedOk)(q, id, projectId, label);
     }
 };
 exports.brokerOk = brokerOk;
+// A broker with project mapping works only in those projects; a broker with none works in every project
+const mappedOk = async (q, brokerId, projectId, label = 'broker') => {
+    const m = (await q.query(`SELECT COUNT(*)::int AS n, COALESCE(bool_or(project_id = $2), false) AS ok FROM broker_project_mapping WHERE broker_id = $1`, [brokerId, projectId])).rows[0];
+    if (m.n > 0 && !m.ok)
+        throw (0, input_js_1.bad)(`The ${label} is not mapped to this project (Broker List, Projects)`, 409);
+};
+exports.mappedOk = mappedOk;
 // The booking ended after its commission was already paid: the commission stays 'paid' (the money has gone out) and says so
 const flagPaidCommission = (q, bookingId) => q.query(`UPDATE broker_commissions SET notes = TRIM(BOTH E'\n' FROM COALESCE(notes, '') || E'\nBooking ended after this commission was paid: recover it from the broker')
       WHERE booking_id = $1 AND status = 'paid' AND COALESCE(notes, '') NOT LIKE '%recover it from the broker%'`, [bookingId]);

@@ -314,7 +314,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // A held unit is booked only by the broker who holds it (or once the hold is over); everyone else is refused
       if (unit.status === 'held') { await settleHold(client, unit_id, booking_type === 'broker' ? broker_id : null, req.userId || null); unit.status = 'available'; }
       if (unit.status !== 'available') throw conflict('Unit is no longer available');
-      await brokerOk(client, booking_type, broker_id, main_broker_id);
+      await brokerOk(client, booking_type, broker_id, main_broker_id, project_id);
 
       const consumerRow = (await client.query(`SELECT id, project_id, nationality, registration_no FROM consumers WHERE id = $1`, [consumer_id])).rows[0];
       if (!consumerRow) throw bad('Applicant not found', 404);
@@ -604,7 +604,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
         if ((await c.query(`SELECT 1 FROM booking_records WHERE form_no = $1 AND status != 'cancelled' AND id <> $2 LIMIT 1`, [bk.form_no, id])).rows.length) throw conflict(`Form No. "${bk.form_no}" is already in use.`);
       }
       if (bkChanged.some(k => ['broker_id', 'main_broker_id', 'booking_type'].includes(k))) {
-        await brokerOk(c, bk.booking_type ?? cur.booking_type, bk.broker_id !== undefined ? bk.broker_id : cur.broker_id, bk.main_broker_id !== undefined ? bk.main_broker_id : cur.main_broker_id);
+        await brokerOk(c, bk.booking_type ?? cur.booking_type, bk.broker_id !== undefined ? bk.broker_id : cur.broker_id, bk.main_broker_id !== undefined ? bk.main_broker_id : cur.main_broker_id, cur.project_id);
       }
       // Broker commission: a pending commission follows the change, a paid one does not move
       const commKeys = ['broker_id', 'broker_commission', 'broker_commission_type'].filter(k => bkChanged.includes(k));

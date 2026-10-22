@@ -43,7 +43,7 @@ for (const u of [afId, pmId, seId, roId]) noRows(u);
 const brokers = [], consumers = [], units = [];
 let bn = 0;
 const newBroker = async (extra = {}, who = A) => { const x = await who('POST', '/brokers', { firmName: `Firm ${++bn} ${U}`, mobile: mob(), commissionPct: 2, ...extra }); if (x.s === 201) brokers.push(x.j.data.id); return x; };
-const activeBroker = async (extra = {}) => { const x = await newBroker(extra); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); return x.j.data.id; };
+const activeBroker = async (extra = {}) => { const x = await newBroker({ pan: pan(), ...extra }); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); return x.j.data.id; };
 const person = async (P = P1) => { const x = await A('POST', '/consumers', { name: `Brk Buyer ${consumers.length + 1} ${U}`, mobile: mob(), project_id: P }); if (x.s >= 300) throw new Error('applicant ' + JSON.stringify(x)); consumers.push(x.j.data.id); return x.j.data.id; };
 const newUnit = async (P = P1, T = T1) => { const u = await unit(P, T); units.push(u); return u; };
 // a booking: amount 0 keeps it pending_payment (unit still available), an amount makes it active and locks the unit
@@ -354,6 +354,23 @@ r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be a
   const al = (await A('GET', `/allocations?consumerId=${buyer}&status=all`)).j.data.find(q => q.unit_id === x.u);
   r = await A('POST', `/allocations/${al?.id || NIL}/cancel`, {}); t('transfer: the new holder cancels the allotment', r.s < 300, r.s + JSON.stringify(r.j));
   t('transfer: the commission is cancelled with the booking and cannot be paid', cval(c, 'status') === 'cancelled'); r = await pay(c); t('transfer: paying it is refused (409)', r.s === 409, r.s); }
+// a broker without a PAN is cut at least 20% TDS
+{ const mk = async (cfg) => { const b = await newBroker({}).then(x => x.j.data.id); await A('PATCH', `/brokers/${b}/approve`, {}); if (cfg) await A('POST', `/broker-setup/${b}`, cfg); const x = await book({ broker: b, comm: 10000, ctype: 'flat', amount: 20000 }); return comm(x.c, x.u); };
+  r = await pay(await mk(null)); t('no PAN, default setup: TDS 20% of 10,000 = 2,000.00, GST 1,800.00, net 9,800.00', r.s === 200 && r.j.data.tds_amount === '2000.00' && r.j.data.gst_amount === '1800.00' && r.j.data.net_amount_inr === '9800.00', JSON.stringify(r.j));
+  r = await pay(await mk({ tdsRatePct: 0 })); t('no PAN, setup 0%: still 20%', r.s === 200 && r.j.data.tds_amount === '2000.00', JSON.stringify(r.j));
+  r = await pay(await mk({ tdsRatePct: 30 })); t('no PAN, setup 30%: the higher 30% is used', r.s === 200 && r.j.data.tds_amount === '3000.00', JSON.stringify(r.j)); }
+// broker to project mapping: a broker with ticked projects works only in those, a broker with none works everywhere
+{ const b = await activeBroker(); const u1 = await newUnit(P1, T1), u2 = await newUnit(P2, T2);
+  r = await A('POST', `/brokers/${b}/projects`, { projectIds: [P2] }); t('(set-up) broker mapped to project 2 only', r.s === 200, r.s);
+  let x = await book({ broker: b, comm: 1, amount: 0 }); t('mapping: a booking in project 1 is refused (409)', x.s === 409 && /not mapped/i.test(x.j.error || ''), x.s + JSON.stringify(x.j));
+  r = await hold(u1, b); t('mapping: a hold in project 1 is refused (409)', r.s === 409, r.s + JSON.stringify(r.j)); t('mapping: the unit stayed available', ustatus(u1) === 'available');
+  x = await book({ P: P2, u: u2, broker: b, comm: 1, amount: 0 }); t('mapping: a booking in project 2 is accepted', x.s === 201, x.s + JSON.stringify(x.j));
+  const u3 = await newUnit(P2, T2); r = await hold(u3, b); t('mapping: a hold in project 2 is accepted', r.s === 201, r.s + JSON.stringify(r.j));
+  x = await book({ broker: b, comm: 1, amount: 0, type: 'broker', extra: { main_broker_id: b } }); t('mapping: also refused with the broker as main broker', x.s === 409, x.s);
+  await A('POST', `/brokers/${b}/projects`, { projectIds: [] }); x = await book({ broker: b, comm: 1, amount: 0 }); t('mapping: with the list cleared the broker works in every project again', x.s === 201, x.s + JSON.stringify(x.j));
+  await A('POST', `/brokers/${b}/projects`, { projectIds: [P2] });
+  r = await A('PATCH', `/booking/${x.id}/edit`, { broker_commission: 2 }); t('mapping: editing the commission of an old booking in an unmapped project is not blocked (the broker is not changed)', r.s === 200, r.s + JSON.stringify(r.j));
+  const o = await activeBroker(); await A('POST', `/brokers/${o}/projects`, { projectIds: [P2] }); r = await A('PATCH', `/booking/${x.id}/edit`, { broker_id: o }); t('mapping: moving a booking of project 1 to a broker mapped only to project 2 is refused (409)', r.s === 409, r.s + JSON.stringify(r.j)); }
 // commission list: filters, totals, paging
 { r = await A('GET', `/brokers/commission?brokerId=${BK}&pageSize=500`); const rows = r.j.data; t('commission list: filtered by broker', r.s === 200 && rows.length > 5 && rows.every(c => c.broker_id === BK), r.s);
   const s = r.j.summary; const sum = (f) => rows.filter(f).reduce((a, c) => a + Number(c.commission_amount_inr), 0);
@@ -364,7 +381,7 @@ r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be a
   const paid = rows.find(c => c.status === 'paid'); t('commission list: a paid row shows net = commission + GST - TDS', Math.abs(Number(paid.net_amount_inr) - (Number(paid.commission_amount_inr) + Number(paid.gst_amount) - Number(paid.tds_amount))) < 0.005);
   r = await A('GET', `/brokers/commission?brokerId=${BK}&status=paid`); t('commission list: status filter', r.j.data.length > 0 && r.j.data.every(c => c.status === 'paid'));
   r = await A('GET', `/brokers/commission?brokerId=${BK}&status=cancelled`); t('commission list: cancelled filter', r.s === 200 && r.j.data.every(c => c.status === 'cancelled'));
-  r = await A('GET', `/brokers/commission?projectId=${P2}`); t('commission list: project filter (none in project 2)', r.s === 200 && r.j.data.length === 0);
+  r = await A('GET', `/brokers/commission?brokerId=${BK}&projectId=${P2}`); t('commission list: project filter (this broker has none in project 2)', r.s === 200 && r.j.data.length === 0);
   r = await A('GET', `/brokers/commission?brokerId=${BK}&dateFrom=${today}&dateTo=${today}`); t('commission list: today to today finds today\'s commissions', r.s === 200 && r.j.data.length > 5, r.s);
   r = await A('GET', `/brokers/commission?brokerId=${BK}&dateFrom=${later(1)}`); t('commission list: from tomorrow finds nothing', r.s === 200 && r.j.data.length === 0 && r.j.summary.count === 0);
   for (const q of ['brokerId=abc', 'projectId=abc', 'dateFrom=2026-13-45', 'dateFrom=x', 'dateTo=2026-02-30', `dateFrom=${later(3)}&dateTo=${later(1)}`, 'brokerId[]=x', 'status=paid&status=pending']) { r = await A('GET', '/brokers/commission?' + q); t(`commission list: ?${q} is 400`, r.s === 400, r.s); }

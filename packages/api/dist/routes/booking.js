@@ -309,7 +309,7 @@ router.post('/', async (req, res, next) => {
             }
             if (unit.status !== 'available')
                 throw conflict('Unit is no longer available');
-            await (0, broker_js_1.brokerOk)(client, booking_type, broker_id, main_broker_id);
+            await (0, broker_js_1.brokerOk)(client, booking_type, broker_id, main_broker_id, project_id);
             const consumerRow = (await client.query(`SELECT id, project_id, nationality, registration_no FROM consumers WHERE id = $1`, [consumer_id])).rows[0];
             if (!consumerRow)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
@@ -626,7 +626,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                     throw conflict(`Form No. "${bk.form_no}" is already in use.`);
             }
             if (bkChanged.some(k => ['broker_id', 'main_broker_id', 'booking_type'].includes(k))) {
-                await (0, broker_js_1.brokerOk)(c, bk.booking_type ?? cur.booking_type, bk.broker_id !== undefined ? bk.broker_id : cur.broker_id, bk.main_broker_id !== undefined ? bk.main_broker_id : cur.main_broker_id);
+                await (0, broker_js_1.brokerOk)(c, bk.booking_type ?? cur.booking_type, bk.broker_id !== undefined ? bk.broker_id : cur.broker_id, bk.main_broker_id !== undefined ? bk.main_broker_id : cur.main_broker_id, cur.project_id);
             }
             // Broker commission: a pending commission follows the change, a paid one does not move
             const commKeys = ['broker_id', 'broker_commission', 'broker_commission_type'].filter(k => bkChanged.includes(k));

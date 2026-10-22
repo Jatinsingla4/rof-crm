@@ -13,6 +13,7 @@ const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const holds_js_1 = require("../utils/holds.js");
+const broker_js_1 = require("../utils/broker.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const router = (0, express_1.Router)();
@@ -63,7 +64,7 @@ router.post('/', async (req, res, next) => {
         }
         await (0, holds_js_1.expireDueHolds)();
         const hold = await (0, input_js_1.inTx)(async (c) => {
-            const unit = (await c.query(`SELECT id, status FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
+            const unit = (await c.query(`SELECT id, status, project_id FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
             if (!unit)
                 throw (0, input_js_1.bad)('Unit not found', 404);
             const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
@@ -71,6 +72,7 @@ router.post('/', async (req, res, next) => {
                 throw (0, input_js_1.bad)('Broker not found', 404);
             if (brk.status !== 'active')
                 throw (0, input_js_1.bad)(`This broker is ${brk.status}, only an active broker can hold a unit`);
+            await (0, broker_js_1.mappedOk)(c, brokerId, unit.project_id);
             if (unit.status !== 'available')
                 throw (0, input_js_1.bad)(`Unit cannot be held. Current status: ${unit.status}`, 409);
             const h = (await c.query(`INSERT INTO unit_holds (unit_id, broker_id, client_name, client_mobile, expires_at, status, notes, created_by)

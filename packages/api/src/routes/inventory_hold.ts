@@ -12,6 +12,7 @@ import { AuthRequest } from '../index.js';
 import { bad, failWith, uuid, has, text, body, inTx, paging, oneOf } from '../utils/input.js';
 import { mobileNo } from '../utils/applicant.js';
 import { closeHold, expireDueHolds } from '../utils/holds.js';
+import { mappedOk } from '../utils/broker.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 
@@ -59,11 +60,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     }
     await expireDueHolds();
     const hold = await inTx(async (c) => {
-      const unit = (await c.query(`SELECT id, status FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
+      const unit = (await c.query(`SELECT id, status, project_id FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
       if (!unit) throw bad('Unit not found', 404);
       const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
       if (!brk) throw bad('Broker not found', 404);
       if (brk.status !== 'active') throw bad(`This broker is ${brk.status}, only an active broker can hold a unit`);
+      await mappedOk(c, brokerId, unit.project_id);
       if (unit.status !== 'available') throw bad(`Unit cannot be held. Current status: ${unit.status}`, 409);
       const h = (await c.query(
         `INSERT INTO unit_holds (unit_id, broker_id, client_name, client_mobile, expires_at, status, notes, created_by)

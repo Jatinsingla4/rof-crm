@@ -180,6 +180,19 @@ test('Broker List: search, approve, reject, view, suspend, deactivate and activa
   expect(sql(`select status from brokers where id = '${S.broker}'`)).toBe('inactive');
   await row(S.firm).getByRole('button', { name: 'Activate' }).click(); await expect(row(S.firm)).toContainText('Active');
   expect(sql(`select status from brokers where id = '${S.broker}'`)).toBe('active');
+  // projects: tick one, save, it is stored; another project is then refused for this broker; clearing frees it again
+  await row(S.firm).getByRole('button', { name: 'Projects' }).click();
+  const box = page.locator(`#brk-map-list label`, { hasText: S.projectName }).locator('input');
+  await expect(box).not.toBeChecked(); await box.check(); await page.getByRole('button', { name: 'Save projects' }).click();
+  await expect(toast(/Projects saved/i)).toBeVisible();
+  expect(sql(`select count(*) from broker_project_mapping where broker_id = '${S.broker}' and project_id = '${S.project}'`)).toBe('1');
+  await row(S.firm).getByRole('button', { name: 'Projects' }).click();
+  await expect(page.locator(`#brk-map-list label`, { hasText: S.projectName }).locator('input')).toBeChecked();
+  await page.locator(`#brk-map-list label`, { hasText: S.projectName }).locator('input').uncheck(); await page.getByRole('button', { name: 'Save projects' }).click();
+  await expect(toast(/every project/i)).toBeVisible();
+  expect(sql(`select count(*) from broker_project_mapping where broker_id = '${S.broker}'`)).toBe('0');
+  await row(S.firm).getByRole('button', { name: 'Projects' }).click(); await page.getByRole('button', { name: 'Close' }).click();
+  await expect(page.locator('#brk-map-panel')).toBeEmpty();
   // the Register Broker button opens the form, the tab buttons switch back
   await page.getByRole('button', { name: '+ Register Broker' }).click();
   await expect(page.locator('.tab-line.active')).toHaveText('Application Form'); await expect(page.locator('#brk-app-form')).toBeVisible();

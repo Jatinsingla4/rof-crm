@@ -216,6 +216,7 @@ Pages.brokers = async function(params = {}) {
               <button class="btn btn-teal" onclick="switchTab('brk','form');BrkPage.load('form')">+ Register Broker</button>
             </div>
           </div>
+          <div id="brk-map-panel"></div>
           <div class="brkn-list-b" id="brk-list-body"><div class="brkn-load"><div class="spinner"></div></div></div>
         </div>
       </div>
@@ -371,6 +372,7 @@ const BrkPage = {
                 ${b.status==='pending' ? `<button class="btn btn-teal btn-sm" data-action="approve-broker" onclick="BrkPage.approve('${b.id}')">Approve</button>
                                         <button class="btn btn-ghost btn-sm brkn-del" data-action="approve-broker" onclick="BrkPage.reject('${b.id}')">Reject</button>` : ''}
                 ${b.status==='active' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
+                                         <button class="btn btn-ghost btn-sm" onclick="BrkPage.openProjects('${b.id}')">Projects</button>
                                          <button class="btn btn-ghost btn-sm brkn-del" onclick="BrkPage.setStatus('${b.id}','inactive')">Deactivate</button>
                                          <button class="btn btn-ghost btn-sm brkn-del" onclick="BrkPage.setStatus('${b.id}','suspended')">Suspend</button>` : ''}
                 ${b.status==='inactive' || b.status==='suspended' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
@@ -429,6 +431,32 @@ const BrkPage = {
         'Status: ' + b.status,
         ...(b.pan !== undefined ? ['PAN: ' + (b.pan || '-'), 'GST: ' + (b.tax_id_gst || '-'), 'Bank: ' + (bank.bankName || '-') + ' ' + (bank.accountNo ? 'A/c ' + bank.accountNo : '')] : []),
       ].join('\n'));
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // Projects a broker may work in; none ticked means every project
+  async openProjects(id) {
+    const el = document.getElementById('brk-map-panel');
+    if (!el) return;
+    try {
+      const [all, mine] = await Promise.all([Api.get('/projects'), Api.get(`/brokers/${id}/projects`)]);
+      const on = new Set((mine.data || []).map(p => p.id));
+      const b = this._list.find(x => x.id === id);
+      el.innerHTML = `<div class="sp" style="margin:12px 0;padding:14px 18px">
+        <div class="sp-title" style="margin-bottom:8px">Projects for ${Utils.esc(b?.firm_name || b?.name || '')}</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:8px">With no project ticked the broker can work in every project. With some ticked, bookings and holds are accepted only in those.</div>
+        <div id="brk-map-list" style="display:flex;flex-wrap:wrap;gap:6px 18px">${(all.data || []).map(p => `<label><input type="checkbox" value="${p.id}" ${on.has(p.id) ? 'checked' : ''}> ${Utils.esc(p.name)}</label>`).join('')}</div>
+        <div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-teal btn-sm" onclick="BrkPage.saveProjects('${id}')">Save projects</button>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('brk-map-panel').innerHTML=''">Close</button></div></div>`;
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async saveProjects(id) {
+    const ids = [...document.querySelectorAll('#brk-map-list input:checked')].map(i => i.value);
+    try {
+      await Api.post(`/brokers/${id}/projects`, { projectIds: ids });
+      Utils.success(ids.length ? 'Projects saved' : 'No project ticked: the broker can work in every project');
+      document.getElementById('brk-map-panel').innerHTML = '';
     } catch (err) { Utils.error(err.message); }
   },
 
