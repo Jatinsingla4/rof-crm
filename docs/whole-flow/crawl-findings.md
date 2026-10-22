@@ -6,11 +6,11 @@ Run: port 3012, DB `rof_crawl` (clone of `rof_sec`, migrations 110-116 present),
 
 ## Coverage
 - Run 1: screens 1 to 62 of 163 finished cleanly, then the crawler itself timed out on screen 63 (`/demand-raise?view=stage`) after 1.2h (test-level error, see crawler issue C2).
-- Run 2: resumed with `SKIP=62` (101 screens left, own `--output` dir). In progress.
+- Run 2: resumed with `SKIP=62` (101 screens, own `--output` dir), finished in 54.9 min, 3 of 3 tests passed: 853 clicks, 1943 filter values, 104 controls with no visible effect.
 - Totals for run 1: 563 clicks, 1591 filter values, 131 controls with "no visible effect".
 
 ## Real bugs
-None found so far. 0 JS errors, 0 console errors, 0 5xx, 0 dead-button problems that are real, in screens 1 to 62.
+None. 0 JS errors, 0 console errors, 0 5xx across all 163 screens. The 235 'no visible effect' controls (131 + 104) were not triaged one by one.
 
 Low-priority note (not a crawler bug): the API accepts the literal strings `undefined` and `NaN` as project fields (`projects` rows `F vh1mk79238572` with address `undefined`, `F vdypk7816599` with `NaN`) and reminder names `undefined`, `NaN`, `null`, `${7*7}`, `{{7*7}}`. Likely written by earlier hostile-input test scripts. If the owner wants, reject these on create; otherwise ignore.
 
