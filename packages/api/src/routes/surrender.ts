@@ -342,7 +342,7 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
 
     // What this changes, kept so a restore can put it back
     const commissions = booking
-      ? (await c.query(`SELECT id FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [consumerId, alloc.unit_id])).rows.map((r: any) => r.id) : [];
+      ? (await c.query(`SELECT id FROM broker_commissions WHERE booking_id = $1 AND status = 'pending'`, [booking.id])).rows.map((r: any) => r.id) : [];
     const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
     const snapshot = JSON.stringify(demands.map((r: any) => ({ demand_id: r.id, previous_status: r.status })));
     const preState = JSON.stringify({ booking_status: booking?.status ?? null, allocation_status: alloc.status, lead_stage: person.lead_stage, allocated_unit_id: person.allocated_unit_id, commission_ids: commissions });
@@ -376,7 +376,7 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
     if (demands.length) await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d: any) => d.id)]);
     if (commissions.length) await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
-    if (isCancel) await flagPaidCommission(c, consumerId, alloc.unit_id);
+    if (isCancel) await flagPaidCommission(c, booking.id);
     await auditChange(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined,
       { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };

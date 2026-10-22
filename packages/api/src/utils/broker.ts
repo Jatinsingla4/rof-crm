@@ -13,7 +13,7 @@ export const brokerOk = async (q: any, type: string, brokerId: string | null, ma
 };
 
 // The booking ended after its commission was already paid: the commission stays 'paid' (the money has gone out) and says so
-export const flagPaidCommission = (q: any, consumerId: string, unitId: string | null) =>
+export const flagPaidCommission = (q: any, bookingId: string) =>
   q.query(
     `UPDATE broker_commissions SET notes = TRIM(BOTH E'\n' FROM COALESCE(notes, '') || E'\nBooking ended after this commission was paid: recover it from the broker')
-      WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'paid' AND COALESCE(notes, '') NOT LIKE '%recover it from the broker%'`, [consumerId, unitId]);
+      WHERE booking_id = $1 AND status = 'paid' AND COALESCE(notes, '') NOT LIKE '%recover it from the broker%'`, [bookingId]);

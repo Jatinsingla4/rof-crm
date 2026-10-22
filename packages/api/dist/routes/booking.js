@@ -463,8 +463,8 @@ router.post('/', async (req, res, next) => {
             if (booking_type === 'broker' && broker_id) {
                 const commission = broker_commission_type === 'percent' ? Math.round(basicEstimate * broker_commission) / 100 : broker_commission;
                 await client.query(`INSERT INTO broker_commissions
-             (broker_id, consumer_id, project_id, unit_id, commission_amount_inr, status, created_by)
-           VALUES ($1, $2, $3, $4, $5, 'pending', $6)`, [broker_id, consumer_id, project_id, unit_id, commission, req.userId]);
+             (broker_id, consumer_id, project_id, unit_id, commission_amount_inr, status, created_by, booking_id)
+           VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)`, [broker_id, consumer_id, project_id, unit_id, commission, req.userId, result.rows[0].id]);
             }
             await client.query('COMMIT');
             res.status(201).json({ success: true, data: { ...result.rows[0], registration_no: registrationNo, form_no: formNo } });
@@ -631,7 +631,7 @@ router.patch('/:id/edit', async (req, res, next) => {
             // Broker commission: a pending commission follows the change, a paid one does not move
             const commKeys = ['broker_id', 'broker_commission', 'broker_commission_type'].filter(k => bkChanged.includes(k));
             if (commKeys.length) {
-                const cm = (await c.query(`SELECT id, status FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [cur.consumer_id, cur.unit_id])).rows[0];
+                const cm = (await c.query(`SELECT id, status FROM broker_commissions WHERE booking_id = $1 ORDER BY created_at DESC LIMIT 1 FOR UPDATE`, [id])).rows[0];
                 if (cm && cm.status !== 'pending')
                     throw conflict('The broker commission for this booking is already processed, so the broker or the commission can no longer be changed here.');
                 if (cm) {
@@ -3146,8 +3146,8 @@ router.post('/:id/cancel', async (req, res, next) => {
                     await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason) VALUES ($1, 'locked', 'available', NOW(), $2, $3)`, [cur.unit_id, req.userId, `Booking cancelled - ${cur.registration_no}`]);
                 }
             }
-            await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [cur.consumer_id, cur.unit_id]);
-            await (0, broker_js_1.flagPaidCommission)(c, cur.consumer_id, cur.unit_id);
+            await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE booking_id = $1 AND status = 'pending'`, [id]);
+            await (0, broker_js_1.flagPaidCommission)(c, id);
             return cur;
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking', id, { status: out.status }, { status: 'cancelled', reason });

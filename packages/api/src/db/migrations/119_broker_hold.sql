@@ -14,7 +14,13 @@ ALTER TABLE broker_commissions
   ADD COLUMN IF NOT EXISTS gst_amount NUMERIC(14,2),
   ADD COLUMN IF NOT EXISTS tds_amount NUMERIC(14,2),
   ADD COLUMN IF NOT EXISTS net_amount_inr NUMERIC(14,2),
-  ADD COLUMN IF NOT EXISTS paid_by UUID REFERENCES users(id);
+  ADD COLUMN IF NOT EXISTS paid_by UUID REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS booking_id UUID REFERENCES booking_records(id);
+-- the booking a commission belongs to (it used to be guessed from applicant + unit); old rows get the booking made closest in time
+UPDATE broker_commissions bc SET booking_id = (
+  SELECT b.id FROM booking_records b WHERE b.consumer_id = bc.consumer_id AND b.unit_id IS NOT DISTINCT FROM bc.unit_id
+   ORDER BY abs(extract(epoch FROM (b.created_at - bc.created_at))) LIMIT 1) WHERE bc.booking_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_broker_commissions_booking ON broker_commissions (booking_id);
 
 -- 3. A unit can be held, released and held again: only ONE ACTIVE hold per unit (it was one row per unit and status,
 --    so the second release of the same unit failed with a duplicate-key error)

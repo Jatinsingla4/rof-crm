@@ -205,7 +205,7 @@ router.get('/commission', async (req, res, next) => {
          LEFT JOIN projects p ON bc.project_id = p.id
          LEFT JOIN units u ON bc.unit_id = u.id
          LEFT JOIN LATERAL (SELECT booking_amount, status, registration_no, broker_commission, broker_commission_type FROM booking_records
-                             WHERE consumer_id = bc.consumer_id AND unit_id IS NOT DISTINCT FROM bc.unit_id ORDER BY created_at DESC LIMIT 1) bk ON true
+                             WHERE id = bc.booking_id) bk ON true
         WHERE 1=1 ${w}
         ORDER BY bc.created_at DESC, bc.id LIMIT ${size} OFFSET ${offset}`, params)).rows;
         // totals over the whole filter, not just this page (a cancelled commission is not owed)
@@ -249,7 +249,7 @@ router.patch('/commission/:id', (0, processPermission_js_1.requireProcess)('brok
             const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [cm.broker_id])).rows[0];
             if (!brk || !['active', 'inactive'].includes(brk.status))
                 throw (0, input_js_1.bad)(`The broker is ${brk?.status || 'missing'}, so commission cannot be paid`, 409);
-            const bk = (await c.query(`SELECT status FROM booking_records WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 ORDER BY created_at DESC LIMIT 1`, [cm.consumer_id, cm.unit_id])).rows[0];
+            const bk = (await c.query(`SELECT status FROM booking_records WHERE id = $1`, [cm.booking_id])).rows[0];
             if (!bk || !['active', 'complete'].includes(bk.status))
                 throw (0, input_js_1.bad)('The booking has not received its booking amount (or is cancelled), so commission cannot be paid yet', 409);
             const cfg = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1`, [cm.broker_id])).rows[0];

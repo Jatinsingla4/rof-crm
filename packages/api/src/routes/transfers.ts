@@ -151,8 +151,8 @@ router.post('/', requireProcess('applicant_transfer', 'maker'), async (req: Auth
       await move(`UPDATE receipts SET consumer_id = $1, updated_at = NOW() WHERE payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $2 AND unit_id = $3)`, [newId, oldId, unitId]);
       await move(`UPDATE tds_assignments SET consumer_id = $1 WHERE consumer_id = $2 AND receipt_id IN (SELECT id FROM receipts WHERE consumer_id = $1)`, [newId, oldId]);   // TDS follows its receipts
       await move(`UPDATE payment_plans SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`, [newId, oldId, unitId]);
+      await move(`UPDATE broker_commissions SET consumer_id = $1 WHERE booking_id IN (SELECT id FROM booking_records WHERE consumer_id = $2 AND unit_id = $3)`, [newId, oldId, unitId]);   // the broker's commission follows its booking
       await move(`UPDATE booking_records SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3`, [newId, oldId, unitId]);
-      await move(`UPDATE broker_commissions SET consumer_id = $1 WHERE consumer_id = $2 AND unit_id = $3 AND status <> 'cancelled'`, [newId, oldId, unitId]);   // the broker's commission follows the booking
       await move(`UPDATE penal_interests SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);
       await move(`UPDATE interest_waivers SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);
       await move(`UPDATE consumer_addon_charges SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);

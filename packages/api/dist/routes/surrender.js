@@ -324,7 +324,7 @@ const performSurrender = async (c, req, res, p) => {
         throw (0, input_js_1.bad)(`Forfeiture plus refund (${r2(f.forfeit + f.refund)}) is more than the amount received (${received})`);
     // What this changes, kept so a restore can put it back
     const commissions = booking
-        ? (await c.query(`SELECT id FROM broker_commissions WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [consumerId, alloc.unit_id])).rows.map((r) => r.id) : [];
+        ? (await c.query(`SELECT id FROM broker_commissions WHERE booking_id = $1 AND status = 'pending'`, [booking.id])).rows.map((r) => r.id) : [];
     const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
     const snapshot = JSON.stringify(demands.map((r) => ({ demand_id: r.id, previous_status: r.status })));
     const preState = JSON.stringify({ booking_status: booking?.status ?? null, allocation_status: alloc.status, lead_stage: person.lead_stage, allocated_unit_id: person.allocated_unit_id, commission_ids: commissions });
@@ -355,7 +355,7 @@ const performSurrender = async (c, req, res, p) => {
     if (commissions.length)
         await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
     if (isCancel)
-        await (0, broker_js_1.flagPaidCommission)(c, consumerId, alloc.unit_id);
+        await (0, broker_js_1.flagPaidCommission)(c, booking.id);
     await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined, { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };
 };

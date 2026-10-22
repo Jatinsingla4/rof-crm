@@ -760,6 +760,7 @@ const BkPayPage = {
 
       // Show confirmation
       const overlay = document.createElement('div');
+      window.addEventListener('hashchange', () => overlay.remove(), { once: true });   // leaving the page closes the confirmation
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999';
       overlay.innerHTML = `
         <div onclick="event.stopPropagation()" style="position:relative;background:var(--surface);border-radius:12px;padding:40px;max-width:480px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3)">

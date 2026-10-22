@@ -268,8 +268,8 @@ test('Commission Setup: nothing is paid before the booking amount is in; after t
   await page.locator('#bkp-amt-cash').fill('25000');
   await page.locator('#bkp-confirm-btn').click();
   await expect(page.getByText('Payment Confirmed!')).toBeVisible();
-  await page.getByText('View Consumer Profile').click();   // closes the confirmation (it stays on top when only the address changes)
-  await expect(page).toHaveURL(/#\/consumer\?id=/);
+  await go('/brokers?tab=commission');   // leaving the page closes the confirmation
+  await expect(page.getByText('Payment Confirmed!')).toHaveCount(0);
   expect(sql(`select status from booking_records where id = '${S.booking}'`)).toBe('complete');
   // on the commission screen
   await go('/brokers?tab=commission');
