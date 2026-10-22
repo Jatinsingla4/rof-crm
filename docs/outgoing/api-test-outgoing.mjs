@@ -8,7 +8,10 @@ const login = async (e) => (await (await fetch(B + '/auth/login', { method: 'POS
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const A = call(await login('super_admin@test.local')), AF = call(await login('accounts_finance@test.local')), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local'));
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
-const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000', acct = psql(`select id from company_bank_accounts limit 1`);
+const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000';
+// its own company and bank account (a fresh database has none)
+const co = (await A('POST', '/companies', { name: 'Outgoing Co ' + U })).j.data.id;
+const acct = psql(`insert into company_bank_accounts (company_id, bank_name, account_number) values ('${co}', 'Test Bank', 'OUT${U}') returning id`);
 const today = new Date().toISOString().slice(0, 10);
 let r; const made = [];
 const add = async (b, who = A) => { const x = await who('POST', '/payments/outgoing-payments', { company_bank_account_id: acct, amount_inr: 100, payee: 'P' + U, ...b }); if (x.s === 201) made.push(x.j.data.id); return x; };
@@ -30,5 +33,6 @@ r = await add({ amount_inr: 12.5, payment_date: today, status: 'paid', notes: 'o
 r = await A('GET', `/payments/outgoing-payments?company_bank_account_id=${acct}&status=paid&fromDate=${today}&toDate=${today}`); t('list: filters work', r.s === 200 && r.j.data.some(x => x.id === made.at(-1)) && r.j.data.every(x => x.status === 'paid'), r.s);
 for (const q of ['company_bank_account_id=abc', 'fromDate=nope', 'toDate=2020-13-01', 'status[]=a', 'status=' + 'x'.repeat(30)]) { r = await A('GET', '/payments/outgoing-payments?' + q); t(`list: ?${q.slice(0, 25)} -> 400`, r.s === 400, r.s); }
 if (made.length) { try { psql(`delete from outgoing_payments where id in (${made.map(x => `'${x}'`).join(',')})`); } catch {} }
+try { psql(`delete from company_bank_accounts where id='${acct}'`); psql(`delete from companies where id='${co}'`); } catch {}
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
