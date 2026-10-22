@@ -234,6 +234,7 @@ const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' w
   r = await rq(c, { refund_amount_inr: 3000, original_receipt_id: rc2 }); const f4 = r.j.data?.id; t('refund: raise on the second receipt', r.s === 201, r.s + JSON.stringify(r.j));
   await PM('PATCH', `/payments/refunds/${f4}/approve`, {});
   r = await PM('PATCH', `/payments/refunds/${f4}/process`, { refund_mode: 'rtgs', refund_reference: 'UTR-' + U, refund_date: today }); t('refund process: approved -> processed with mode, reference, date', r.s === 200 && r.j.data.status === 'processed' && r.j.data.refund_mode === 'rtgs' && r.j.data.refund_reference === 'UTR-' + U && r.j.data.processed_by === pmId, r.s + JSON.stringify(r.j));
+  t('refund process: a processed refund is in the applicant\'s ledger once (debit, head Refund)', psql(`select count(*) from journal_entries where consumer_id='${c}' and ledger_head='Refund' and remarks like 'Refund ${f4}%' and debit_amount=3000 and status='approved'`) === '1');
   r = await PM('PATCH', `/payments/refunds/${f4}/process`, { refund_mode: 'rtgs' }); t('refund process: twice -> 409', r.s === 409, r.s);
   r = await PM('PATCH', `/payments/refunds/${f4}/reject`, { rejection_reason: 'x' }); t('refund reject: a processed refund cannot be rejected -> 409', r.s === 409, r.s);
   for (const st of ['pending', 'approved', 'processed', 'rejected']) { r = await A('GET', `/payments/refunds?status=${st}&consumer_id=${c}`); t(`refund list: status=${st}`, r.s === 200 && r.j.data.every(x => x.status === st), r.s); }
@@ -263,6 +264,8 @@ const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' w
   const rr = await par(5, () => ini(k1)); t('cancellation refund: 5 parallel initiates -> exactly one, no 5xx', cnt(rr, 200) === 1 && cnt(rr, 409) === 4 && no5(rr), rr.map(x => x.s).join());
   const cc = await par(5, () => com(k1)); t('cancellation refund: 5 parallel completes -> exactly one, no 5xx', cnt(cc, 200) === 1 && cnt(cc, 409) === 4 && no5(cc), cc.map(x => x.s).join());
   t('cancellation refund: ends as completed', psql(`select refund_status from cancellations where id='${k1}'`) === 'completed');
+  t('cancellation refund: completing posts one refund entry in the ledger', psql(`select count(*) from journal_entries where consumer_id='${B1.c}' and ledger_head='Refund' and remarks like 'Cancellation refund ${k1}%' and debit_amount=5000`) === '1');
+  const k2 = mk(300, null); grant(afId, 'jv_refund_drcr', true, true); await ini(k2, AF); r = await com(k2, AF); grant(afId, 'jv_refund_drcr', true, false); t('cancellation refund: the person who initiated cannot complete -> 403', r.s === 403, r.s);
   r = await ini(k1); t('cancellation refund: initiating a completed one -> 409', r.s === 409, r.s);
   noRows(afId); noRows(pmId);
 }
@@ -289,6 +292,9 @@ const invs = [];
   r = await inv(c, { gstAmount: 1, totalAmount: 2, cgstAmount: 999, baseAmount: 10000 }); invs.push(r.j.data?.id); const d1 = r.j.data;
   t('invoice: tax is worked out on the server (5%: 250 + 250, total 10500) and the screen\'s figures are ignored', r.s === 201 && Number(d1.cgst_amount) === 250 && Number(d1.sgst_amount) === 250 && Number(d1.igst_amount) === 0 && Number(d1.total_amount) === 10500 && Number(d1.gst_amount) === 500 && Number(d1.gst_rate) === 5, r.s + JSON.stringify(r.j));
   t('invoice: number, project from the applicant\'s unit, status generated, creator', /^INV\/\d{4}\/\d{5}$/.test(d1.invoice_number) && d1.project_id === P1 && d1.status === 'generated' && d1.created_by_user_id, JSON.stringify(d1));
+  r = await inv(c, { buyerGstin: ' 06aaaaa0000a1z5 ' }); invs.push(r.j.data?.id); t('invoice: the buyer GSTIN is stored (trimmed, upper case)', r.s === 201 && r.j.data.buyer_gstin === '06AAAAA0000A1Z5', r.s + JSON.stringify(r.j).slice(0, 100)); const gi = r.j.data;
+  { const h = await fetch(B + `/payments/gst-invoices/${gi.id}/html`, { headers: { authorization: 'Bearer ' + tokA } }); const body = await h.text(); t('invoice page: opens as html with number, GSTIN and total', h.status === 200 && h.headers.get('content-type').includes('text/html') && body.includes(gi.invoice_no) && body.includes('06AAAAA0000A1Z5') && body.includes('10,500.00'), h.status); }
+  { psql(`update consumers set name='<script>alert(7)</script>' where id='${c}' returning 1`); const h = await fetch(B + `/payments/gst-invoices/${gi.id}/html`, { headers: { authorization: 'Bearer ' + tokA } }); t('invoice page: a hostile buyer name is escaped', !(await h.text()).includes('<script>alert(7)'), h.status); psql(`update consumers set name='Pay Buyer 1 ${U}' where id='${c}' returning 1`); }
   r = await inv(c, { baseAmount: '12345.67', gstRate: 12, supplyType: 'interstate' }); invs.push(r.j.data?.id); t('invoice: interstate is IGST only, paise kept', r.s === 201 && Number(r.j.data.igst_amount) === 1481.48 && Number(r.j.data.cgst_amount) === 0 && Number(r.j.data.total_amount) === 13827.15, r.s + JSON.stringify(r.j));
   r = await inv(c, { gstRate: undefined, baseAmountInr: 1000, cgstRate: 2.5, sgstRate: 2.5 }); invs.push(r.j.data?.id); t('invoice: the API fields (baseAmountInr, cgstRate, sgstRate) work too', r.s === 201 && Number(r.j.data.total_amount) === 1050, r.s + JSON.stringify(r.j));
   // numbers never repeat
@@ -303,7 +309,14 @@ const invs = [];
   r = await A('GET', `/payments/gst-invoices?consumerId=${c}&from=${today}&to=${today}&projectId=${P1}&status=generated&pageSize=3&page=1`); t('invoice list: date range, project, status, paging', r.s === 200 && r.j.data.length === 3, r.s + ' ' + r.j.data?.length);
   r = await A('GET', `/payments/gst-invoices?consumerId=${c}&from=${later(2)}`); t('invoice list: a range with nothing in it', r.s === 200 && r.j.data.length === 0, r.s);
   for (const q of ['status=zz', 'consumerId=abc', 'projectId=abc', 'from=2025-02-31', 'to=abc', 'pageSize=0', 'pageSize=1001', 'page=0', 'pageSize=1;drop table x', 'status[a]=b', 'invoiceNumber[]=a']) { r = await A('GET', '/payments/gst-invoices?' + q); t(`invoice list: ?${q} -> 400`, r.s === 400, r.s); }
-  r = await A('GET', `/payments/gst-invoices/${d1.id}/pdf`); t('invoice pdf: an existing invoice answers', r.s === 200, r.s); r = await A('GET', '/payments/gst-invoices/abc/pdf'); t('invoice pdf: id "abc" -> 400', r.s === 400, r.s); r = await A('GET', `/payments/gst-invoices/${NIL}/pdf`); t('invoice pdf: unknown -> 404', r.s === 404, r.s);
+  { const h = await fetch(B + `/payments/gst-invoices/${d1.id}/pdf`, { headers: { authorization: 'Bearer ' + tokA } }); t('invoice pdf: an existing invoice answers (the printable page)', h.status === 200, h.status); }
+  r = await A('GET', '/payments/gst-invoices/abc/pdf'); t('invoice pdf: id "abc" -> 400', r.s === 400, r.s); r = await A('GET', `/payments/gst-invoices/${NIL}/pdf`); t('invoice pdf: unknown -> 404', r.s === 404, r.s);
+  const exp = async (q, who = tokA) => { const h = await fetch(B + '/payments/gst-invoices-export?' + q, { headers: { authorization: 'Bearer ' + who } }); return { s: h.status, type: h.headers.get('content-type') || '', body: await h.text() }; };
+  { const ym = today.slice(0, 7); const x = await exp(`type=gstr1&month=${ym}&projectId=${P1}`); t('GSTR-1 export: a csv with the invoices of the month and their tax', x.s === 200 && x.type.includes('text/csv') && x.body.includes(d1.invoice_no) && x.body.includes('Invoice No'), x.s + x.body.slice(0, 80));
+    const y = await exp(`type=gstr3b&month=${ym}&projectId=${P1}`); const tot = Number(psql(`select coalesce(sum(base_amount_inr),0) from gst_invoices where project_id='${P1}' and status<>'cancelled' and to_char(invoice_date,'YYYY-MM')='${ym}'`)); t('GSTR-3B export: taxable total equals the database', y.s === 200 && Number(y.body.split('\n')[1].split(',')[1]) === tot, y.s + y.body.slice(0, 120));
+    for (const q of ['type=x&month=' + ym, 'month=2026-13', 'month=abc', 'type=gstr1', `month=${ym}&projectId=abc`, `month[a]=b`]) { const z = await exp(q); t(`GSTR export: ?${q} -> 400`, z.s === 400, z.s); }
+    t('GSTR export: no login -> 401', (await fetch(B + `/payments/gst-invoices-export?month=${ym}`)).status === 401);
+    t('GSTR export: read_only_viewer may read it', (await exp(`month=${ym}`, await login('read_only_viewer@test.local'))).s === 200); }
 
   // ---- credit / debit notes ----
   grant(afId, 'jv_refund_drcr', true, true); grant(pmId, 'jv_refund_drcr', false, true);
@@ -381,7 +394,9 @@ const invs = [];
   t('draw refund: refused calls changed nothing', psql(`select refund_status from draw_refunds where id='${d1}'`) === 'pending');
   const rr = await par(5, () => AF('PATCH', `/payments/draw-refunds/${d1}/initiate`, { refundReference: 'UTR-' + U })); t('draw refund race: 5 parallel initiates -> exactly one, no 5xx', cnt(rr, 200) === 1 && cnt(rr, 409) === 4 && no5(rr), rr.map(x => x.s).join());
   t('draw refund: initiated with reference and time', psql(`select refund_status||'|'||refund_reference||'|'||(refund_initiated_at is not null) from draw_refunds where id='${d1}'`) === `initiated|UTR-${U}|true`);
-  const cc = await par(5, () => com(d1, {}, AF)); t('draw refund race: 5 parallel completes -> exactly one, no 5xx', cnt(cc, 200) === 1 && cnt(cc, 409) === 4 && no5(cc), cc.map(x => x.s).join());
+  r = await com(d1, {}, AF); t('draw refund: the person who initiated cannot complete -> 403', r.s === 403, r.s);
+  const cc = await par(5, () => com(d1, {}, A)); t('draw refund race: 5 parallel completes -> exactly one, no 5xx', cnt(cc, 200) === 1 && cnt(cc, 409) === 4 && no5(cc), cc.map(x => x.s).join());
+  t('draw refund: completing posts a refund entry in the applicant\'s ledger', psql(`select count(*) from journal_entries where consumer_id='${S1.c}' and ledger_head='Refund' and remarks like 'Draw refund ${d1}%' and debit_amount=10000 and status='approved'`) === '1');
   r = await ini(d1); t('draw refund: initiating a completed one -> 409', r.s === 409, r.s); r = await com(d1); t('draw refund: completing twice -> 409', r.s === 409, r.s);
   for (const st of ['pending', 'initiated', 'completed']) { r = await A('GET', `/payments/draw-refunds?status=${st}&projectId=${P1}`); t(`draw refund list: status=${st}`, r.s === 200 && r.j.data.every(x => x.refund_status === st), r.s); }
   r = await A('GET', `/payments/draw-refunds/overdue`); t('draw refund overdue: the late one is listed, the completed one is not', r.s === 200 && r.j.data.some(x => x.id === dOver) && !r.j.data.some(x => x.id === d1), r.s);
@@ -705,7 +720,7 @@ if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_
     gone('interest_waivers'), gone('payment_refunds'), gone('credit_debit_notes'), gone('gst_invoices'), gone('penal_interests'), gone('payment_plans'),
     `delete from audit_logs where resource_type in ('project_interest_rate','installment_interest') and resource_id in ('${P1}','${P2}')`, `delete from audit_logs where resource_id in (select id from project_interest_rates where project_id in ('${P1}','${P2}'))`,
     `delete from audit_logs where resource_type in ('penal_interest','consumer_interest') and resource_id in ('${P1}','${P2}', ${ids})`,
-    `delete from credit_debit_notes where consumer_id in (${ids})`, `delete from gst_invoices where consumer_id in (${ids})`, `delete from interest_waivers where consumer_id in (${ids})`, `delete from payment_refunds where consumer_id in (${ids})`,
+    `delete from journal_entries where consumer_id in (${ids})`,     `delete from credit_debit_notes where consumer_id in (${ids})`, `delete from gst_invoices where consumer_id in (${ids})`, `delete from interest_waivers where consumer_id in (${ids})`, `delete from payment_refunds where consumer_id in (${ids})`,
     `delete from penal_interests where consumer_id in (${ids})`, `delete from project_interest_rates where project_id in ('${P1}','${P2}')`, `delete from draw_refunds where consumer_id in (${ids})`,
     `delete from audit_logs where resource_type in ('receipt','demand') and resource_id in (select id from receipts where consumer_id in (${ids}) union select id from demands where consumer_id in (${ids}))`,
     `delete from cheque_bounce_logs where consumer_id in (${ids})`, `delete from booking_documents where consumer_id in (${ids})`, `delete from documents where consumer_id in (${ids})`, `delete from receipts where consumer_id in (${ids})`, `delete from demands where consumer_id in (${ids})`,

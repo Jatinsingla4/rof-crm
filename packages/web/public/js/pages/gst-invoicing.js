@@ -392,8 +392,8 @@ Pages.gstInvoicing = async function(params = {}) {
               <option value="">— All Projects —</option>
             </select>
             <button class="btn btn-fetch btn-sm" onclick="GSTPage.loadReport()">FETCH</button>
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('GSTR-1 export coming soon')">Export GSTR-1</button>
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('GSTR-3B export coming soon')">Export GSTR-3B</button>
+            <button class="btn btn-ghost btn-sm" onclick="GSTPage.exportGstr('gstr1')">Export GSTR-1</button>
+            <button class="btn btn-ghost btn-sm" onclick="GSTPage.exportGstr('gstr3b')">Export GSTR-3B</button>
           </div>
         </div>
       </div>
@@ -628,10 +628,33 @@ const GSTPage = {
           ✓ Invoice <strong>${data.invoice_number||data.invoiceNumber||'Generated'}</strong><br>
           Base: ${Utils.currency(baseAmount)} + GST (${rate}%): ${Utils.currency(gstAmt)} = <strong>${Utils.currency(total)}</strong>
           ${intra ? `(CGST: ${Utils.currency(gstAmt/2)} + SGST: ${Utils.currency(gstAmt/2)})` : `(IGST: ${Utils.currency(gstAmt)})`}
+          ${data.id ? `<br><a href="#" onclick="event.preventDefault();GSTPage.printInvoice('${data.id}')" style="color:var(--teal)">Print invoice</a>` : ''}
         </div>`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
     }
+  },
+
+  // The invoice as a printable page (print to PDF from the browser)
+  async printInvoice(id) {
+    try {
+      const res = await fetch(`/api/payments/gst-invoices/${id}/html`, { headers: { Authorization: 'Bearer ' + (Auth.getToken() || '') } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Could not open the invoice');
+      window.open(URL.createObjectURL(new Blob([await res.text()], { type: 'text/html' })), '_blank');
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // GSTR-1 / GSTR-3B CSV of the month picked on the Report tab
+  async exportGstr(type) {
+    const month = document.getElementById('gst-rpt-month')?.value;
+    if (!month) { Utils.warn('Pick a month first'); return; }
+    const projId = document.getElementById('gst-rpt-project')?.value;
+    try {
+      const res = await fetch(`/api/payments/gst-invoices-export?type=${type}&month=${month}${projId ? '&projectId=' + projId : ''}`, { headers: { Authorization: 'Bearer ' + (Auth.getToken() || '') } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Export failed');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(await res.blob()); a.download = `${type}-${month}.csv`; a.click();
+    } catch (err) { Utils.error(err.message); }
   },
 
   previewInvoice(prefix) {

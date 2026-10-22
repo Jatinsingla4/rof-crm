@@ -198,6 +198,7 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
         const desc = (0, input_js_1.text)(b.installmentName ?? b.description, 'description', 100, false), hsn = (0, input_js_1.text)(b.hsnCode, 'hsnCode', 20, false) || '9972';
         if ((0, input_js_1.has)(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase())))
             throw (0, input_js_1.bad)('buyerGstin must be 15 letters and digits');
+        const gstin = (0, input_js_1.has)(b.buyerGstin) ? b.buyerGstin.trim().toUpperCase() : null;
         const rate = (v, label) => (0, input_js_1.num)(v, label, 28, 2);
         let cgstRate, sgstRate, igstRate;
         if ((0, input_js_1.has)(b.cgstRate) || (0, input_js_1.has)(b.sgstRate) || (0, input_js_1.has)(b.igstRate)) {
@@ -237,8 +238,8 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
             }
             const invoiceNo = await (0, penal_interest_js_1.nextNumber)(c, 'gst_invoices', 'invoice_no', 'INV', 5);
             return (await c.query(`INSERT INTO gst_invoices (invoice_no, invoice_date, invoice_type, project_id, consumer_id, unit_id, receipt_id, installment_name, base_amount_inr, taxable_amount_inr,
-           cgst_rate, sgst_rate, igst_rate, cgst_amount_inr, sgst_amount_inr, igst_amount_inr, total_amount_inr, supply_type, hsn_sac_code, status, created_by_user_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'generated',$19) RETURNING id`, [invoiceNo, invoiceDate, type, projectId, consumerId, unitArg || al?.unit_id || null, receiptId, desc || 'Direct Payment', base, cgstRate, sgstRate, igstRate, cgst, sgst, igst, (0, input_js_1.r2)(base + cgst + sgst + igst), supply, hsn, req.userId])).rows[0].id;
+           cgst_rate, sgst_rate, igst_rate, cgst_amount_inr, sgst_amount_inr, igst_amount_inr, total_amount_inr, supply_type, hsn_sac_code, status, created_by_user_id, buyer_gstin)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'generated',$19,$20) RETURNING id`, [invoiceNo, invoiceDate, type, projectId, consumerId, unitArg || al?.unit_id || null, receiptId, desc || 'Direct Payment', base, cgstRate, sgstRate, igstRate, cgst, sgst, igst, (0, input_js_1.r2)(base + cgst + sgst + igst), supply, hsn, req.userId, gstin])).rows[0].id;
         });
         const out = (await index_js_1.db.query(`SELECT ${INVOICE_COLS} FROM gst_invoices gi WHERE gi.id = $1`, [row])).rows[0];
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'gst_invoice', row, undefined, { invoice_no: out.invoice_no, consumer_id: consumerId, total_amount_inr: out.total_amount_inr });
@@ -304,13 +305,64 @@ router.post('/gst-invoices/credit-debit-note', (0, processPermission_js_1.requir
         fail(error, res, next);
     }
 });
-// GET /api/payments/gst-invoices/:id/pdf - Get GST invoice PDF (stub)
-router.get('/gst-invoices/:id/pdf', async (req, res, next) => {
+// GET /api/payments/gst-invoices/:id/html (also /pdf) - the invoice as a printable page (print to PDF from the browser)
+const invoicePage = async (req, res, next) => {
     try {
-        const id = (0, input_js_1.uuid)(req.params.id, 'Invoice id');
-        if (!(await index_js_1.db.query(`SELECT 1 FROM gst_invoices WHERE id = $1`, [id])).rows.length)
+        const r = (await index_js_1.db.query(`SELECT ${INVOICE_COLS}, c.name AS consumer_name, c.registration_no, c.present_address, p.name AS project_name, u.unit_number
+         FROM gst_invoices gi JOIN consumers c ON c.id = gi.consumer_id JOIN projects p ON p.id = gi.project_id LEFT JOIN units u ON u.id = gi.unit_id WHERE gi.id = $1`, [(0, input_js_1.uuid)(req.params.id, 'Invoice id')])).rows[0];
+        if (!r)
             throw (0, input_js_1.bad)('Invoice not found', 404);
-        res.status(200).json({ success: true, message: 'PDF generation coming soon', id });
+        const e = pmtEsc, m = (n) => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const row = (k, v) => `<tr><td style="padding:4px 10px;color:#555">${k}</td><td style="padding:4px 10px"><b>${v}</b></td></tr>`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${e(r.invoice_no)}</title></head><body style="font-family:Arial,sans-serif;font-size:13px;max-width:720px;margin:24px auto">
+<h2 style="margin:0">${e(String(r.invoice_type || 'invoice').replace(/_/g, ' ').toUpperCase())}${r.status === 'cancelled' ? ' (CANCELLED)' : ''}</h2>
+<table style="margin:12px 0;border-collapse:collapse">${row('Invoice No.', e(r.invoice_no))}${row('Date', e(String(r.invoice_date).slice(0, 10)))}${row('Project', e(r.project_name))}${row('Unit', e(r.unit_number || '-'))}
+${row('Buyer', e(r.consumer_name))}${row('Registration No.', e(r.registration_no || '-'))}${row('Buyer GSTIN', e(r.buyer_gstin || '-'))}${row('Description', e(r.installment_name || '-'))}${row('HSN / SAC', e(r.hsn_sac_code || '-'))}</table>
+<table style="border-collapse:collapse;width:100%;border:1px solid #ccc"><tbody>
+${row('Taxable amount', '&#8377; ' + m(r.base_amount))}${r.cgst_amount ? row(`CGST (${r.cgst_rate}%)`, '&#8377; ' + m(r.cgst_amount)) : ''}${r.sgst_amount ? row(`SGST (${r.sgst_rate}%)`, '&#8377; ' + m(r.sgst_amount)) : ''}${r.igst_amount ? row(`IGST (${r.igst_rate}%)`, '&#8377; ' + m(r.igst_amount)) : ''}${row('Total', '&#8377; ' + m(r.total_amount))}</tbody></table>
+<p style="margin-top:20px"><button onclick="window.print()">Print</button></p></body></html>`);
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+};
+router.get('/gst-invoices/:id/html', invoicePage);
+router.get('/gst-invoices/:id/pdf', invoicePage);
+// GET /api/payments/gst-invoices-export?type=gstr1|gstr3b&month=YYYY-MM[&projectId=] - CSV for the filing (cancelled invoices left out, credit and debit notes netted)
+router.get('/gst-invoices-export', async (req, res, next) => {
+    try {
+        const type = (0, input_js_1.oneOf)(req.query.type, 'type', ['gstr1', 'gstr3b']) || 'gstr1';
+        const month = (0, input_js_1.qtext)(req.query.month, 'month', 7);
+        if (!month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(month))
+            throw (0, input_js_1.bad)('month must be YYYY-MM');
+        const from = `${month}-01`, to = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5), 0)).toISOString().slice(0, 10);
+        const params = [from, to];
+        let more = '';
+        if ((0, input_js_1.has)(req.query.projectId))
+            more = ` AND gi.project_id = $${params.push((0, input_js_1.uuid)(req.query.projectId, 'projectId'))}`;
+        const cell = (v) => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t))
+            t = "'" + t; return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+        const csv = (head, rows) => [head, ...rows].map((l) => l.map(cell).join(',')).join('\n') + '\n';
+        let out;
+        if (type === 'gstr1') {
+            const rows = (await index_js_1.db.query(`SELECT gi.invoice_no, gi.invoice_date, gi.buyer_gstin, c.name, gi.supply_type, gi.base_amount_inr, gi.cgst_rate + gi.sgst_rate + gi.igst_rate AS rate, gi.cgst_amount_inr, gi.sgst_amount_inr, gi.igst_amount_inr, gi.total_amount_inr
+           FROM gst_invoices gi JOIN consumers c ON c.id = gi.consumer_id WHERE gi.status <> 'cancelled' AND gi.invoice_date BETWEEN $1 AND $2${more} ORDER BY gi.invoice_date, gi.invoice_no`, params)).rows;
+            const notes = (await index_js_1.db.query(`SELECT n.note_number, n.note_date, n.note_type, n.original_invoice_no, n.adjustment_amount, n.gst_rate, n.gst_amount, n.total_amount
+           FROM credit_debit_notes n JOIN gst_invoices gi ON gi.id = n.invoice_id WHERE n.status = 'issued' AND n.note_date BETWEEN $1 AND $2${more} ORDER BY n.note_date, n.note_number`, params)).rows;
+            out = csv(['Invoice No', 'Date', 'Buyer GSTIN', 'Buyer', 'Supply', 'Taxable', 'Rate %', 'CGST', 'SGST', 'IGST', 'Total'], rows.map((r) => [r.invoice_no, String(r.invoice_date).slice(0, 10), r.buyer_gstin, r.name, r.supply_type, r.base_amount_inr, r.rate, r.cgst_amount_inr, r.sgst_amount_inr, r.igst_amount_inr, r.total_amount_inr]))
+                + '\n' + csv(['Note No', 'Date', 'Type', 'Original Invoice', 'Taxable', 'Rate %', 'Tax', 'Total'], notes.map((n) => [n.note_number, String(n.note_date).slice(0, 10), n.note_type, n.original_invoice_no, n.adjustment_amount, n.gst_rate, n.gst_amount, n.total_amount]));
+        }
+        else {
+            const t = (await index_js_1.db.query(`SELECT COALESCE(SUM(gi.base_amount_inr),0) AS taxable, COALESCE(SUM(gi.cgst_amount_inr),0) AS cgst, COALESCE(SUM(gi.sgst_amount_inr),0) AS sgst, COALESCE(SUM(gi.igst_amount_inr),0) AS igst
+           FROM gst_invoices gi WHERE gi.status <> 'cancelled' AND gi.invoice_date BETWEEN $1 AND $2${more}`, params)).rows[0];
+            const n = (await index_js_1.db.query(`SELECT COALESCE(SUM(CASE WHEN n.note_type='credit' THEN -n.adjustment_amount ELSE n.adjustment_amount END),0) AS taxable, COALESCE(SUM(CASE WHEN n.note_type='credit' THEN -n.gst_amount ELSE n.gst_amount END),0) AS tax
+           FROM credit_debit_notes n JOIN gst_invoices gi ON gi.id = n.invoice_id WHERE n.status = 'issued' AND n.note_date BETWEEN $1 AND $2${more}`, params)).rows[0];
+            out = csv(['Month', 'Taxable (invoices)', 'CGST', 'SGST', 'IGST', 'Taxable (notes, net)', 'Tax (notes, net)'], [[month, t.taxable, t.cgst, t.sgst, t.igst, n.taxable, n.tax]]);
+        }
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${type}-${month}.csv"`);
+        res.send(out);
     }
     catch (error) {
         fail(error, res, next);
@@ -370,11 +422,15 @@ const drawStep = (from, to, set) => async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Draw refund id'), s = set(req);
         const row = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT refund_status FROM draw_refunds WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT refund_status, initiated_by, consumer_id, refund_amount_inr FROM draw_refunds WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Draw refund not found', 404);
             if (cur.refund_status !== from)
                 throw (0, input_js_1.bad)(`Draw refund is ${cur.refund_status}, it must be ${from} for this step`, 409);
+            if (to === 'completed') {
+                (0, financial_ops_js_1.notOwn)(req, cur.initiated_by);
+                await (0, financial_ops_js_1.postRefundJournal)(c, req, cur.consumer_id, Number(cur.refund_amount_inr), `Draw refund ${id} paid`, cur.initiated_by);
+            }
             return (await c.query(`UPDATE draw_refunds SET refund_status = '${to}', ${s.sql} updated_at = NOW() WHERE id = $1 RETURNING id, consumer_id, refund_status, refund_initiated_at, refund_completed_at`, [id, ...s.params])).rows[0];
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'draw_refund', id, { refund_status: from }, { refund_status: to });
@@ -387,7 +443,7 @@ const drawStep = (from, to, set) => async (req, res, next) => {
 // PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund (accounts and finance only)
 router.patch('/draw-refunds/:id/initiate', input_js_1.financeOnly, drawStep('pending', 'initiated', (req) => {
     const b = (0, input_js_1.body)(req);
-    return { sql: 'refund_initiated_at = NOW(), refund_reference = $2, notes = COALESCE($3, notes),', params: [(0, input_js_1.text)(b.refundReference, 'refundReference', 255, true), (0, input_js_1.text)(b.notes, 'notes', 500, false)] };
+    return { sql: 'refund_initiated_at = NOW(), initiated_by = $4, refund_reference = $2, notes = COALESCE($3, notes),', params: [(0, input_js_1.text)(b.refundReference, 'refundReference', 255, true), (0, input_js_1.text)(b.notes, 'notes', 500, false), req.userId] };
 }));
 // PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund (accounts and finance only)
 router.patch('/draw-refunds/:id/complete', input_js_1.financeOnly, drawStep('initiated', 'completed', (req) => ({ sql: 'refund_completed_at = NOW(), refund_reference = COALESCE($2, refund_reference),', params: [(0, input_js_1.text)((0, input_js_1.body)(req).refundReference, 'refundReference', 255, false)] })));

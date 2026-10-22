@@ -1,7 +1,7 @@
 # Payments, the rest (refunds, waivers, notes, interest, GST invoices, plans, banks, receipt pages)
 
 Routes under `/api/payments` in `packages/api/src/routes/financial-ops.ts` and `payments.ts`, plus `loans.ts`, `registry.ts`, `faq.ts` and the dashboard mount.
-Helpers: `utils/input.ts` (`paging`, `qtext`, `oneOf`, `lock`, `financeOnly`, `pos`), `utils/penal-interest.ts` (`persistInterest`, `nextNumber`). Migration `117_payments_rest.sql`.
+Helpers: `utils/input.ts` (`paging`, `qtext`, `oneOf`, `lock`, `financeOnly`, `pos`), `utils/penal-interest.ts` (`persistInterest`, `nextNumber`). Migrations `117_payments_rest.sql`, `118_payments_makers_gstin.sql`.
 Screens: Interest Master, Installment Interest, Interest Scheduler, Customer Wise Interest, Grace Period, Interest Waiver, GST Invoicing, Loans, Registry, Dashboard (`packages/web/public/js/pages`).
 
 ## Who can do what
@@ -36,11 +36,16 @@ Medium: any signed-in user could create invoices, plans, rates, manual interest,
 Low: receipt html, form and detail pages answered 500 for a bad id and put names, banks and installment names into the page without escaping; faq lists took `pageSize` unchecked, showed drafts and counted their views.
 Screens: Invoice Generation had no amount field and the receipt list read fields that do not exist (`amount`, `payment_date`), so Generate and Pending Invoice could never work; GST Invoice Totals added two text values together; Pending Invoice sent date filters under the wrong names; Generate on the Manual or Advance tab picked up the receipt or GSTIN left on another tab; the month report asked for the 31st of every month; Setup and User Rights said "saved" without saving (now honest); Loans list never showed saved loans (new `GET /api/loans`); Installment Interest showed 4 decimals of a 2-decimal column; Interest Scheduler delete ignored a refusal.
 
+## Added in the second pass
+- A paid refund (refund processed, cancellation refund completed, draw refund completed) posts an approved journal entry (head Refund, debit) in the applicant's ledger. Once, under the row lock.
+- Cancellation refunds and draw refunds remember who initiated them (migration 118); the person who initiated cannot complete (super_admin exempt).
+- The buyer GSTIN is stored on the invoice (migration 118) and shown on the invoice page.
+- `GET /gst-invoices/:id/html` (also `/pdf`) is a printable invoice page, escaped; the screen has a "Print invoice" link. `GET /gst-invoices-export?type=gstr1|gstr3b&month=YYYY-MM` is a CSV (cancelled invoices left out, issued credit / debit notes netted); the Report tab buttons download it.
+- FAQ is mounted with `rbac('communications')`; voting on an article (POST feedback) stays open to everyone with communications access, as before.
+
 ## Not changed on purpose
-- A processed refund or cancellation refund does not post to the ledger (no ledger table for it); it is a record with a status.
-- Maker is not recorded on cancellation refunds and draw refunds (no column), so "maker cannot be checker" is only enforced where the table has the maker (waivers, refunds, notes).
-- `buyerGstin` on an invoice is checked but not stored (no column).
-- The PDF link of an invoice stays a stub ("coming soon"), the link was removed from the screen; GSTR-1 / 3B export buttons are stubs.
+- The invoice "PDF" is a print page, not a PDF file (no PDF library in the project).
+- GSTR files are a plain CSV summary, not the portal's JSON format.
 - Receipts HTML (`/receipts/:id/html`) already escaped with `pmtEsc`; it is covered by the test.
 
 ## Tests

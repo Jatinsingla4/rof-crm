@@ -7,7 +7,7 @@
  * a credit note never exceeds its invoice, and the person who raised a request cannot approve it (super_admin exempt). Every state change locks the row.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.raiseNote = void 0;
+exports.raiseNote = exports.postRefundJournal = exports.notOwn = void 0;
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
@@ -26,7 +26,15 @@ const optId = (v, label) => ((0, input_js_1.has)(v) ? (0, input_js_1.uuid)(v, la
 // The person who raised a request cannot approve it
 const notOwn = (req, raisedBy) => { if (req.userRole !== 'super_admin' && raisedBy && raisedBy === req.userId)
     throw (0, input_js_1.bad)('You raised this yourself, someone else has to approve it', 403); };
+exports.notOwn = notOwn;
 const finLog = (c, consumerId, userId, action, value, remarks) => c.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks) VALUES ($1,$2,$3,$4,$5)`, [consumerId, userId, action, JSON.stringify(value), remarks]);
+// A refund that is paid goes into the applicant's ledger as an approved journal entry (debit, head "Refund")
+const postRefundJournal = async (c, req, consumerId, amount, remarks, madeBy) => {
+    const seq = String((await c.query(`SELECT nextval('journal_entry_seq') AS n`)).rows[0].n).padStart(4, '0');
+    await c.query(`INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks, status, created_by_user_id, approved_by, approved_at)
+     VALUES ($1, CURRENT_DATE, $2, $3, 0, 'Refund', $4, 'approved', $5, $6, NOW())`, [`JE/${new Date().getFullYear()}/${seq}`, consumerId, amount, remarks, madeBy || req.userId, req.userId]);
+};
+exports.postRefundJournal = postRefundJournal;
 const consumerExists = async (c, id) => { if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [id])).rows.length)
     throw (0, input_js_1.bad)('Applicant not found', 404); };
 // ============================================
@@ -173,7 +181,7 @@ router.patch('/interest-waivers/:id/approve', (0, processPermission_js_1.require
                 throw (0, input_js_1.bad)('Waiver not found', 404);
             if (w.status !== 'pending')
                 throw (0, input_js_1.bad)(`Waiver is already ${w.status}`, 409);
-            notOwn(req, w.requested_by);
+            (0, exports.notOwn)(req, w.requested_by);
             await (0, input_js_1.lock)(c, 'pi:' + w.consumer_id);
             // The interest may have been recalculated since the request (new row ids): find it again by installment
             const pi = (await c.query(`SELECT id, amount_inr, COALESCE(interest_waived_inr, 0) AS waived FROM penal_interests
@@ -316,13 +324,16 @@ const refundStep = (from, to, extra, checkRoom = true, ownCheck = false) => asyn
             if (!from.split('|').includes(r.status))
                 throw (0, input_js_1.bad)(`Refund is ${r.status}, it must be ${from.replace('|', ' or ')} for this step`, 409);
             if (ownCheck)
-                notOwn(req, r.requested_by);
+                (0, exports.notOwn)(req, r.requested_by);
             if (checkRoom) {
                 const { room, what } = await refundRoom(c, r.consumer_id, r.original_receipt_id, id);
                 if (Number(r.refund_amount_inr) > room)
                     throw (0, input_js_1.bad)(`Refund (Rs ${r.refund_amount_inr}) is now more than ${what} less the other refunds (Rs ${Math.max(room, 0)} left). Reject it`, 409);
             }
-            return (await c.query(`UPDATE payment_refunds SET status = '${to}', ${ex ? ex.set : ''} updated_at = NOW() WHERE id = $1 RETURNING *`, [id, ...(ex ? ex.params : [])])).rows[0];
+            const out = (await c.query(`UPDATE payment_refunds SET status = '${to}', ${ex ? ex.set : ''} updated_at = NOW() WHERE id = $1 RETURNING *`, [id, ...(ex ? ex.params : [])])).rows[0];
+            if (to === 'processed')
+                await (0, exports.postRefundJournal)(c, req, r.consumer_id, Number(r.refund_amount_inr), `Refund ${id} paid`, r.requested_by);
+            return out;
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'payment_refund', id, { status: from }, { status: to });
         res.json({ success: true, data: row });
@@ -360,7 +371,7 @@ router.patch('/cancellations/:id/refund/initiate', (0, processPermission_js_1.re
                 throw (0, input_js_1.bad)(`Refund is already ${cur.refund_status}`, 409);
             if (!(Number(cur.refund_amount_inr) > 0))
                 throw (0, input_js_1.bad)('This cancellation has no refund amount', 409);
-            return (await c.query(`UPDATE cancellations SET refund_status = 'initiated' WHERE id = $1 RETURNING id, refund_status, refund_amount_inr`, [id])).rows[0];
+            return (await c.query(`UPDATE cancellations SET refund_status = 'initiated', refund_initiated_by = $2 WHERE id = $1 RETURNING id, refund_status, refund_amount_inr`, [id, req.userId])).rows[0];
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'cancellation_refund', id, { refund_status: 'pending' }, { refund_status: 'initiated' });
         res.json({ success: true, data: row });
@@ -374,11 +385,13 @@ router.patch('/cancellations/:id/refund/complete', (0, processPermission_js_1.re
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Cancellation id');
         const row = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT refund_status FROM cancellations WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT refund_status, refund_initiated_by, consumer_id, refund_amount_inr FROM cancellations WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Cancellation not found', 404);
             if (cur.refund_status !== 'initiated')
                 throw (0, input_js_1.bad)('The refund must be initiated before it is completed' + (cur.refund_status ? ` (it is ${cur.refund_status})` : ''), 409);
+            (0, exports.notOwn)(req, cur.refund_initiated_by);
+            await (0, exports.postRefundJournal)(c, req, cur.consumer_id, Number(cur.refund_amount_inr), `Cancellation refund ${id} paid`, cur.refund_initiated_by);
             return (await c.query(`UPDATE cancellations SET refund_status = 'completed' WHERE id = $1 RETURNING id, refund_status, refund_amount_inr`, [id])).rows[0];
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'cancellation_refund', id, { refund_status: 'initiated' }, { refund_status: 'completed' });
@@ -489,7 +502,7 @@ router.patch('/credit-debit-notes/:id/approve', (0, processPermission_js_1.requi
                 throw (0, input_js_1.bad)('Note not found', 404);
             if (n.status !== 'pending')
                 throw (0, input_js_1.bad)(`Note is already ${n.status}`, 409);
-            notOwn(req, n.created_by_user_id);
+            (0, exports.notOwn)(req, n.created_by_user_id);
             if (n.invoice_status === 'cancelled')
                 throw (0, input_js_1.bad)('The invoice of this note was cancelled. Cancel the note', 409);
             return (await c.query(`UPDATE credit_debit_notes SET status = 'issued', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`, [req.userId, id])).rows[0];

@@ -552,7 +552,8 @@ app.use('/api/reports',        authenticateToken, rbac('reports'),        report
 app.use('/api/milestones',     authenticateToken, rbac('payments'),       milestonesRoutes);
 app.use('/api/reconciliation', authenticateToken, rbac('payments'),       reconciliationRoutes);
 app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRoutes);
-app.use('/api/faq',            authenticateToken,                         faqRoutes);   // every route carries its own requirePermission
+// Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
+app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
 app.use('/api/automation',    authenticateToken, rbac('reports'),         automationRoutes);
 app.use('/api/brokers',       authenticateToken, rbac('consumers'),       brokersRoutes);

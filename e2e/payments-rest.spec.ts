@@ -145,7 +145,7 @@ test('Interest Scheduler: calculate for a project and a tower, save, delete', as
   await page.locator('#is-calc-btn').click();
   await expect(page.locator('.is-summary')).toContainText('Consumers Processed');
   await expect(page.locator('.is-table tbody tr').first()).toBeVisible();
-  await expect(page.locator('.is-table')).toContainText(S.buyers[0].name);
+  await expect(page.locator('.is-table')).toContainText(new RegExp(S.buyers[0].name, 'i'));
   await page.locator('#is-save-btn').click();
   await expect.poll(() => S.lastDialog).toMatch(/saved successfully/i);
   expect(Number(sql(`select count(*) from penal_interests where consumer_id = '${S.buyers[2].c}' and status = 'calculated'`))).toBeGreaterThan(0);
@@ -171,7 +171,7 @@ test('Customer Wise Interest: reset date, manual interest and delete tabs with e
   await expect(page.locator('.cwi-tbl tbody tr')).toHaveCount(1);                                                    // name filter
   await page.locator('#cwi-fn-particular-date').fill(''); await page.locator('#cwi-unit-particular-date').fill(S.buyers[2].unit); await page.locator('#cwi-fetch-particular-date').click();
   await expect(page.locator('.cwi-tbl tbody tr')).toHaveCount(1);                                                    // unit filter
-  await expect(page.locator('.cwi-tbl')).toContainText(S.buyers[2].name);
+  await expect(page.locator('.cwi-tbl')).toContainText(new RegExp(S.buyers[2].name, 'i'));
   await page.locator('#cwi-unit-particular-date').fill(''); await page.locator('#cwi-fetch-particular-date').click();
   await expect(page.locator('.cwi-tbl tbody tr')).toHaveCount(3);
   await page.locator('#cwi-date-0').fill(''); await page.locator('.cwi-link-blue').first().click(); await expect(page.locator('.cwi-inline-err').first()).toContainText(/select a date/i);
@@ -255,7 +255,7 @@ test('Interest Waiver: list filters, detail, waive off (too much is refused), th
   expect(sql(`select coalesce(sum(interest_waived_inr), 0) from penal_interests where consumer_id = '${S.buyers[0].c}'`)).toBe('0');
   await page.locator('#iw-waive-amt').fill('500'); await page.locator('#iw-remark').fill('goodwill');
   await page.locator('#iw-waiver-form button', { hasText: /^SAVE$/ }).click();
-  await expect(page.locator('#iw-results')).toContainText(S.buyers[0].name);                                          // back on the list
+  await expect(page.locator('#iw-results')).toContainText(new RegExp(S.buyers[0].name, 'i'));                                          // back on the list
   expect(sql(`select coalesce(sum(waiver_amount_inr), 0) from interest_waivers where consumer_id = '${S.buyers[0].c}' and status = 'approved'`)).toBe('500');
   expect(sql(`select coalesce(sum(interest_waived_inr), 0) from penal_interests where consumer_id = '${S.buyers[0].c}'`)).toBe('500');
   await expect(page.locator('.iwn-tbl tbody tr').first()).toContainText('500');
@@ -271,7 +271,7 @@ test('Interest Waiver: list filters, detail, waive off (too much is refused), th
   await waitOption('#iwr-proj', S.projectName);
   await page.locator('button', { hasText: /^FETCH$/ }).first().click(); expect(S.lastDialog).toMatch(/select a project/i);
   await pick('#iwr-proj', S.projectName); await page.locator('button', { hasText: /^FETCH$/ }).first().click();
-  await expect(page.locator('.iwn-tbl')).toContainText(S.buyers[0].name);
+  await expect(page.locator('.iwn-tbl')).toContainText(new RegExp(S.buyers[0].name, 'i'));
   await expect(page.locator('.iwn-tbl tbody tr')).toHaveCount(1);
 });
 
@@ -392,8 +392,10 @@ test('GST Invoicing: pending invoices (generate from the list), report with mont
   await page.locator('#gst-rpt-month').fill(today.slice(0, 7)); await page.locator('#gst-rpt-project').selectOption({ label: S.projectName }); await fetchReport();
   await expect(page.locator('#gst-reports-body')).toContainText(/INV\//);
   await expect(page.locator('#gst-reports-body tbody tr').first()).not.toContainText(/NaN|undefined/);
-  await page.locator('button', { hasText: /GSTR-1/ }).click(); await expect(toast(/coming soon/i)).toBeVisible();
-  await page.locator('button', { hasText: /GSTR-3B/ }).click(); await expect(toast(/coming soon/i).first()).toBeVisible();
+  for (const [label, name] of [[/GSTR-1/, 'gstr1'], [/GSTR-3B/, 'gstr3b']] as const) {
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.locator('[data-panel="report"] button', { hasText: label }).click()]);
+    expect(dl.suggestedFilename()).toBe(`${name}-${today.slice(0, 7)}.csv`);
+  }
   // user rights: shown for information, not editable
   await tab('user-rights');
   await expect(page.locator('#gst-rights-rows input[type=checkbox]').first()).toBeDisabled();
@@ -412,7 +414,7 @@ test('Loans: record a sanction, it shows in the list, the same one again and a b
   await page.locator('#loan-amount').fill('2500000'); await page.locator('#loan-tpa-date').fill(today);
   await save(); await expect(toast(/saved successfully/i)).toBeVisible();
   expect(sql(`select loan_status || '|' || loan_amount from loan_details where consumer_id = '${b.c}'`)).toBe('sanctioned|2500000');
-  await expect(page.locator('#loan-list-body')).toContainText(b.name); await expect(page.locator('#loan-list-body')).toContainText('HDFC Bank');
+  await expect(page.locator('#loan-list-body')).toContainText(new RegExp(b.name, 'i')); await expect(page.locator('#loan-list-body')).toContainText('HDFC Bank');
   await save(); await expect(toast(/already recorded/i)).toBeVisible();
 });
 
