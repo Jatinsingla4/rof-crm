@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
+const broker_js_1 = require("../utils/broker.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'This record already exists');
@@ -353,6 +354,8 @@ const performSurrender = async (c, req, res, p) => {
         await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d) => d.id)]);
     if (commissions.length)
         await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
+    if (isCancel)
+        await (0, broker_js_1.flagPaidCommission)(c, consumerId, alloc.unit_id);
     await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined, { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };
 };

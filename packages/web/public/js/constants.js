@@ -51,6 +51,10 @@ const ROF = {
     // Generic states
     active:              { cls:'ch-teal',   label:'Active' },
     inactive:            { cls:'ch-gray',   label:'Inactive' },
+    suspended:           { cls:'ch-red',    label:'Suspended' },
+    held:                { cls:'ch-gold',   label:'Held' },
+    expired:             { cls:'ch-gray',   label:'Expired' },
+    converted:           { cls:'ch-green',  label:'Converted' },
     completed:           { cls:'ch-green',  label:'Completed' },
     // Plan installment types
     installment:         { cls:'ch-blue',   label:'Installment' },

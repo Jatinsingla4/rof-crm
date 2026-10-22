@@ -7,6 +7,7 @@
 import cron from 'node-cron';
 import { db } from '../index.js';
 import { demandLetterQueue } from './index.js';
+import { expireDueHolds } from '../utils/holds.js';
 
 interface Demand {
   id: string;
@@ -120,52 +121,19 @@ export function scheduleOverdueCheck() {
 
 /**
  * Schedule hold expiry check
- * Runs every hour
+ * Runs every 5 minutes (a hold is also released the moment someone lists holds or books the unit)
  */
 export function scheduleHoldExpiryCheck() {
-  const job3 = cron.schedule('0 * * * *', async () => {
-    console.log(`[${new Date().toISOString()}] Running hold expiry check...`);
-
+  const job3 = cron.schedule('*/5 * * * *', async () => {
     try {
-      // Find all active holds that have expired
-      const result = await db.query(`
-        SELECT id, unit_id FROM unit_holds 
-        WHERE status = 'active' AND expires_at <= NOW()
-      `);
-      
-      const expiredHolds = result.rows;
-      if (expiredHolds.length > 0) {
-        console.log(`Found ${expiredHolds.length} expired unit holds`);
-        
-        for (const hold of expiredHolds) {
-          await db.query('BEGIN');
-          try {
-            // Update hold status
-            await db.query(`UPDATE unit_holds SET status = 'expired' WHERE id = $1`, [hold.id]);
-            
-            // Update unit status back to available (only if it was 'held')
-            await db.query(`UPDATE units SET status = 'available', status_changed_at = NOW() WHERE id = $1 AND status = 'held'`, [hold.unit_id]);
-            
-            // Log history
-            await db.query(
-              `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason)
-               VALUES ($1, 'held', 'available', NULL, 'Hold automatically expired after 24h')`,
-              [hold.unit_id]
-            );
-            await db.query('COMMIT');
-            console.log(`Released expired hold for unit ${hold.unit_id}`);
-          } catch (e) {
-            await db.query('ROLLBACK');
-            console.error(`Failed to release hold for unit ${hold.unit_id}:`, e);
-          }
-        }
-      }
+      const n = await expireDueHolds();
+      if (n) console.log(`[${new Date().toISOString()}] Expired ${n} unit hold(s)`);
     } catch (error) {
       console.error('Error in hold expiry check:', error);
     }
   });
 
-  console.log('Scheduled hold expiry check initialized (runs every hour)');
+  console.log('Scheduled hold expiry check initialized (runs every 5 minutes)');
   return job3;
 }
 

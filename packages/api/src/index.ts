@@ -556,7 +556,8 @@ app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRo
 app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
 app.use('/api/automation',    authenticateToken, rbac('reports'),         automationRoutes);
-app.use('/api/brokers',       authenticateToken, rbac('consumers'),       brokersRoutes);
+// Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
+app.use('/api/brokers',       authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokersRoutes);
 app.use('/api/parking',       authenticateToken, rbac('units'),           parkingRoutes);
 app.use('/api/import',        authenticateToken, rbac('units'),           importRoutes);
 app.use('/api/projects',      authenticateToken, rbac('units'),           projectsRoutes);

@@ -1,123 +1,99 @@
 /**
  * Inventory Hold Routes (Governance)
+ * A broker can hold an available unit for a few hours. Rules:
+ *  - one active hold per unit (database index), the unit is locked while the hold is made
+ *  - the broker has to be active; hold time is a whole number of hours, 1 to 72
+ *  - only the person who made a hold, a project manager or a super admin can release it
+ *  - a held unit can be booked only by the broker who holds it (the hold becomes 'converted'), or after the hold expired or was released
  */
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { bad, failWith, uuid, has, text, body, inTx, paging, oneOf } from '../utils/input.js';
+import { mobileNo } from '../utils/applicant.js';
+import { closeHold, expireDueHolds } from '../utils/holds.js';
+import { auditChange } from '../middleware/auditLogger.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
 
 const router = Router();
+const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next, 'This unit is already held');
 
-// GET /api/inventory-hold
+// GET /api/inventory-hold?status=active|expired|converted|cancelled|all
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { status = 'active' } = req.query;
-    let query = `
-      SELECT uh.*, u.unit_number, u.bhk_type, u.floor, t.tower_name, p.name as project_name, b.firm_name as broker_firm_name
-      FROM unit_holds uh
-      JOIN units u ON uh.unit_id = u.id
-      JOIN towers t ON u.tower_id = t.id
-      JOIN projects p ON u.project_id = p.id
-      JOIN brokers b ON uh.broker_id = b.id
-    `;
+    const status = oneOf(req.query.status, 'status', ['active', 'expired', 'converted', 'cancelled', 'all'] as const) || 'active';
+    const { size, offset } = paging(req.query, 200, 500);
+    await expireDueHolds();
     const params: any[] = [];
-    if (status && status !== 'all') {
-      query += ` WHERE uh.status = $1`;
-      params.push(status);
-    }
-    query += ` ORDER BY uh.held_at DESC`;
-    
-    const result = await db.query(query, params);
+    let where = '';
+    if (status !== 'all') { params.push(status); where = `WHERE uh.status = $1`; }
+    params.push(size, offset);
+    const result = await db.query(
+      `SELECT uh.*, u.unit_number, u.bhk_type, u.floor, t.tower_name, p.name AS project_name, u.project_id,
+              b.firm_name AS broker_firm_name, b.name AS broker_name, cu.name AS held_by_name
+         FROM unit_holds uh
+         JOIN units u ON uh.unit_id = u.id
+         JOIN towers t ON u.tower_id = t.id
+         JOIN projects p ON u.project_id = p.id
+         JOIN brokers b ON uh.broker_id = b.id
+         LEFT JOIN users cu ON cu.id = uh.created_by
+         ${where}
+        ORDER BY uh.held_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
     res.json({ success: true, data: result.rows });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // POST /api/inventory-hold
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { unitId, brokerId, clientName, clientMobile, holdHours = 24, notes } = req.body;
-
-    if (!unitId || !brokerId) return res.status(400).json({ error: 'unitId and brokerId are required' });
-
-    // Begin transaction
-    await db.query('BEGIN');
-
-    // Check if unit is available
-    const unitRes = await db.query(`SELECT status FROM units WHERE id = $1 FOR UPDATE`, [unitId]);
-    if (unitRes.rows.length === 0) {
-      await db.query('ROLLBACK');
-      return res.status(404).json({ error: 'Unit not found' });
+    const b = body(req);
+    const unitId = uuid(b.unitId, 'unitId'), brokerId = uuid(b.brokerId, 'brokerId');
+    const clientName = text(b.clientName, 'Client name', 255, false);
+    const clientMobile = has(b.clientMobile) ? mobileNo(b.clientMobile, 'Client mobile') : null;
+    const notes = text(b.notes, 'Notes', 1000, false);
+    let hours = 24;
+    if (has(b.holdHours)) {
+      const h = typeof b.holdHours === 'number' ? b.holdHours : typeof b.holdHours === 'string' && /^\d+$/.test(b.holdHours) ? Number(b.holdHours) : NaN;
+      if (!Number.isInteger(h) || h < 1 || h > 72) throw bad('Hold time must be a whole number of hours from 1 to 72');
+      hours = h;
     }
-    if (unitRes.rows[0].status !== 'available') {
-      await db.query('ROLLBACK');
-      return res.status(400).json({ error: `Unit cannot be held. Current status: ${unitRes.rows[0].status}` });
-    }
-
-    // Insert hold
-    const holdRes = await db.query(
-      `INSERT INTO unit_holds (unit_id, broker_id, client_name, client_mobile, expires_at, status, notes, created_by)
-       VALUES ($1, $2, $3, $4, NOW() + interval '1 hour' * $5, 'active', $6, $7)
-       RETURNING *`,
-      [unitId, brokerId, clientName, clientMobile, holdHours, notes, req.userId]
-    );
-
-    // Update unit status
-    await db.query(`UPDATE units SET status = 'held', status_changed_at = NOW() WHERE id = $1`, [unitId]);
-
-    // Insert history
-    await db.query(
-      `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason)
-       VALUES ($1, 'available', 'held', $2, 'Unit held by broker')`,
-      [unitId, req.userId]
-    );
-
-    await db.query('COMMIT');
-    res.status(201).json({ success: true, data: holdRes.rows[0] });
-  } catch (error) {
-    await db.query('ROLLBACK');
-    next(error);
-  }
+    await expireDueHolds();
+    const hold = await inTx(async (c) => {
+      const unit = (await c.query(`SELECT id, status FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
+      if (!unit) throw bad('Unit not found', 404);
+      const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
+      if (!brk) throw bad('Broker not found', 404);
+      if (brk.status !== 'active') throw bad(`This broker is ${brk.status}, only an active broker can hold a unit`);
+      if (unit.status !== 'available') throw bad(`Unit cannot be held. Current status: ${unit.status}`, 409);
+      const h = (await c.query(
+        `INSERT INTO unit_holds (unit_id, broker_id, client_name, client_mobile, expires_at, status, notes, created_by)
+         VALUES ($1, $2, $3, $4, NOW() + interval '1 hour' * $5, 'active', $6, $7) RETURNING *`,
+        [unitId, brokerId, clientName, clientMobile, hours, notes, req.userId])).rows[0];
+      await c.query(`UPDATE units SET status = 'held', status_changed_at = NOW() WHERE id = $1`, [unitId]);
+      await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) VALUES ($1, 'available', 'held', $2, 'Unit held by broker')`, [unitId, req.userId]);
+      return h;
+    });
+    await auditChange(db, req, res, 'create', 'unit_hold', hold.id, undefined, { unitId, brokerId, hours });
+    res.status(201).json({ success: true, data: hold });
+  } catch (error) { fail(error, res, next); }
 });
 
 // POST /api/inventory-hold/:id/unhold
 router.post('/:id/unhold', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
-
-    await db.query('BEGIN');
-
-    const holdRes = await db.query(`SELECT unit_id, status FROM unit_holds WHERE id = $1 FOR UPDATE`, [id]);
-    if (holdRes.rows.length === 0) {
-      await db.query('ROLLBACK');
-      return res.status(404).json({ error: 'Hold record not found' });
-    }
-    if (holdRes.rows[0].status !== 'active') {
-      await db.query('ROLLBACK');
-      return res.status(400).json({ error: 'Hold is not active' });
-    }
-
-    const unitId = holdRes.rows[0].unit_id;
-
-    // Release hold
-    await db.query(`UPDATE unit_holds SET status = 'cancelled' WHERE id = $1`, [id]);
-    
-    // Update unit status back to available
-    await db.query(`UPDATE units SET status = 'available', status_changed_at = NOW() WHERE id = $1`, [unitId]);
-
-    // Insert history
-    await db.query(
-      `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason)
-       VALUES ($1, 'held', 'available', $2, 'Hold manually cancelled')`,
-      [unitId, req.userId]
-    );
-
-    await db.query('COMMIT');
+    const id = uuid(req.params.id, 'Hold id');
+    await inTx(async (c) => {
+      const h = (await c.query(`SELECT unit_id, status, created_by FROM unit_holds WHERE id = $1`, [id])).rows[0];
+      if (!h) throw bad('Hold record not found', 404);
+      if (h.status !== 'active') throw bad('Hold is not active', 409);
+      const own = h.created_by && h.created_by === req.userId;
+      if (!own && !['super_admin', 'project_manager'].includes(req.userRole || '')) throw bad('Only the person who made this hold, a project manager or an admin can release it', 403);
+      if (!(await closeHold(c, id, 'cancelled', req.userId || null, 'Hold manually cancelled'))) throw bad('Hold is not active', 409);
+    });
+    await auditChange(db, req, res, 'update', 'unit_hold', id, { status: 'active' }, { status: 'cancelled' });
     res.json({ success: true, message: 'Unit hold cancelled and unit is now available' });
-  } catch (error) {
-    await db.query('ROLLBACK');
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
+router.use(pgErrorHandler);
 export default router;

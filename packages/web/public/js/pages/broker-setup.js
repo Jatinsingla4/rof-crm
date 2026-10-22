@@ -27,10 +27,10 @@ Pages.brokerSetup = async function(params = {}) {
 
     <div class="sp bsn">
       <div class="bsn-intro">
-        <div class="bsn-intro-ico">🧾</div>
+        <div class="bsn-intro-ico">%</div>
         <div>
           <div class="bsn-intro-t">Broker Tax Configuration (TDS &amp; GST)</div>
-          <div class="bsn-intro-s">Configure default tax levels. Brokers without a specific configuration use the defaults.</div>
+          <div class="bsn-intro-s">TDS is cut from the commission and GST is added to it when a commission is paid. Brokers without their own setup use the defaults (TDS 5%, GST 18%).</div>
         </div>
       </div>
       <div class="bsn-body">
@@ -57,33 +57,57 @@ Pages.brokerSetup = async function(params = {}) {
 };
 
 const BrokerSetupPage = {
+  _rows: [],
+
   async loadConfigs() {
     const tbody = document.getElementById('broker-tax-body');
     if (!tbody) return;
     try {
       const res = await Api.get('/broker-setup');
-      const configs = res.data || [];
-      if (configs.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="bsn-msg">No configurations found. Configure from Broker Management.</td></tr>';
-        return;
-      }
-
-      tbody.innerHTML = configs.map(c => `
-        <tr>
-          <td class="td-bold">${c.firm_name || '—'}</td>
-          <td>${c.broker_name || '—'}</td>
-          <td>${c.tds_rate_pct}%</td>
-          <td>${c.gst_rate_pct}%</td>
-          <td>${c.is_gst_exempt ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}</td>
-          <td><button class="btn btn-sm btn-ghost" onclick="BrokerSetupPage.editConfig('${c.broker_id}')">Edit</button></td>
-        </tr>
-      `).join('');
+      this._rows = res.data || [];
+      this.render();
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6" class="bsn-msg" style="color:var(--red)">${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="bsn-msg" style="color:var(--red)">${Utils.esc(err.message)}</td></tr>`;
     }
   },
 
-  editConfig(brokerId) {
-    Utils.info('Edit Tax Config logic coming soon');
+  render(editId) {
+    const tbody = document.getElementById('broker-tax-body');
+    if (!tbody) return;
+    if (this._rows.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="6" class="bsn-msg">No brokers yet. Register a broker first.</td></tr>';
+      return;
+    }
+    const e = Utils.esc;
+    tbody.innerHTML = this._rows.map(c => c.broker_id === editId ? `
+        <tr data-broker="${c.broker_id}">
+          <td class="td-bold">${e(c.firm_name || '—')}</td>
+          <td>${e(c.broker_name || '—')}</td>
+          <td><input class="fc" id="bs-tds" type="number" min="0" max="100" step="0.01" value="${Number(c.tds_rate_pct)}" style="width:90px"></td>
+          <td><input class="fc" id="bs-gst" type="number" min="0" max="100" step="0.01" value="${Number(c.gst_rate_pct)}" style="width:90px"></td>
+          <td><select class="fc" id="bs-exempt"><option value="no" ${c.is_gst_exempt ? '' : 'selected'}>No</option><option value="yes" ${c.is_gst_exempt ? 'selected' : ''}>Yes</option></select></td>
+          <td><button class="btn btn-sm btn-teal" onclick="BrokerSetupPage.save('${c.broker_id}')">Save</button>
+              <button class="btn btn-sm btn-ghost" onclick="BrokerSetupPage.render()">Cancel</button></td>
+        </tr>` : `
+        <tr data-broker="${c.broker_id}">
+          <td class="td-bold">${e(c.firm_name || '—')}</td>
+          <td>${e(c.broker_name || '—')}</td>
+          <td>${Number(c.tds_rate_pct)}%</td>
+          <td>${Number(c.gst_rate_pct)}%</td>
+          <td>${c.is_gst_exempt ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}${c.configured ? '' : ' <small style="color:var(--text3)">default</small>'}</td>
+          <td><button class="btn btn-sm btn-ghost" onclick="BrokerSetupPage.editConfig('${c.broker_id}')">Edit</button></td>
+        </tr>`).join('');
+  },
+
+  editConfig(brokerId) { this.render(brokerId); },
+
+  async save(brokerId) {
+    const tds = document.getElementById('bs-tds').value, gst = document.getElementById('bs-gst').value;
+    if (tds === '' || gst === '') { Utils.warn('Enter both rates'); return; }
+    try {
+      await Api.post(`/broker-setup/${brokerId}`, { tdsRatePct: tds, gstRatePct: gst, isGstExempt: document.getElementById('bs-exempt').value === 'yes' });
+      Utils.success('Tax setup saved');
+      await this.loadConfigs();
+    } catch (err) { Utils.error(err.message); }
   }
 };

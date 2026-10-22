@@ -153,12 +153,12 @@ const InventoryHoldPage = {
       
       const pSelect = document.getElementById('hold-project');
       if (pSelect && projRes.data) {
-        pSelect.innerHTML = '<option value="">— Select —</option>' + projRes.data.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        pSelect.innerHTML = '<option value="">— Select —</option>' + projRes.data.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       }
       
       const bSelect = document.getElementById('hold-broker');
       if (bSelect && brkRes.data) {
-        bSelect.innerHTML = '<option value="">— Select Broker —</option>' + brkRes.data.filter(b=>b.status==='active').map(b => `<option value="${b.id}">${b.firm_name || b.name}</option>`).join('');
+        bSelect.innerHTML = '<option value="">— Select Broker —</option>' + brkRes.data.filter(b=>b.status==='active').map(b => `<option value="${b.id}">${Utils.esc(b.firm_name || b.name)}</option>`).join('');
       }
     } catch(e) {
       console.error(e);
@@ -175,8 +175,8 @@ const InventoryHoldPage = {
 
     try {
       const res = await Api.get(`/units/tower/${pid}`);
-      const towers = res.data || res || [];
-      tSelect.innerHTML = '<option value="">— Select —</option>' + towers.map(t => `<option value="${t.id}">${t.tower_name}</option>`).join('');
+      const towers = res.towers || res.data || [];
+      tSelect.innerHTML = '<option value="">— Select —</option>' + towers.map(t => `<option value="${t.tower_id || t.id}">${Utils.esc(t.tower_name)}</option>`).join('');
     } catch(e) { console.error(e); }
   },
 
@@ -189,7 +189,7 @@ const InventoryHoldPage = {
 
     try {
       const res = await Api.get('/units', { params: { projectId: pid, towerId: tid, status: 'available' } });
-      uSelect.innerHTML = '<option value="">— Select Available Unit —</option>' + res.data.map(u => `<option value="${u.id}">${u.unit_number} (${u.floor}F)</option>`).join('');
+      uSelect.innerHTML = '<option value="">— Select Available Unit —</option>' + res.data.map(u => `<option value="${u.id}">${Utils.esc(u.unit_number)} (${Utils.esc(u.floor)}F)</option>`).join('');
     } catch(e) { console.error(e); }
   },
 
@@ -203,7 +203,7 @@ const InventoryHoldPage = {
       const holds = res.data || [];
       
       if (holds.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3)">No ${status} holds found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3)">No ${status === 'all' ? '' : status + ' '}holds found.</td></tr>`;
         return;
       }
 
@@ -212,9 +212,9 @@ const InventoryHoldPage = {
           const isExpiringSoon = new Date(h.expires_at).getTime() - new Date().getTime() < (4 * 60 * 60 * 1000); // 4 hours
           return `
           <tr>
-            <td class="td-bold">${h.unit_number}</td>
-            <td>${h.project_name} / ${h.tower_name}</td>
-            <td>${h.broker_firm_name}<br><small>${h.client_name || '-'}</small></td>
+            <td class="td-bold">${Utils.esc(h.unit_number)}</td>
+            <td>${Utils.esc(h.project_name)} / ${Utils.esc(h.tower_name)}</td>
+            <td>${Utils.esc(h.broker_firm_name)}<br><small>${Utils.esc(h.client_name || '-')}</small></td>
             <td style="font-size:10.5px">${Utils.date(h.held_at, true)}</td>
             <td style="font-size:10.5px;color:${isExpiringSoon ? 'var(--red)' : 'inherit'}">${Utils.date(h.expires_at, true)}</td>
             <td><button class="btn btn-sm btn-outline btn-warn" onclick="InventoryHoldPage.unhold('${h.id}')">Unhold</button></td>
@@ -223,16 +223,16 @@ const InventoryHoldPage = {
       } else {
         tbody.innerHTML = holds.map(h => `
           <tr>
-            <td class="td-bold">${h.unit_number}</td>
-            <td>${h.broker_firm_name}</td>
-            <td>${h.client_name || '-'}</td>
+            <td class="td-bold">${Utils.esc(h.unit_number)}</td>
+            <td>${Utils.esc(h.broker_firm_name)}</td>
+            <td>${Utils.esc(h.client_name || '-')}</td>
             <td>${Utils.chip(h.status)}</td>
             <td style="font-size:10.5px">${Utils.date(h.held_at)} <br> ${Utils.date(h.expires_at)}</td>
           </tr>
         `).join('');
       }
     } catch (err) {
-      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center">${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" style="color:var(--red);text-align:center">${Utils.esc(err.message)}</td></tr>`;
     }
   },
 

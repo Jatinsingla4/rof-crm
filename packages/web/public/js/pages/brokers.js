@@ -85,7 +85,7 @@ Pages.brokers = async function(params = {}) {
     <div data-panel-group="brk" data-panel="form" ${tab!=='form'?'style="display:none"':''}>
       <div class="sp brkn">
         <div class="brkn-intro">
-          <div class="brkn-intro-ico">🤝</div>
+          <div class="brkn-intro-ico">B</div>
           <div>
             <div class="brkn-intro-t">Broker Application Form</div>
             <div class="brkn-intro-s">Register a broker or agency with contact, bank and commission details.</div>
@@ -158,7 +158,7 @@ Pages.brokers = async function(params = {}) {
                 <input class="fc" name="bank_ifsc" placeholder="HDFC0000XXX">
               </div>
               <div class="fg"><label class="fl">Bank Name</label>
-                <select class="fc" id="brk-bank-sel">
+                <select class="fc" name="bank_name" id="brk-bank-sel">
                   <option value="">— Select Bank —</option>
                 </select>
               </div>
@@ -169,31 +169,17 @@ Pages.brokers = async function(params = {}) {
           </div>
 
           <div class="brkn-sec">
-            <div class="brkn-sec-h"><span class="brkn-num">4</span><span class="brkn-sec-t">Commission Setup</span><span class="brkn-sec-s">Rate and payment terms</span></div>
+            <div class="brkn-sec-h"><span class="brkn-num">4</span><span class="brkn-sec-t">Commission Setup</span><span class="brkn-sec-s">Rate and GST</span></div>
             <div class="brkn-grid">
               <div class="fg"><label class="fl">Commission Rate (%)</label>
-                <div class="brkn-suf"><input type="number" step="0.25" min="0" max="10" class="fc" name="commission_rate" placeholder="e.g. 1.5"><span>%</span></div>
-              </div>
-              <div class="fg"><label class="fl">Commission Type</label>
-                <select class="fc" name="commission_type">
-                  <option value="percent">Percentage of Booking Amount</option>
-                  <option value="flat">Flat Amount per Unit</option>
-                </select>
+                <div class="brkn-suf"><input type="number" step="0.01" min="0" max="100" class="fc" name="commission_rate" placeholder="e.g. 1.5"><span>%</span></div>
               </div>
               <div class="fg"><label class="fl">GST on Commission</label>
                 <div class="btg">
-                  <button type="button" class="btg-item on" onclick="btgSelect(this)">Yes (18%)</button>
-                  <button type="button" class="btg-item" onclick="btgSelect(this)">No</button>
+                  <button type="button" class="btg-item on" onclick="btgSelect(this);document.querySelector('#brk-app-form [name=gst_on_commission]').value='yes'">Yes (18%)</button>
+                  <button type="button" class="btg-item" onclick="btgSelect(this);document.querySelector('#brk-app-form [name=gst_on_commission]').value='no'">No</button>
                 </div>
                 <input type="hidden" name="gst_on_commission" value="yes">
-              </div>
-              <div class="fg"><label class="fl">Payment Terms</label>
-                <select class="fc" name="payment_terms">
-                  <option value="on_allotment">On Allotment</option>
-                  <option value="on_receipt">On First Receipt</option>
-                  <option value="on_possession">On Possession</option>
-                  <option value="milestone">Milestone Based</option>
-                </select>
               </div>
             </div>
           </div>
@@ -210,7 +196,7 @@ Pages.brokers = async function(params = {}) {
           <div class="brkn-foot">
             <span class="brkn-note"><b>*</b> Required fields</span>
             <div style="display:flex;gap:10px">
-              <button type="reset" class="btn btn-ghost">Clear</button>
+              <button type="reset" class="btn btn-ghost" onclick="setTimeout(()=>BrkPage.resetGst(),0)">Clear</button>
               <button type="submit" class="btn btn-teal">Register Broker</button>
             </div>
           </div>
@@ -249,7 +235,7 @@ Pages.brokers = async function(params = {}) {
               <option value="">— All Status —</option>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
-              <option value="on_hold">On Hold</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
           <button class="btn btn-teal" onclick="BrkPage.loadCommission()">FETCH</button>
@@ -316,21 +302,30 @@ const BrkPage = {
     try {
       const res = await Api.get('/master/banks');
       const sel = document.getElementById('brk-bank-sel');
-      if (sel) sel.innerHTML += (res.data||[]).map(b=>`<option>${b.name}</option>`).join('');
+      if (sel) sel.innerHTML += (res.data||[]).map(b=>`<option>${Utils.esc(b.name)}</option>`).join('');
     } catch {}
     // Load projects for sold-unit report
     try {
       const res = await Api.get('/projects');
       this._projects = res.data || [];
       const sel = document.getElementById('brk-rpt-project');
-      if (sel) sel.innerHTML += this._projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+      if (sel) sel.innerHTML += this._projects.map(p=>`<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch {}
   },
 
   async load(tab) {
     if (tab === 'list')             await this.loadList();
+    // the broker pick lists of the other tabs are filled by the list, so it is loaded first when the page is opened on one of them
+    if (tab === 'commission' || tab === 'sold-unit-report') await this.loadList();
     if (tab === 'commission')       await this.loadCommission();
     if (tab === 'sold-unit-report') await this.loadSoldUnitReport();
+  },
+
+  // A hidden input keeps what was set on it through a form reset, so the GST choice goes back to Yes by hand
+  resetGst() {
+    const f = document.getElementById('brk-app-form'); if (!f) return;
+    f.querySelector('[name=gst_on_commission]').value = 'yes';
+    f.querySelectorAll('.btg-item').forEach((b, i) => b.classList.toggle('on', i === 0));
   },
 
   // ── Application Form submit
@@ -342,16 +337,50 @@ const BrkPage = {
     try {
       await Api.post('/brokers', body);
       document.getElementById('brk-form-result').innerHTML =
-        `<div class="alert alert-success" style="margin-top:10px">✓ Broker "${body.firm_name}" registered successfully</div>`;
-      form.reset();
+        `<div class="alert alert-success" style="margin-top:10px">Broker "${Utils.esc(body.firm_name)}" registered. It is pending until another person approves it.</div>`;
+      form.reset(); this.resetGst();
       await this.loadList();
     } catch (err) {
       document.getElementById('brk-form-result').innerHTML =
-        `<div class="alert alert-danger" style="margin-top:10px">Error: ${err.message}</div>`;
+        `<div class="alert alert-danger" style="margin-top:10px">Error: ${Utils.esc(err.message)}</div>`;
     }
   },
 
   // ── Broker List
+  _rows(list) {
+    const e = Utils.esc;
+    return list.length === 0
+      ? `<div class="brkn-empty"><div>No brokers match</div></div>`
+      : `<table class="brkn-tbl">
+          <thead><tr>
+            <th>Firm / Name</th><th>Contact</th><th>Mobile</th><th>RERA No.</th>
+            <th>City</th><th class="txt-right">Commission%</th><th class="txt-right">Paid</th><th class="txt-right">Pending</th><th>Status</th><th>Action</th>
+          </tr></thead>
+          <tbody>
+            ${list.map(b=>`<tr>
+              <td class="td-bold">${e(b.firm_name||b.name||'—')}</td>
+              <td>${e(b.contact_person||'—')}</td>
+              <td class="td-mono">${e(b.mobile||'—')}</td>
+              <td class="td-mono" style="font-size:10.5px">${e(b.rera_number||'—')}</td>
+              <td>${e(b.city||'—')}</td>
+              <td class="txt-right">${Number(b.commission_pct||0)}%</td>
+              <td class="txt-right">${Utils.currencyFull(b.total_paid_inr)}</td>
+              <td class="txt-right">${Utils.currencyFull(b.total_pending_inr)}</td>
+              <td>${Utils.chip(b.status||'active')}</td>
+              <td><div class="brkn-acts">
+                ${b.status==='pending' ? `<button class="btn btn-teal btn-sm" data-action="approve-broker" onclick="BrkPage.approve('${b.id}')">Approve</button>
+                                        <button class="btn btn-ghost btn-sm brkn-del" data-action="approve-broker" onclick="BrkPage.reject('${b.id}')">Reject</button>` : ''}
+                ${b.status==='active' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
+                                         <button class="btn btn-ghost btn-sm brkn-del" onclick="BrkPage.setStatus('${b.id}','inactive')">Deactivate</button>
+                                         <button class="btn btn-ghost btn-sm brkn-del" onclick="BrkPage.setStatus('${b.id}','suspended')">Suspend</button>` : ''}
+                ${b.status==='inactive' || b.status==='suspended' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
+                                         <button class="btn btn-teal btn-sm" onclick="BrkPage.setStatus('${b.id}','active')">Activate</button>` : ''}
+              </div></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+  },
+
   async loadList() {
     const el = document.getElementById('brk-list-body');
     if (!el) return;
@@ -361,72 +390,54 @@ const BrkPage = {
 
       // Populate broker dropdowns elsewhere
       const brkOpts = `<option value="">— All Brokers —</option>` +
-        this._list.map(b=>`<option value="${b.id}">${b.firm_name||b.name||'—'}</option>`).join('');
+        this._list.map(b=>`<option value="${b.id}">${Utils.esc(b.firm_name||b.name||'—')}</option>`).join('');
       ['brk-comm-broker','brk-rpt-broker'].forEach(id => {
         const s = document.getElementById(id);
         if (s) s.innerHTML = brkOpts;
       });
 
-      el.innerHTML = this._list.length === 0
-        ? `<div class="brkn-empty"><div class="brkn-empty-i">🤝</div><div>No brokers registered yet</div></div>`
-        : `<table class="brkn-tbl">
-            <thead><tr>
-              <th>Firm / Name</th><th>Contact</th><th>Mobile</th><th>RERA No.</th>
-              <th>City</th><th class="txt-right">Commission%</th><th>Status</th><th>Action</th>
-            </tr></thead>
-            <tbody>
-              ${this._list.map(b=>`<tr>
-                <td class="td-bold">${b.firm_name||b.name||'—'}</td>
-                <td>${b.contact_person||'—'}</td>
-                <td class="td-mono">${b.mobile||'—'}</td>
-                <td class="td-mono" style="font-size:10.5px">${b.rera_no||b.rera_number||'—'}</td>
-                <td>${b.city||'—'}</td>
-                <td class="txt-right">${b.commission_rate||b.commission||0}%</td>
-                <td>${Utils.chip(b.status||'active')}</td>
-                <td><div class="brkn-acts">
-                  ${b.status==='pending' ? `<button class="btn btn-teal btn-sm" data-action="approve-broker" onclick="BrkPage.approve('${b.id}')">Approve</button>
-                                          <button class="btn btn-ghost btn-sm brkn-del" data-action="approve-broker" onclick="BrkPage.reject('${b.id}')">Reject</button>` : ''}
-                  ${b.status==='active' ? `<button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button>
-                                           <button class="btn btn-ghost btn-sm brkn-del" onclick="BrkPage.deactivate('${b.id}',this)">Deact</button>` : ''}
-                </div></td>
-              </tr>`).join('')}
-            </tbody>
-          </table>`;
-    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+      const q = document.getElementById('brk-search')?.value;
+      if (q) this.filterList(q);
+      else el.innerHTML = this._list.length === 0
+        ? `<div class="brkn-empty"><div>No brokers registered yet</div></div>`
+        : this._rows(this._list);
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
   },
 
   filterList(q) {
-    const filtered = q
-      ? this._list.filter(b => (b.firm_name||b.name||'').toLowerCase().includes(q.toLowerCase()) || (b.mobile||'').includes(q))
+    const t = (q || '').toLowerCase();
+    const filtered = t
+      ? this._list.filter(b => (b.firm_name||b.name||'').toLowerCase().includes(t) || (b.name||'').toLowerCase().includes(t) || (b.mobile||'').includes(t))
       : this._list;
     const el = document.getElementById('brk-list-body');
-    if (!el) return;
-    if (!filtered.length) { el.innerHTML = `<div class="brkn-empty"><div class="brkn-empty-i">🔍</div><div>No brokers match</div></div>`; return; }
-    el.innerHTML = `<table class="brkn-tbl"><thead><tr><th>Firm/Name</th><th>Mobile</th><th>City</th><th class="txt-right">Commission%</th><th>Status</th><th>Action</th></tr></thead>
-      <tbody>${filtered.map(b=>`<tr>
-        <td class="td-bold">${b.firm_name||b.name||'—'}</td>
-        <td class="td-mono">${b.mobile||'—'}</td>
-        <td>${b.city||'—'}</td>
-        <td class="txt-right">${b.commission_rate||0}%</td>
-        <td>${Utils.chip(b.status||'active')}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="BrkPage.viewBroker('${b.id}')">View</button></td>
-      </tr>`).join('')}</tbody></table>`;
+    if (el) el.innerHTML = this._rows(filtered);
   },
 
-  viewBroker(id) {
-    const broker = this._list.find(b => b.id === id);
-    if (!broker) return;
-    Utils.confirm(
-      `<b>${broker.firm_name||broker.name}</b><br>Mobile: ${broker.mobile||'—'}<br>RERA: ${broker.rera_no||'—'}<br>Commission: ${broker.commission_rate||0}%<br><br>View full detail?`,
-      () => {}
-    );
-  },
-
-  async deactivate(id, btn) {
-    if (!confirm('Deactivate this broker?')) return;
+  async viewBroker(id) {
     try {
-      await Api.patch(`/brokers/${id}`, { status: 'inactive' });
-      Utils.success('Broker deactivated');
+      const res = await Api.get(`/brokers/${id}`);
+      const b = res.data;
+      const bank = b.bank_account_details || {};
+      alert([
+        b.firm_name || b.name,
+        'Contact: ' + (b.contact_person || '-'),
+        'Mobile: ' + (b.mobile || '-'),
+        'Email: ' + (b.email || '-'),
+        'RERA: ' + (b.rera_number || '-'),
+        'City: ' + ([b.city, b.state].filter(Boolean).join(', ') || '-'),
+        'Commission: ' + Number(b.commission_pct || 0) + '%',
+        'Status: ' + b.status,
+        ...(b.pan !== undefined ? ['PAN: ' + (b.pan || '-'), 'GST: ' + (b.tax_id_gst || '-'), 'Bank: ' + (bank.bankName || '-') + ' ' + (bank.accountNo ? 'A/c ' + bank.accountNo : '')] : []),
+      ].join('\n'));
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  async setStatus(id, status) {
+    const word = { inactive: 'Deactivate', suspended: 'Suspend', active: 'Activate' }[status];
+    if (!confirm(`${word} this broker?${status !== 'active' ? ' Units this broker is holding will be released.' : ''}`)) return;
+    try {
+      await Api.patch(`/brokers/${id}/status`, { status });
+      Utils.success(`Broker ${status === 'active' ? 'activated' : status === 'inactive' ? 'deactivated' : 'suspended'}`);
       await this.loadList();
     } catch (err) { Utils.error(err.message); }
   },
@@ -461,43 +472,45 @@ const BrkPage = {
       if (status)   params.status   = status;
       const res  = await Api.get('/brokers/commission', { params });
       const list = res.data || [];
-
-      const totalPending = list.filter(c=>c.status!=='paid').reduce((s,c)=>s+parseFloat(c.amount||0),0);
-      const totalPaid    = list.filter(c=>c.status==='paid') .reduce((s,c)=>s+parseFloat(c.amount||0),0);
-      const total        = list.reduce((s,c)=>s+parseFloat(c.amount||0),0);
+      const sm   = res.summary || {};
 
       const kpis = document.getElementById('brk-comm-kpis');
       if (kpis) kpis.innerHTML = `
-        <div class="brkn-kpi c-blue"><div class="brkn-kpi-l">Total Commissions</div><div class="brkn-kpi-v">${list.length}</div></div>
-        <div class="brkn-kpi"><div class="brkn-kpi-l">Total Amount</div><div class="brkn-kpi-v">${Utils.currency(total)}</div></div>
-        <div class="brkn-kpi c-warn"><div class="brkn-kpi-l">Pending Payout</div><div class="brkn-kpi-v">${Utils.currency(totalPending)}</div></div>
-        <div class="brkn-kpi c-green"><div class="brkn-kpi-l">Total Paid</div><div class="brkn-kpi-v">${Utils.currency(totalPaid)}</div></div>
+        <div class="brkn-kpi c-blue"><div class="brkn-kpi-l">Total Commissions</div><div class="brkn-kpi-v">${sm.count ?? 0}</div></div>
+        <div class="brkn-kpi"><div class="brkn-kpi-l">Total Amount</div><div class="brkn-kpi-v">${Utils.currencyFull(sm.total)}</div></div>
+        <div class="brkn-kpi c-warn"><div class="brkn-kpi-l">Pending Payout</div><div class="brkn-kpi-v">${Utils.currencyFull(sm.pending)}</div></div>
+        <div class="brkn-kpi c-green"><div class="brkn-kpi-l">Total Paid</div><div class="brkn-kpi-v">${Utils.currencyFull(sm.paid)}</div></div>
       `;
 
+      const e = Utils.esc;
       el.innerHTML = list.length === 0
-        ? `<div class="brkn-empty"><div class="brkn-empty-i">💰</div><div>No commission records</div></div>`
+        ? `<div class="brkn-empty"><div>No commission records</div></div>`
         : `<table class="brkn-tbl">
             <thead><tr>
               <th>Broker</th><th>Consumer</th><th>Unit</th><th>Project</th>
-              <th class="txt-right">Rate%</th><th class="txt-right">Amount</th><th>Status</th><th>Action</th>
+              <th class="txt-right">Rate</th><th class="txt-right">Commission</th><th class="txt-right">GST</th><th class="txt-right">TDS</th><th class="txt-right">Net Paid</th><th>Status</th><th>Action</th>
             </tr></thead>
             <tbody>
               ${list.map(c=>`<tr>
-                <td class="td-bold">${c.broker_name||'—'}</td>
-                <td>${c.consumer_name||'—'}</td>
-                <td>${c.unit_number||'—'}</td>
-                <td style="font-size:10.5px">${c.project_name||'—'}</td>
-                <td class="txt-right">${c.commission_rate||0}%</td>
-                <td class="txt-right" style="font-weight:700">${Utils.currency(c.amount)}</td>
+                <td class="td-bold">${e(c.firm_name||c.broker_name||'—')}</td>
+                <td>${e(c.consumer_name||'—')}</td>
+                <td>${e(c.unit_number||'—')}</td>
+                <td style="font-size:10.5px">${e(c.project_name||'—')}</td>
+                <td class="txt-right">${c.commission_value==null ? '—' : c.commission_type==='percent' ? Number(c.commission_value)+'%' : 'Flat'}</td>
+                <td class="txt-right" style="font-weight:700">${Utils.currencyFull(c.commission_amount_inr)}</td>
+                <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.gst_amount) : '—'}</td>
+                <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.tds_amount) : '—'}</td>
+                <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.net_amount_inr) : '—'}</td>
                 <td>${Utils.chip(c.status||'pending')}</td>
-                <td>${c.status!=='paid'?`<button class="btn btn-teal btn-sm" onclick="BrkPage.markPaid('${c.id}')">Mark Paid</button>`:'—'}</td>
+                <td>${c.status==='pending'||c.status==='approved'?`<button class="btn btn-teal btn-sm" onclick="BrkPage.markPaid('${c.id}')">Mark Paid</button>`:'—'}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
-    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
   },
 
   async markPaid(id) {
+    if (!confirm('Pay this commission? GST and TDS are worked out from the broker tax setup, and this cannot be undone.')) return;
     try {
       await Api.patch(`/brokers/commission/${id}`, { status: 'paid' });
       Utils.success('Commission marked as paid');
@@ -521,24 +534,20 @@ const BrkPage = {
       if (dateFrom)  params.dateFrom  = dateFrom;
       if (dateTo)    params.dateTo    = dateTo;
 
-      // Fetch broker commissions which represent sold units
+      // Fetch broker commissions which represent sold units (a cancelled one is not a sale any more)
       const res  = await Api.get('/brokers/commission', { params });
-      const list = res.data || [];
+      const list = (res.data || []).filter(c => c.status !== 'cancelled');
+      const sm   = res.summary || {};
 
-      const totalSales   = list.length;
-      const totalCommDue = list.reduce((s,c)=>s+parseFloat(c.amount||0),0);
-      const commPending  = list.filter(c=>c.status!=='paid').reduce((s,c)=>s+parseFloat(c.amount||0),0);
-      const commPaid     = list.filter(c=>c.status==='paid').reduce((s,c)=>s+parseFloat(c.amount||0),0);
+      const set = (id, val) => { const x = document.getElementById(id); if (x) x.textContent = val; };
+      set('brk-rpt-total',   sm.live ?? 0);
+      set('brk-rpt-comm',    Utils.currencyFull(sm.total));
+      set('brk-rpt-pending', Utils.currencyFull(sm.pending));
+      set('brk-rpt-paid',    Utils.currencyFull(sm.paid));
 
-      // Update KPIs
-      const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-      set('brk-rpt-total',   totalSales);
-      set('brk-rpt-comm',    Utils.currency(totalCommDue));
-      set('brk-rpt-pending', Utils.currency(commPending));
-      set('brk-rpt-paid',    Utils.currency(commPaid));
-
+      const e = Utils.esc;
       el.innerHTML = list.length === 0
-        ? `<div class="brkn-empty"><div class="brkn-empty-i">📊</div><div>No broker-sold units found for the selected filters</div></div>`
+        ? `<div class="brkn-empty"><div>No broker-sold units found for the selected filters</div></div>`
         : `<table class="brkn-tbl">
             <thead><tr>
               <th>S.No.</th><th>Broker Firm</th><th>Consumer Name</th>
@@ -549,17 +558,17 @@ const BrkPage = {
             <tbody>
               ${list.map((c,i)=>`<tr>
                 <td>${i+1}</td>
-                <td class="td-bold">${c.broker_name||'—'}</td>
-                <td>${c.consumer_name||'—'}</td>
-                <td style="font-size:10.5px">${c.project_name||'—'}</td>
-                <td>${c.unit_number||'—'}</td>
-                <td class="txt-right">${Utils.currency(c.booking_amount)}</td>
-                <td class="txt-right" style="font-weight:700;color:var(--teal)">${Utils.currency(c.amount)}</td>
+                <td class="td-bold">${e(c.firm_name||c.broker_name||'—')}</td>
+                <td>${e(c.consumer_name||'—')}</td>
+                <td style="font-size:10.5px">${e(c.project_name||'—')}</td>
+                <td>${e(c.unit_number||'—')}</td>
+                <td class="txt-right">${Utils.currencyFull(c.booking_amount)}</td>
+                <td class="txt-right" style="font-weight:700;color:var(--teal)">${Utils.currencyFull(c.commission_amount_inr)}</td>
                 <td>${Utils.chip(c.status||'pending')}</td>
                 <td style="font-size:10.5px">${Utils.date(c.created_at)}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
-    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${err.message}</div>`; }
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
   },
 };

@@ -1,65 +1,77 @@
 /**
  * Broker Setup Routes (Compliance & Tax)
+ * TDS and GST rates used when a broker's commission is paid. A broker without a row uses the defaults (TDS 5%, GST 18%).
+ * Only super_admin and accounts_finance reach these routes (rbac 'broker_setup').
  */
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
+import { bad, failWith, uuid, has, num, flag, body, inTx, paging, qtext } from '../utils/input.js';
+import { auditChange } from '../middleware/auditLogger.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
 
 const router = Router();
+const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
 
-// GET /api/broker-setup
+// GET /api/broker-setup  every broker with its effective TDS / GST setup ('configured' says whether it has its own row)
 router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    const { size, offset } = paging(req.query, 200, 500);
+    const search = qtext(req.query.search, 'search', 100);
+    const params: any[] = [];
+    let w = `WHERE b.status NOT IN ('rejected')`;
+    if (search) { params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`); w += ` AND (b.name ILIKE $1 OR b.firm_name ILIKE $1)`; }
     const result = await db.query(
-      `SELECT btc.*, b.name as broker_name, b.firm_name
-       FROM broker_tax_config btc
-       JOIN brokers b ON btc.broker_id = b.id`
-    );
+      `SELECT b.id AS broker_id, b.name AS broker_name, b.firm_name, b.status AS broker_status,
+              COALESCE(btc.tds_rate_pct, 5.00) AS tds_rate_pct, COALESCE(btc.gst_rate_pct, 18.00) AS gst_rate_pct,
+              COALESCE(btc.is_gst_exempt, false) AS is_gst_exempt, (btc.id IS NOT NULL) AS configured, btc.updated_at
+         FROM brokers b LEFT JOIN broker_tax_config btc ON btc.broker_id = b.id
+         ${w} ORDER BY b.firm_name NULLS LAST, b.name LIMIT ${size} OFFSET ${offset}`, params);
     res.json({ success: true, data: result.rows });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/broker-setup/:brokerId
 router.get('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { brokerId } = req.params;
+    const brokerId = uuid(req.params.brokerId, 'Broker id');
+    if (!(await db.query(`SELECT 1 FROM brokers WHERE id = $1`, [brokerId])).rows.length) return res.status(404).json({ error: 'Broker not found' });
     const result = await db.query(`SELECT * FROM broker_tax_config WHERE broker_id = $1`, [brokerId]);
     if (result.rows.length === 0) {
-      // Return default config if none exists
-      return res.json({ success: true, data: { broker_id: brokerId, tds_rate_pct: 5.00, gst_rate_pct: 18.00, is_gst_exempt: false } });
+      return res.json({ success: true, data: { broker_id: brokerId, tds_rate_pct: 5.00, gst_rate_pct: 18.00, is_gst_exempt: false, configured: false } });
     }
-    res.json({ success: true, data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
+    res.json({ success: true, data: { ...result.rows[0], configured: true } });
+  } catch (error) { fail(error, res, next); }
 });
 
-// POST or PATCH /api/broker-setup/:brokerId
+// POST /api/broker-setup/:brokerId   a rate left out keeps its current value (or the default when there is no row yet)
 router.post('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { brokerId } = req.params;
-    const { tdsRatePct, gstRatePct, isGstExempt } = req.body;
-
-    const result = await db.query(
-      `INSERT INTO broker_tax_config (broker_id, tds_rate_pct, gst_rate_pct, is_gst_exempt, updated_by)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (broker_id) 
-       DO UPDATE SET 
-         tds_rate_pct = EXCLUDED.tds_rate_pct,
-         gst_rate_pct = EXCLUDED.gst_rate_pct,
-         is_gst_exempt = EXCLUDED.is_gst_exempt,
-         updated_at = NOW(),
-         updated_by = EXCLUDED.updated_by
-       RETURNING *`,
-      [brokerId, tdsRatePct ?? 5.00, gstRatePct ?? 18.00, isGstExempt ?? false, req.userId]
-    );
-
-    res.json({ success: true, data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
+    const brokerId = uuid(req.params.brokerId, 'Broker id');
+    const b = body(req);
+    const tds = has(b.tdsRatePct) ? num(b.tdsRatePct, 'TDS rate', 100, 2) : null;
+    const gst = has(b.gstRatePct) ? num(b.gstRatePct, 'GST rate', 100, 2) : null;
+    const exempt = flag(b.isGstExempt, 'isGstExempt') ?? null;
+    if (tds === null && gst === null && exempt === null) throw bad('Send tdsRatePct, gstRatePct or isGstExempt');
+    const out = await inTx(async (c) => {
+      const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
+      if (!brk) throw bad('Broker not found', 404);
+      const before = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1`, [brokerId])).rows[0];
+      const row = (await c.query(
+        `INSERT INTO broker_tax_config (broker_id, tds_rate_pct, gst_rate_pct, is_gst_exempt, updated_by)
+         VALUES ($1, COALESCE($2, 5.00), COALESCE($3, 18.00), COALESCE($4, false), $5)
+         ON CONFLICT (broker_id) DO UPDATE SET
+           tds_rate_pct = COALESCE($2, broker_tax_config.tds_rate_pct),
+           gst_rate_pct = COALESCE($3, broker_tax_config.gst_rate_pct),
+           is_gst_exempt = COALESCE($4, broker_tax_config.is_gst_exempt),
+           updated_at = NOW(), updated_by = $5
+         RETURNING *`, [brokerId, tds, gst, exempt, req.userId])).rows[0];
+      return { before, row };
+    });
+    await auditChange(db, req, res, out.before ? 'update' : 'create', 'broker_tax_config', out.row.id, out.before, { tds_rate_pct: out.row.tds_rate_pct, gst_rate_pct: out.row.gst_rate_pct, is_gst_exempt: out.row.is_gst_exempt });
+    res.json({ success: true, data: out.row });
+  } catch (error) { fail(error, res, next); }
 });
 
+router.use(pgErrorHandler);
 export default router;

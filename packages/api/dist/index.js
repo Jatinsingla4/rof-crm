@@ -465,7 +465,8 @@ app.use('/api/smtp-configs', exports.authenticateToken, rbac('smtp_configs'), sm
 app.use('/api/faq', exports.authenticateToken, (req, res, next) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faq_js_1.default);
 app.use('/api/tasks', exports.authenticateToken, rbac('consumers'), tasks_js_1.default);
 app.use('/api/automation', exports.authenticateToken, rbac('reports'), automation_js_1.default);
-app.use('/api/brokers', exports.authenticateToken, rbac('consumers'), brokers_js_1.default);
+// Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
+app.use('/api/brokers', exports.authenticateToken, (req, res, next) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokers_js_1.default);
 app.use('/api/parking', exports.authenticateToken, rbac('units'), parking_js_1.default);
 app.use('/api/import', exports.authenticateToken, rbac('units'), import_js_1.default);
 app.use('/api/projects', exports.authenticateToken, rbac('units'), projects_js_1.default);

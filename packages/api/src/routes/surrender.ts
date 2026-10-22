@@ -7,6 +7,7 @@ import { db, AuthRequest } from '../index.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
+import { flagPaidCommission } from '../utils/broker.js';
 import { likeOf } from '../utils/applicant.js';
 
 const router = Router();
@@ -375,6 +376,7 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
     if (demands.length) await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d: any) => d.id)]);
     if (commissions.length) await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
+    if (isCancel) await flagPaidCommission(c, consumerId, alloc.unit_id);
     await auditChange(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined,
       { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };

@@ -11,6 +11,8 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const holds_js_1 = require("../utils/holds.js");
+const broker_js_1 = require("../utils/broker.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
@@ -300,8 +302,14 @@ router.post('/', async (req, res, next) => {
             if (project_id && unit.project_id !== project_id)
                 throw (0, input_js_1.bad)('This unit does not belong to the chosen project');
             project_id = unit.project_id;
+            // A held unit is booked only by the broker who holds it (or once the hold is over); everyone else is refused
+            if (unit.status === 'held') {
+                await (0, holds_js_1.settleHold)(client, unit_id, booking_type === 'broker' ? broker_id : null, req.userId || null);
+                unit.status = 'available';
+            }
             if (unit.status !== 'available')
                 throw conflict('Unit is no longer available');
+            await (0, broker_js_1.brokerOk)(client, booking_type, broker_id, main_broker_id);
             const consumerRow = (await client.query(`SELECT id, project_id, nationality, registration_no FROM consumers WHERE id = $1`, [consumer_id])).rows[0];
             if (!consumerRow)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
@@ -324,6 +332,8 @@ router.post('/', async (req, res, next) => {
                 throw (0, input_js_1.bad)('The inaugural discount is more than the basic price of the unit');
             if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM)
                 throw (0, input_js_1.bad)(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
+            if (booking_type === 'broker' && broker_id && broker_commission_type === 'flat' && basicEstimate > 0 && broker_commission > basicEstimate)
+                throw (0, input_js_1.bad)('The broker commission is more than the basic price of the unit');
             // Form number and cheque / reference are not reused by a live booking or a live receipt
             if (form_no) {
                 await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, ['booking-form:' + form_no]);
@@ -615,6 +625,9 @@ router.patch('/:id/edit', async (req, res, next) => {
                 if ((await c.query(`SELECT 1 FROM booking_records WHERE form_no = $1 AND status != 'cancelled' AND id <> $2 LIMIT 1`, [bk.form_no, id])).rows.length)
                     throw conflict(`Form No. "${bk.form_no}" is already in use.`);
             }
+            if (bkChanged.some(k => ['broker_id', 'main_broker_id', 'booking_type'].includes(k))) {
+                await (0, broker_js_1.brokerOk)(c, bk.booking_type ?? cur.booking_type, bk.broker_id !== undefined ? bk.broker_id : cur.broker_id, bk.main_broker_id !== undefined ? bk.main_broker_id : cur.main_broker_id);
+            }
             // Broker commission: a pending commission follows the change, a paid one does not move
             const commKeys = ['broker_id', 'broker_commission', 'broker_commission_type'].filter(k => bkChanged.includes(k));
             if (commKeys.length) {
@@ -625,6 +638,8 @@ router.patch('/:id/edit', async (req, res, next) => {
                     const kind = bk.broker_commission_type ?? cur.broker_commission_type, val = bk.broker_commission ?? cur.broker_commission;
                     const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
                     const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
+                    if (kind === 'flat' && basic > 0 && Number(val) > basic)
+                        throw (0, input_js_1.bad)('The broker commission is more than the basic price of the unit');
                     await c.query(`UPDATE broker_commissions SET commission_amount_inr = $2, broker_id = COALESCE($3, broker_id) WHERE id = $1`, [cm.id, kind === 'percent' ? Math.round(basic * Number(val)) / 100 : Number(val), bk.broker_id ?? null]);
                 }
             }
@@ -696,7 +711,7 @@ router.patch('/:id', async (req, res, next) => {
         try {
             await client.query('BEGIN');
             // The booking is locked, so two confirmations at once cannot both run, and a finished or cancelled booking is not confirmed again
-            const pre = (await client.query(`SELECT br.status, br.basic_rate_inr_sqft, br.carpet_area_sqft AS br_carpet, br.plc_amount, br.other_charge_amount, br.company_inaugural_disc,
+            const pre = (await client.query(`SELECT br.status, br.unit_id, br.broker_id, br.booking_type, br.basic_rate_inr_sqft, br.carpet_area_sqft AS br_carpet, br.plc_amount, br.other_charge_amount, br.company_inaugural_disc,
                                               u.carpet_area_sqft, u.base_price_inr
                                        FROM booking_records br LEFT JOIN units u ON u.id = br.unit_id WHERE br.id = $1 FOR UPDATE OF br`, [id])).rows[0];
             if (!pre) {
@@ -707,6 +722,10 @@ router.patch('/:id', async (req, res, next) => {
                 throw conflict('This booking is already complete.');
             if (pre.status === 'cancelled')
                 throw conflict('This booking is cancelled.');
+            // The unit may have been held by someone else since this booking was started
+            if (pre.unit_id && (await client.query(`SELECT status FROM units WHERE id = $1 FOR UPDATE`, [pre.unit_id])).rows[0]?.status === 'held') {
+                await (0, holds_js_1.settleHold)(client, pre.unit_id, pre.booking_type === 'broker' ? pre.broker_id : null, req.userId || null);
+            }
             const estimate = priceEstimate(pre.basic_rate_inr_sqft, 0, pre, pre.plc_amount, pre.other_charge_amount, pre.company_inaugural_disc);
             if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM)
                 throw (0, input_js_1.bad)(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
@@ -3128,6 +3147,7 @@ router.post('/:id/cancel', async (req, res, next) => {
                 }
             }
             await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status = 'pending'`, [cur.consumer_id, cur.unit_id]);
+            await (0, broker_js_1.flagPaidCommission)(c, cur.consumer_id, cur.unit_id);
             return cur;
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking', id, { status: out.status }, { status: 'cancelled', reason });

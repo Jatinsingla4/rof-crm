@@ -10,7 +10,7 @@ Pages.booking = async function(params = {}) {
     Api.get('/master/salutations'),
     Api.get('/master/professions'),
     Api.get('/master/nationalities'),
-    Api.get('/brokers'),
+    Api.get('/brokers', { params: { status: 'active', pageSize: 500 } }),
     Api.get('/users/directory'),
   ]);
 
@@ -1629,7 +1629,7 @@ const BookingPage = {
         if (isAvailable) {
           return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-super="${u.super_area_sqft||0}" data-price="${u.base_price_inr||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;
         }
-        return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — Booked</option>`;
+        return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — ${u.status === 'held' ? 'Held' : 'Booked'}</option>`;
       }).join('');
     // Extract BHK code from full value (e.g., "Type-A (3 BHK)" → "3BHK")
     const extractBhk = (bhkType) => {
