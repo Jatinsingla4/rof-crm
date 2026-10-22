@@ -57,6 +57,8 @@ jobs:
       JWT_SECRET: ci-only-secret
       NODE_ENV: development
       PORT: 3002
+      # The big test scripts send thousands of requests a minute; the dev limit made later scripts fail with 429
+      API_RATE_MAX: 500000
 
     steps:
       - uses: actions/checkout@v4
