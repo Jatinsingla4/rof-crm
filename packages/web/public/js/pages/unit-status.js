@@ -228,7 +228,7 @@ const UnitStatusPage = {
   _STATUS_MAP: {
     all:            ['available','application_received','draw_pending','booked',
                      'allotted','agreement_signed','under_construction','oc_received',
-                     'possession_handed_over','locked','held'],
+                     'possession_handed_over','locked','held','temp_surrender'],
     available:      ['available'],
     mortgage:       [],
     hold:           ['locked','held'],
@@ -265,9 +265,10 @@ const UnitStatusPage = {
 
   _applyFilters(units) {
     const activeStatuses = this._getActiveStatuses();
-    let filtered = activeStatuses.length
-      ? units.filter(u => activeStatuses.includes(u.status || 'available'))
-      : units;
+    // the Mortgage button has no status of its own: it lists the units marked as mortgaged (it used to list every unit)
+    let filtered = this._activeStatusKey === 'mortgage'
+      ? units.filter(u => u.mortgage_status === true)
+      : units.filter(u => activeStatuses.includes(u.status || 'available'));
 
     const bhk      = document.getElementById('us-bhk')?.value;
     const unitNo   = document.getElementById('us-unit-no')?.value.trim().toLowerCase();
@@ -292,10 +293,8 @@ const UnitStatusPage = {
       const res = await Api.get('/units', { params: { pageSize: 1000 } });
       const units = res.data || res || [];
 
-      const projects = [...new Map(units
-        .filter(u => u.project_id)
-        .map(u => [u.project_id, { id: u.project_id, name: u.project_name || u.projectName }])
-      ).values()];
+      // every project (the list used to be worked out from the first 1000 units, so a project whose units come later was missing)
+      const projects = ((await Api.get('/units/projects').catch(() => ({}))).data || []).map(p => ({ id: p.id, name: p.name }));
 
       const towerMap = new Map();
       units.forEach(u => {
@@ -310,7 +309,7 @@ const UnitStatusPage = {
 
       const pSel = document.getElementById('us-project');
       if (pSel) pSel.innerHTML = '<option value="">&#8592;&#8211;Select&#8211;&#8594;</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
 
       const tSel = document.getElementById('us-tower');
       if (tSel) tSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
@@ -400,10 +399,16 @@ const UnitStatusPage = {
       if (floor)        params.floor        = floor;
       if (consumerName) params.consumerName = consumerName;
 
+      const mine = this._loadSeq = (this._loadSeq || 0) + 1;
       const res = await Api.get('/units', { params });
+      if (mine !== this._loadSeq) return;   // a newer FETCH was asked for meanwhile: its answer is the one to show
       this._units = res.data || res || [];
 
       this._renderFiltered();
+      // the counts are worked out here from what the list returned; a full page means there may be more units than were counted
+      document.getElementById('us-cap-warn')?.remove();
+      const statsEl = document.getElementById('us-stats');
+      if (statsEl && this._units.length >= 1000) statsEl.insertAdjacentHTML('afterend', '<div id="us-cap-warn" class="alert alert-warn" style="margin:8px 0">Only the first 1000 units are counted here. Choose a project, tower or floor to see exact counts.</div>');
     } catch(err) {
       const el = document.getElementById('us-grid');
       if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
@@ -654,7 +659,7 @@ const UnitStatusPage = {
       const select = document.getElementById('tw-project');
       if (!select) return;
       select.innerHTML = '<option value="">— Select —</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch(e) { console.warn('loadTowerWiseProjects:', e); }
   },
 

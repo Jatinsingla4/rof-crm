@@ -99,71 +99,57 @@ const AnalyticsPage = {
     const from = document.getElementById('an-from')?.value;
     const to = document.getElementById('an-to')?.value;
     const params = {};
-    if (from) params.fromDate = from;
-    if (to) params.toDate = to;
-
+    if (from) params.dateFrom = from;
+    if (to) params.dateTo = to;
+    this._sales = null;
     await Promise.allSettled([
       this.loadKpis(params),
-      this.loadStageChart(),
-      this.loadSourceChart(),
       this.loadCollectionChart(),
       this.loadUnitChart(),
       this.loadAgeing(),
     ]);
   },
 
+  // the same numbers as the Reports screens: leads and stages by the lead date, money from the dues ledger
   async loadKpis(params) {
     try {
-      const [salesRes, finRes, allotRes] = await Promise.allSettled([
+      const [salesRes, finRes] = await Promise.allSettled([
         Api.get('/reports/sales-dashboard', { params }),
-        Api.get('/reports/financial-dashboard', { params }),
-        Api.get('/allocations', { params: { pageSize: 1 } }),
+        Api.get('/reports/financial-dashboard'),
       ]);
-      const sales = salesRes.status === 'fulfilled' ? (salesRes.value.data || salesRes.value || {}) : {};
-      const fin = finRes.status === 'fulfilled' ? (finRes.value.data || finRes.value || {}) : {};
+      const sales = salesRes.status === 'fulfilled' ? ((salesRes.value.data || {}).metrics || {}) : {};
+      const fin = finRes.status === 'fulfilled' ? ((finRes.value.data || {}).metrics || {}) : {};
+      this._sales = sales;
 
       const el = document.getElementById('an-kpis');
       if (!el) return;
       el.innerHTML = `
-        <div class="kpi c-accent"><div class="kpi-lbl">Total Leads</div><div class="kpi-val">${sales.total_leads||sales.totalLeads||0}</div><div class="kpi-sub">This period</div></div>
-        <div class="kpi c-blue"><div class="kpi-lbl">Applications</div><div class="kpi-val">${sales.applications||0}</div><div class="kpi-sub">Filed</div></div>
-        <div class="kpi c-green"><div class="kpi-lbl">Allotted</div><div class="kpi-val">${sales.allotted||0}</div><div class="kpi-sub">Units allotted</div></div>
-        <div class="kpi c-teal"><div class="kpi-lbl">Collection</div><div class="kpi-val">${Utils.currency(fin.total_collected||fin.totalCollected||0)}</div><div class="kpi-sub">Total collected</div></div>
-        <div class="kpi c-warn"><div class="kpi-lbl">Outstanding</div><div class="kpi-val">${Utils.currency(fin.outstanding||0)}</div><div class="kpi-sub">Pending collection</div></div>
-        <div class="kpi c-red"><div class="kpi-lbl">Conversion Rate</div><div class="kpi-val">${sales.conversion_rate||sales.conversionRate||0}%</div><div class="kpi-sub">Lead to allotment</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Total Leads</div><div class="kpi-val">${Number(sales.total_leads || 0)}</div><div class="kpi-sub">This period</div></div>
+        <div class="kpi c-blue"><div class="kpi-lbl">Applications</div><div class="kpi-val">${Number(sales.application_filed || 0)}</div><div class="kpi-sub">Filed</div></div>
+        <div class="kpi c-green"><div class="kpi-lbl">Allotted</div><div class="kpi-val">${Number(sales.allotted || 0)}</div><div class="kpi-sub">Units allotted</div></div>
+        <div class="kpi c-teal"><div class="kpi-lbl">Collection</div><div class="kpi-val">${Utils.currency(fin.total_collected || 0)}</div><div class="kpi-sub">Total cleared receipts</div></div>
+        <div class="kpi c-warn"><div class="kpi-lbl">Outstanding</div><div class="kpi-val">${Utils.currency(fin.outstanding || 0)}</div><div class="kpi-sub">Pending collection</div></div>
+        <div class="kpi c-red"><div class="kpi-lbl">Conversion Rate</div><div class="kpi-val">${Number(sales.conversion_rate || 0)}%</div><div class="kpi-sub">Lead to allotment</div></div>
       `;
+      const stage = document.getElementById('an-stage-chart');
+      if (stage) this._renderBarChart(stage, {
+        enquiry: sales.enquiry_stage || 0, interested: sales.interested_stage || 0, 'application filed': sales.application_filed || 0,
+        'draw entered': sales.draw_entered || 0, allotted: sales.allotted || 0, cancelled: sales.cancelled || 0,
+      }, 'Lead Stage');
     } catch (err) {
       const el = document.getElementById('an-kpis');
-      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">Could not load KPIs: ${err.message}</div>`;
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--red)">Could not load KPIs: ${Utils.esc(err.message)}</div>`;
     }
-  },
-
-  async loadStageChart() {
-    const el = document.getElementById('an-stage-chart');
-    if (!el) return;
-    try {
-      const res = await Api.get('/consumers', { params: { pageSize: 500 } });
-      const list = res.data || res || [];
-      const counts = {};
-      for (const c of list) {
-        const stage = c.lead_stage || c.leadStage || 'enquiry';
-        counts[stage] = (counts[stage] || 0) + 1;
-      }
-      this._renderBarChart(el, counts, 'Lead Stage');
-    } catch { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No data</p></div>'; }
+    this.loadSourceChart();
   },
 
   async loadSourceChart() {
     const el = document.getElementById('an-source-chart');
     if (!el) return;
     try {
-      const res = await Api.get('/consumers', { params: { pageSize: 500 } });
-      const list = res.data || res || [];
+      const res = await Api.get('/reports/lead-source-analysis');
       const counts = {};
-      for (const c of list) {
-        const src = (c.lead_source || c.leadSource || 'unknown').replace(/_/g, ' ');
-        counts[src] = (counts[src] || 0) + 1;
-      }
+      for (const r of (res.data || [])) counts[String(r.lead_source || 'unknown').replace(/_/g, ' ')] = Number(r.total_leads || 0);
       this._renderBarChart(el, counts, 'Lead Source');
     } catch { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No data</p></div>'; }
   },
@@ -172,24 +158,16 @@ const AnalyticsPage = {
     const el = document.getElementById('an-collection-chart');
     if (!el) return;
     try {
-      const res = await Api.get('/payments/receipts', { params: { pageSize: 300 } });
-      const list = res.data || res || [];
-      const monthly = {};
-      for (const r of list) {
-        const date = r.payment_date || r.paymentDate || r.created_at || r.createdAt;
-        if (!date) continue;
-        const month = date.slice(0, 7);
-        monthly[month] = (monthly[month] || 0) + parseFloat(r.amount || 0);
-      }
-      const sorted = Object.entries(monthly).sort((a,b) => a[0].localeCompare(b[0]));
+      const res = await Api.get('/reports/monthly-collection');
+      const sorted = (res.data || []).map(r => [String(r.month).slice(0, 7), Number(r.amount_collected_inr || 0)]).sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
       if (sorted.length === 0) { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No receipts data</p></div>'; return; }
-      const max = Math.max(...sorted.map(([,v]) => v));
+      const max = Math.max(...sorted.map(([, v]) => v), 1);
       el.innerHTML = `<div style="display:flex;align-items:flex-end;gap:8px;height:180px;padding-bottom:20px">` +
         sorted.map(([month, amt]) => `
           <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
             <div style="font-size:9px;color:var(--text3)">${Utils.currency(amt)}</div>
-            <div style="background:var(--teal);border-radius:3px 3px 0 0;width:100%;height:${Math.max(4, Math.round(amt/max*140))}px"></div>
-            <div style="font-size:9px;color:var(--text3)">${month.slice(2).replace('-','/')}</div>
+            <div style="background:var(--teal);border-radius:3px 3px 0 0;width:100%;height:${Math.max(4, Math.round(amt / max * 140))}px"></div>
+            <div style="font-size:9px;color:var(--text3)">${month.slice(2).replace('-', '/')}</div>
           </div>`).join('') + `</div>`;
     } catch { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No data</p></div>'; }
   },
@@ -198,14 +176,9 @@ const AnalyticsPage = {
     const el = document.getElementById('an-unit-chart');
     if (!el) return;
     try {
-      const res = await Api.get('/units', { params: { pageSize: 500 } });
-      const list = res.data || res || [];
-      const counts = {};
-      for (const u of list) {
-        const st = u.status || 'available';
-        counts[st] = (counts[st] || 0) + 1;
-      }
-      this._renderBarChart(el, counts, 'Unit Status');
+      const res = await Api.get('/reports/inventory-details');
+      const t = (k) => (res.data || []).reduce((a, r) => a + Number(r[k] || 0), 0);
+      this._renderBarChart(el, { available: t('unsold_units'), booked: t('booked_units'), allotted: t('allotted_units'), hold: t('hold_units'), 'temp surrender': t('temp_surrender_units') }, 'Unit Status');
     } catch { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No data</p></div>'; }
   },
 
@@ -213,25 +186,15 @@ const AnalyticsPage = {
     const el = document.getElementById('an-ageing');
     if (!el) return;
     try {
-      const res = await Api.get('/payments/overdue', { params: { pageSize: 300 } });
-      const list = res.data || res || [];
-      const buckets = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-      const bucketAmt = { '0-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
-      const today = new Date();
-      for (const r of list) {
-        const dueDate = r.due_date || r.dueDate;
-        if (!dueDate) continue;
-        const days = Math.floor((today - new Date(dueDate)) / 86400000);
-        const key = days <= 30 ? '0-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : '90+';
-        buckets[key]++;
-        bucketAmt[key] += parseFloat(r.outstanding || r.balance || 0);
-      }
+      const res = await Api.get('/reports/payment-ageing');
+      const by = Object.fromEntries((res.data || []).map(r => [r.ageing_bucket, r]));
+      const ranges = ['1-30 days', '31-90 days', '91-180 days', '180+ days'];
       el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">` +
-        Object.entries(buckets).map(([range, count]) => `
-          <div class="kpi" style="${range==='90+'?'background:rgba(220,53,69,.1)':range==='61-90'?'background:rgba(220,120,0,.1)':''}">
-            <div class="kpi-lbl">${range} days</div>
-            <div class="kpi-val">${count}</div>
-            <div class="kpi-sub">${Utils.currency(bucketAmt[range])}</div>
+        ranges.map((range) => `
+          <div class="kpi" style="${range === '180+ days' ? 'background:rgba(220,53,69,.1)' : range === '91-180 days' ? 'background:rgba(220,120,0,.1)' : ''}">
+            <div class="kpi-lbl">${range}</div>
+            <div class="kpi-val">${Number(by[range]?.count_demands || 0)}</div>
+            <div class="kpi-sub">${Utils.currency(by[range]?.total_due_inr || 0)}</div>
           </div>`).join('') + `</div>`;
     } catch { el.innerHTML = '<div class="empty-state" style="padding:20px"><p>No overdue data</p></div>'; }
   },
@@ -242,7 +205,7 @@ const AnalyticsPage = {
     const max = Math.max(...entries.map(([,v]) => v));
     el.innerHTML = entries.map(([key, count]) => `
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-        <div style="width:120px;font-size:11px;text-align:right;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${key}</div>
+        <div style="width:120px;font-size:11px;text-align:right;color:var(--text3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${Utils.esc(key)}</div>
         <div style="flex:1;background:var(--bg2);border-radius:3px;height:20px;position:relative">
           <div style="background:var(--accent);border-radius:3px;height:100%;width:${Math.max(4,Math.round(count/max*100))}%"></div>
         </div>

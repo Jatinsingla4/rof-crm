@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.db = exports.isScoped = exports.scopeStore = void 0;
+exports.db = exports.queryCount = exports.isScoped = exports.scopeStore = void 0;
 const pg_1 = require("pg");
 const node_async_hooks_1 = require("node:async_hooks");
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -39,6 +39,8 @@ const scopeOf = () => {
 };
 const isScoped = () => !!exports.scopeStore.getStore()?.projectIds;
 exports.isScoped = isScoped;
+// Counts the queries of one request (the reports route sends it back as X-Db-Queries when asked), so a test can prove a report does not query once per row
+exports.queryCount = new node_async_hooks_1.AsyncLocalStorage();
 async function scopedQuery(ids, args) {
     const client = await pool.connect();
     try {
@@ -73,12 +75,18 @@ exports.db = new Proxy(pool, {
     get(target, prop) {
         if (prop === 'query') {
             return (...args) => {
+                const counter = exports.queryCount.getStore();
+                if (counter)
+                    counter.n++;
                 const ids = scopeOf();
                 return ids ? scopedQuery(ids, args) : target.query(...args);
             };
         }
         if (prop === 'connect') {
             return (...args) => {
+                const counter = exports.queryCount.getStore();
+                if (counter)
+                    counter.n++;
                 const ids = scopeOf();
                 return ids && !args.length ? scopedConnect(ids) : target.connect(...args);
             };

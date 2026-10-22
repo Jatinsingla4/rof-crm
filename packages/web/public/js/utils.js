@@ -21,6 +21,13 @@ const Utils = {
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   },
 
+  // A CSV cell in quotes; a text that starts with = + - @ (or a tab / return) is prefixed with ' so a spreadsheet does not run it as a formula
+  csvCell(v) {
+    let s = v === null || v === undefined ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = "'" + s;
+    return '"' + s.replace(/"/g, '""') + '"';
+  },
+
   currency(amount) {
     const n = parseFloat(amount) || 0;
     return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 0 });
