@@ -43,7 +43,7 @@ for (const u of [afId, pmId, seId, roId]) noRows(u);
 const brokers = [], consumers = [], units = [];
 let bn = 0;
 const newBroker = async (extra = {}, who = A) => { const x = await who('POST', '/brokers', { firmName: `Firm ${++bn} ${U}`, mobile: mob(), commissionPct: 2, ...extra }); if (x.s === 201) brokers.push(x.j.data.id); return x; };
-const activeBroker = async (extra = {}) => { const x = await newBroker({ pan: pan(), ...extra }); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); return x.j.data.id; };
+const activeBroker = async ({ tax = true, ...extra } = {}) => { const x = await newBroker({ pan: pan(), ...extra }); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); if (tax) { const y = await A('POST', `/broker-setup/${x.j.data.id}`, { tdsRatePct: 5, gstRatePct: 18 }); if (y.s !== 200) throw new Error('tax ' + JSON.stringify(y)); } return x.j.data.id; };
 const person = async (P = P1) => { const x = await A('POST', '/consumers', { name: `Brk Buyer ${consumers.length + 1} ${U}`, mobile: mob(), project_id: P }); if (x.s >= 300) throw new Error('applicant ' + JSON.stringify(x)); consumers.push(x.j.data.id); return x.j.data.id; };
 const newUnit = async (P = P1, T = T1) => { const u = await unit(P, T); units.push(u); return u; };
 // a booking: amount 0 keeps it pending_payment (unit still available), an amount makes it active and locks the unit
@@ -127,7 +127,8 @@ const bkP = await activeBroker();
 }
 // tax setup: finance and super_admin only
 for (const [name, who] of Object.entries({ PM, SE, RO })) { r = await who('POST', `/broker-setup/${B1}`, { tdsRatePct: 5 }); t(`role ${name} cannot set broker tax`, r.s === 403, r.s); }
-r = await AF('POST', `/broker-setup/${B1}`, { tdsRatePct: 5 }); t('AF sets broker tax', r.s === 200, r.s);
+{ const nb0 = await activeBroker({ tax: false }); r = await AF('POST', `/broker-setup/${nb0}`, { tdsRatePct: 5 }); t('AF: the first tax setup with only one rate is refused (no defaults)', r.s === 400, r.s); }
+r = await AF('POST', `/broker-setup/${B1}`, { tdsRatePct: 5, gstRatePct: 18 }); t('AF sets broker tax', r.s === 200, r.s);
 // project mapping needs maker access
 r = await RO('POST', `/brokers/${B1}/projects`, { projectIds: [P1] }); t('read only cannot map projects', r.s === 403, r.s);
 noRows(pmId); noRows(seId);
@@ -241,9 +242,9 @@ r = await A('POST', `/brokers/${E1}/projects`, { projectIds: [] }); t('mapping: 
 // =====================================================================================
 // 4. tax setup
 // =====================================================================================
-const TX = await activeBroker();
-r = await A('GET', `/broker-setup/${TX}`); t('tax setup: a broker without a row shows the defaults (5% TDS, 18% GST)', r.s === 200 && Number(r.j.data.tds_rate_pct) === 5 && Number(r.j.data.gst_rate_pct) === 18 && r.j.data.is_gst_exempt === false && r.j.data.configured === false, JSON.stringify(r.j));
-r = await A('GET', '/broker-setup'); t('tax setup list shows brokers that have no row yet, marked default', r.j.data.some(x => x.broker_id === TX && x.configured === false && Number(x.tds_rate_pct) === 5));
+const TX = await activeBroker({ tax: false });
+r = await A('GET', `/broker-setup/${TX}`); t('tax setup: a broker without a row shows no rates (not set, no defaults)', r.s === 200 && r.j.data.tds_rate_pct === null && r.j.data.gst_rate_pct === null && r.j.data.is_gst_exempt === false && r.j.data.configured === false, JSON.stringify(r.j));
+r = await A('GET', '/broker-setup'); t('tax setup list shows brokers that have no row yet with empty rates (not set)', r.j.data.some(x => x.broker_id === TX && x.configured === false && x.tds_rate_pct === null && x.gst_rate_pct === null));
 r = await A('GET', '/broker-setup'); t('tax setup list leaves out rejected brokers', !r.j.data.some(x => x.broker_status === 'rejected'));
 for (const [n, b] of [['empty', {}], ['tds -1', { tdsRatePct: -1 }], ['tds 101', { tdsRatePct: 101 }], ['tds 1e2', { tdsRatePct: '1e2' }], ['tds 5.555', { tdsRatePct: 5.555 }], ['tds text', { tdsRatePct: 'x' }], ['tds array', { tdsRatePct: [5] }], ['tds huge', { tdsRatePct: 1e12 }], ['gst -5', { gstRatePct: -5 }], ['gst 500', { gstRatePct: 500 }], ['gst object', { gstRatePct: {} }], ['exempt string', { isGstExempt: 'yes' }], ['exempt number', { isGstExempt: 1 }]]) {
   r = await A('POST', `/broker-setup/${TX}`, b); t(`tax setup: ${n} is 400`, r.s === 400, r.s + JSON.stringify(r.j));
@@ -302,8 +303,18 @@ r = await pay(FLAT.id, A, { notes: 'note ' + U }); t('pay: a note alone is saved
   r = await A('PATCH', `/booking/${x.id}`, { booking_amount: 20000, payment_mode: 'cash' }); t('(set-up) the booking amount arrives', r.s === 200, r.s);
   r = await pay(c); t('pay: once the booking amount has arrived the commission is paid', r.s === 200, r.s + JSON.stringify(r.j));
 }
-// GST and TDS with the default setup: 12,345.67 + 18% GST - 5% TDS
-r = await pay(FLAT.id); t('pay: 12,345.67 with default setup, GST 2,222.22, TDS 617.28, net 13,950.61', r.s === 200 && r.j.data.gst_amount === '2222.22' && r.j.data.tds_amount === '617.28' && r.j.data.net_amount_inr === '13950.61' && r.j.data.status === 'paid', r.s + JSON.stringify(r.j));
+{ // no default rates: a broker with no tax setup cannot be paid, the first save needs both rates
+  const nb = await activeBroker({ tax: false }); const x = await book({ broker: nb, comm: 5000, ctype: 'flat', amount: 20000 }); const cid = comm(x.c, x.u);
+  r = await pay(cid); t('pay: a broker with no tax setup cannot be paid (409 and it says why)', r.s === 409 && /tax setup/i.test(r.j.error || ''), r.s + JSON.stringify(r.j));
+  t('pay: nothing changed by the refused payment', cval(cid, 'status') === 'pending' && cval(cid, 'tds_amount') === '');
+  r = await A('POST', `/broker-setup/${nb}`, { gstRatePct: 18 }); t('tax setup: the first save with only the GST rate is refused (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  r = await A('POST', `/broker-setup/${nb}`, { tdsRatePct: 2 }); t('tax setup: the first save with only the TDS rate is refused (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  t('tax setup: the refused saves left no row behind', psql(`select count(*) from broker_tax_config where broker_id='${nb}'`) === '0');
+  r = await A('POST', `/broker-setup/${nb}`, { tdsRatePct: 2, gstRatePct: 18 }); t('tax setup: both rates are saved', r.s === 200, r.s + JSON.stringify(r.j));
+  r = await pay(cid); t('pay: after the setup the commission is paid with the rates of the setup (TDS 2% of 5,000 = 100.00, GST 900.00, net 5,800.00)', r.s === 200 && r.j.data.tds_amount === '100.00' && r.j.data.gst_amount === '900.00' && r.j.data.net_amount_inr === '5800.00', r.s + JSON.stringify(r.j));
+}
+// GST and TDS with a 5% / 18% setup: 12,345.67 + 18% GST - 5% TDS
+r = await pay(FLAT.id); t('pay: 12,345.67 with the 5% / 18% setup, GST 2,222.22, TDS 617.28, net 13,950.61', r.s === 200 && r.j.data.gst_amount === '2222.22' && r.j.data.tds_amount === '617.28' && r.j.data.net_amount_inr === '13950.61' && r.j.data.status === 'paid', r.s + JSON.stringify(r.j));
 t('pay: stored amounts match and paid_at is set', psql(`select gst_amount=2222.22 and tds_amount=617.28 and net_amount_inr=13950.61 and commission_amount_inr=12345.67 and paid_at is not null and notes='note ${U}' from broker_commissions where id='${FLAT.id}'`) === 't');
 r = await pay(FLAT.id); t('pay: a second payment of the same commission is refused (409)', r.s === 409, r.s);
 r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be added after payment, status and amounts do not move', r.s === 200 && cval(FLAT.id, 'status') === 'paid' && cval(FLAT.id, 'net_amount_inr') === '13950.61');
@@ -355,10 +366,10 @@ r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be a
   r = await A('POST', `/allocations/${al?.id || NIL}/cancel`, {}); t('transfer: the new holder cancels the allotment', r.s < 300, r.s + JSON.stringify(r.j));
   t('transfer: the commission is cancelled with the booking and cannot be paid', cval(c, 'status') === 'cancelled'); r = await pay(c); t('transfer: paying it is refused (409)', r.s === 409, r.s); }
 // a broker without a PAN is cut at least 20% TDS
-{ const mk = async (cfg) => { const b = await newBroker({}).then(x => x.j.data.id); await A('PATCH', `/brokers/${b}/approve`, {}); if (cfg) await A('POST', `/broker-setup/${b}`, cfg); const x = await book({ broker: b, comm: 10000, ctype: 'flat', amount: 20000 }); return comm(x.c, x.u); };
-  r = await pay(await mk(null)); t('no PAN, default setup: TDS 20% of 10,000 = 2,000.00, GST 1,800.00, net 9,800.00', r.s === 200 && r.j.data.tds_amount === '2000.00' && r.j.data.gst_amount === '1800.00' && r.j.data.net_amount_inr === '9800.00', JSON.stringify(r.j));
-  r = await pay(await mk({ tdsRatePct: 0 })); t('no PAN, setup 0%: still 20%', r.s === 200 && r.j.data.tds_amount === '2000.00', JSON.stringify(r.j));
-  r = await pay(await mk({ tdsRatePct: 30 })); t('no PAN, setup 30%: the higher 30% is used', r.s === 200 && r.j.data.tds_amount === '3000.00', JSON.stringify(r.j)); }
+{ const mk = async (cfg) => { const b = await newBroker({}).then(x => x.j.data.id); await A('PATCH', `/brokers/${b}/approve`, {}); await A('POST', `/broker-setup/${b}`, cfg || { tdsRatePct: 5, gstRatePct: 18 }); const x = await book({ broker: b, comm: 10000, ctype: 'flat', amount: 20000 }); return comm(x.c, x.u); };
+  r = await pay(await mk(null)); t('no PAN, 5% setup: TDS 20% of 10,000 = 2,000.00, GST 1,800.00, net 9,800.00', r.s === 200 && r.j.data.tds_amount === '2000.00' && r.j.data.gst_amount === '1800.00' && r.j.data.net_amount_inr === '9800.00', JSON.stringify(r.j));
+  r = await pay(await mk({ tdsRatePct: 0, gstRatePct: 18 })); t('no PAN, setup 0%: still 20%', r.s === 200 && r.j.data.tds_amount === '2000.00', JSON.stringify(r.j));
+  r = await pay(await mk({ tdsRatePct: 30, gstRatePct: 18 })); t('no PAN, setup 30%: the higher 30% is used', r.s === 200 && r.j.data.tds_amount === '3000.00', JSON.stringify(r.j)); }
 // broker to project mapping: a broker with ticked projects works only in those, a broker with none works everywhere
 { const b = await activeBroker(); const u1 = await newUnit(P1, T1), u2 = await newUnit(P2, T2);
   r = await A('POST', `/brokers/${b}/projects`, { projectIds: [P2] }); t('(set-up) broker mapped to project 2 only', r.s === 200, r.s);

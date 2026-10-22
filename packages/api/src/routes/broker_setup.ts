@@ -1,6 +1,6 @@
 /**
  * Broker Setup Routes (Compliance & Tax)
- * TDS and GST rates used when a broker's commission is paid. A broker without a row uses the defaults (TDS 5%, GST 18%).
+ * TDS and GST rates used when a broker's commission is paid. There are no default rates: a broker without a row cannot be paid a commission until its setup is saved.
  * Only super_admin and accounts_finance reach these routes (rbac 'broker_setup').
  */
 import { Router, Response, NextFunction } from 'express';
@@ -23,7 +23,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (search) { params.push(`%${search.replace(/[\\%_]/g, '\\$&')}%`); w += ` AND (b.name ILIKE $1 OR b.firm_name ILIKE $1)`; }
     const result = await db.query(
       `SELECT b.id AS broker_id, b.name AS broker_name, b.firm_name, b.status AS broker_status,
-              COALESCE(btc.tds_rate_pct, 5.00) AS tds_rate_pct, COALESCE(btc.gst_rate_pct, 18.00) AS gst_rate_pct,
+              btc.tds_rate_pct, btc.gst_rate_pct,
               COALESCE(btc.is_gst_exempt, false) AS is_gst_exempt, (btc.id IS NOT NULL) AS configured, btc.updated_at
          FROM brokers b LEFT JOIN broker_tax_config btc ON btc.broker_id = b.id
          ${w} ORDER BY b.firm_name NULLS LAST, b.name LIMIT ${size} OFFSET ${offset}`, params);
@@ -38,13 +38,13 @@ router.get('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunct
     if (!(await db.query(`SELECT 1 FROM brokers WHERE id = $1`, [brokerId])).rows.length) return res.status(404).json({ error: 'Broker not found' });
     const result = await db.query(`SELECT * FROM broker_tax_config WHERE broker_id = $1`, [brokerId]);
     if (result.rows.length === 0) {
-      return res.json({ success: true, data: { broker_id: brokerId, tds_rate_pct: 5.00, gst_rate_pct: 18.00, is_gst_exempt: false, configured: false } });
+      return res.json({ success: true, data: { broker_id: brokerId, tds_rate_pct: null, gst_rate_pct: null, is_gst_exempt: false, configured: false } });
     }
     res.json({ success: true, data: { ...result.rows[0], configured: true } });
   } catch (error) { fail(error, res, next); }
 });
 
-// POST /api/broker-setup/:brokerId   a rate left out keeps its current value (or the default when there is no row yet)
+// POST /api/broker-setup/:brokerId   a rate left out keeps its current value; the first time both rates are needed (there are no defaults)
 router.post('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const brokerId = uuid(req.params.brokerId, 'Broker id');
@@ -56,10 +56,11 @@ router.post('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunc
     const out = await inTx(async (c) => {
       const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
       if (!brk) throw bad('Broker not found', 404);
-      const before = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1`, [brokerId])).rows[0];
+      const before = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1 FOR UPDATE`, [brokerId])).rows[0];
+      if (!before && (tds === null || gst === null)) throw bad('This broker has no tax setup yet: send both tdsRatePct and gstRatePct');
       const row = (await c.query(
         `INSERT INTO broker_tax_config (broker_id, tds_rate_pct, gst_rate_pct, is_gst_exempt, updated_by)
-         VALUES ($1, COALESCE($2, 5.00), COALESCE($3, 18.00), COALESCE($4, false), $5)
+         VALUES ($1, $2, $3, COALESCE($4, false), $5)
          ON CONFLICT (broker_id) DO UPDATE SET
            tds_rate_pct = COALESCE($2, broker_tax_config.tds_rate_pct),
            gst_rate_pct = COALESCE($3, broker_tax_config.gst_rate_pct),

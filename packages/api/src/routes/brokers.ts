@@ -24,7 +24,7 @@ const BROKER_STATUS = ['pending', 'active', 'inactive', 'suspended', 'rejected']
 const COMMISSION_STATUS = ['pending', 'approved', 'paid', 'cancelled'] as const;
 const SENSITIVE = ['bank_account_details', 'pan', 'tax_id_pan', 'tax_id_gst'];
 const sees = (req: AuthRequest) => ['super_admin', 'accounts_finance'].includes(req.userRole || '');
-const DEFAULT_TDS = 5, DEFAULT_GST = 18, NO_PAN_TDS = 20;   // a broker without a PAN is cut at least 20% (section 206AA)
+const NO_PAN_TDS = 20;   // a broker without a PAN is cut at least 20% (section 206AA)
 
 // Bank details from the nested object or from the flat form fields; only the parts that were filled in are kept
 const bankOf = (b: any): object | null | undefined => {
@@ -170,7 +170,8 @@ router.patch('/commission/:id', requireProcess('broker_payment_entry', 'maker'),
       const bk = (await c.query(`SELECT status FROM booking_records WHERE id = $1`, [cm.booking_id])).rows[0];
       if (!bk || !['active', 'complete'].includes(bk.status)) throw bad('The booking has not received its booking amount (or is cancelled), so commission cannot be paid yet', 409);
       const cfg = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1`, [cm.broker_id])).rows[0];
-      const own = cfg ? Number(cfg.tds_rate_pct) : DEFAULT_TDS, tdsRate = brk.pan ? own : Math.max(own, NO_PAN_TDS), gstRate = cfg ? (cfg.is_gst_exempt ? 0 : Number(cfg.gst_rate_pct)) : DEFAULT_GST;
+      if (!cfg) throw bad('The tax setup (TDS and GST rate) of this broker is not done. Save it in Broker Setup first, then pay the commission.', 409);
+      const own = Number(cfg.tds_rate_pct), tdsRate = brk.pan ? own : Math.max(own, NO_PAN_TDS), gstRate = cfg.is_gst_exempt ? 0 : Number(cfg.gst_rate_pct);
       const tds = r2(amount * tdsRate / 100), gst = r2(amount * gstRate / 100), net = r2(amount + gst - tds);
       const after = (await c.query(
         `UPDATE broker_commissions SET status = 'paid', paid_at = NOW(), paid_by = $2, gst_amount = $3, tds_amount = $4, net_amount_inr = $5, notes = COALESCE($6, notes)

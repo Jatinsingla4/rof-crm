@@ -30,7 +30,7 @@ Pages.brokerSetup = async function(params = {}) {
         <div class="bsn-intro-ico">%</div>
         <div>
           <div class="bsn-intro-t">Broker Tax Configuration (TDS &amp; GST)</div>
-          <div class="bsn-intro-s">TDS is cut from the commission and GST is added to it when a commission is paid. Brokers without their own setup use the defaults (TDS 5%, GST 18%).</div>
+          <div class="bsn-intro-s">TDS is cut from the commission and GST is added to it when a commission is paid. There are no default rates: a broker needs its own setup before a commission can be paid to it (a broker without a PAN is cut at least 20%).</div>
         </div>
       </div>
       <div class="bsn-body">
@@ -83,8 +83,8 @@ const BrokerSetupPage = {
         <tr data-broker="${c.broker_id}">
           <td class="td-bold">${e(c.firm_name || '—')}</td>
           <td>${e(c.broker_name || '—')}</td>
-          <td><input class="fc" id="bs-tds" type="number" min="0" max="100" step="0.01" value="${Number(c.tds_rate_pct)}" style="width:90px"></td>
-          <td><input class="fc" id="bs-gst" type="number" min="0" max="100" step="0.01" value="${Number(c.gst_rate_pct)}" style="width:90px"></td>
+          <td><input class="fc" id="bs-tds" type="number" min="0" max="100" step="0.01" value="${c.tds_rate_pct == null ? '' : Number(c.tds_rate_pct)}" placeholder="rate %" style="width:90px"></td>
+          <td><input class="fc" id="bs-gst" type="number" min="0" max="100" step="0.01" value="${c.gst_rate_pct == null ? '' : Number(c.gst_rate_pct)}" placeholder="rate %" style="width:90px"></td>
           <td><select class="fc" id="bs-exempt"><option value="no" ${c.is_gst_exempt ? '' : 'selected'}>No</option><option value="yes" ${c.is_gst_exempt ? 'selected' : ''}>Yes</option></select></td>
           <td><button class="btn btn-sm btn-teal" onclick="BrokerSetupPage.save('${c.broker_id}')">Save</button>
               <button class="btn btn-sm btn-ghost" onclick="BrokerSetupPage.render()">Cancel</button></td>
@@ -92,9 +92,9 @@ const BrokerSetupPage = {
         <tr data-broker="${c.broker_id}">
           <td class="td-bold">${e(c.firm_name || '—')}</td>
           <td>${e(c.broker_name || '—')}</td>
-          <td>${Number(c.tds_rate_pct)}%</td>
-          <td>${Number(c.gst_rate_pct)}%</td>
-          <td>${c.is_gst_exempt ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}${c.configured ? '' : ' <small style="color:var(--text3)">default</small>'}</td>
+          <td>${c.tds_rate_pct == null ? '<span class="chip ch-red">Not set</span>' : Number(c.tds_rate_pct) + '%'}</td>
+          <td>${c.gst_rate_pct == null ? '<span class="chip ch-red">Not set</span>' : Number(c.gst_rate_pct) + '%'}</td>
+          <td>${c.is_gst_exempt ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}${c.configured ? '' : ' <small style="color:var(--text3)">commission cannot be paid until set</small>'}</td>
           <td><button class="btn btn-sm btn-ghost" onclick="BrokerSetupPage.editConfig('${c.broker_id}')">Edit</button></td>
         </tr>`).join('');
   },

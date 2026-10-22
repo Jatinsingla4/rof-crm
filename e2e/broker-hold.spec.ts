@@ -202,24 +202,25 @@ test('Broker List: search, approve, reject, view, suspend, deactivate and activa
 });
 
 // ---------------------------------------------------------------- Broker Setup (tax)
-test('Broker Setup: the broker shows the default tax, Edit saves TDS and GST, a bad rate is refused, Cancel changes nothing', async () => {
+test('Broker Setup: a new broker shows Not set (no default rates), Edit saves TDS and GST, a bad rate is refused, Cancel changes nothing', async () => {
   await go('/broker-setup');
   const row = page.locator('#broker-tax-body tr', { hasText: S.firm });
   await expect(row).toHaveCount(1);
-  await expect(row).toContainText('5%'); await expect(row).toContainText('18%'); await expect(row).toContainText('default');
+  await expect(row).toContainText('Not set'); await expect(row).not.toContainText('5%'); await expect(row).not.toContainText('18%'); await expect(row).toContainText('cannot be paid until set');
   await row.getByRole('button', { name: 'Edit' }).click();
-  await page.locator('#bs-tds').fill('150'); await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('#bs-tds')).toHaveValue(''); await expect(page.locator('#bs-gst')).toHaveValue('');
+  await page.locator('#bs-tds').fill('150'); await page.locator('#bs-gst').fill('18'); await page.getByRole('button', { name: 'Save' }).click();
   await expect(toast(/TDS rate/i)).toBeVisible();
   expect(sql(`select count(*) from broker_tax_config where broker_id = '${S.broker}'`)).toBe('0');
   await page.locator('#bs-tds').fill(''); await page.getByRole('button', { name: 'Save' }).click();
   await expect(toast(/both rates/i)).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await expect(row).toContainText('5%');
+  await expect(row).toContainText('Not set');
   await row.getByRole('button', { name: 'Edit' }).click();
   await page.locator('#bs-tds').fill('10'); await page.locator('#bs-gst').fill('12'); await page.locator('#bs-exempt').selectOption('no');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(toast(/Tax setup saved/i)).toBeVisible();
-  await expect(row).toContainText('10%'); await expect(row).toContainText('12%'); await expect(row).not.toContainText('default');
+  await expect(row).toContainText('10%'); await expect(row).toContainText('12%'); await expect(row).not.toContainText('cannot be paid until set');
   expect(sql(`select tds_rate_pct || '|' || gst_rate_pct || '|' || is_gst_exempt from broker_tax_config where broker_id = '${S.broker}'`)).toBe('10.00|12.00|false');
   // the rejected broker is not offered
   await expect(page.locator('#broker-tax-body tr', { hasText: 'Second ' + U })).toHaveCount(0);
