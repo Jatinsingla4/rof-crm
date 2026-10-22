@@ -958,7 +958,7 @@ test('Surrender restore: filters, Restore puts the unit holder back, a second re
 });
 
 // ---------- Allotment: form, letter, search, shifting, cancel, waitlist, address, e-draw ----------
-const psql = (sql: string) => require('child_process').execFileSync('/Library/PostgreSQL/18/bin/psql', ['-h', '/tmp/rofpg', '-p', '5433', '-U', 'postgres', '-d', process.env.LC_DB || 'rof_lc', '-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim();
+const psql = (sql: string) => require('child_process').execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim();
 const applicant = async (label: string, unitIdx: number | null) => {
   const mobile = mob(), name = `Alt${label}${U} Person`;
   const c = await must('consumer', api('POST', '/consumers', { name, first_name: `Alt${label}${U}`, last_name: 'Person', mobile, project_id: S.project }));
