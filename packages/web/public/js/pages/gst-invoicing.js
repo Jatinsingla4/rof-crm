@@ -113,9 +113,12 @@ Pages.gstInvoicing = async function(params = {}) {
               </select>
             </div>
             <div class="fg"><label class="fl"><span class="r">*</span>Receipt / Payment Reference</label>
-              <select class="fc" id="gst-gen-receipt">
+              <select class="fc" id="gst-gen-receipt" onchange="GSTPage.onReceiptChange()">
                 <option value="">— Select Receipt —</option>
               </select>
+            </div>
+            <div class="fg"><label class="fl"><span class="r">*</span>Taxable Amount (₹)</label>
+              <input type="number" class="fc" id="gst-gen-amount" placeholder="0" min="0" step="0.01" oninput="GSTPage.calcInvoice('gen')">
             </div>
             <div class="fg"><label class="fl">Invoice Type</label>
               <select class="fc" id="gst-gen-type">
@@ -558,11 +561,21 @@ const GSTPage = {
     if (prefix !== 'gen' || !consumerId) return;
     try {
       const res = await Api.get('/payments/receipts', { params: { consumerId, pageSize: 50 } });
-      const list = (res.data || res || []).filter(r => !r.invoice_generated);
+      // a receipt that is cancelled or bounced, or already has a live invoice, is not offered
+      const list = (res.data || res || []).filter(r => !r.invoice_number && !['cancelled', 'bounced'].includes(r.status));
+      this._genReceipts = Object.fromEntries(list.map(r => [r.id, r]));
       const sel = document.getElementById('gst-gen-receipt');
       if (sel) sel.innerHTML = '<option value="">— Select Receipt —</option>' +
-        list.map(r => `<option value="${r.id}">${r.receipt_number||r.id?.slice(0,8)} · ${Utils.currency(r.amount)} · ${Utils.date(r.payment_date||r.created_at)}</option>`).join('');
+        list.map(r => `<option value="${r.id}">${r.receipt_number||r.id?.slice(0,8)} · ${Utils.currency(r.amount_received_inr)} · ${Utils.date(r.received_date||r.created_at)}</option>`).join('');
     } catch {}
+  },
+
+  // Picking a receipt fills the taxable amount with what the receipt brought in (it can still be changed)
+  onReceiptChange() {
+    const r = (this._genReceipts || {})[document.getElementById('gst-gen-receipt')?.value];
+    const amt = document.getElementById('gst-gen-amount');
+    if (amt) amt.value = r ? Number(r.amount_received_inr) : '';
+    this.calcInvoice('gen');
   },
 
   async generateInvoice(prefix) {
@@ -575,17 +588,15 @@ const GSTPage = {
     const typeEl      = document.getElementById(`gst-${prefix}-type`);
     const result      = document.getElementById(`gst-${prefix}-result`);
 
-    const receiptId   = document.getElementById('gst-gen-receipt')?.value;
-    const gstin       = document.getElementById('gst-man-gstin')?.value;
+    // The receipt belongs to the Generation tab and the GSTIN to the Manual tab; the other tabs must not pick up what was left there
+    const receiptId   = prefix === 'gen' ? document.getElementById('gst-gen-receipt')?.value : '';
+    const gstin       = prefix === 'man' ? document.getElementById('gst-man-gstin')?.value : '';
 
     if (!consumerId) { Utils.warn('Please select a consumer'); return; }
 
     let baseAmount = parseFloat(amountEl?.value || '0');
 
-    // For gen tab, fetch amount from receipt
-    if (prefix === 'gen' && receiptId && !baseAmount) {
-      Utils.warn('Please enter an amount or select a receipt'); return;
-    }
+    if (!(baseAmount > 0)) { Utils.warn('Please enter the taxable amount'); return; }
 
     const rate    = parseFloat(rateEl?.value || '5');
     const intra   = !supplyEl || supplyEl.value !== 'interstate';
@@ -617,7 +628,6 @@ const GSTPage = {
           ✓ Invoice <strong>${data.invoice_number||data.invoiceNumber||'Generated'}</strong><br>
           Base: ${Utils.currency(baseAmount)} + GST (${rate}%): ${Utils.currency(gstAmt)} = <strong>${Utils.currency(total)}</strong>
           ${intra ? `(CGST: ${Utils.currency(gstAmt/2)} + SGST: ${Utils.currency(gstAmt/2)})` : `(IGST: ${Utils.currency(gstAmt)})`}
-          ${data.id ? `<br><a href="/api/payments/gst-invoices/${data.id}/pdf" target="_blank" style="color:var(--teal)">Download PDF ↗</a>` : ''}
         </div>`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
@@ -713,7 +723,7 @@ const GSTPage = {
       });
       result.innerHTML = `
         <div class="alert alert-success">
-          ✓ ${this._noteType === 'credit' ? 'Credit' : 'Debit'} note issued against ${origInv}.
+          ✓ ${this._noteType === 'credit' ? 'Credit' : 'Debit'} note raised against ${origInv}, it is issued once a checker approves it.
           Adjustment: ${Utils.currency(amount)} + GST: ${Utils.currency(gstAmt)} = ${Utils.currency(total)}
         </div>`;
     } catch (err) { result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`; }
@@ -736,14 +746,14 @@ const GSTPage = {
       const from   = document.getElementById('pi-from')?.value;
       const to     = document.getElementById('pi-to')?.value;
       if (projId) params.projectId = projId;
-      if (from)   params.from = from;
-      if (to)     params.to   = to;
+      if (from)   params.fromDate = from;
+      if (to)     params.toDate   = to;
 
       // Receipts without an invoice
       const res  = await Api.get('/payments/receipts', { params });
-      const list = (res.data || res || []).filter(r => !r.invoice_number && !r.gst_invoice_id);
+      const list = (res.data || res || []).filter(r => !r.invoice_number && !['cancelled', 'bounced'].includes(r.status));
 
-      const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount||0), 0);
+      const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount_received_inr||0), 0);
       const estGst   = Math.round(totalAmt * 0.05);
 
       if (kpiEl) kpiEl.innerHTML = `
@@ -760,11 +770,11 @@ const GSTPage = {
               ${list.map(r => `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
                 <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||'—'}</a></td>
-                <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
-                <td>${r.payment_mode||r.paymentMode||'—'}</td>
-                <td>${Utils.date(r.payment_date||r.created_at)}</td>
+                <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount_received_inr)}</td>
+                <td>${r.payment_method||'—'}</td>
+                <td>${Utils.date(r.received_date||r.created_at)}</td>
                 <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
-                <td><button class="btn btn-teal btn-sm" onclick="GSTPage.quickGenerate('${r.id}','${r.consumer_id||r.consumerId}',${r.amount},this)">Gen Invoice</button></td>
+                <td><button class="btn btn-teal btn-sm" onclick="GSTPage.quickGenerate('${r.id}','${r.consumer_id}',${Number(r.amount_received_inr)},this)">Gen Invoice</button></td>
               </tr>`).join('')}
             </tbody>
           </table>`;
@@ -801,7 +811,7 @@ const GSTPage = {
       const month   = document.getElementById('gst-rpt-month')?.value;
       const projId  = document.getElementById('gst-rpt-project')?.value;
       const params  = { pageSize: 500 };
-      if (month) { params.from = `${month}-01`; params.to = `${month}-31`; }
+      if (month) { const [y, m] = month.split('-').map(Number); params.from = `${month}-01`; params.to = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; }
       if (projId) params.projectId = projId;
 
       const res  = await Api.get('/payments/gst-invoices', { params });
@@ -869,7 +879,8 @@ const GSTPage = {
     const name  = document.getElementById('gst-legal-name')?.value;
     if (!gstin) { Utils.warn('Please enter GSTIN'); return; }
     const result = document.getElementById('setup-result');
-    result.innerHTML = '<div class="alert alert-success">✓ GST configuration saved</div>';
+    // Nothing is stored from this tab: the rates live in GST Configuration, and the invoice rate is chosen on each invoice
+    result.innerHTML = '<div class="alert alert-warn">Nothing was saved here. GST rates and GSTIN are set in GST Configuration; the rate is chosen on each invoice.</div>';
     this.updateRatePreview();
   },
 
@@ -892,7 +903,8 @@ const GSTPage = {
   },
 
   _rightToggle(userId, perm, enabled) {
-    return `<input type="checkbox" ${enabled?'checked':''} onchange="GSTPage.toggleRight('${userId}','${perm}',this.checked)" style="width:16px;height:16px;cursor:pointer">`;
+    // Shown for information: who may do what follows the user's role and process access (Users screen), not these boxes
+    return `<input type="checkbox" ${enabled?'checked':''} disabled title="Set in Users: role and process access" style="width:16px;height:16px">`;
   },
 
   toggleRight(userId, perm, val) {

@@ -7,6 +7,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
+const pg_errors_js_1 = require("../middleware/pg-errors.js");
+const input_js_1 = require("../utils/input.js");
+const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
+// Tags: up to 20 short words
+const tagList = (v) => {
+    if (!Array.isArray(v) || v.length > 20)
+        throw (0, input_js_1.bad)('tags must be a list of at most 20 words');
+    return v.map((t) => (0, input_js_1.text)(t, 'tag', 50, true));
+};
 const router = (0, express_1.Router)();
 // GET /api/faq/categories - List all active FAQ categories with article count
 router.get('/categories', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
@@ -25,13 +34,14 @@ router.get('/categories', (0, rbac_js_1.requirePermission)('communications', 'vi
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/faq/articles - Search and filter FAQ articles with full-text search
 router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
-        const { search = '', categoryId = '', tags = '', page = 1, pageSize = 20 } = req.query;
+        const q = req.query, search = (0, input_js_1.qtext)(q.search, 'search', 200) || '', categoryId = (0, input_js_1.has)(q.categoryId) ? (0, input_js_1.uuid)(q.categoryId, 'categoryId') : '', tags = (0, input_js_1.qtext)(q.tags, 'tags', 500) || '';
+        const { size: pageSize, offset } = (0, input_js_1.paging)(q, 20, 100), page = offset / pageSize + 1;
         let query = `SELECT
       a.id, a.category_id, a.title, a.content, a.tags, a.is_published,
       a.view_count, a.helpful_count, a.not_helpful_count,
@@ -59,7 +69,6 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
         }
         query += ` ORDER BY a.updated_at DESC`;
         // Pagination
-        const offset = (page - 1) * pageSize;
         query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(pageSize, offset);
         // Build count query
@@ -87,27 +96,27 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
             success: true,
             data: dataResult.rows,
             pagination: {
-                page: page,
-                pageSize: pageSize,
+                page,
+                pageSize,
                 total: parseInt(countResult.rows[0].count),
             },
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // GET /api/faq/articles/:id - Get single FAQ article and increment view count
 router.get('/articles/:id', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
-        const { id } = req.params;
-        // Get article and increment view count in one query
+        const id = (0, input_js_1.uuid)(req.params.id, 'Article id');
+        // Get article and increment view count in one query (a draft is only visible to people who may edit articles)
         const result = await index_js_1.db.query(`UPDATE faq_articles
        SET view_count = view_count + 1
-       WHERE id = $1
+       WHERE id = $1 AND (is_published = true OR $2::boolean)
        RETURNING id, category_id, title, content, tags, is_published,
                  view_count, helpful_count, not_helpful_count,
-                 created_at, updated_at`, [id]);
+                 created_at, updated_at`, [id, (0, rbac_js_1.hasPermission)(req.userRole, 'communications', 'edit')]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Article not found' });
         }
@@ -123,17 +132,19 @@ router.get('/articles/:id', (0, rbac_js_1.requirePermission)('communications', '
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // POST /api/faq/articles - Create new FAQ article
 router.post('/articles', (0, rbac_js_1.requirePermission)('communications', 'create'), async (req, res, next) => {
     try {
-        const { categoryId, title, content, tags = [], isPublished = false } = req.body;
-        // Validate required fields
-        if (!categoryId || !title || !content) {
-            return res.status(400).json({ error: 'Missing required fields: categoryId, title, content' });
-        }
+        const b = (0, input_js_1.body)(req);
+        if (!(0, input_js_1.has)(b.categoryId) || !(0, input_js_1.has)(b.title) || !(0, input_js_1.has)(b.content))
+            throw (0, input_js_1.bad)('Missing required fields: categoryId, title, content');
+        const categoryId = (0, input_js_1.uuid)(b.categoryId, 'categoryId'), title = (0, input_js_1.text)(b.title, 'title', 255, true), tags = (0, input_js_1.has)(b.tags) ? tagList(b.tags) : [];
+        const content = (0, input_js_1.text)(b.content, 'content', 20000, true), isPublished = b.isPublished === undefined ? false : b.isPublished;
+        if (typeof isPublished !== 'boolean')
+            throw (0, input_js_1.bad)('isPublished must be true or false');
         // Verify category exists
         const categoryCheck = await index_js_1.db.query(`SELECT id FROM faq_categories WHERE id = $1`, [categoryId]);
         if (categoryCheck.rows.length === 0) {
@@ -148,14 +159,18 @@ router.post('/articles', (0, rbac_js_1.requirePermission)('communications', 'cre
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // PATCH /api/faq/articles/:id - Update FAQ article
 router.patch('/articles/:id', (0, rbac_js_1.requirePermission)('communications', 'edit'), async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { title, content, tags, isPublished } = req.body;
+        const id = (0, input_js_1.uuid)(req.params.id, 'Article id'), bd = (0, input_js_1.body)(req);
+        const title = (0, input_js_1.has)(bd.title) ? (0, input_js_1.text)(bd.title, 'title', 255, true) : bd.title === undefined ? undefined : (() => { throw (0, input_js_1.bad)('title is required'); })();
+        const content = (0, input_js_1.has)(bd.content) ? (0, input_js_1.text)(bd.content, 'content', 20000, true) : bd.content === undefined ? undefined : (() => { throw (0, input_js_1.bad)('content is required'); })();
+        const tags = bd.tags === undefined ? undefined : tagList(bd.tags), isPublished = bd.isPublished;
+        if (isPublished !== undefined && typeof isPublished !== 'boolean')
+            throw (0, input_js_1.bad)('isPublished must be true or false');
         // Build dynamic update query
         const updates = [];
         const params = [];
@@ -196,21 +211,20 @@ router.patch('/articles/:id', (0, rbac_js_1.requirePermission)('communications',
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
 // POST /api/faq/articles/:id/feedback - Record helpful/not helpful feedback
 router.post('/articles/:id/feedback', (0, rbac_js_1.requirePermission)('communications', 'view'), async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { helpful } = req.body;
+        const id = (0, input_js_1.uuid)(req.params.id, 'Article id'), helpful = (0, input_js_1.body)(req).helpful;
         if (helpful === undefined || typeof helpful !== 'boolean') {
             return res.status(400).json({ error: 'helpful field must be boolean' });
         }
         const updateField = helpful ? 'helpful_count' : 'not_helpful_count';
         const result = await index_js_1.db.query(`UPDATE faq_articles
        SET ${updateField} = ${updateField} + 1
-       WHERE id = $1
+       WHERE id = $1 AND is_published = true
        RETURNING id, helpful_count, not_helpful_count`, [id]);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Article not found' });
@@ -226,8 +240,9 @@ router.post('/articles/:id/feedback', (0, rbac_js_1.requirePermission)('communic
         });
     }
     catch (error) {
-        next(error);
+        fail(error, res, next);
     }
 });
+router.use(pg_errors_js_1.pgErrorHandler);
 exports.default = router;
 //# sourceMappingURL=faq.js.map

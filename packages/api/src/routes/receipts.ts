@@ -203,7 +203,8 @@ router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFuncti
               c.name AS consumer_name, c.mobile, c.registration_no, c.first_name, c.last_name,
               pp.project_id, p.name AS project_name, u.unit_number, t.id::text AS tower_id, t.tower_name,
               u_creator.name AS generated_by_name, u_printer.name AS printed_by_name,
-              COALESCE(b.firm_name, b.name, 'Direct') AS broker_name, b.id AS broker_id
+              COALESCE(b.firm_name, b.name, 'Direct') AS broker_name, b.id AS broker_id,
+              (SELECT gi.invoice_no FROM gst_invoices gi WHERE gi.receipt_id = r.id AND gi.status <> 'cancelled' LIMIT 1) AS invoice_number
          FROM receipts r
          JOIN consumers c ON r.consumer_id = c.id
          LEFT JOIN payment_plans pp ON r.payment_plan_id = pp.id

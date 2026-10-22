@@ -10,7 +10,10 @@ import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes, checkAndAutoRaiseInstallment1, reverseInstallment1IfNoValidReceipt, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
-import { bad, failWith, uuid, has, num, text, body } from '../utils/input.js';
+import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2, flag, financeOnly } from '../utils/input.js';
+import { persistInterest, nextNumber } from '../utils/penal-interest.js';
+import { raiseNote } from './financial-ops.js';
+import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
@@ -41,28 +44,33 @@ const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate:
   return Math.round((principalInr * rate * daysOverdue / 365) / 100);
 };
 
-// POST /api/payments/payment-plans - Create payment plan (AHP-compliant)
-router.post('/payment-plans', async (req: AuthRequest, res: Response, next: NextFunction) => {
+const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
+const optId = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
+const today = () => new Date().toISOString().slice(0, 10);
+
+// POST /api/payments/payment-plans - Create the standard 8-step payment schedule for an allocation (accounts and finance only)
+router.post('/payment-plans', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { allocationId, consumerId, unitId, projectId, totalAmountInr, allotmentDate } = req.body;
+    const b = body(req);
+    for (const k of ['allocationId', 'consumerId', 'unitId', 'projectId', 'totalAmountInr']) if (!has(b[k])) throw bad(`${k} is required`);
+    const allocationId = uuid(b.allocationId, 'allocationId'), consumerId = uuid(b.consumerId, 'consumerId'), unitId = uuid(b.unitId, 'unitId'), projectId = uuid(b.projectId, 'projectId');
+    const totalAmountInr = pos(b.totalAmountInr, 'totalAmountInr', 0), allotmentDate = day(b.allotmentDate, 'allotmentDate');
 
-    const client = await db.connect();
-    try {
-      await client.query('BEGIN');
+    const planOut = await inTx(async (client) => {
+      const al = (await client.query(`SELECT consumer_id, unit_id, project_id, status FROM allocations WHERE id = $1 FOR UPDATE`, [allocationId])).rows[0];
+      if (!al) throw bad('Allocation not found', 404);
+      if (al.consumer_id !== consumerId || al.unit_id !== unitId || al.project_id !== projectId) throw bad('The allocation does not belong to this applicant, unit and project');
+      if (['cancelled', 'transferred'].includes(al.status)) throw bad(`This allocation is ${al.status}`, 409);
+      if ((await client.query(`SELECT 1 FROM payment_plans WHERE allocation_id = $1 OR (consumer_id = $2 AND unit_id = $3)`, [allocationId, consumerId, unitId])).rows.length) throw bad('This allocation already has a payment plan', 409);
 
-      const result = await client.query(
-        `INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr, created_by_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING id, total_amount_inr`,
+      const planId = (await client.query(
+        `INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr, created_by_user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
         [allocationId, consumerId, unitId, projectId, totalAmountInr, req.userId]
-      );
-
-      const planId = result.rows[0].id;
+      )).rows[0].id;
 
       // Dynamic Schedule Generator
       const d = new Date(allotmentDate || new Date());
       const m = (days: number) => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd.toISOString().split('T')[0]; };
-      
       const schedule = [
         { sn:1, name:'At the time of Application', pct:5, due: m(0) },
         { sn:2, name:'Within 15 days of Allotment', pct:20, due: m(15) },
@@ -74,51 +82,34 @@ router.post('/payment-plans', async (req: AuthRequest, res: Response, next: Next
         { sn:8, name:'Within 36 months from Allotment', pct:12.5, due: m(1080) },
       ];
 
-      const gstSettingsRes = await client.query(
-        `SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`
-      );
+      const gstSettingsRes = await client.query(`SELECT key, value FROM global_settings WHERE key IN ('basic_cgst_percent', 'basic_sgst_percent')`);
       const gstSettings = Object.fromEntries(gstSettingsRes.rows.map((r: any) => [r.key, parseFloat(r.value)]));
       const legacyCgstPct = (gstSettings['basic_cgst_percent'] ?? 0.5) / 100;
       const legacySgstPct = (gstSettings['basic_sgst_percent'] ?? 0.5) / 100;
 
+      let given = 0;
       for (const s of schedule) {
-        const amt = Math.round(totalAmountInr * (s.pct / 100));
-        const cgst = Math.round(amt * legacyCgstPct);
-        const sgst = Math.round(amt * legacySgstPct);
+        const amt = s.sn === schedule.length ? totalAmountInr - given : Math.round(totalAmountInr * (s.pct / 100));   // the last step takes the rounding, the steps always add up to the total
+        given += amt;
+        const cgst = Math.round(amt * legacyCgstPct), sgst = Math.round(amt * legacySgstPct);
         await client.query(
           `INSERT INTO demands (payment_plan_id, consumer_id, installment_index, amount_due_inr, cgst_amount, sgst_amount, due_date, status, demand_type)
            VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
           [planId, consumerId, s.sn, amt, cgst, sgst, s.due, s.name]
         );
       }
-
       await client.query(
-        `INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks)
-         VALUES ($1, $2, 'SCHEDULE_GENERATION', $3, 'AHP Payment Schedule Generated')`,
+        `INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks) VALUES ($1, $2, 'SCHEDULE_GENERATION', $3, 'AHP Payment Schedule Generated')`,
         [consumerId, req.userId, JSON.stringify({ allotment_date: allotmentDate, schedule })]
       );
-
-      await client.query('COMMIT');
-
-      res.status(201).json({
-        success: true,
-        data: {
-          planId,
-          schedule
-        },
-      });
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
-  } catch (error) {
-    next(error);
-  }
+      return { planId, schedule };
+    });
+    await auditChange(db, req, res, 'create', 'payment_plan', planOut.planId, undefined, { allocation_id: allocationId, total_amount_inr: totalAmountInr });
+    res.status(201).json({ success: true, data: planOut });
+  } catch (error) { fail(error, res, next); }
 });
 
-// GET /api/payments/overdue - List overdue payments with HRERA interest
+// GET /api/payments/overdue - List overdue payments with HRERA interest (paid and cancelled demands are not overdue)
 router.get('/overdue', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(
@@ -128,7 +119,7 @@ router.get('/overdue', async (req: AuthRequest, res: Response, next: NextFunctio
         c.name as consumer_name, c.mobile
        FROM demands d
        JOIN consumers c ON d.consumer_id = c.id
-       WHERE d.due_date < NOW()
+       WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled')
        ORDER BY days_overdue DESC`
     );
 
@@ -139,341 +130,241 @@ router.get('/overdue', async (req: AuthRequest, res: Response, next: NextFunctio
       penalInterestInr: row.days_overdue > 0 ? calculatePenalInterest(row.amount_due_inr, row.days_overdue, penalRate) : 0,
     }));
 
-    res.json({
-      success: true,
-      data,
-    });
-  } catch (error) {
-    next(error);
-  }
+    res.json({ success: true, data });
+  } catch (error) { fail(error, res, next); }
 });
 
-// GET /api/payments/dashboard - Payment dashboard KPIs
+// GET /api/payments/dashboard - Payment dashboard KPIs (live receipts only, unpaid demands only, one project when projectId is given)
 router.get('/dashboard', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId } = req.query;
-
-    let query = `
-      SELECT
-        COALESCE(SUM(total_amount_inr), 0) as total_receivables,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts) as total_collected,
-        (SELECT COUNT(*) FROM demands WHERE due_date < NOW()) as overdue_count
-      FROM payment_plans
-    `;
-
-    if (projectId) {
-      query += ` WHERE project_id = $1`;
-    }
-
-    const result = await db.query(query, projectId ? [projectId] : []);
-    const {
-      total_receivables: totalReceivables,
-      total_collected: totalCollected,
-      overdue_count: overdueCount,
-    } = result.rows[0];
-
-    const collectionPercentage =
-      totalReceivables > 0 ? Math.round((totalCollected / totalReceivables) * 100) : 0;
-    const outstanding = totalReceivables - totalCollected;
-
+    const projectId = has(req.query.projectId) ? uuid(req.query.projectId, 'projectId') : null;
+    const result = await db.query(
+      `SELECT
+         COALESCE((SELECT SUM(total_amount_inr) FROM payment_plans WHERE $1::uuid IS NULL OR project_id = $1), 0) AS total_receivables,
+         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
+                    WHERE r.status NOT IN ('cancelled', 'bounced') AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
+         (SELECT COUNT(*) FROM demands d JOIN payment_plans p ON p.id = d.payment_plan_id
+           WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled') AND ($1::uuid IS NULL OR p.project_id = $1)) AS overdue_count`,
+      [projectId]
+    );
+    const totalReceivables = Number(result.rows[0].total_receivables), totalCollected = Number(result.rows[0].total_collected), overdueCount = Number(result.rows[0].overdue_count);
     res.json({
       success: true,
-      data: {
-        kpis: {
-          totalReceivables,
-          totalCollected,
-          collectionPercentage,
-          outstanding,
-          overdueCount,
-        },
-      },
+      data: { kpis: {
+        totalReceivables, totalCollected,
+        collectionPercentage: totalReceivables > 0 ? Math.round((totalCollected / totalReceivables) * 100) : 0,
+        outstanding: totalReceivables - totalCollected,
+        overdueCount,
+      } },
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
+
+// ── GST invoices ──────────────────────────────────────────────────────────────
+// The columns as the Invoicing screen reads them (invoice_number, base_amount, gst_amount, gst_rate ...) next to the table's own
+const INVOICE_COLS = `gi.*, gi.invoice_no AS invoice_number, gi.base_amount_inr::float8 AS base_amount,
+  (COALESCE(gi.cgst_amount_inr,0) + COALESCE(gi.sgst_amount_inr,0) + COALESCE(gi.igst_amount_inr,0))::float8 AS gst_amount,
+  gi.cgst_amount_inr::float8 AS cgst_amount, gi.sgst_amount_inr::float8 AS sgst_amount, gi.igst_amount_inr::float8 AS igst_amount, gi.total_amount_inr::float8 AS total_amount,
+  (COALESCE(gi.cgst_rate,0) + COALESCE(gi.sgst_rate,0) + COALESCE(gi.igst_rate,0))::float8 AS gst_rate`;
+const INVOICE_STATUS = ['pending', 'generated', 'cancelled'] as const;
+const INVOICE_TYPES = ['tax_invoice', 'proforma', 'receipt_voucher', 'invoice'] as const;
 
 // GET /api/payments/gst-invoices - List GST invoices
 router.get('/gst-invoices', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId, projectId, status, page = 1, pageSize = 100 } = req.query;
-
-    let query = `SELECT gi.*, c.name as consumer_name, p.name as project_name
-                 FROM gst_invoices gi
-                 JOIN consumers c ON gi.consumer_id = c.id
-                 JOIN projects p ON gi.project_id = p.id
-                 WHERE 1=1`;
-    const params: any[] = [];
-
-    if (consumerId) {
-      query += ` AND gi.consumer_id = $${params.length + 1}`;
-      params.push(consumerId);
-    }
-    if (projectId) {
-      query += ` AND gi.project_id = $${params.length + 1}`;
-      params.push(projectId);
-    }
-    if (status) {
-      query += ` AND gi.status = $${params.length + 1}`;
-      params.push(status);
-    }
-
-    query += ` ORDER BY gi.created_at DESC LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
-
-    const result = await db.query(query, params);
-    res.json({ success: true, data: result.rows });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/payments/gst-invoices - Create GST invoice
-router.post('/gst-invoices', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { 
-      projectId, consumerId, unitId, baseAmountInr, 
-      cgstRate, sgstRate, igstRate, 
-      installmentName, invoiceDate, hsnCode 
-    } = req.body;
-
-    if (!consumerId || !baseAmountInr || !projectId) {
-      return res.status(400).json({ error: 'projectId, consumerId and baseAmountInr required' });
-    }
-
-    const invoiceNo = `INV/${new Date().getFullYear()}/${String(Math.floor(Math.random() * 100000)).padStart(5, '0')}`;
-    
-    const cgstAmount = Math.round(baseAmountInr * (cgstRate || 9) / 100);
-    const sgstAmount = Math.round(baseAmountInr * (sgstRate || 9) / 100);
-    const igstAmount = igstRate ? Math.round(baseAmountInr * igstRate / 100) : 0;
-    const totalAmount = baseAmountInr + cgstAmount + sgstAmount + igstAmount;
-
+    const q = req.query, params: any[] = []; let where = '';
+    if (has(q.consumerId)) where += ` AND gi.consumer_id = $${params.push(uuid(q.consumerId, 'consumerId'))}`;
+    if (has(q.projectId)) where += ` AND gi.project_id = $${params.push(uuid(q.projectId, 'projectId'))}`;
+    const status = oneOf(q.status, 'status', INVOICE_STATUS); if (status) where += ` AND gi.status = $${params.push(status)}`;
+    const no = qtext(q.invoiceNumber, 'invoiceNumber', 50); if (no) where += ` AND gi.invoice_no = $${params.push(no)}`;
+    const from = day(q.from, 'from'), to = day(q.to, 'to');
+    if (from) where += ` AND gi.invoice_date >= $${params.push(from)}`;
+    if (to) where += ` AND gi.invoice_date <= $${params.push(to)}`;
+    const { size, offset } = paging(q, 100, 1000);
     const result = await db.query(
-      `INSERT INTO gst_invoices (
-        invoice_no, invoice_date, project_id, consumer_id, unit_id, 
-        installment_name, base_amount_inr, taxable_amount_inr,
-        cgst_rate, sgst_rate, igst_rate,
-        cgst_amount_inr, sgst_amount_inr, igst_amount_inr,
-        total_amount_inr, hsn_sac_code, status, created_by_user_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'generated', $16)
-       RETURNING *`,
-      [
-        invoiceNo, invoiceDate || new Date(), projectId, consumerId, unitId || null,
-        installmentName || 'Direct Payment', baseAmountInr, 
-        cgstRate || 9.0, sgstRate || 9.0, igstRate || 0.0,
-        cgstAmount, sgstAmount, igstAmount,
-        totalAmount, hsnCode || '9972', req.userId
-      ]
-    );
-
-    res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
+      `SELECT ${INVOICE_COLS}, c.name AS consumer_name, p.name AS project_name
+         FROM gst_invoices gi JOIN consumers c ON gi.consumer_id = c.id JOIN projects p ON gi.project_id = p.id
+        WHERE 1=1 ${where} ORDER BY gi.created_at DESC LIMIT ${size} OFFSET ${offset}`, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) { fail(error, res, next); }
 });
 
-// POST /api/payments/gst-invoices/cancel - Cancel GST invoice and create credit note
-router.post('/gst-invoices/cancel', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// POST /api/payments/gst-invoices - Create a GST invoice (accounts and finance only)
+// The tax is worked out here from the base amount and the rate: whatever tax or total the screen sends is ignored.
+router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { invoiceNumber, reason } = req.body;
+    const b = body(req);
+    if (!has(b.consumerId)) throw bad('consumerId is required');
+    const consumerId = uuid(b.consumerId, 'consumerId'), baseRaw = b.baseAmountInr ?? b.baseAmount;
+    if (!has(baseRaw)) throw bad('baseAmount is required');
+    const base = pos(baseRaw, 'baseAmount'), supply = oneOf(b.supplyType, 'supplyType', ['intrastate', 'interstate'] as const) || 'intrastate';
+    const type = oneOf(b.invoiceType, 'invoiceType', INVOICE_TYPES) || 'invoice', invoiceDate = day(b.invoiceDate, 'invoiceDate') || today();
+    const projectArg = optId(b.projectId, 'projectId'), unitArg = optId(b.unitId, 'unitId'), receiptId = optId(b.receiptId, 'receiptId');
+    const desc = text(b.installmentName ?? b.description, 'description', 100, false), hsn = text(b.hsnCode, 'hsnCode', 20, false) || '9972';
+    if (has(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase()))) throw bad('buyerGstin must be 15 letters and digits');
+    const rate = (v: any, label: string) => num(v, label, 28, 2);
+    let cgstRate: number, sgstRate: number, igstRate: number;
+    if (has(b.cgstRate) || has(b.sgstRate) || has(b.igstRate)) {
+      cgstRate = has(b.cgstRate) ? rate(b.cgstRate, 'cgstRate') : 0; sgstRate = has(b.sgstRate) ? rate(b.sgstRate, 'sgstRate') : 0; igstRate = has(b.igstRate) ? rate(b.igstRate, 'igstRate') : 0;
+      if (igstRate > 0 && (cgstRate > 0 || sgstRate > 0)) throw bad('An invoice carries IGST or CGST and SGST, not both');
+    } else if (has(b.gstRate)) {
+      const g = rate(b.gstRate, 'gstRate');
+      [cgstRate, sgstRate, igstRate] = supply === 'interstate' ? [0, 0, g] : [r2(g / 2), r2(g / 2), 0];
+    } else { cgstRate = 9; sgstRate = 9; igstRate = 0; }
+    const cgst = r2(base * cgstRate / 100), sgst = r2(base * sgstRate / 100), igst = r2(base * igstRate / 100);
 
-    if (!invoiceNumber) {
-      return res.status(400).json({ error: 'invoiceNumber required' });
-    }
+    const row = await inTx(async (c) => {
+      const al = (await c.query(`SELECT unit_id, project_id FROM allocations WHERE consumer_id = $1 AND status NOT IN ('cancelled', 'transferred') ORDER BY created_at DESC LIMIT 1`, [consumerId])).rows[0];
+      if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);
+      const projectId = projectArg || al?.project_id;
+      if (!projectId) throw bad('This applicant has no unit yet, send projectId');
+      if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
+      if (receiptId) {
+        const rc = (await c.query(`SELECT consumer_id, status FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
+        if (!rc || rc.consumer_id !== consumerId) throw bad('That receipt does not belong to this applicant', 400);
+        if (['cancelled', 'bounced'].includes(rc.status)) throw bad(`That receipt is ${rc.status}`, 409);
+        if ((await c.query(`SELECT 1 FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled'`, [receiptId])).rows.length) throw bad('An invoice was already generated for this receipt', 409);
+      }
+      const invoiceNo = await nextNumber(c, 'gst_invoices', 'invoice_no', 'INV', 5);
+      return (await c.query(
+        `INSERT INTO gst_invoices (invoice_no, invoice_date, invoice_type, project_id, consumer_id, unit_id, receipt_id, installment_name, base_amount_inr, taxable_amount_inr,
+           cgst_rate, sgst_rate, igst_rate, cgst_amount_inr, sgst_amount_inr, igst_amount_inr, total_amount_inr, supply_type, hsn_sac_code, status, created_by_user_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'generated',$19) RETURNING id`,
+        [invoiceNo, invoiceDate, type, projectId, consumerId, unitArg || al?.unit_id || null, receiptId, desc || 'Direct Payment', base, cgstRate, sgstRate, igstRate, cgst, sgst, igst, r2(base + cgst + sgst + igst), supply, hsn, req.userId]
+      )).rows[0].id;
+    });
+    const out = (await db.query(`SELECT ${INVOICE_COLS} FROM gst_invoices gi WHERE gi.id = $1`, [row])).rows[0];
+    await auditChange(db, req, res, 'create', 'gst_invoice', row, undefined, { invoice_no: out.invoice_no, consumer_id: consumerId, total_amount_inr: out.total_amount_inr });
+    res.status(201).json({ success: true, data: out });
+  } catch (error) { fail(error, res, next); }
+});
 
-    // Look up the invoice to get its details
-    const invoiceRes = await db.query(
-      `SELECT id, consumer_id, total_amount, gst_rate FROM gst_invoices WHERE invoice_number = $1`,
-      [invoiceNumber]
-    );
-    if (!invoiceRes.rows[0]) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-    const invoice = invoiceRes.rows[0];
-
-    const year = new Date().getFullYear();
-    const countRes = await db.query(
-      `SELECT COUNT(*) AS cnt FROM credit_debit_notes WHERE note_number LIKE $1`,
-      [`CDN/${year}/%`]
-    );
-    const seq = String(Number(countRes.rows[0].cnt) + 1).padStart(4, '0');
-    const noteNumber = `CDN/${year}/${seq}`;
-
-    const gstRate = invoice.gst_rate || 5;
-    const adjAmt = Number(invoice.total_amount) || 0;
-    const gstAmt = (adjAmt * gstRate) / 100;
-
-    const noteRes = await db.query(
-      `INSERT INTO credit_debit_notes
-         (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, reason, status, created_by_user_id)
-       VALUES ($1,$2,$3,'credit',$4,$5,$6,$7,$8,$9,'issued',$10)
-       RETURNING *`,
-      [invoice.consumer_id, invoice.id, noteNumber, invoiceNumber, adjAmt, gstRate, gstAmt, adjAmt + gstAmt, reason || 'Invoice cancelled', req.userId]
-    );
-
-    // Mark the invoice as cancelled
-    await db.query(`UPDATE gst_invoices SET status = 'cancelled' WHERE id = $1`, [invoice.id]);
-
+// Cancels (or reverses) an invoice and issues a credit note for what the invoice still charged. Checker access, because the note is issued in one step.
+const cancelInvoice = (reverse: boolean) => async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = body(req);
+    if (!has(b.invoiceNumber)) throw bad('invoiceNumber is required');
+    const invoiceNumber = text(b.invoiceNumber, 'invoiceNumber', 50, true)!, reason = text(b.reason, 'reason', 500, false) || (reverse ? 'Invoice reversed' : 'Invoice cancelled');
+    const noteDate = day(reverse ? b.reversalDate : undefined, 'reversalDate');
+    const out = await inTx(async (c) => {
+      const inv = (await c.query(`SELECT * FROM gst_invoices WHERE invoice_no = $1 FOR UPDATE`, [invoiceNumber])).rows[0];
+      if (!inv) throw bad('Invoice not found', 404);
+      if (inv.status === 'cancelled') throw bad('This invoice is already cancelled', 409);
+      // Credit notes already issued on this invoice are not credited twice; notes still waiting are withdrawn
+      await c.query(`UPDATE credit_debit_notes SET status = 'cancelled', rejected_by = $2, rejected_at = NOW(), rejection_reason = 'Invoice cancelled', updated_at = NOW() WHERE invoice_id = $1 AND status = 'pending'`, [inv.id, req.userId]);
+      const credited = Number((await c.query(`SELECT COALESCE(SUM(adjustment_amount), 0) AS n FROM credit_debit_notes WHERE invoice_id = $1 AND note_type = 'credit' AND status = 'issued'`, [inv.id])).rows[0].n);
+      const debited = Number((await c.query(`SELECT COALESCE(SUM(adjustment_amount), 0) AS n FROM credit_debit_notes WHERE invoice_id = $1 AND note_type = 'debit' AND status = 'issued'`, [inv.id])).rows[0].n);
+      const adj = r2(Number(inv.taxable_amount_inr) + debited - credited);
+      let note: any = null;
+      if (adj > 0) {
+        const tax = r2(Number(inv.cgst_amount_inr) + Number(inv.sgst_amount_inr) + Number(inv.igst_amount_inr));
+        const gstAmt = adj === Number(inv.taxable_amount_inr) ? tax : r2(adj * (Number(inv.cgst_rate) + Number(inv.sgst_rate) + Number(inv.igst_rate)) / 100);
+        const no = await nextNumber(c, 'credit_debit_notes', 'note_number', 'CDN', 4);
+        note = (await c.query(
+          `INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id, approved_by, approved_at)
+           VALUES ($1,$2,$3,'credit',$4,$5,$6,$7,$8,COALESCE($9::date, CURRENT_DATE),$10,'issued',$11,$11,NOW()) RETURNING *`,
+          [inv.consumer_id, inv.id, no, invoiceNumber, adj, r2(Number(inv.cgst_rate) + Number(inv.sgst_rate) + Number(inv.igst_rate)), gstAmt, r2(adj + gstAmt), noteDate, reason, req.userId])).rows[0];
+      }
+      await c.query(`UPDATE gst_invoices SET status = 'cancelled', cancelled_at = NOW(), cancelled_reason = $2, updated_at = NOW() WHERE id = $1`, [inv.id, reason]);
+      return { id: inv.id, note };
+    });
+    await auditChange(db, req, res, 'update', 'gst_invoice', out.id, { status: 'generated' }, { status: 'cancelled', reason, credit_note: out.note?.note_number });
     res.json({
       success: true,
-      data: { invoiceNumber, status: 'cancelled', reason, creditNoteNumber: noteNumber, creditNote: noteRes.rows[0] },
-      message: 'Invoice cancelled and credit note issued',
+      data: { invoiceNumber, status: 'cancelled', reason, creditNoteNumber: out.note?.note_number || null, creditNote: out.note },
+      message: out.note ? 'Invoice cancelled and credit note issued' : 'Invoice cancelled (it was already fully credited)',
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
+};
+// POST /api/payments/gst-invoices/cancel and /reverse - the Cancel and Reverse tabs
+router.post('/gst-invoices/cancel', requireProcess('jv_refund_drcr', 'checker'), financeOnly, cancelInvoice(false));
+router.post('/gst-invoices/reverse', requireProcess('jv_refund_drcr', 'checker'), financeOnly, cancelInvoice(true));
+
+// POST /api/payments/gst-invoices/credit-debit-note - the Credit / Debit Note tab: raises a note that a checker approves
+router.post('/gst-invoices/credit-debit-note', requireProcess('jv_refund_drcr', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = body(req);
+    const row = await raiseNote(req, { note_type: b.noteType, original_invoice_no: b.originalInvoiceNumber, adjustment_amount: b.adjustmentAmount, gst_rate: b.gstRate, note_date: b.noteDate, reason: b.reason });
+    await auditChange(db, req, res, 'create', 'credit_debit_note', row.id, undefined, { note_number: row.note_number, note_type: row.note_type, total_amount: row.total_amount });
+    res.status(201).json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/gst-invoices/:id/pdf - Get GST invoice PDF (stub)
 router.get('/gst-invoices/:id/pdf', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  res.status(200).json({ success: true, message: 'PDF generation coming soon', id: req.params.id });
+  try {
+    const id = uuid(req.params.id, 'Invoice id');
+    if (!(await db.query(`SELECT 1 FROM gst_invoices WHERE id = $1`, [id])).rows.length) throw bad('Invoice not found', 404);
+    res.status(200).json({ success: true, message: 'PDF generation coming soon', id });
+  } catch (error) { fail(error, res, next); }
 });
 
 // POST /api/payments/calculate-interest - Calculate HRERA interest on overdue
 router.post('/calculate-interest', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { paymentPlanId, installmentIndex, principalInr, daysOverdue } = req.body;
-
+    const b = body(req);
+    if (!has(b.principalInr) || !has(b.daysOverdue)) throw bad('principalInr and daysOverdue are required');
+    const principalInr = num(b.principalInr, 'principalInr', 1_000_000_000, 2), daysOverdue = num(b.daysOverdue, 'daysOverdue', 36500, 0);
     const penalRate = await getPenalInterestRate();
     const interest = calculatePenalInterest(principalInr, daysOverdue, penalRate);
-
-    res.json({
-      success: true,
-      data: {
-        principalInr,
-        daysOverdue,
-        ratePercent: penalRate,
-        interestInr: interest,
-        totalWithInterest: principalInr + interest,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
+    res.json({ success: true, data: { principalInr, daysOverdue, ratePercent: penalRate, interestInr: interest, totalWithInterest: principalInr + interest } });
+  } catch (error) { fail(error, res, next); }
 });
+
+// ── Draw refunds (pending -> initiated -> completed) ───────────────────────────
+const DRAW_STATUS = ['pending', 'initiated', 'completed'] as const;
 
 // GET /api/payments/draw-refunds - List all draw refunds
 router.get('/draw-refunds', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { status, projectId, page = 1, pageSize = 20 } = req.query;
-
-    let query = `SELECT
-                  id, consumer_id, project_id, draw_result,
-                  booking_amount_paid_inr, refund_amount_inr,
-                  refund_due_by, refund_status,
-                  refund_initiated_at, refund_completed_at,
-                  refund_reference, created_at
-                 FROM draw_refunds WHERE 1=1`;
-    const params: any[] = [];
-
-    if (status) {
-      query += ` AND refund_status = $${params.length + 1}`;
-      params.push(status);
-    }
-
-    if (projectId) {
-      query += ` AND project_id = $${params.length + 1}`;
-      params.push(projectId);
-    }
-
-    query += ` ORDER BY refund_due_by ASC
-              LIMIT ${pageSize} OFFSET ${((page as number) - 1) * (pageSize as number)}`;
-
-    const result = await db.query(query, params);
-
-    res.json({
-      success: true,
-      data: result.rows,
-    });
-  } catch (error) {
-    next(error);
-  }
+    const q = req.query, params: any[] = []; let where = '';
+    const status = oneOf(q.status, 'status', DRAW_STATUS); if (status) where += ` AND refund_status = $${params.push(status)}`;
+    if (has(q.projectId)) where += ` AND project_id = $${params.push(uuid(q.projectId, 'projectId'))}`;
+    const { size, offset } = paging(q, 20, 500);
+    const result = await db.query(
+      `SELECT id, consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status,
+              refund_initiated_at, refund_completed_at, refund_reference, created_at
+         FROM draw_refunds WHERE 1=1 ${where} ORDER BY refund_due_by ASC, id LIMIT ${size} OFFSET ${offset}`, params);
+    res.json({ success: true, data: result.rows });
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/draw-refunds/overdue - Get overdue draw refunds
 router.get('/draw-refunds/overdue', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(
-      `SELECT
-        id, consumer_id, project_id, draw_result,
-        booking_amount_paid_inr, refund_amount_inr,
-        refund_due_by, refund_status,
-        refund_initiated_at, created_at,
-        EXTRACT(DAY FROM (NOW() - refund_due_by))::INT as days_overdue
-       FROM draw_refunds
-       WHERE refund_due_by < CURRENT_DATE
-       AND refund_status NOT IN ('completed')
-       ORDER BY refund_due_by ASC`
+      `SELECT id, consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status,
+              refund_initiated_at, created_at, EXTRACT(DAY FROM (NOW() - refund_due_by))::INT as days_overdue
+         FROM draw_refunds WHERE refund_due_by < CURRENT_DATE AND refund_status NOT IN ('completed') ORDER BY refund_due_by ASC`
     );
-
-    res.json({
-      success: true,
-      data: result.rows,
-    });
-  } catch (error) {
-    next(error);
-  }
+    res.json({ success: true, data: result.rows });
+  } catch (error) { fail(error, res, next); }
 });
 
-// PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund
-router.patch('/draw-refunds/:id/initiate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// One step of a draw refund; the row is locked and must be in the state the step starts from
+const drawStep = (from: string, to: string, set: (req: AuthRequest) => { sql: string; params: any[] }) => async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
-    const { refundReference, notes } = req.body;
-
-    const result = await db.query(
-      `UPDATE draw_refunds
-       SET refund_status = 'initiated',
-           refund_initiated_at = NOW(),
-           refund_reference = $1,
-           notes = COALESCE($2, notes),
-           updated_at = NOW()
-       WHERE id = $3
-       RETURNING id, consumer_id, refund_status, refund_initiated_at`,
-      [refundReference, notes || null, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Draw refund not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
+    const id = uuid(req.params.id, 'Draw refund id'), s = set(req);
+    const row = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT refund_status FROM draw_refunds WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      if (!cur) throw bad('Draw refund not found', 404);
+      if (cur.refund_status !== from) throw bad(`Draw refund is ${cur.refund_status}, it must be ${from} for this step`, 409);
+      return (await c.query(`UPDATE draw_refunds SET refund_status = '${to}', ${s.sql} updated_at = NOW() WHERE id = $1 RETURNING id, consumer_id, refund_status, refund_initiated_at, refund_completed_at`, [id, ...s.params])).rows[0];
     });
-  } catch (error) {
-    next(error);
-  }
-});
+    await auditChange(db, req, res, 'update', 'draw_refund', id, { refund_status: from }, { refund_status: to });
+    res.json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
+};
 
-// PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund
-router.patch('/draw-refunds/:id/complete', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    const { id } = req.params;
-    const { refundReference } = req.body;
+// PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund (accounts and finance only)
+router.patch('/draw-refunds/:id/initiate', financeOnly, drawStep('pending', 'initiated', (req) => {
+  const b = body(req);
+  return { sql: 'refund_initiated_at = NOW(), refund_reference = $2, notes = COALESCE($3, notes),', params: [text(b.refundReference, 'refundReference', 255, true), text(b.notes, 'notes', 500, false)] };
+}));
 
-    const result = await db.query(
-      `UPDATE draw_refunds
-       SET refund_status = 'completed',
-           refund_completed_at = NOW(),
-           refund_reference = COALESCE($1, refund_reference),
-           updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, consumer_id, refund_status, refund_completed_at`,
-      [refundReference || null, id]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Draw refund not found' });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
-    });
-  } catch (error) {
-    next(error);
-  }
-});
+// PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund (accounts and finance only)
+router.patch('/draw-refunds/:id/complete', financeOnly, drawStep('initiated', 'completed', (req) =>
+  ({ sql: 'refund_completed_at = NOW(), refund_reference = COALESCE($2, refund_reference),', params: [text(body(req).refundReference, 'refundReference', 255, false)] })));
 
 /**
  * PATCH /api/payments/receipts/:id/bounce - Mark receipt as bounced
@@ -1310,7 +1201,7 @@ function buildPaymentReceiptHtml(r: any, settings: Record<string, string>, coApp
 // GET /api/payments/receipts/:id/html — Print-ready receipt with full plan breakdown
 router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
+    const id = uuid(req.params.id, 'Receipt id');
 
     const [settingsResult, receiptResult] = await Promise.all([
       db.query('SELECT key, value FROM global_settings'),
@@ -1518,9 +1409,7 @@ router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: N
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(htmlWithEdit);
-  } catch (err) {
-    next(err);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── RECEIPT ENTRY FORM (standalone HTML page) ─────────────────────────────────
@@ -1535,15 +1424,15 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
 
   const instOpts = installments.map((x: any) => {
     const isPaid = x.demand_status === 'paid' || x.demand_delivery_status === 'paid';
-    return `<option value="${x.installment_index}"${isPaid ? ' disabled style="color:#999;background:#f5f5f5;"' : ''}>${x.installment_name}${isPaid ? ' (Already Paid)' : ''}</option>`;
+    return `<option value="${x.installment_index}"${isPaid ? ' disabled style="color:#999;background:#f5f5f5;"' : ''}>${pmtEsc(x.installment_name)}${isPaid ? ' (Already Paid)' : ''}</option>`;
   }).join('') + `<option value="-1">Other</option>`;
 
   const bankOpts = `<option value="">&lt;-Select-&gt;</option>` + banks.map((b: any) =>
-    `<option value="${b.name}">${b.name}</option>`
+    `<option value="${pmtEsc(b.name)}">${pmtEsc(b.name)}</option>`
   ).join('');
 
   const userOpts = `<option value="">&lt;-Select-&gt;</option>` + users.map((u: any) =>
-    `<option value="${u.id}">${u.name || u.email || u.id}</option>`
+    `<option value="${pmtEsc(u.id)}">${pmtEsc(u.name || u.email || u.id)}</option>`
   ).join('');
 
   const bal = parseFloat(consumer.balance || 0);
@@ -1619,7 +1508,7 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Payment Receipt — ${consumer.consumer_name}</title>
+<title>Payment Receipt — ${pmtEsc(consumer.consumer_name)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:Arial,sans-serif;font-size:13px;background:#f4f6f8;padding:12px;}
@@ -1635,9 +1524,9 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
 <!-- Section 1: Consumer Header -->
 <div class="sec-hdr" style="border:1px solid #b8d4e4;border-radius:4px 4px 0 0;">
   <div style="display:flex;gap:28px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
-    <span style="color:#c0392b;font-weight:bold;font-size:15px;">${(consumer.salutation ? consumer.salutation + ' ' : '') + consumer.consumer_name} [${consumer.registration_no || '—'}]</span>
-    <span style="color:#c0392b;font-weight:bold;">Tower: ${consumer.tower_name || '—'}</span>
-    <span style="color:#c0392b;font-weight:bold;">Unit No.: ${consumer.unit_number || '—'}</span>
+    <span style="color:#c0392b;font-weight:bold;font-size:15px;">${pmtEsc((consumer.salutation ? consumer.salutation + ' ' : '') + consumer.consumer_name)} [${pmtEsc(consumer.registration_no || '—')}]</span>
+    <span style="color:#c0392b;font-weight:bold;">Tower: ${pmtEsc(consumer.tower_name || '—')}</span>
+    <span style="color:#c0392b;font-weight:bold;">Unit No.: ${pmtEsc(consumer.unit_number || '—')}</span>
     <span style="color:#c0392b;font-weight:bold;">TDS Applicable: No</span>
   </div>
   <div style="display:flex;gap:22px;flex-wrap:wrap;font-size:13px;color:#333;">
@@ -1669,7 +1558,7 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
     </div>
     <div>
       <label class="lbl">Received For</label>
-      <input type="text" id="rf-received-for" value="${consumer.company_name || ''}" style="${inp}">
+      <input type="text" id="rf-received-for" value="${pmtEsc(consumer.company_name || '')}" style="${inp}">
     </div>
     <div>
       <label class="lbl">Account Holder</label>
@@ -1935,8 +1824,9 @@ function showMsg(msg, isError) {
 // GET /api/payments/receipt-form/:consumerId — Serve standalone receipt entry form
 router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
-    const token = (req.headers.authorization?.split(' ')[1] || req.query.token as string || '');
+    const consumerId = uuid(req.params.consumerId, 'Consumer id');
+    const rawToken = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
+    const token = typeof rawToken === 'string' && /^[\w.\-]*$/.test(rawToken) ? rawToken : '';   // goes into a script: a token is letters, digits, . - _ only
 
     // 1. Consumer + financial summary
     const consumerResult = await db.query(`
@@ -2039,9 +1929,7 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
     const html = buildReceiptFormHtml(consumer, instResult.rows, banksResult.rows, usersResult.rows, token, cgstPct, sgstPct);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
-  } catch (err) {
-    next(err);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── RECEIPT DETAIL PAGE (standalone HTML page) ─────────────────────────────────
@@ -2138,8 +2026,8 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
 
     const detailRowsHtml = drows.map((dr: any) => `
         <tr>
-          <td style="${dtdStyle}">${dr.installmentName}</td>
-          <td style="${dtdStyle}">${dr.head}</td>
+          <td style="${dtdStyle}">${pmtEsc(dr.installmentName)}</td>
+          <td style="${dtdStyle}">${pmtEsc(dr.head)}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dr.amount)}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dr.cgst)}</td>
           <td style="${dtdStyle}text-align:right;">${fmtN(dr.sgst)}</td>
@@ -2156,7 +2044,7 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
     return `
     <tr style="background:${bg};vertical-align:top;">
       <td style="${tdStyle}text-align:center;">${idx + 1}</td>
-      <td style="${tdStyle}">${r.receipt_number || '—'}</td>
+      <td style="${tdStyle}">${pmtEsc(r.receipt_number || '—')}</td>
       <td style="${tdStyle}white-space:nowrap;">${fmtD(r.received_date)}</td>
       <td style="${tdStyle}">${capitalizeMode(r.payment_method)}</td>
       <td style="${tdStyle}text-align:right;">${fmtN(amt)}</td>
@@ -2164,7 +2052,7 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
       <td style="${tdStyle}text-align:right;">${fmtN(intr)}</td>
       <td style="${tdStyle}text-align:right;">${fmtN(extra)}</td>
       <td style="${tdStyle}text-align:right;font-weight:600;">${fmtN(net)}</td>
-      <td style="${tdStyle}">${r.entry_by || '—'}</td>
+      <td style="${tdStyle}">${pmtEsc(r.entry_by || '—')}</td>
       <td style="${tdStyle}white-space:nowrap;">${fmtD(r.created_at)}</td>
       <td style="${tdStyle}padding:0;">
         <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:420px;">
@@ -2189,7 +2077,7 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Receipt Detail — ${consumer.consumer_name}</title>
+  <title>Receipt Detail — ${pmtEsc(consumer.consumer_name)}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:Arial,sans-serif;font-size:12px;background:#f5f5f5;padding:16px;}
@@ -2199,9 +2087,9 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
 <body>
   <div style="background:#1e3a5f;color:white;padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-radius:4px 4px 0 0;flex-wrap:wrap;gap:8px;">
     <span style="font-weight:bold;font-size:14px;letter-spacing:.5px;">RECEIPT DETAIL</span>
-    <span><strong>Project:</strong> ${consumer.project_name}</span>
-    <span><strong>Name:</strong> ${consumer.consumer_name}</span>
-    <span><strong>Registration No.:</strong> ${consumer.registration_no}</span>
+    <span><strong>Project:</strong> ${pmtEsc(consumer.project_name)}</span>
+    <span><strong>Name:</strong> ${pmtEsc(consumer.consumer_name)}</span>
+    <span><strong>Registration No.:</strong> ${pmtEsc(consumer.registration_no)}</span>
   </div>
   <div class="no-print" style="margin:8px 0;padding:8px 12px;background:white;border:1px solid #dee2e6;border-top:none;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;align-items:center;">
     <strong>Status:</strong>
@@ -2256,7 +2144,8 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
 // GET /api/payments/receipt-detail/:consumerId — Standalone receipt detail page
 router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
+    const consumerId = uuid(req.params.consumerId, 'Consumer id');
+    if (!(await db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);
 
     const result = await db.query(`
       SELECT
@@ -2341,9 +2230,7 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
     const html = await buildReceiptDetailHtml(result.rows);
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
-  } catch (err) {
-    next(err);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── CHEQUE CLEARING ENDPOINTS ────────────────────────────────────────────────
@@ -2353,7 +2240,8 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
 // Falls back to project-level bank_accounts if no company linked.
 router.get('/clearing-banks/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId } = req.params;
+    const projectId = uuid(req.params.projectId, 'Project id');
+    if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
 
     // Primary: company bank accounts linked via project.company_id
     const companyResult = await db.query(
@@ -2380,18 +2268,25 @@ router.get('/clearing-banks/:projectId', async (req: AuthRequest, res: Response,
       [projectId]
     );
     res.json({ success: true, data: fallbackResult.rows });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
-// POST /api/payments/interest-scheduler - Batch interest calculation for a project
+// ── Interest: who may do what ──────────────────────────────────────────────────
+// Reading and calculating: every role with payments access (project scope applies). Saving a calculation, rates, dates, grace days, manual interest: accounts and finance only.
+// Deleting stored interest needs payments:delete (super_admin only, from rbac). Waivers live in financial-ops.ts.
+const projectInScope = async (c: any, id: string) => { if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [id])).rows.length) throw bad('Project not found', 404); };
+const towerOf = async (c: any, towerId: string | null, projectId: string) => { if (towerId && !(await c.query(`SELECT 1 FROM towers WHERE id = $1 AND project_id = $2`, [towerId, projectId])).rows.length) throw bad('That tower is not in this project', 400); };
+const consumerRow = async (c: any, id: string) => { if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [id])).rows.length) throw bad('Consumer not found', 404); };
+const filterText = (v: any, label: string) => qtext(v, label, 100);
+
+// POST /api/payments/interest-scheduler - Batch interest calculation for a project (persist: true saves it, accounts and finance only)
 router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id, tower_id, persist } = req.body;
-    if (!project_id) {
-      return res.status(400).json({ error: 'project_id is required' });
-    }
+    const b = body(req);
+    if (!has(b.project_id)) throw bad('project_id is required');
+    const project_id = uuid(b.project_id, 'project_id'), tower_id = optId(b.tower_id, 'tower_id'), persist = flag(b.persist, 'persist') === true;
+    if (persist && !['super_admin', 'accounts_finance'].includes(req.userRole || '')) throw bad('Only accounts and finance can save the interest calculation', 403);
+    await projectInScope(db, project_id); await towerOf(db, tower_id, project_id);
 
     // Step A: penal rate (project-level override → global fallback)
     const penalRate = await getPenalInterestRate(project_id);
@@ -2413,12 +2308,12 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
        WHERE t.project_id = $1
          AND ($2::uuid IS NULL OR t.id = $2)
          AND c.id IS NOT NULL`,
-      [project_id, tower_id || null]
+      [project_id, tower_id]
     );
 
     const details: any[] = [];
     let totalInterest = 0;
-    let consumersWithInterest = 0;
+    let consumersWithInterest = 0, skippedNoPlan = 0;
 
     // Fetch installment name + rate map once for the whole project
     const templatesRes = await db.query(
@@ -2473,37 +2368,16 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       });
       const interestRows = allRows.filter(r => r.interest_amount > 0);
 
+      // Step D: persist if requested (what was waived comes back with the new rows; manual interest is left alone)
+      if (persist) {
+        if (consumer.payment_plan_id) await inTx((c) => persistInterest(c, cid, consumer.payment_plan_id, interestRows));
+        else skippedNoPlan++;
+      }
+
       if (interestRows.length > 0) {
         const consumerTotal = interestRows.reduce((s, r) => s + r.interest_amount, 0);
         totalInterest += consumerTotal;
         consumersWithInterest++;
-
-        // Step D: persist if requested
-        if (persist) {
-          await db.query(
-            `DELETE FROM penal_interests WHERE consumer_id = $1`,
-            [cid]
-          );
-          for (const row of interestRows) {
-            await db.query(
-              `INSERT INTO penal_interests
-                 (payment_plan_id, installment_index, consumer_id,
-                  principal_inr, days_overdue, rate_percent,
-                  amount_inr, calculated_at, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'calculated')`,
-              [
-                consumer.payment_plan_id || null,
-                row.installment_index,
-                cid,
-                Math.round(row.delay_amount),
-                row.delay_days,
-                row.roi,
-                Math.round(row.interest_amount),
-              ]
-            );
-          }
-        }
-
         details.push({
           consumer_id:          cid,
           consumer_name:        consumer.consumer_name,
@@ -2514,32 +2388,31 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       }
     }
 
+    if (persist) await auditChange(db, req, res, 'update', 'penal_interest', project_id, undefined, { scope: tower_id ? 'tower' : 'project', consumers: consumersRes.rows.length, skipped_no_plan: skippedNoPlan });
     res.json({
       success: true,
       summary: {
         consumers_processed:      consumersRes.rows.length,
         consumers_with_interest:  consumersWithInterest,
         total_interest_inr:       Math.round(totalInterest * 100) / 100,
-        persisted:                !!persist,
+        persisted:                persist,
+        skipped_no_plan:          skippedNoPlan,
       },
       details,
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
-// DELETE /api/payments/interest-scheduler - Remove stored interest for a project
+// DELETE /api/payments/interest-scheduler - Remove the stored calculated interest of a project (manual entries stay; waivers come back when it is calculated again)
 router.delete('/interest-scheduler', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id, tower_id } = req.body;
-    if (!project_id) {
-      return res.status(400).json({ error: 'project_id is required' });
-    }
-
+    const b = body(req);
+    if (!has(b.project_id)) throw bad('project_id is required');
+    const project_id = uuid(b.project_id, 'project_id'), tower_id = optId(b.tower_id, 'tower_id');
+    await projectInScope(db, project_id); await towerOf(db, tower_id, project_id);
     const result = await db.query(
       `DELETE FROM penal_interests
-       WHERE consumer_id IN (
+       WHERE status = 'calculated' AND consumer_id IN (
          SELECT DISTINCT c.id
          FROM consumers c
          JOIN allocations a ON a.consumer_id = c.id
@@ -2548,13 +2421,11 @@ router.delete('/interest-scheduler', async (req: AuthRequest, res: Response, nex
          WHERE t.project_id = $1
            AND ($2::uuid IS NULL OR t.id = $2)
        )`,
-      [project_id, tower_id || null]
+      [project_id, tower_id]
     );
-
+    await auditChange(db, req, res, 'delete', 'penal_interest', project_id, undefined, { scope: tower_id ? 'tower' : 'project', deleted: result.rowCount });
     res.json({ success: true, deleted: result.rowCount });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── Project-wise Interest Master endpoints ─────────────────────────────────
@@ -2562,7 +2433,6 @@ router.delete('/interest-scheduler', async (req: AuthRequest, res: Response, nex
 // GET /api/payments/interest-master/:projectId — rate history for a project
 router.get('/interest-master/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId } = req.params;
     const result = await db.query(
       `SELECT pir.id, pir.rate_percent, pir.effective_from, pir.created_at,
               u.name AS created_by_name
@@ -2570,54 +2440,52 @@ router.get('/interest-master/:projectId', async (req: AuthRequest, res: Response
        LEFT JOIN users u ON u.id = pir.created_by
        WHERE pir.project_id = $1
        ORDER BY pir.effective_from DESC, pir.created_at DESC`,
-      [projectId]
+      [uuid(req.params.projectId, 'Project id')]
     );
     res.json({ success: true, data: result.rows });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
-// POST /api/payments/interest-master — create new project interest rate
-router.post('/interest-master', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// The rate that starts on a date is one per project (the newest date wins when penal interest is worked out), so a second one on the same date is refused
+const rateInput = (b: any) => {
+  if (!has(b.rate_percent)) throw bad('rate_percent is required');
+  return { rate: num(b.rate_percent, 'rate_percent', 100, 2), from: day(b.effective_from, 'effective_from') };
+};
+
+// POST /api/payments/interest-master — create new project interest rate (accounts and finance only)
+router.post('/interest-master', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id, rate_percent, effective_from } = req.body;
-    if (!project_id || rate_percent == null) {
-      return res.status(400).json({ error: 'project_id and rate_percent are required' });
-    }
-    const userId = (req as any).user?.id || null;
-    const result = await db.query(
-      `INSERT INTO project_interest_rates (project_id, rate_percent, effective_from, created_by)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, rate_percent, effective_from, created_at`,
-      [project_id, rate_percent, effective_from || new Date().toISOString().slice(0, 10), userId]
-    );
-    res.json({ success: true, data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
+    const b = body(req);
+    if (!has(b.project_id)) throw bad('project_id is required');
+    const project_id = uuid(b.project_id, 'project_id'), { rate, from } = rateInput(b), eff = from || today();
+    const row = await inTx(async (c) => {
+      await projectInScope(c, project_id);
+      await lock(c, 'rate:' + project_id);
+      if ((await c.query(`SELECT 1 FROM project_interest_rates WHERE project_id = $1 AND effective_from = $2`, [project_id, eff])).rows.length) throw bad('A rate already starts on this date, edit that one', 409);
+      return (await c.query(
+        `INSERT INTO project_interest_rates (project_id, rate_percent, effective_from, created_by) VALUES ($1, $2, $3, $4) RETURNING id, rate_percent, effective_from, created_at`,
+        [project_id, rate, eff, req.userId || null])).rows[0];
+    });
+    await auditChange(db, req, res, 'create', 'project_interest_rate', row.id, undefined, { project_id, rate_percent: rate, effective_from: eff });
+    res.json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
 });
 
-// PUT /api/payments/interest-master/:id — update an existing rate record
-router.put('/interest-master/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// PUT /api/payments/interest-master/:id — update an existing rate record (accounts and finance only)
+router.put('/interest-master/:id', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { id } = req.params;
-    const { rate_percent, effective_from } = req.body;
-    if (rate_percent == null) {
-      return res.status(400).json({ error: 'rate_percent is required' });
-    }
-    const result = await db.query(
-      `UPDATE project_interest_rates
-       SET rate_percent = $1, effective_from = COALESCE($2, effective_from)
-       WHERE id = $3
-       RETURNING id, rate_percent, effective_from`,
-      [rate_percent, effective_from || null, id]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Rate record not found' });
-    res.json({ success: true, data: result.rows[0] });
-  } catch (error) {
-    next(error);
-  }
+    const id = uuid(req.params.id, 'Rate id'), { rate, from } = rateInput(body(req));
+    const out = await inTx(async (c) => {
+      const cur = (await c.query(`SELECT project_id, rate_percent, effective_from FROM project_interest_rates WHERE id = $1`, [id])).rows[0];
+      if (!cur) throw bad('Rate record not found', 404);
+      await lock(c, 'rate:' + cur.project_id);
+      if (from && (await c.query(`SELECT 1 FROM project_interest_rates WHERE project_id = $1 AND effective_from = $2 AND id <> $3`, [cur.project_id, from, id])).rows.length) throw bad('A rate already starts on this date', 409);
+      const row = (await c.query(`UPDATE project_interest_rates SET rate_percent = $1, effective_from = COALESCE($2, effective_from) WHERE id = $3 RETURNING id, rate_percent, effective_from`, [rate, from, id])).rows[0];
+      return { row, cur };
+    });
+    await auditChange(db, req, res, 'update', 'project_interest_rate', id, { rate_percent: out.cur.rate_percent, effective_from: out.cur.effective_from }, { rate_percent: rate, effective_from: from });
+    res.json({ success: true, data: out.row });
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── Installment-wise Interest endpoints ────────────────────────────────────
@@ -2625,54 +2493,52 @@ router.put('/interest-master/:id', async (req: AuthRequest, res: Response, next:
 // GET /api/payments/plan-names/:projectId — distinct plan names for a project
 router.get('/plan-names/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId } = req.params;
     const result = await db.query(
       `SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name ASC`,
-      [projectId]
+      [uuid(req.params.projectId, 'Project id')]
     );
     res.json({ success: true, data: result.rows.map((r: any) => r.plan_name) });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/installment-interest/:projectId/:planName — installments with current rates
 router.get('/installment-interest/:projectId/:planName', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, planName } = req.params;
     const result = await db.query(
       `SELECT installment_index, installment_name, percentage, interest_rate_percent
        FROM plan_schedule_templates
        WHERE project_id = $1 AND plan_name = $2
        ORDER BY installment_index ASC`,
-      [projectId, planName]
+      [uuid(req.params.projectId, 'Project id'), text(req.params.planName, 'Plan name', 100, true)]
     );
     res.json({ success: true, data: result.rows });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
-// PUT /api/payments/installment-interest/:projectId/:planName — batch update per-installment rates
-router.put('/installment-interest/:projectId/:planName', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// PUT /api/payments/installment-interest/:projectId/:planName — batch update per-installment rates (accounts and finance only)
+router.put('/installment-interest/:projectId/:planName', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { projectId, planName } = req.params;
-    const { rates } = req.body; // Array<{ installment_index: number; interest_rate_percent: number | null }>
-    if (!Array.isArray(rates)) {
-      return res.status(400).json({ error: 'rates array is required' });
-    }
-    for (const r of rates) {
-      await db.query(
-        `UPDATE plan_schedule_templates
-         SET interest_rate_percent = $1
-         WHERE project_id = $2 AND plan_name = $3 AND installment_index = $4`,
-        [r.interest_rate_percent ?? null, projectId, planName, r.installment_index]
-      );
-    }
-    res.json({ success: true, updated: rates.length });
-  } catch (error) {
-    next(error);
-  }
+    const projectId = uuid(req.params.projectId, 'Project id'), planName = text(req.params.planName, 'Plan name', 100, true);
+    const rates = body(req).rates; // Array<{ installment_index: number; interest_rate_percent: number | null }>
+    if (!Array.isArray(rates) || !rates.length) throw bad('rates array is required');
+    if (rates.length > 200) throw bad('At most 200 installments at a time');
+    const seen = new Set<number>();
+    const clean = rates.map((r: any) => {
+      if (!r || typeof r !== 'object' || Array.isArray(r)) throw bad('Each rate must be an object');
+      if (typeof r.installment_index !== 'number' || !Number.isInteger(r.installment_index) || r.installment_index < 1 || r.installment_index > 999) throw bad('installment_index must be a whole number from 1 to 999');
+      if (seen.has(r.installment_index)) throw bad(`Installment ${r.installment_index} is listed twice`);
+      seen.add(r.installment_index);
+      return { idx: r.installment_index, rate: has(r.interest_rate_percent) ? num(r.interest_rate_percent, 'interest_rate_percent', 100, 2) : null };
+    });
+    await inTx(async (c) => {
+      for (const r of clean) {
+        const u = await c.query(`UPDATE plan_schedule_templates SET interest_rate_percent = $1 WHERE project_id = $2 AND plan_name = $3 AND installment_index = $4`, [r.rate, projectId, planName, r.idx]);
+        if (!u.rowCount) throw bad(`Installment ${r.idx} is not in this plan`, 404);
+      }
+    });
+    await auditChange(db, req, res, 'update', 'installment_interest', projectId, undefined, { plan_name: planName, rates: clean });
+    res.json({ success: true, updated: clean.length });
+  } catch (error) { fail(error, res, next); }
 });
 
 // ── Customer Wise Interest endpoints ──────────────────────────────────────────
@@ -2680,8 +2546,10 @@ router.put('/installment-interest/:projectId/:planName', async (req: AuthRequest
 // GET /api/payments/customer-wise-consumers — list consumers for a project with interest dates
 router.get('/customer-wise-consumers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id, tower_id, registration_no, first_name, unit_address } = req.query;
-    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+    const q = req.query;
+    if (!has(q.project_id)) throw bad('project_id is required');
+    const project_id = uuid(q.project_id, 'project_id'), tower_id = optId(q.tower_id, 'tower_id');
+    const registration_no = filterText(q.registration_no, 'registration_no'), first_name = filterText(q.first_name, 'first_name'), unit_address = filterText(q.unit_address, 'unit_address');
 
     const result = await db.query(
       `WITH base AS (
@@ -2721,70 +2589,53 @@ router.get('/customer-wise-consumers', async (req: AuthRequest, res: Response, n
          ORDER BY c.id, pp.created_at DESC NULLS LAST
        )
        SELECT * FROM base ORDER BY name ASC`,
-      [
-        project_id,
-        tower_id || null,
-        registration_no || null,
-        first_name || null,
-        unit_address || null,
-      ]
+      [project_id, tower_id, registration_no, first_name, unit_address]
     );
 
     res.json({ success: true, data: result.rows });
-  } catch (error) { next(error); }
+  } catch (error) { fail(error, res, next); }
 });
 
-// PATCH /api/payments/consumer-interest-date/:consumerId — set interest_start_date and remove stale penal_interests
-router.patch('/consumer-interest-date/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const client = await db.connect();
+// PATCH /api/payments/consumer-interest-date/:consumerId — set interest_start_date and remove stale calculated interest (accounts and finance only)
+router.patch('/consumer-interest-date/:consumerId', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
-    const { interest_start_date } = req.body;
-    if (!interest_start_date) return res.status(400).json({ error: 'interest_start_date is required' });
-
-    await client.query('BEGIN');
-
-    const updateRes = await client.query(
-      `UPDATE consumers SET interest_start_date = $1 WHERE id = $2 RETURNING id, interest_start_date`,
-      [interest_start_date, consumerId]
-    );
-    if (updateRes.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Consumer not found' });
-    }
-
-    await client.query(
-      `DELETE FROM penal_interests WHERE consumer_id = $1 AND calculated_at::date < $2::date`,
-      [consumerId, interest_start_date]
-    );
-
-    await client.query('COMMIT');
-    res.json({ success: true, data: updateRes.rows[0] });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    next(error);
-  } finally {
-    client.release();
-  }
+    const consumerId = uuid(req.params.consumerId, 'Consumer id'), b = body(req);
+    if (!has(b.interest_start_date)) throw bad('interest_start_date is required');
+    const interest_start_date = day(b.interest_start_date, 'interest_start_date');
+    const row = await inTx(async (c) => {
+      await lock(c, 'pi:' + consumerId);
+      const u = await c.query(`UPDATE consumers SET interest_start_date = $1 WHERE id = $2 RETURNING id, interest_start_date`, [interest_start_date, consumerId]);
+      if (!u.rows[0]) throw bad('Consumer not found', 404);
+      await c.query(`DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated' AND calculated_at::date < $2::date`, [consumerId, interest_start_date]);
+      return u.rows[0];
+    });
+    await auditChange(db, req, res, 'update', 'consumer_interest', consumerId, undefined, { interest_start_date });
+    res.json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
 });
 
-// DELETE /api/payments/consumer-interest/:consumerId — delete ALL penal_interests for a consumer
+// DELETE /api/payments/consumer-interest/:consumerId — delete ALL stored interest of a consumer, manual entries too (super_admin only, from rbac)
 router.delete('/consumer-interest/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
-    const result = await db.query(
-      `DELETE FROM penal_interests WHERE consumer_id = $1`,
-      [consumerId]
-    );
+    const consumerId = uuid(req.params.consumerId, 'Consumer id');
+    const result = await inTx(async (c) => {
+      await consumerRow(c, consumerId);
+      await lock(c, 'pi:' + consumerId);
+      return c.query(`DELETE FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
+    });
+    await auditChange(db, req, res, 'delete', 'consumer_interest', consumerId, undefined, { deleted: result.rowCount });
     res.json({ success: true, deleted: result.rowCount });
-  } catch (error) { next(error); }
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/interest-waiver-list — project-level consumer list for waive-off screen
 router.get('/interest-waiver-list', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id, type, registration_no, first_name, unit_address } = req.query;
-    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+    const q = req.query;
+    if (!has(q.project_id)) throw bad('project_id is required');
+    const project_id = uuid(q.project_id, 'project_id');
+    const type = oneOf(q.type, 'type', ['All', 'Self', 'Pending', 'Loan Sanctioned'] as const);
+    const registration_no = filterText(q.registration_no, 'registration_no'), first_name = filterText(q.first_name, 'first_name'), unit_address = filterText(q.unit_address, 'unit_address');
 
     const result = await db.query(
       `WITH base AS (
@@ -2814,207 +2665,150 @@ router.get('/interest-waiver-list', async (req: AuthRequest, res: Response, next
          COALESCE(SUM(pi.amount_inr) - SUM(pi.interest_waived_inr), 0) AS balance_interest_inr,
          0 AS paid_interest_inr
        FROM base b
-       LEFT JOIN penal_interests pi ON pi.consumer_id = b.consumer_id
+       LEFT JOIN penal_interests pi ON pi.consumer_id = b.consumer_id AND pi.status IN ('calculated', 'manual')
        WHERE ($2::text IS NULL OR b.type = $2)
          AND ($3::text IS NULL OR b.registration_no ILIKE '%' || $3 || '%')
          AND ($4::text IS NULL OR b.name ILIKE '%' || $4 || '%')
          AND ($5::text IS NULL OR b.unit_address ILIKE '%' || $5 || '%')
        GROUP BY b.consumer_id, b.name, b.registration_no, b.unit_address, b.type, b.loan_amount, b.loan_sanction_date
        ORDER BY b.name ASC`,
-      [
-        project_id,
-        type && type !== 'All' ? type : null,
-        registration_no || null,
-        first_name || null,
-        unit_address || null,
-      ]
+      [project_id, type && type !== 'All' ? type : null, registration_no, first_name, unit_address]
     );
 
     res.json({ success: true, data: result.rows });
-  } catch (error) { next(error); }
+  } catch (error) { fail(error, res, next); }
 });
 
 // POST /api/payments/consumer-interest-detail/:consumerId — recalc, persist, return rows
 router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const client = await db.connect();
   try {
-    await client.query('BEGIN');
+    const consumerId = uuid(req.params.consumerId, 'Consumer id');
+    const out = await inTx(async (client) => {
+      await lock(client, 'pi:' + consumerId);
 
-    const { consumerId } = req.params;
-
-    // Fetch consumer with project context
-    const consumerRes = await client.query(
-      `SELECT c.id, c.interest_start_date, c.grace_period_days,
-              pp.id AS payment_plan_id,
-              t.project_id
-       FROM consumers c
-       LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
-       LEFT JOIN allocations a   ON a.consumer_id = c.id
-       LEFT JOIN units u         ON u.id = a.unit_id
-       LEFT JOIN towers t        ON t.id = u.tower_id
-       WHERE c.id = $1
-       ORDER BY pp.created_at DESC
-       LIMIT 1`,
-      [consumerId]
-    );
-    if (!consumerRes.rows[0]) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Consumer not found' });
-    }
-    const consumer = consumerRes.rows[0];
-    const projectId = consumer.project_id;
-
-    // Penal rate
-    const penalRate = await getPenalInterestRate(projectId);
-
-    // Template name/rate map for this project
-    const templatesRes = await client.query(
-      `SELECT installment_index, installment_name, interest_rate_percent
-       FROM plan_schedule_templates
-       WHERE project_id = $1
-       ORDER BY installment_index ASC`,
-      [projectId]
-    );
-    const templateNameMap: Record<number, string> = {};
-    const templateRateMap: Record<number, number | null> = {};
-    templatesRes.rows.forEach((t: any) => {
-      templateNameMap[t.installment_index] = t.installment_name;
-      templateRateMap[t.installment_index] = t.interest_rate_percent != null ? parseFloat(t.interest_rate_percent) : null;
-    });
-
-    // Receipts
-    const receiptsRes = await client.query(
-      `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
-       FROM receipts
-       WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
-       ORDER BY received_date ASC, created_at ASC`,
-      [consumerId]
-    );
-
-    // Demands
-    const demandsRaw = await client.query(
-      `SELECT id, installment_index, amount_due_inr, due_date,
-              cgst_amount, sgst_amount,
-              addon_charge_amount, addon_cgst_amount, addon_sgst_amount
-       FROM demands
-       WHERE consumer_id = $1
-       ORDER BY installment_index ASC`,
-      [consumerId]
-    );
-    const demands = demandsRaw.rows.map((d: any) => ({
-      ...d,
-      installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
-      interest_rate_percent: templateRateMap[d.installment_index] ?? null,
-    }));
-
-    // Calculate
-    const allRows = buildInterestRows(receiptsRes.rows, demands, penalRate, {
-      interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
-      gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
-      asOfDate:          new Date(),
-    });
-    const interestRows = allRows.filter((r: any) => r.interest_amount > 0);
-
-    // Snapshot existing waived amounts before DELETE so they survive the re-insert
-    const existingWaivedRes = await client.query(
-      `SELECT installment_index, COALESCE(interest_waived_inr, 0) AS waived
-       FROM penal_interests
-       WHERE consumer_id = $1 AND status = 'calculated' AND interest_waived_inr > 0`,
-      [consumerId]
-    );
-    const waivedMap: Record<number, number> = {};
-    existingWaivedRes.rows.forEach((r: any) => {
-      waivedMap[r.installment_index] = parseInt(r.waived);
-    });
-
-    // Delete stale calculated rows and re-insert
-    await client.query(
-      `DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
-      [consumerId]
-    );
-
-    const penalIdMap: Record<number, string> = {};
-    for (const row of interestRows) {
-      const ins = await client.query(
-        `INSERT INTO penal_interests
-           (payment_plan_id, installment_index, consumer_id, principal_inr, days_overdue, rate_percent, amount_inr, calculated_at, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),'calculated')
-         RETURNING id`,
-        [
-          consumer.payment_plan_id || null,
-          row.installment_index,
-          consumerId,
-          Math.round(row.delay_amount),
-          row.delay_days,
-          row.roi,
-          Math.round(row.interest_amount),
-        ]
+      // Fetch consumer with project context
+      const consumerRes = await client.query(
+        `SELECT c.id, c.interest_start_date, c.grace_period_days,
+                pp.id AS payment_plan_id,
+                t.project_id
+         FROM consumers c
+         LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
+         LEFT JOIN allocations a   ON a.consumer_id = c.id
+         LEFT JOIN units u         ON u.id = a.unit_id
+         LEFT JOIN towers t        ON t.id = u.tower_id
+         WHERE c.id = $1
+         ORDER BY pp.created_at DESC
+         LIMIT 1`,
+        [consumerId]
       );
-      penalIdMap[row.installment_index] = ins.rows[0].id;
-      // Restore waived amount if it existed before the DELETE
-      if (waivedMap[row.installment_index]) {
-        await client.query(
-          `UPDATE penal_interests SET interest_waived_inr = $1 WHERE id = $2`,
-          [waivedMap[row.installment_index], ins.rows[0].id]
-        );
-      }
-    }
+      if (!consumerRes.rows[0]) throw bad('Consumer not found', 404);
+      const consumer = consumerRes.rows[0];
+      const projectId = consumer.project_id;
 
-    await client.query('COMMIT');
+      // Penal rate
+      const penalRate = await getPenalInterestRate(projectId);
 
-    // Fetch updated waived totals (after restore, these are correct)
-    const waivedRes = await client.query(
-      `SELECT COALESCE(SUM(interest_waived_inr), 0) AS total_waived_inr
-       FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
-      [consumerId]
-    );
-    const totalInterest = allRows.reduce((s: number, r: any) => s + r.interest_amount, 0);
-    const totalWaived   = parseFloat(waivedRes.rows[0].total_waived_inr);
+      // Template name/rate map for this project
+      const templatesRes = await client.query(
+        `SELECT installment_index, installment_name, interest_rate_percent
+         FROM plan_schedule_templates
+         WHERE project_id = $1
+         ORDER BY installment_index ASC`,
+        [projectId]
+      );
+      const templateNameMap: Record<number, string> = {};
+      const templateRateMap: Record<number, number | null> = {};
+      templatesRes.rows.forEach((t: any) => {
+        templateNameMap[t.installment_index] = t.installment_name;
+        templateRateMap[t.installment_index] = t.interest_rate_percent != null ? parseFloat(t.interest_rate_percent) : null;
+      });
+
+      // Receipts
+      const receiptsRes = await client.query(
+        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+         FROM receipts
+         WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
+         ORDER BY received_date ASC, created_at ASC`,
+        [consumerId]
+      );
+
+      // Demands
+      const demandsRaw = await client.query(
+        `SELECT id, installment_index, amount_due_inr, due_date,
+                cgst_amount, sgst_amount,
+                addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+         FROM demands
+         WHERE consumer_id = $1
+         ORDER BY installment_index ASC`,
+        [consumerId]
+      );
+      const demands = demandsRaw.rows.map((d: any) => ({
+        ...d,
+        installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
+        interest_rate_percent: templateRateMap[d.installment_index] ?? null,
+      }));
+
+      // Calculate
+      const allRows = buildInterestRows(receiptsRes.rows, demands, penalRate, {
+        interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
+        gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
+        asOfDate:          new Date(),
+      });
+      const interestRows = allRows.filter((r: any) => r.interest_amount > 0);
+
+      // Replace the stored rows; what was waived comes back with them (a consumer without a payment plan has nowhere to store interest)
+      const penalIdMap = consumer.payment_plan_id ? await persistInterest(client, consumerId, consumer.payment_plan_id, interestRows) : {};
+
+      const waivedRes = await client.query(
+        `SELECT COALESCE(SUM(interest_waived_inr), 0) AS total_waived_inr FROM penal_interests WHERE consumer_id = $1 AND status IN ('calculated', 'manual')`,
+        [consumerId]
+      );
+      return { allRows, penalIdMap, consumer, totalWaived: parseFloat(waivedRes.rows[0].total_waived_inr) };
+    });
+    const totalInterest = out.allRows.reduce((s: number, r: any) => s + r.interest_amount, 0);
 
     res.json({
       success: true,
-      rows: allRows,
-      penal_interest_ids: penalIdMap,
-      payment_plan_id: consumer.payment_plan_id,
+      rows: out.allRows,
+      penal_interest_ids: out.penalIdMap,
+      payment_plan_id: out.consumer.payment_plan_id,
       summary: {
         total_interest:   Math.round(totalInterest * 100) / 100,
-        total_waived:     totalWaived,
-        balance_interest: Math.round((totalInterest - totalWaived) * 100) / 100,
+        total_waived:     out.totalWaived,
+        balance_interest: Math.round((totalInterest - out.totalWaived) * 100) / 100,
       },
     });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    next(error);
-  } finally {
-    client.release();
-  }
+  } catch (error) { fail(error, res, next); }
 });
 
-// POST /api/payments/manual-interest — insert a manual penal_interest record
-router.post('/manual-interest', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// POST /api/payments/manual-interest — insert a manual penal_interest record (accounts and finance only)
+router.post('/manual-interest', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumer_id, payment_plan_id, installment_index, amount_inr } = req.body;
-    if (!consumer_id || amount_inr == null) {
-      return res.status(400).json({ error: 'consumer_id and amount_inr are required' });
-    }
-
-    const result = await db.query(
-      `INSERT INTO penal_interests
-         (consumer_id, payment_plan_id, installment_index, principal_inr, days_overdue, rate_percent, amount_inr, calculated_at, status)
-       VALUES ($1, $2, $3, 0, 0, 0, $4, NOW(), 'manual')
-       RETURNING *`,
-      [consumer_id, payment_plan_id || null, installment_index ?? null, amount_inr]
-    );
-
-    res.status(201).json({ success: true, data: result.rows[0] });
-  } catch (error) { next(error); }
+    const b = body(req);
+    if (!has(b.consumer_id) || !has(b.amount_inr)) throw bad('consumer_id and amount_inr are required');
+    const consumerId = uuid(b.consumer_id, 'consumer_id'), amount = pos(b.amount_inr, 'amount_inr', 0), planArg = optId(b.payment_plan_id, 'payment_plan_id');
+    const idx = has(b.installment_index) ? b.installment_index : null;
+    if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 1 || idx > 999) throw bad('installment_index is required, a whole number from 1 to 999');
+    const row = await inTx(async (c) => {
+      await consumerRow(c, consumerId);
+      await lock(c, 'pi:' + consumerId);
+      const plan = (await c.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 AND ($2::uuid IS NULL OR id = $2) ORDER BY created_at DESC LIMIT 1`, [consumerId, planArg])).rows[0];
+      if (!plan) throw bad(planArg ? 'That payment plan does not belong to this consumer' : 'This consumer has no payment plan', 400);
+      return (await c.query(
+        `INSERT INTO penal_interests (consumer_id, payment_plan_id, installment_index, principal_inr, days_overdue, rate_percent, amount_inr, calculated_at, status)
+         VALUES ($1, $2, $3, 0, 0, 0, $4, NOW(), 'manual') RETURNING *`,
+        [consumerId, plan.id, idx, amount])).rows[0];
+    });
+    await auditChange(db, req, res, 'create', 'penal_interest', row.id, undefined, { consumer_id: consumerId, amount_inr: amount, installment_index: row.installment_index, manual: true });
+    res.status(201).json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/consumer-waiver-report — reads from interest_waivers (permanent, never wiped)
 router.get('/consumer-waiver-report', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { project_id } = req.query;
-    if (!project_id) return res.status(400).json({ error: 'project_id is required' });
+    if (!has(req.query.project_id)) throw bad('project_id is required');
+    const project_id = uuid(req.query.project_id, 'project_id');
 
     const result = await db.query(
       `SELECT
@@ -3048,7 +2842,7 @@ router.get('/consumer-waiver-report', async (req: AuthRequest, res: Response, ne
          SELECT consumer_id,
            SUM(amount_inr) AS total_interest_inr
          FROM penal_interests
-         WHERE status = 'calculated'
+         WHERE status IN ('calculated', 'manual')
          GROUP BY consumer_id
        ) pi_agg ON pi_agg.consumer_id = c.id
        WHERE t.project_id = $1
@@ -3058,38 +2852,28 @@ router.get('/consumer-waiver-report', async (req: AuthRequest, res: Response, ne
     );
 
     res.json({ success: true, data: result.rows });
-  } catch (error) { next(error); }
+  } catch (error) { fail(error, res, next); }
 });
 
-// PATCH /api/payments/consumer-grace-period/:consumerId — set grace_period_days
-router.patch('/consumer-grace-period/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// PATCH /api/payments/consumer-grace-period/:consumerId — set grace_period_days (accounts and finance only)
+router.patch('/consumer-grace-period/:consumerId', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const { consumerId } = req.params;
-    const { grace_period_days } = req.body;
-
-    if (grace_period_days === undefined || grace_period_days === null) {
-      return res.status(400).json({ error: 'grace_period_days is required' });
-    }
-    const days = parseInt(String(grace_period_days));
-    if (isNaN(days) || days < 0) {
-      return res.status(400).json({ error: 'grace_period_days must be a non-negative integer' });
-    }
-
-    const result = await db.query(
-      `UPDATE consumers SET grace_period_days = $1 WHERE id = $2 RETURNING id, grace_period_days`,
-      [days, consumerId]
-    );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Consumer not found' });
-
-    // Clear stale calculated interest so next recalc uses the new grace period
-    await db.query(
-      `DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`,
-      [consumerId]
-    );
-
-    res.json({ success: true, data: result.rows[0] });
-  } catch (error) { next(error); }
+    const consumerId = uuid(req.params.consumerId, 'Consumer id'), g = body(req).grace_period_days;
+    if (!has(g)) throw bad('grace_period_days is required');
+    const days = typeof g === 'number' ? g : typeof g === 'string' && /^\d+$/.test(g) ? Number(g) : NaN;
+    if (!Number.isInteger(days) || days < 0 || days > 3650) throw bad('grace_period_days must be a whole number from 0 to 3650');
+    const row = await inTx(async (c) => {
+      await lock(c, 'pi:' + consumerId);
+      const u = await c.query(`UPDATE consumers SET grace_period_days = $1 WHERE id = $2 RETURNING id, grace_period_days`, [days, consumerId]);
+      if (!u.rows[0]) throw bad('Consumer not found', 404);
+      // Clear stale calculated interest so next recalc uses the new grace period
+      await c.query(`DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated'`, [consumerId]);
+      return u.rows[0];
+    });
+    await auditChange(db, req, res, 'update', 'consumer_interest', consumerId, undefined, { grace_period_days: days });
+    res.json({ success: true, data: row });
+  } catch (error) { fail(error, res, next); }
 });
 
+router.use(pgErrorHandler);
 export default router;
-
