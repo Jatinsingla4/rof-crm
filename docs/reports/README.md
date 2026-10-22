@@ -1,0 +1,79 @@
+# Reports
+
+Every screen under **Reports** (Inventory, Unit Status, Applicant Detail, Collection, Dues, Stage Wise, Percentage Wise, Due Ageing, Charge Detail, Financial Details) and the Analytics dashboard read the routes of `/api/reports`.
+Files: `packages/api/src/routes/reports.ts` (inventory and the smaller reports), `reports-dues.ts` (customer and group wise dues), `reports-ageing.ts` (ageing, month wise, forecast, pivot, dashboards), `reports-cash.ts` (collection and the bank views), `reports-applicant.ts` (Applicant Payment File, Company Summary).
+Shared: `utils/report-ledger.ts` (**one** place that works out what is due and paid), `utils/report-input.ts` (the query guard). Screens: `packages/web/public/js/pages/reports.js`.
+
+## Guard and project scope
+- Mounted with `rbac('reports')`: `GET` needs `reports:view` (super_admin, project_manager, sales_executive, accounts_finance, read_only_viewer). `support_agent` and a request without login get 403 / 401. `POST /custom-report` needs `reports:create` (super_admin, accounts_finance).
+- A login limited to projects (`PATCH /users/employee-login/:id assignedProjectIds`) is cut down by the database (row level security): every query of the request only sees those projects, so rows and totals are theirs. Applicants with **no project at all** are open to every login (the platform rule of migration 100) and show up in lists and totals.
+- `GET /cash-bank-summary` and `GET /ledger-monthly-summary/:bankId` are company wide (outgoing payments have no project): **403 for a login limited to projects**. The bank-name list (`/bank-ledger-company-banks`) stays open.
+- Every query value is checked once in `checkQuery` before any route runs: ids must be uuids, dates real dates, `page` 1..100000, `pageSize` 1..5000, years / months / instalment numbers in range, `from` not after `to`, and a value must be one plain text (not `?x=a&x=b`, not `x[a]=b`, not longer than 200 characters). A bad value is **400**, never a 500. `%`, `_` and `\` in a search box are ordinary characters (JS `contains`, or `ILIKE` with the characters escaped), so `%` no longer lists everyone. A wrong `groupBy`, `status`, `balanceType`, `chargeType`, `dateType` is 400 (it used to fall back silently or crash).
+
+## What every number means (the decisions)
+| Word | Meaning |
+|---|---|
+| **Customer** | a booking that is `complete`, `pending_payment` or `active` with its unit. A surrendered / cancelled booking is not a customer in any dues report (its cancelled demands are not due); the money it paid stays in Collection. An applicant with two live bookings (old dirty data) shows two rows, money is never counted twice (receipts are attached to the plan of that booking). |
+| **Plan** | the latest `payment_plans` row of the booking's customer and unit (the same rule the Demands screen uses). Demands of an older plan are not counted. |
+| **Demand total** | amount + CGST + SGST + add-on charge + add-on GST. Cancelled demands are left out. |
+| **Due / Demanded** | a demand is *due* once it is raised: status `demanded`, `raised` (old name) or `paid`. A `pending` demand is not due yet; it shows as **undue** (and in Forecasting). |
+| **Paid on a demand** | CLEARED receipts of that plan, spread over the demands by `applyWaterfall` (the call the Demands screen uses): receipts linked to a demand, then receipts with only an instalment number, then the advance pool in instalment order; never above the demand. Pending, authorised, deposited, on-hold, bounced and cancelled receipts are **not** paid. |
+| **Outstanding** | per demand: total - paid (never negative); a customer, group or project adds its due demands. `Overdue` = due date before the "as on" date (today if empty), still outstanding. Days late = as-on date - due date (1 or more). |
+| **Received / collection (cash)** | CLEARED receipts that are not the synthetic "advance" copy of an overpayment (that copy would count the money twice). A receipt belongs to the project of its plan, else to the project of the applicant. |
+| **Received pending** | pending, authorised, deposited and on-hold receipts; shown beside the cleared money, never counted in it or in outstanding. |
+| **Credit** | cash received - paid on due demands (money that came in before it was demanded or beyond it), never negative. So **Due (A) - Received on due (B) = Outstanding (D)** and **B + C = cash received**. |
+| **Received %** | (cleared - CGST - SGST - interest in the receipts) / unit cost. Both sides without GST (it used to compare money with GST against cost without GST). |
+| **Unit cost** | rate x carpet area (or the balcony charge it stored) - dealer adjustment - inaugural discount + PLC + other charge, from the booking. A booking with **no rate** (made through the API or imported) is priced at the unit's **base price**, exactly as Booking does when it confirms the payment (`baseCostSql` in `utils/report-ledger.ts`, used by every report that shows cost). The same on every report (it used to differ between reports, and was 0 for a booking with no rate, so received % was 0). |
+| **Interest charged** | per instalment the interest stored by the scheduler when there is one, else what `buildInterestRows` works out; a stored instalment is counted once and the waiver is taken off once (it used to be added once per receipt row and the waiver was subtracted twice). |
+
+## Routes
+| Route | What it gives | Guard |
+|---|---|---|
+| `GET /sales-dashboard`, `/campaign-roi`, `/lead-source-analysis`, `/allotment-dashboard` | lead and allotment counts (unchanged logic, filters checked) | reports:view |
+| `GET /financial-dashboard`, `/project-dashboard` | receivables (all demands incl. GST), collected (cash), outstanding, demand count, overdue count (late and still unpaid only), collection % | reports:view |
+| `GET /inventory-full`, `/inventory-details` (groupBy project, tower, bhk_type, matrix, project_bhk_type), `/unit-wise-plc`, `/unit-sold-area`, `/unit-cost`, `/project-details`, `/stock-report`, `/tower-floor-sales` | inventory, sold / unsold, area, PLC, cost, floor sales | reports:view |
+| `GET /applicant-payment-file` | one row per live booking: cost, dues, received, outstanding, credit, interest; `page`, `pageSize` (1-5000), summary over all rows | reports:view |
+| `GET /customer-balance`, `/customer-dues`, `/customer-due-summary`, `/due-report`, `/customer-dues-detail` | per customer / per demand dues, received, outstanding, credit, undue; paged (`pageSize` default 1000, max 5000; `total` and the summary cover all) | reports:view |
+| `GET /stage-wise-dues`, `/percentage-wise-dues`, `/project-wise-dues` (groupBy project, tower, bhk_type, plan, broker) | grouped dues; the groups add up to the total (a customer is in one group) | reports:view |
+| `GET /ageing-project`, `/ageing-installment`, `/ageing-tower`, `/ageing-plan` | overdue by 0-30, 31-60, 61-90, 91-180, 180+ days (amount and number of customers) | reports:view |
+| `GET /ageing-summary-project`, `/-tower`, `/-plan`, `/-customer` | due (A), received (B), credit (C), outstanding (D = A - B), D % and the bands 0-30, 31-60, 61-120, 121-180, 180+ | reports:view |
+| `GET /payment-ageing` | four bands 1-30, 31-90, 91-180, 180+ | reports:view |
+| `GET /month-wise-dues`, `/month-wise-dues-customer`, `/customer-forecasting`, `/collection-pivot` | by month of the due date (raised demands, open or paid); forecast = the unpaid part of demands due today or later | reports:view |
+| `GET /project-collection`, `/monthly-collection`, `/year-month-collection`, `/receipt-wise-collection` | cleared money by mode / month / receipt; cancelled and bounced counts; `uncleared_amount` shown apart; lists cut at 20,000 rows (`truncated: true`) | reports:view |
+| `GET /cash-bank-summary`, `/ledger-monthly-summary/:bankId`, `/bank-ledger`, `/bank-ledger-company-banks` | bank credit (cleared receipts), debit (cleared outgoing payments), month balance Cr / Dr; receipt level ledger | reports:view (the first two: not for a login limited to projects) |
+| `GET /other-charges`, `/addon-charges-report`, `/addon-charge-names`, `/opening-details`, `/booking-authentication`, `/booking-record`, `/tds-status`, `/conveyance-deed-date`, `/all-applicants`, `/customer-payment-mismatch`, `/summary-report` | charges, bookings, TDS (released assignments left out), registry, applicants, company summary | reports:view |
+| `POST /custom-report`, `GET /custom-reports` | save and list report definitions (name, type, project, filters, columns); a login lists its own (a super admin all) | create: reports:create |
+
+Test hook: send `X-Count-Queries: 1` and the answer carries `X-Db-Queries` (how many queries the request made); the performance test uses it to prove a report does not query once per customer.
+
+## Real bugs found and fixed
+**Wrong totals (high):**
+- Every dues, ageing and balance report counted **cancelled demands** of surrendered units as due, listed the surrendered applicant as a customer, and treated **unraised (pending) demands** as due when no date was given (but not when a date was given, so the same screen changed meaning).
+- Paid was `status != 'cancelled'` on most reports: **bounced and not yet cleared receipts counted as paid**. Cash, balance, project wise, customer wise reports said "received" for cheques that had bounced. (Collection, ageing and the waterfall reports used cleared only, so two reports of the same customer disagreed.)
+- Stage Wise Dues: with a due date, received was not limited to that date, so outstanding went **negative**; paid / unpaid compared paid (with GST) with the amount without GST; the screen total of consumers was the biggest stage, not the number of customers.
+- Project Wise Dues summary (Pending / Clear / Total): GST and interest were added to an amount that already contained them (**double counted**).
+- Project Wise Collection and the bank / year-month collection counted **bounced** receipts in the total, multiplied receipts by the number of bounce logs, dropped receipts without a plan, and counted the copy of an overpayment twice. Project Details "collection" was the sum of booking amounts.
+- Applicant Payment File: dues were added up without GST while outstanding used GST; add-on charges left out; interest of a stored instalment was added once **per receipt row**, and the waiver was taken off twice. Stage and ageing reports mixed old and new plans of one applicant.
+- Tower Floor Sales "received" included money of an earlier, surrendered buyer of the same unit.
+- Customer Wise Report "credit" was always 0; unit cost differed between reports (discounts counted in some, not in others); percentages compared money with GST to cost without.
+- TDS Status listed released TDS assignments (cancelled / bounced receipts) as TDS paid. Addon Charge Report listed cancelled and waived charges. Other Charges counted cancelled and bounced receipts. Customer Payment Mismatch counted bounced receipts.
+- A booking with no rate showed unit cost 0 and received % 0 on every dues / balance / payment-file / unit-cost report while its demands (made from the unit base price) were normal; found by a second look with its own data. One shared `baseCostSql` now holds the rule (it was copied in five places).
+**Broken screens (medium):** Inventory Details (default view) was a 500 (two parameters for one); Create New Report / saved reports always failed (an array sent as text, no name column read); Inventory Full took 6 MB for one list and repeated units; "Add Extra Addon Charge" in the menu opened "not implemented"; Due Report showed a paid demand as PENDING; the lists silently stopped at 100 rows while the totals above counted everyone; Customer Wise Dues showed 0 for credit.
+**Other screens of the Reports menu (medium):** Analytics Dashboard showed 0 for every KPI (it read the wrong fields of the answer), a collection trend of zeros (read fields receipts do not have), a lead and unit chart counted from the first 500 / 1000 rows only, and an ageing block built from the first 300 overdue rows; now they read the same report routes as the screens (leads by the date range chosen, money from the ledger). Unit Status: the "All" button left out temporary-surrender units (Total Unit was short and the grid missed them), the Mortgage button listed every unit, an older answer could overwrite a newer FETCH, and the counts are worked out in the browser from the first 1000 units (a warning shows when the list is full; the project list no longer depends on those 1000 units). The Applicant Payment File screen invented "received CGST / SGST" (0.5 % of the amount), showed 0 credit and a blank name for an applicant saved with one name field; it shows the stored GST of the receipts, the credit and the name. The With Tax / Without Tax switch of Project Wise Dues and Customer Wise Dues changed only the button until the next FETCH; it now reloads.
+**Hostile input (medium):** every report took ids, dates, numbers as raw text: a bad id, date or `page=abc` gave a 500; `%` listed everyone. CSV export wrote a cell starting with `=`, `+`, `-`, `@` as it was (formula injection). Text of applicants, towers, plans, banks was put into the screens unescaped (stored XSS) and into inline `onclick` strings.
+**Performance (medium):** the dues family ran two queries **per customer** (Project Wise Dues 23 s, the ageing summaries 6 s on the test data); all of them now make 3 queries in total (about 60 ms for 300 customers, the performance test runs 2,400).
+
+## Not changed on purpose
+- Receipts with no payment plan are counted in collection but cannot be matched to an instalment (the Demands screen has the same rule).
+- The "as on" date limits which demands are due, not which receipts count (receipts are taken up to today).
+- An overpayment whose advance copy is still pending shows as credit (cash is above the paid share) until the copy is cleared.
+- The Unit Status screens (`/unit-status`: project wise, tower wise) count in the browser from `/units` (1000 at most); the menu entries Unit Type Wise, Inventory Summary Report and Availability Sheet open the same project view (they have no screen of their own).
+- On a server in a time zone other than UTC the database `date` columns of the old routes (booking date, cheque date) are sent as a timestamp that can be one day off; the new ledger routes send plain `YYYY-MM-DD`. Render / CI run in UTC.
+- Reports have no pagination apart from the paged lists above; the long lists (receipt wise, bank ledger) stop at 20,000 rows and say so.
+- Receipt amounts are whole rupees (the Receipts module rejects paise), GST on demands has paise; every total is rounded to the paisa.
+
+## Tests
+- `node docs/reports/api-test-reports.mjs` (about 950 checks; own company, banks, projects, plans and 10 applicants incl. a surrendered, a transferred, one with an old plan and a pool receipt; a perf set of 2,400 customers; `SEED=n` repeats a random run, `PERF_ROWS=n` changes the size, `DEBUG_CLEAN=1` shows clean-up failures). Every total is compared with an independent SQL read of the base tables.
+- `node docs/reports/api-test-reports-lifecycle.mjs` (24 checks, own data): cost of a booking with and without a rate on four reports; a surrendered applicant is not a customer but the cash stays in Collection; restore brings the customer back; a transferred unit has one customer (the buyer) with the money paid so far; a shifted applicant is on the new unit only; bounced and deposited receipts are not received; Collection and the Financial Dashboard equal the cleared receipts read by SQL.
+- `e2e/reports.spec.ts` (all report screens, every filter option, hostile text, dates, buttons, CSV; the numbers on screen against psql). Needs the PG* variables for psql.
+- Demo data: `BASE=http://localhost:3020/api node docs/demo-seed-reports.mjs`.

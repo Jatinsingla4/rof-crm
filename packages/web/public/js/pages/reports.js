@@ -61,6 +61,7 @@ const ReportsPage = {
       'inventory-details':   () => this.loadInventoryDetails(),
       'other-charge-report': () => this.loadOtherChargeReport(),
       'addon-charge-report': () => this.loadAddonChargeReport(),
+      'extra-addon-charge':  () => this.loadAddonChargeReport(),
       'all-applicants':      () => this.loadAllApplicants(params),
       'cash-bank-summary':   () => this.loadCashBankSummary(),
       'bank-ledger':         () => this.loadBankLedger(),
@@ -87,29 +88,29 @@ const ReportsPage = {
 
   _projectOptions() {
     return '<option value="">All Projects</option>' +
-      this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
   },
 
   _consumerOptions() {
     return '<option value="">All Consumers</option>' +
       this._consumers.map(c => {
-        const nm = c.first_name ? `${c.first_name} ${c.last_name||''}`.trim() : (c.name||'—');
-        return `<option value="${c.id}">${nm} · ${c.mobile||''}</option>`;
+        const nm = c.first_name ? `${Utils.esc(c.first_name)} ${Utils.esc(c.last_name||'')}`.trim() : (c.name||'—');
+        return `<option value="${c.id}">${nm} · ${Utils.esc(c.mobile||'')}</option>`;
       }).join('');
   },
 
   _companyOptions() {
     return '<option value="">All Companies</option>' +
-      (this._companies||[]).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+      (this._companies||[]).map(c => `<option value="${c.id}">${Utils.esc(c.name)}</option>`).join('');
   },
 
   _filters(title, fields, fetchFn) {
     const fHtml = fields.map(f => {
-      if (f.type === 'date') return `<div class="fg" style="min-width:130px"><label class="fl">${f.label}</label><input type="date" class="fc" id="f-${f.id}" value="${f.value||''}"></div>`;
-      if (f.type === 'select') return `<div class="fg" style="min-width:160px;flex:1"><label class="fl">${f.label}</label><select class="fc" id="f-${f.id}"${f.onchange ? ` onchange="${f.onchange}"` : ''}>${f.options}</select></div>`;
-      if (f.type === 'text') return `<div class="fg" style="min-width:160px"><label class="fl">${f.label}</label><input type="text" class="fc" id="f-${f.id}" placeholder="${f.placeholder||''}"></div>`;
+      if (f.type === 'date') return `<div class="fg" style="min-width:130px"><label class="fl">${Utils.esc(f.label)}</label><input type="date" class="fc" id="f-${f.id}" value="${f.value||''}"></div>`;
+      if (f.type === 'select') return `<div class="fg" style="min-width:160px;flex:1"><label class="fl">${Utils.esc(f.label)}</label><select class="fc" id="f-${f.id}"${f.onchange ? ` onchange="${f.onchange}"` : ''}>${f.options}</select></div>`;
+      if (f.type === 'text') return `<div class="fg" style="min-width:160px"><label class="fl">${Utils.esc(f.label)}</label><input type="text" class="fc" id="f-${f.id}" placeholder="${f.placeholder||''}"></div>`;
       if (f.type === 'checkbox-group') {
-        return `<div class="fg" style="min-width:100%;margin-top:10px"><label class="fl">${f.label}</label><div style="display:flex;gap:10px;flex-wrap:wrap">
+        return `<div class="fg" style="min-width:100%;margin-top:10px"><label class="fl">${Utils.esc(f.label)}</label><div style="display:flex;gap:10px;flex-wrap:wrap">
           ${f.options.map(o => `<label class="cb-label"><input type="checkbox" name="f-${f.id}" value="${o}" ${o==='All'?'checked':''}> ${o}</label>`).join('')}
         </div></div>`;
       }
@@ -137,9 +138,9 @@ const ReportsPage = {
     const rHtml = rows.map(row => `
       <div style="display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap">
         ${row.map(f => {
-          if (f.type === 'date') return `<div class="fg" style="flex:1;min-width:120px"><label class="fl">${f.label}</label><input type="date" class="fc" id="f-${f.id}" value="${f.value||''}"></div>`;
-          if (f.type === 'select') return `<div class="fg" style="flex:1;min-width:150px"><label class="fl">${f.label}</label><select class="fc" id="f-${f.id}">${f.options}</select></div>`;
-          if (f.type === 'text') return `<div class="fg" style="flex:1;min-width:130px"><label class="fl">${f.label}</label><input type="text" class="fc" id="f-${f.id}" placeholder="${f.placeholder||''}"></div>`;
+          if (f.type === 'date') return `<div class="fg" style="flex:1;min-width:120px"><label class="fl">${Utils.esc(f.label)}</label><input type="date" class="fc" id="f-${f.id}" value="${f.value||''}"></div>`;
+          if (f.type === 'select') return `<div class="fg" style="flex:1;min-width:150px"><label class="fl">${Utils.esc(f.label)}</label><select class="fc" id="f-${f.id}">${f.options}</select></div>`;
+          if (f.type === 'text') return `<div class="fg" style="flex:1;min-width:130px"><label class="fl">${Utils.esc(f.label)}</label><input type="text" class="fc" id="f-${f.id}" placeholder="${f.placeholder||''}"></div>`;
           return '';
         }).join('')}
       </div>
@@ -164,7 +165,7 @@ const ReportsPage = {
     el.style.gridTemplateColumns = `repeat(${Math.min(items.length,4)},1fr)`;
     el.innerHTML = items.map(k => `
       <div class="kpi-card">
-        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-label">${Utils.esc(k.label)}</div>
         <div class="kpi-value" style="color:${k.color||'var(--accent)'}">${k.value}</div>
         ${k.sub ? `<div class="kpi-sub">${k.sub}</div>` : ''}
       </div>
@@ -185,6 +186,14 @@ const ReportsPage = {
         ${totalsRow ? `<tfoot class="tfoot-total"><tr>${totalsRow}</tr></tfoot>` : ''}
       </table>
     `;
+    if (this._noteTotal != null) { const t = this._noteTotal, n = this._noteShown; this._noteTotal = null; this._pageNote(t, n); }
+  },
+
+  // A list that has more rows than the screen asked for says so (the totals still cover all of them)
+  _pageNote(total, shown) {
+    const el = document.getElementById('rpt-result');
+    if (!el || !(Number(total) > Number(shown))) return;
+    el.insertAdjacentHTML('beforeend', `<div class="alert alert-info" style="margin-top:10px">Showing the first ${Number(shown)} of ${Number(total)} rows. Narrow the filters (project, tower) to see the rest. The totals at the top cover all ${Number(total)}.</div>`);
   },
 
   _main(html) {
@@ -205,14 +214,8 @@ const ReportsPage = {
       const data = this._lastData;
       let csv = '';
       const headers = Object.keys(data[0]);
-      csv += headers.join(',') + '\n';
-      data.forEach(row => {
-        csv += headers.map(h => {
-          let val = row[h] === null ? '' : row[h];
-          if (typeof val === 'string') val = val.replace(/"/g, '""');
-          return `"${val}"`;
-        }).join(',') + '\n';
-      });
+      csv += headers.map(h => Utils.csvCell(h)).join(',') + '\n';
+      data.forEach(row => { csv += headers.map(h => Utils.csvCell(row[h])).join(',') + '\n'; });
       const blob = new Blob([csv], { type: 'text/csv' });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -228,7 +231,7 @@ const ReportsPage = {
     const table = document.querySelector('#rpt-result table');
     if (!table) { Utils.warn('No data to export'); return; }
     const rows = [...table.querySelectorAll('tr')].map(r =>
-      [...r.querySelectorAll('th,td')].map(c => `"${c.textContent.trim().replace(/"/g, '""')}"`).join(',')
+      [...r.querySelectorAll('th,td')].map(c => Utils.csvCell(c.textContent.trim())).join(',')
     ).join('\n');
     const blob = new Blob([rows], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -277,9 +280,9 @@ const ReportsPage = {
         rows.push(`
           <tr>
             <td>${i + 1}</td>
-            <td class="td-bold" style="color:var(--accent)">${row.project_name}</td>
+            <td class="td-bold" style="color:var(--accent)">${Utils.esc(row.project_name)}</td>
             <td>Residential</td>
-            <td style="font-size:11px">${row.location || 'Gurugram'}</td>
+            <td style="font-size:11px">${Utils.esc(row.location || 'Gurugram')}</td>
             <td>${row.land_area_sqft ? Number(row.land_area_sqft).toLocaleString('en-IN') + ' sqft' : '—'}</td>
             <td>${towers}</td>
             <td class="td-bold">${totalUnits}</td>
@@ -341,14 +344,14 @@ const ReportsPage = {
         ['#','Unit No','Tower','Floor','BHK','Super Area','Status','Consumer','Broker','Registry'],
         units.map((u,i) => `<tr>
           <td style="color:var(--text3)">${i+1}</td>
-          <td class="td-bold">${u.unit_number}</td>
-          <td>${u.tower_name}</td>
+          <td class="td-bold">${Utils.esc(u.unit_number)}</td>
+          <td>${Utils.esc(u.tower_name)}</td>
           <td>${u.floor}</td>
-          <td>${u.bhk_type}</td>
+          <td>${Utils.esc(u.bhk_type)}</td>
           <td>${u.super_area_sqft}</td>
           <td>${Utils.chip(u.status)}</td>
-          <td>${u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name || '—')}</td>
-          <td style="font-size:10px">${u.broker_name || '—'}</td>
+          <td>${u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(u.consumer_name||'—')}</a>` : (u.consumer_name || '—')}</td>
+          <td style="font-size:10px">${Utils.esc(u.broker_name || '—')}</td>
           <td>${u.registry_status ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}</td>
         </tr>`)
       );
@@ -390,7 +393,7 @@ const ReportsPage = {
           return `<tr>
             <td style="font-weight:600">${formatted}</td>
             <td>${name}</td>
-            <td>${c.mobile||'—'}</td>
+            <td>${Utils.esc(c.mobile||'—')}</td>
             <td>${Utils.chip(c.lead_stage||'enquiry')}</td>
             <td><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${c.id}'})">View</button></td>
           </tr>`;
@@ -450,9 +453,9 @@ const ReportsPage = {
                               .reduce((s,d)=>s+parseFloat(d.amount_due_inr||d.amount||0),0);
           return `<tr>
             <td style="color:var(--text3)">${i+1}</td>
-            <td class="td-bold">${c.name||c.first_name+' '+(c.last_name||'')||'—'}</td>
-            <td>${c.mobile||'—'}</td>
-            <td>${c.unit_number||c.unitNumber||'—'}</td>
+            <td class="td-bold">${Utils.esc(c.name||c.first_name+' '+(c.last_name||'')||'—')}</td>
+            <td>${Utils.esc(c.mobile||'—')}</td>
+            <td>${Utils.esc(c.unit_number||c.unitNumber||'—')}</td>
             <td>${Utils.chip(c.lead_stage||'enquiry')}</td>
             <td style="color:var(--green);font-weight:600">${Utils.currency(paid)}</td>
             <td style="color:var(--red);font-weight:600">${Utils.currency(Math.max(0,due-paid))}</td>
@@ -506,10 +509,10 @@ const ReportsPage = {
         ['#','Project','Tower','Unit No','BHK','PLC Amount','Status'],
         data.map((u,i) => `<tr>
           <td style="color:var(--text3)">${i+1}</td>
-          <td>${u.project_name||'—'}</td>
-          <td>${u.tower_name||'—'}</td>
-          <td class="td-bold">${u.unit_number}</td>
-          <td>${u.bhk_type||'—'}</td>
+          <td>${Utils.esc(u.project_name||'—')}</td>
+          <td>${Utils.esc(u.tower_name||'—')}</td>
+          <td class="td-bold">${Utils.esc(u.unit_number)}</td>
+          <td>${Utils.esc(u.bhk_type||'—')}</td>
           <td style="text-align:right;font-weight:600">${Utils.currency(parseFloat(u.plc_amount||0))}</td>
           <td>${Utils.chip(u.status||'available')}</td>
         </tr>`)
@@ -557,7 +560,7 @@ const ReportsPage = {
           const pct   = parseFloat(r.sold_pct      || 0).toFixed(1);
           const barW  = Math.min(100, parseFloat(r.sold_pct || 0));
           return `<tr>
-            <td class="td-bold">${r.area_range || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.area_range || '—')}</td>
             <td style="text-align:center;color:var(--green);font-weight:600">${avail}</td>
             <td style="text-align:center;color:var(--accent);font-weight:600">${sold}</td>
             <td style="text-align:center;font-weight:600">${total}</td>
@@ -614,9 +617,9 @@ const ReportsPage = {
         ['#','Unit No','Tower','BHK','Carpet Area','Base Price','Total Price','Status'],
         data.map((u,i) => `<tr>
           <td style="color:var(--text3)">${i+1}</td>
-          <td class="td-bold">${u.unit_number}</td>
-          <td>${u.tower_name||'—'}</td>
-          <td>${u.bhk_type||'—'}</td>
+          <td class="td-bold">${Utils.esc(u.unit_number)}</td>
+          <td>${Utils.esc(u.tower_name||'—')}</td>
+          <td>${Utils.esc(u.bhk_type||'—')}</td>
           <td>${u.carpet_area_sqft||'—'}</td>
           <td style="text-align:right">${Utils.currency(parseFloat(u.base_price_inr||0))}</td>
           <td style="text-align:right;font-weight:600">${Utils.currency(parseFloat(u.total_price_inr||0))}</td>
@@ -732,7 +735,7 @@ const ReportsPage = {
       const ua = (u, a) => `${u} / ${f(a).toFixed(1)}`;
 
       const rows = data.map((r, i) => {
-        const label = groupBy === 'tower' && r.project_name ? `${r.group_name} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : (r.group_name || '—');
+        const label = groupBy === 'tower' && r.project_name ? `${Utils.esc(r.group_name)} <span style="color:var(--text3);font-size:11px">(${Utils.esc(r.project_name)})</span>` : (r.group_name || '—');
         let cells = `<td style="color:var(--text3)">${i + 1}</td><td class="td-bold">${label}</td>`;
         if (showNonSalable) {
           cells += `<td style="text-align:center">${ua(0, 0)}</td>`;
@@ -818,8 +821,8 @@ const ReportsPage = {
       const rows = data.map((r, i) => `
         <tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold">${r.project_name || '—'}</td>
-          <td>${r.group_name || '—'}</td>
+          <td class="td-bold">${Utils.esc(r.project_name || '—')}</td>
+          <td>${Utils.esc(r.group_name || '—')}</td>
           <td style="text-align:center;font-weight:600">${ua(n(r.total_units), r.total_area)}</td>
           <td style="text-align:center;color:var(--accent);font-weight:600">${ua(n(r.sold_units), r.sold_area)}</td>
           <td style="text-align:center">${pct(n(r.sold_units), n(r.total_units))}%</td>
@@ -852,7 +855,7 @@ const ReportsPage = {
       if (!r.bhk_type) return;
       if (!towerSeen.has(r.tower_name)) { towerSeen.add(r.tower_name); towerOrder.push(r.tower_name); }
       if (!bhkSeen.has(r.bhk_type)) { bhkSeen.add(r.bhk_type); bhkOrder.push(r.bhk_type); }
-      cellMap[`${r.tower_name}||${r.bhk_type}`] = r;
+      cellMap[`${Utils.esc(r.tower_name)}||${Utils.esc(r.bhk_type)}`] = r;
     });
 
     if (towerOrder.length === 0 || bhkOrder.length === 0) {
@@ -949,18 +952,18 @@ const ReportsPage = {
       const cell = (p) => {
         if (!p) return '—';
         return `
-          <div>${p.salutation ? p.salutation + ' ' : ''}${p.name || '—'}</div>
+          <div>${p.salutation ? p.salutation + ' ' : ''}${Utils.esc(p.name || '—')}</div>
           <div style="color:var(--text3);font-size:11px">S/o ${p.father_name || '—'}</div>
           <div style="color:var(--text3);font-size:11px">${p.address || '—'}</div>
           <div style="font-size:11px">PAN: ${p.pan_no || '—'}</div>
-          <div style="font-size:11px">${p.email || '—'} · ${p.mobile || '—'}</div>
+          <div style="font-size:11px">${Utils.esc(p.email || '—')} · ${Utils.esc(p.mobile || '—')}</div>
           <div style="font-size:11px">Aadhaar: ${p.aadhaar_no || '—'}</div>
         `;
       };
 
       const rows = data.map((r, i) => {
         const primary = {
-          name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+          name: `${Utils.esc(r.first_name || '')} ${Utils.esc(r.last_name || '')}`.trim(),
           salutation: r.salutation,
           father_name: r.father_name,
           address: r.present_address,
@@ -969,7 +972,7 @@ const ReportsPage = {
           mobile: r.mobile,
           aadhaar_no: r.aadhaar_no,
         };
-        let cells = `<td>${i + 1}</td><td>${r.registration_no || '—'}</td><td>${r.unit_number || '—'}</td><td>${r.bhk_type || '—'}</td><td>${r.project_name || '—'}</td><td>${cell(primary)}</td>`;
+        let cells = `<td>${i + 1}</td><td>${Utils.esc(r.registration_no || '—')}</td><td>${Utils.esc(r.unit_number || '—')}</td><td>${Utils.esc(r.bhk_type || '—')}</td><td>${Utils.esc(r.project_name || '—')}</td><td>${cell(primary)}</td>`;
         const coApplicants = r.co_applicants || [];
         for (let j = 0; j < maxCoApplicants; j++) {
           cells += `<td>${cell(coApplicants[j])}</td>`;
@@ -981,7 +984,7 @@ const ReportsPage = {
       let lastProject = null;
       data.forEach((r, i) => {
         if (r.project_name !== lastProject) {
-          rowsWithBands.push(`<tr><td colspan="${cols.length}" style="font-weight:700;background:var(--bg2)">PROJECT: ${r.project_name || '—'}</td></tr>`);
+          rowsWithBands.push(`<tr><td colspan="${cols.length}" style="font-weight:700;background:var(--bg2)">PROJECT: ${Utils.esc(r.project_name || '—')}</td></tr>`);
           lastProject = r.project_name;
         }
         rowsWithBands.push(rows[i]);
@@ -1259,10 +1262,12 @@ const ReportsPage = {
       if (reg)  params.registrationNo = reg;
       if (nm)   params.name           = nm;
 
+      params.pageSize = 5000;
       const res  = await Api.get('/reports/customer-balance', { params });
       const body = res;
       const rows = body.data    || [];
       const summ = body.summary || {};
+      this._noteTotal = body.total; this._noteShown = rows.length;
 
       this._lastData = rows.map(r => ({
         'Reg No':              r.registration_no || '',
@@ -1331,20 +1336,20 @@ const ReportsPage = {
         const pStyle = pct >= 100 ? `${aR};color:#198754;font-weight:600` : aR;
         const pctDisp = pct >= 100 ? `${fmtN(pct)}% ✓` : `${fmtN(pct)}%`;
         const nameLink = r.consumer_id
-          ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${r.consumer_name}</a>`
-          : `<span style="font-weight:600">${r.consumer_name}</span>`;
+          ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`
+          : `<span style="font-weight:600">${Utils.esc(r.consumer_name)}</span>`;
         return `<tr>
           <td style="${aC}">${i+1}</td>
-          <td>${r.registration_no || '—'}</td>
+          <td>${Utils.esc(r.registration_no || '—')}</td>
           <td>${nameLink}</td>
-          <td>${r.project_name}</td>
-          <td>${r.tower_name || '—'}</td>
+          <td>${Utils.esc(r.project_name)}</td>
+          <td>${Utils.esc(r.tower_name || '—')}</td>
           <td style="${aC}">${r.floor || '—'}</td>
-          <td>${r.unit_number}</td>
-          <td>${r.bhk_type || '—'}</td>
+          <td>${Utils.esc(r.unit_number)}</td>
+          <td>${Utils.esc(r.bhk_type || '—')}</td>
           <td style="${aC}">${r.booking_date ? String(r.booking_date).slice(0,10) : '—'}</td>
-          <td>${r.plan_name || '—'}</td>
-          <td>${r.broker_name || 'Direct'}</td>
+          <td>${Utils.esc(r.plan_name || '—')}</td>
+          <td>${Utils.esc(r.broker_name || 'Direct')}</td>
           <td style="${aR}">${fmtA(r.unit_cost)}</td>
           <td style="${aR}">${fmtA(r.total_gst)}</td>
           <td style="${aR}">${fmtA(r.total_cost)}</td>
@@ -1387,6 +1392,7 @@ const ReportsPage = {
     const btnYes = document.getElementById('cwd-tax-yes');
     if (btnNo)  { btnNo.classList.toggle('btn-primary', !v); btnNo.classList.toggle('btn-ghost', v); }
     if (btnYes) { btnYes.classList.toggle('btn-primary', v); btnYes.classList.toggle('btn-ghost', !v); }
+    if (document.querySelector('#rpt-result table')) this.fetchCustomerDues();
   },
 
   loadCustomerDues() {
@@ -1528,6 +1534,7 @@ const ReportsPage = {
       if (dd)   params.dueDate               = dd;
       if (cc)   params.customerClassification= cc;
 
+      params.pageSize = 5000;
       const res  = await Api.get('/reports/customer-dues', { params });
       const body = res || {};
       const rows = body.data    || [];
@@ -1580,23 +1587,23 @@ const ReportsPage = {
         const os  = parseFloat(r.outstanding_amount || 0);
         const osPct = parseFloat(r.outstanding_pct || 0);
         const osStyle = os > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${r.consumer_name}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
 
         // CUSTOMER DETAILS cells (15)
         const custCells = [
-          `<td>${r.registration_no || '—'}</td>`,
+          `<td>${Utils.esc(r.registration_no || '—')}</td>`,
           `<td style="${aC}">${fmtD(r.booking_date)}</td>`,
           `<td>${nameLink}</td>`,
-          `<td>${r.tower_name || '—'}</td>`,
-          `<td>${r.unit_number}</td>`,
-          `<td>${r.bhk_type || '—'}</td>`,
+          `<td>${Utils.esc(r.tower_name || '—')}</td>`,
+          `<td>${Utils.esc(r.unit_number)}</td>`,
+          `<td>${Utils.esc(r.bhk_type || '—')}</td>`,
           `<td style="${aR}">${r.area ? parseFloat(r.area).toFixed(4) : '—'}</td>`,
           `<td style="${aC}">${fmtD(r.allotment_date)}</td>`,
-          `<td>${r.broker_name || 'Direct'}</td>`,
-          `<td>${r.plan_name || '—'}</td>`,
-          `<td>${r.loan_type || '—'}</td>`,
-          `<td>${r.mobile || '—'}</td>`,
-          `<td>${r.email || '—'}</td>`,
+          `<td>${Utils.esc(r.broker_name || 'Direct')}</td>`,
+          `<td>${Utils.esc(r.plan_name || '—')}</td>`,
+          `<td>${Utils.esc(r.loan_type || '—')}</td>`,
+          `<td>${Utils.esc(r.mobile || '—')}</td>`,
+          `<td>${Utils.esc(r.email || '—')}</td>`,
           `<td style="${aR}">${fmtA(r.net_bsp)}</td>`,
           `<td style="${aR}">${fmtA(r.unit_cost)}</td>`,
         ].join('');
@@ -1641,8 +1648,8 @@ const ReportsPage = {
           ].join('');
         }
 
-        // CREDIT
-        const creditCell = `<td style="${aR}">0.00</td>`;
+        // CREDIT (money received beyond what has been demanded)
+        const creditCell = `<td style="${aR}">${fmtA(r.credit_amount)}</td>`;
 
         // OUTSTANDING cells
         let osCells;
@@ -1659,7 +1666,7 @@ const ReportsPage = {
         } else {
           osCells = [
             `<td style="${osStyle}">${fmtA(r.outstanding_amount)}</td>`,
-            `<td style="${osStyle}">${fmtA(r.outstanding_amount)}</td>`,
+            `<td style="${osStyle}">${fmtA(r.outstanding_total)}</td>`,
             `<td style="${osStyle}">${osPct}%</td>`,
           ].join('');
         }
@@ -1729,6 +1736,7 @@ const ReportsPage = {
             ${summaryHtml}
           </div>
         `;
+        this._pageNote(body.total, rows.length);
       }
     } catch (err) { Utils.error(err.message); }
   },
@@ -1914,16 +1922,16 @@ const ReportsPage = {
       const G = B - D;
       return `<tr>
         <td>${i+1}</td>
-        <td>${r.registration_no || '—'}</td>
+        <td>${Utils.esc(r.registration_no || '—')}</td>
         <td>${fmtD(r.booking_date)}</td>
-        <td>${r.name || '—'}</td>
-        <td>${r.tower_name || '—'}</td>
-        <td>${r.unit_number || '—'}</td>
-        <td>${r.bhk_type || '—'}</td>
+        <td>${Utils.esc(r.name || '—')}</td>
+        <td>${Utils.esc(r.tower_name || '—')}</td>
+        <td>${Utils.esc(r.unit_number || '—')}</td>
+        <td>${Utils.esc(r.bhk_type || '—')}</td>
         <td style="text-align:right">${r.area ? parseFloat(r.area).toFixed(4) : '—'}</td>
-        <td>${r.broker_name || 'Direct'}</td>
-        <td>${r.plan_name || '—'}</td>
-        <td>${r.loan_type || '—'}</td>
+        <td>${Utils.esc(r.broker_name || 'Direct')}</td>
+        <td>${Utils.esc(r.plan_name || '—')}</td>
+        <td>${Utils.esc(r.loan_type || '—')}</td>
         <td style="text-align:right">${fmtA(r.rate)}</td>
         <td style="text-align:right;font-weight:600">${fmtA(A)}</td>
         <td style="text-align:right">${fmtA(B)}</td>
@@ -2028,9 +2036,11 @@ const ReportsPage = {
       if (frm)  params.fromDate         = frm;
       if (to)   params.toDate           = to;
 
+      params.pageSize = 5000;
       const res  = await Api.get('/reports/due-report', { params });
       const rows = (Array.isArray(res.data) ? res.data : res) || [];
       const summ = res.summary || {};
+      this._noteTotal = res.total; this._noteShown = rows.length;
 
       this._lastData = rows.map(r => ({
         'Reg No':           r.registration_no,
@@ -2087,6 +2097,7 @@ const ReportsPage = {
 
       const statusBadge = s => {
         if (s === 'demanded') return `<span style="background:#fff3cd;color:#856404;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600">DEMANDED</span>`;
+        if (s === 'paid') return `<span style="background:#d1e7dd;color:#0f5132;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600">PAID</span>`;
         return `<span style="background:#e2e3e5;color:#41464b;border-radius:4px;padding:2px 7px;font-size:11px;font-weight:600">PENDING</span>`;
       };
 
@@ -2101,15 +2112,15 @@ const ReportsPage = {
           : aC;
         return `<tr>
           <td style="${aC}">${i+1}</td>
-          <td>${r.registration_no || '—'}</td>
-          <td style="font-weight:600"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name}</a></td>
-          <td>${r.mobile || '—'}</td>
-          <td>${r.project_name}</td>
-          <td>${r.tower_name || '—'}</td>
+          <td>${Utils.esc(r.registration_no || '—')}</td>
+          <td style="font-weight:600"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a></td>
+          <td>${Utils.esc(r.mobile || '—')}</td>
+          <td>${Utils.esc(r.project_name)}</td>
+          <td>${Utils.esc(r.tower_name || '—')}</td>
           <td style="${aC}">${r.floor || '—'}</td>
-          <td>${r.unit_number}</td>
-          <td>${r.bhk_type || '—'}</td>
-          <td>${r.installment_name || ('Inst ' + r.installment_index)}</td>
+          <td>${Utils.esc(r.unit_number)}</td>
+          <td>${Utils.esc(r.bhk_type || '—')}</td>
+          <td>${Utils.esc(r.installment_name || ('Inst ' + r.installment_index))}</td>
           <td style="${aC}">${r.due_date ? r.due_date.toString().slice(0,10) : '—'}</td>
           <td style="${aR}">${fmtA(r.amount_due_inr)}</td>
           <td style="${aR}">${fmtA(r.cgst_amount)}</td>
@@ -2490,11 +2501,11 @@ const ReportsPage = {
       return '<div style="color:var(--text-muted);font-style:italic">No consumers in this bucket</div>';
     }
     const rows = consumers.map(c => `<tr>
-      <td>${c.registration_no || '—'}</td>
-      <td style="font-weight:600"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
-      <td>${c.tower_name || '—'}</td>
-      <td>${c.unit_number}</td>
-      <td>${c.bhk_type || '—'}</td>
+      <td>${Utils.esc(c.registration_no || '—')}</td>
+      <td style="font-weight:600"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(c.consumer_name)}</a></td>
+      <td>${Utils.esc(c.tower_name || '—')}</td>
+      <td>${Utils.esc(c.unit_number)}</td>
+      <td>${Utils.esc(c.bhk_type || '—')}</td>
       <td style="${aR}">${fmtA(c.total_cost)}</td>
       <td style="${aR};color:#198754">${fmtA(c.total_received)}</td>
       <td style="${aR};color:#dc3545;font-weight:600">${fmtA(c.outstanding)}</td>
@@ -2593,9 +2604,9 @@ const ReportsPage = {
       const bTC     = {'0-30':'#333','31-60':'#333','61-90':'#333','91-180':'#333','180+':'#fff'};
       if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No overdue records found</h3></div>'; return; }
       const getLabel = r => view === 'tower'
-        ? `<span style="font-size:10px;color:var(--text3)">${r.project_name}</span><br>${r.tower_name}`
+        ? `<span style="font-size:10px;color:var(--text3)">${Utils.esc(r.project_name)}</span><br>${Utils.esc(r.tower_name)}`
         : view === 'plan'
-          ? `<span style="font-size:10px;color:var(--text3)">${r.project_name}</span><br>${r.plan_name}`
+          ? `<span style="font-size:10px;color:var(--text3)">${Utils.esc(r.project_name)}</span><br>${Utils.esc(r.plan_name)}`
           : r.project_name;
       const bodyRows = rows.map((r,i) => {
         const mkB = (amt, cnt, key) => `<td style="${aR};background:${bColors[key]};color:${bTC[key]}">${fmtA(amt)}</td><td style="${aC};background:${bColors[key]};color:${bTC[key]}">${cnt}</td>`;
@@ -2684,7 +2695,7 @@ const ReportsPage = {
         return `<tr>
           <td style="${aC}">${i+1}</td>
           <td style="font-weight:600">${r.installment_index}</td>
-          <td>${r.demand_type || '—'}</td>
+          <td>${Utils.esc(r.demand_type || '—')}</td>
           ${mkB(r.bucket_0_30,r.count_0_30,'0-30')}
           ${mkB(r.bucket_31_60,r.count_31_60,'31-60')}
           ${mkB(r.bucket_61_90,r.count_61_90,'61-90')}
@@ -2787,7 +2798,7 @@ const ReportsPage = {
         else if (mDate && mDate === thisMonth) rowBg = 'border-left:3px solid #1a56db';
         return `<tr style="${rowBg}">
           <td style="${aC}">${i+1}</td>
-          <td style="font-weight:600">${r.month_label}</td>
+          <td style="font-weight:600">${Utils.esc(r.month_label)}</td>
           <td style="${aC}">${r.consumer_count}</td>
           <td style="${aC}">${r.demand_count}</td>
           <td style="${aR}">${fmtA(r.total_due)}</td>
@@ -2896,9 +2907,9 @@ const ReportsPage = {
         };
         months.forEach(mo => {
           const mc = r.months[mo.key] || { dues:0, paid:0, os:0 };
-          o[`${mo.label} DUES`] = parseFloat(mc.dues||0);
-          o[`${mo.label} PAID`] = parseFloat(mc.paid||0);
-          o[`${mo.label} O/S`]  = parseFloat(mc.os||0);
+          o[`${Utils.esc(mo.label)} DUES`] = parseFloat(mc.dues||0);
+          o[`${Utils.esc(mo.label)} PAID`] = parseFloat(mc.paid||0);
+          o[`${Utils.esc(mo.label)} O/S`]  = parseFloat(mc.os||0);
         });
         o['TOTAL DUES'] = parseFloat(r.total_dues||0);
         o['TOTAL PAID'] = parseFloat(r.total_paid||0);
@@ -2918,7 +2929,7 @@ const ReportsPage = {
       if (!rows.length) { if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3></div>'; return; }
 
       const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
-      const monthHead = months.map(mo => `<th colspan="3" style="${thS};background:var(--accent-bg,#eef2ff)">${mo.label}</th>`).join('');
+      const monthHead = months.map(mo => `<th colspan="3" style="${thS};background:var(--accent-bg,#eef2ff)">${Utils.esc(mo.label)}</th>`).join('');
       const monthSubHead = months.map(() => `<th style="${thS}">DUES</th><th style="${thS}">PAID</th><th style="${thS}">O/S</th>`).join('');
 
       const bodyRows = rows.map((r, i) => {
@@ -2929,9 +2940,9 @@ const ReportsPage = {
         }).join('');
         return `<tr>
           <td style="${aC}">${i+1}</td>
-          <td>${r.registration_no||''}</td>
-          <td>${r.consumer_name||''}</td>
-          <td>${r.unit_no||''}</td>
+          <td>${Utils.esc(r.registration_no||'')}</td>
+          <td>${Utils.esc(r.consumer_name||'')}</td>
+          <td>${Utils.esc(r.unit_no||'')}</td>
           <td>${r.booking_date ? String(r.booking_date).slice(0,10) : ''}</td>
           ${monthCells}
           <td style="${aR};font-weight:600">${fmtA(r.total_dues)}</td>
@@ -3225,18 +3236,18 @@ const ReportsPage = {
 
       const cols = ['Receipt No','Date','Consumer','Reg No','Project','Tower','Unit','Payment Method','Amount','Status','Bank','Reference'];
       const bodyRows = rows.map(r => `<tr>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_number || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.receipt_number || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.received_date || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.consumer_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.tower_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_number || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.payment_method || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.consumer_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.registration_no || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.project_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.tower_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.unit_number || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.payment_method || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount_received_inr || 0).toLocaleString('en-IN')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.status || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.bank_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.reference || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.bank_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.reference || '')}</td>
         </tr>`).join('');
 
       const el2 = document.getElementById('rpt-result');
@@ -3352,15 +3363,15 @@ const ReportsPage = {
       const fmtAmt = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`;
       const bodyRows = rows.map((r, i) => `<tr>
           <td style="text-align:center">${i+1}</td>
-          <td>${r.registration_no || ''}</td>
-          <td>${r.name || ''}</td>
-          <td>${r.unit_number || ''}</td>
-          <td>${r.tower_name || ''}</td>
-          <td>${r.project_name || ''}</td>
+          <td>${Utils.esc(r.registration_no || '')}</td>
+          <td>${Utils.esc(r.name || '')}</td>
+          <td>${Utils.esc(r.unit_number || '')}</td>
+          <td>${Utils.esc(r.tower_name || '')}</td>
+          <td>${Utils.esc(r.project_name || '')}</td>
           <td>${r.booking_date ? new Date(r.booking_date).toLocaleDateString('en-IN') : ''}</td>
           <td style="text-align:right">${fmtAmt(r.booking_amount)}</td>
-          <td>${r.broker_company || ''}</td>
-          <td>${r.sales_employee_name || '—'}</td>
+          <td>${Utils.esc(r.broker_company || '')}</td>
+          <td>${Utils.esc(r.sales_employee_name || '—')}</td>
           <td>${r.status || ''}</td>
         </tr>`);
 
@@ -3430,13 +3441,13 @@ const ReportsPage = {
       const thS = 'padding:6px 8px;border:1px solid var(--border);white-space:nowrap';
       const bodyRows = rows.map((r, i) => `<tr>
           <td style="text-align:center">${i+1}</td>
-          <td>${r.registration_no || ''}</td>
-          <td>${r.name || ''}</td>
-          <td>${r.tower_name || ''}</td>
-          <td>${r.unit_address || ''}</td>
-          <td>${r.broker_company || ''}</td>
+          <td>${Utils.esc(r.registration_no || '')}</td>
+          <td>${Utils.esc(r.name || '')}</td>
+          <td>${Utils.esc(r.tower_name || '')}</td>
+          <td>${Utils.esc(r.unit_address || '')}</td>
+          <td>${Utils.esc(r.broker_company || '')}</td>
           <td>${r.registration_date ? new Date(r.registration_date).toLocaleDateString('en-IN') : ''}</td>
-          <td><a href="#" onclick="ReportsPage.goToApplicantDetail('${(r.registration_no||'').replace(/'/g, "\\'")}');return false;">DETAIL</a></td>
+          <td><a href="#" data-v="${Utils.esc(r.registration_no || '')}" onclick="ReportsPage.goToApplicantDetail(this.dataset.v);return false;">DETAIL</a></td>
         </tr>`);
 
       const el2 = document.getElementById('rpt-result');
@@ -3517,12 +3528,12 @@ const ReportsPage = {
       const badge = s => `<span class="badge ${s==='demanded'?'badge-warning':'badge-info'}">${s}</span>`;
       const bodyRows = rows.map((r,i) => `<tr>
         <td style="${aC}">${i+1}</td>
-        <td style="font-weight:600">${r.consumer_name||'—'}</td>
-        <td>${r.registration_no||'—'}</td>
-        <td>${r.project_name||'—'}</td>
-        <td>${r.tower_name||'—'}</td>
-        <td>${r.unit_number||'—'}</td>
-        <td>${r.installment_name||'—'}</td>
+        <td style="font-weight:600">${Utils.esc(r.consumer_name||'—')}</td>
+        <td>${Utils.esc(r.registration_no||'—')}</td>
+        <td>${Utils.esc(r.project_name||'—')}</td>
+        <td>${Utils.esc(r.tower_name||'—')}</td>
+        <td>${Utils.esc(r.unit_number||'—')}</td>
+        <td>${Utils.esc(r.installment_name||'—')}</td>
         <td>${fmtDate(r.due_date)}</td>
         <td style="${aR};font-weight:600">${fmtA(r.amount)}</td>
         <td style="${aC}">${badge(r.status)}</td>
@@ -3628,11 +3639,11 @@ const ReportsPage = {
         const bal = parseFloat(r.balance||0); const days = parseInt(r.days_overdue||0);
         const balStyle = bal>0?`${aR};color:#dc3545;font-weight:600`:`${aR};color:#198754;font-weight:600`;
         const dayStyle = days>0?`${aC};color:#dc3545;font-weight:600`:aC;
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${r.consumer_name}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
         return `<tr>
-          <td style="${aC}">${i+1}</td><td>${r.registration_no||'—'}</td><td>${nameLink}</td><td>${r.mobile||'—'}</td>
-          <td>${r.project_name}</td><td>${r.tower_name||'—'}</td><td>${r.unit_number}</td>
-          <td style="${aC}">${r.installment_index}</td><td>${r.installment_name||'—'}</td>
+          <td style="${aC}">${i+1}</td><td>${Utils.esc(r.registration_no||'—')}</td><td>${nameLink}</td><td>${Utils.esc(r.mobile||'—')}</td>
+          <td>${Utils.esc(r.project_name)}</td><td>${Utils.esc(r.tower_name||'—')}</td><td>${Utils.esc(r.unit_number)}</td>
+          <td style="${aC}">${r.installment_index}</td><td>${Utils.esc(r.installment_name||'—')}</td>
           <td style="${aC}">${r.due_date?String(r.due_date).slice(0,10):'—'}</td>
           <td style="${aR}">${fmtA(r.amount_due_inr)}</td><td style="${aR}">${fmtA(r.cgst)}</td>
           <td style="${aR}">${fmtA(r.sgst)}</td><td style="${aR};font-weight:600">${fmtA(r.total_due)}</td>
@@ -3660,6 +3671,8 @@ const ReportsPage = {
     const btnYes = document.getElementById('pwd-tax-yes');
     if (btnNo)  { btnNo.classList.toggle('btn-primary', !v); btnNo.classList.toggle('btn-ghost', v); }
     if (btnYes) { btnYes.classList.toggle('btn-primary', v); btnYes.classList.toggle('btn-ghost', !v); }
+    // the figures on screen follow the switch (they used to change only after the next FETCH)
+    if (document.querySelector('#rpt-result table') && this._pwdCfg) this._fetchDuesByGroup(this._pwdCfg);
   },
 
   loadProjectWiseDues() {
@@ -3786,9 +3799,9 @@ const ReportsPage = {
       const bodyRows = rows.map((r,i) => {
         const osV = parseFloat(r.outstanding_amount||0);
         const osStyle = osV > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
-        const label = (cfg.endpoint === 'ageing-summary-tower' || cfg.endpoint === 'ageing-summary-customer') && r.project_name ? `${r.group_label} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : r.group_label;
+        const label = (cfg.endpoint === 'ageing-summary-tower' || cfg.endpoint === 'ageing-summary-customer') && r.project_name ? `${Utils.esc(r.group_label)} <span style="color:var(--text3);font-size:11px">(${Utils.esc(r.project_name)})</span>` : r.group_label;
         const custExtra = cfg.endpoint === 'ageing-summary-customer'
-          ? `<td>${r.registration_no||''}</td><td>${r.unit_no||''}</td>`
+          ? `<td>${Utils.esc(r.registration_no||'')}</td><td>${Utils.esc(r.unit_no||'')}</td>`
           : '';
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
           <td style="${aC}">${i+1}</td>
@@ -3914,7 +3927,7 @@ const ReportsPage = {
       const bodyRows = rows.map((r,i) => {
         const osV = os(r);
         const osStyle = osV > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
-        const label = (cfg.groupBy === 'tower' && r.project_name) ? `${r.group_label} <span style="color:var(--text3);font-size:11px">(${r.project_name})</span>` : r.group_label;
+        const label = (cfg.groupBy === 'tower' && r.project_name) ? `${Utils.esc(r.group_label)} <span style="color:var(--text3);font-size:11px">(${Utils.esc(r.project_name)})</span>` : r.group_label;
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
           <td style="${aC}">${i+1}</td>
           <td style="font-weight:600">${label}</td>
@@ -3930,7 +3943,7 @@ const ReportsPage = {
           <td style="${aR}">${fmtA(r.credit_amount)}</td>
           <td style="${osStyle}">${fmtA(osV)}</td>
           <td style="${osStyle}">${osPct(r)}%</td>
-          <td style="${aC}"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/reports',{tab:'all-applicants',${cfg.detailsParamName}:'${String(cfg.groupBy === 'plan' ? r.plan_name : (cfg.groupBy === 'project' ? r.group_id : r.group_label)).replace(/'/g,"\\'")}'})">DETAILS</button></td>
+          <td style="${aC}"><button class="btn btn-ghost btn-sm" data-v="${Utils.esc(String(cfg.groupBy === 'plan' ? r.plan_name : (cfg.groupBy === 'project' ? r.group_id : r.group_label)))}" onclick="Router.navigate('/reports',{tab:'all-applicants',['${cfg.detailsParamName}']: this.dataset.v})">DETAILS</button></td>
         </tr>`;
       });
       const demT = wt ? parseFloat(tot.total_demanded_with_tax||0) : parseFloat(tot.total_demanded||0);
@@ -4024,17 +4037,17 @@ const ReportsPage = {
       const aC = 'text-align:center';
       const bodyRows = rows.map((r, i) => `<tr>
         <td style="${aC}">${i+1}</td>
-        <td style="font-weight:600">${r.consumer_name || '—'}</td>
-        <td>${r.registration_no || '—'}</td>
-        <td>${r.project_name || '—'}</td>
-        <td>${r.tower_name || '—'}</td>
-        <td>${r.unit_number || '—'}</td>
+        <td style="font-weight:600">${Utils.esc(r.consumer_name || '—')}</td>
+        <td>${Utils.esc(r.registration_no || '—')}</td>
+        <td>${Utils.esc(r.project_name || '—')}</td>
+        <td>${Utils.esc(r.tower_name || '—')}</td>
+        <td>${Utils.esc(r.unit_number || '—')}</td>
         <td>${fmtDate(r.appointment_date)}</td>
         <td>${fmtDate(r.registry_date)}</td>
-        <td>${r.deed_no || '—'}</td>
+        <td>${Utils.esc(r.deed_no || '—')}</td>
         <td style="text-align:right">${fmtA(r.stamp_duty_amount)}</td>
         <td style="${aC}">${badge(r.status)}</td>
-        <td>${r.remarks || '—'}</td>
+        <td>${Utils.esc(r.remarks || '—')}</td>
       </tr>`);
       this._table(
         ['#','CONSUMER','REG NO','PROJECT','TOWER','UNIT','APPT DATE','REGISTRY DATE','DEED NO','STAMP DUTY','STATUS','REMARKS'],
@@ -4052,12 +4065,12 @@ const ReportsPage = {
       const br = await Api.get('/brokers', { params: { pageSize: 200 } });
       const brokers = br.data || br || [];
       brokerOptions += brokers.map(b =>
-        `<option value="${b.id}">${b.firm_name || b.name || '—'}</option>`
+        `<option value="${b.id}">${Utils.esc(b.firm_name || b.name || '—')}</option>`
       ).join('');
     } catch {}
 
     const projOpts = '<option value="">— Select —</option>' +
-      this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
 
     const bhkOpts = ['— All —','Studio','1BHK','2BHK','3BHK','4BHK']
       .map((v,i) => `<option value="${i===0?'':v}">${v}</option>`).join('');
@@ -4271,7 +4284,7 @@ const ReportsPage = {
     if (bookFrom)   p.append('bookingFromDate',        bookFrom);
     if (bookTo)     p.append('bookingToDate',          bookTo);
     if (dueAsOn)    p.append('dueAsOnDate',            dueAsOn);
-    p.append('pageSize', '500');
+    p.append('pageSize', '5000');
 
     const result = document.getElementById('apf-result');
     if (result) result.innerHTML = '<div class="page-loading"><div class="spinner"></div></div>';
@@ -4286,7 +4299,7 @@ const ReportsPage = {
 
       // Update count
       const countEl = document.getElementById('apf-total-count');
-      if (countEl) countEl.textContent = json.total ?? data.length;
+      if (countEl) countEl.textContent = (json.total ?? data.length) + (json.total > data.length ? ` (showing the first ${data.length}; the totals cover all)` : '');
       const countBar = document.getElementById('apf-count-bar');
       if (countBar) countBar.style.display = 'flex';
 
@@ -4314,6 +4327,12 @@ const ReportsPage = {
         acc.received_amount     += n('received_amount');
         acc.interest_received   += n('interest_received');
         acc.outstanding_amount  += n('outstanding_amount');
+        acc.outstanding_net     += n('outstanding_net');
+        acc.outstanding_cgst    += n('outstanding_cgst');
+        acc.outstanding_sgst    += n('outstanding_sgst');
+        acc.received_cgst       += n('received_cgst');
+        acc.received_sgst       += n('received_sgst');
+        acc.credit_amount       += n('credit_amount');
         acc.interest_charged    += n('interest_charged');
         acc.interest_waived     += n('interest_waived');
         acc.interest_outstanding += n('interest_outstanding');
@@ -4323,7 +4342,7 @@ const ReportsPage = {
         plc_amount:0, other_charge_amount:0, total_unit_cost:0,
         cost_cgst_amount:0, cost_sgst_amount:0, total_cost_with_gst:0,
         dues_amount:0, dues_cgst:0, dues_sgst:0, dues_total:0,
-        received_amount:0, interest_received:0, outstanding_amount:0,
+        received_amount:0, interest_received:0, outstanding_amount:0, outstanding_net:0, outstanding_cgst:0, outstanding_sgst:0, received_cgst:0, received_sgst:0, credit_amount:0,
         interest_charged:0, interest_waived:0, interest_outstanding:0,
       });
 
@@ -4389,11 +4408,10 @@ const ReportsPage = {
     const n  = v => parseFloat(v || 0);
 
     const recTotal   = n(r.received_amount);
-    const recCgst    = recTotal > 0 ? parseFloat((recTotal * 0.005 / 1.01).toFixed(2)) : 0;
-    const recSgst    = recCgst;
+    const recCgst    = n(r.received_cgst);
+    const recSgst    = n(r.received_sgst);
     const recWithGst = recTotal;
-    const recPct     = n(r.received_amount) > 0 && n(r.total_unit_cost) > 0
-      ? (n(r.received_amount) / n(r.total_unit_cost) * 100) : 0;
+    const recPct     = n(r.received_pct);
     const outstanding = n(r.outstanding_amount);
     const outColor   = outstanding > 0 ? '#dc3545' : '#28a745';
     const pctColor   = recPct >= 100 ? '#28a745' : '#333';
@@ -4404,21 +4422,21 @@ const ReportsPage = {
 
     return `<tr>
       <td style="text-align:center">${i + 1}<button class="apf-rec-btn" onclick="ReportsPage.openReceiptForm('${r.consumer_id}')">REC</button></td>
-      <td>${r.registration_no || '—'}</td>
-      <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" class="apf-consumer-link" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name || '—'}</a></td>
+      <td>${Utils.esc(r.registration_no || '—')}</td>
+      <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" class="apf-consumer-link" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name || '—')}</a></td>
       <td>${dt(r.booking_date)}</td>
-      <td>${r.mobile || '—'}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${r.email || '—'}</td>
+      <td>${Utils.esc(r.mobile || '—')}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${Utils.esc(r.email || '—')}</td>
       <td>${dt(r.allotment_date)}</td>
-      <td>${r.bhk_type || '—'}</td>
-      <td>${r.tower_name || '—'}</td>
+      <td>${Utils.esc(r.bhk_type || '—')}</td>
+      <td>${Utils.esc(r.tower_name || '—')}</td>
       <td>${r.floor != null ? r.floor : '—'}</td>
-      <td>${r.unit_number || '—'}</td>
-      <td>${r.plan_name || '—'}</td>
-      <td>${r.customer_classification || 'General'}</td>
-      <td>${r.broker_name || 'Direct'}</td>
+      <td>${Utils.esc(r.unit_number || '—')}</td>
+      <td>${Utils.esc(r.plan_name || '—')}</td>
+      <td>${Utils.esc(r.customer_classification || 'General')}</td>
+      <td>${Utils.esc(r.broker_name || 'Direct')}</td>
       <td>${loanStatus}</td>
-      <td>${r.bank_name || '—'}</td>
+      <td>${Utils.esc(r.bank_name || '—')}</td>
       <td style="text-align:right">${f(r.super_area_sqft)}</td>
       <td style="text-align:right">${f(r.carpet_area_sqft)}</td>
       <td style="text-align:right">${f(r.rate_per_sqft)}</td>
@@ -4443,15 +4461,15 @@ const ReportsPage = {
       <td style="text-align:right">0.00</td>
       <td style="text-align:right">${f(recWithGst)}</td>
       <td style="text-align:right;color:${pctColor}">${recPct.toFixed(2)}%</td>
+      <td style="text-align:right">${f(r.credit_amount)}</td>
       <td style="text-align:right">0.00</td>
       <td style="text-align:right">0.00</td>
       <td style="text-align:right">0.00</td>
+      <td style="text-align:right">${f(r.credit_amount)}</td>
+      <td style="text-align:right;color:${outColor}">${f(r.outstanding_net)}</td>
       <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
-      <td style="text-align:right;color:${outColor}">${f(outstanding)}</td>
-      <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
+      <td style="text-align:right">${f(r.outstanding_cgst)}</td>
+      <td style="text-align:right">${f(r.outstanding_sgst)}</td>
       <td style="text-align:right;color:${outColor}">${f(outstanding)}</td>
       <td style="text-align:right">${f(r.interest_charged)}</td>
       <td style="text-align:right">${f(r.interest_waived)}</td>
@@ -4486,16 +4504,16 @@ const ReportsPage = {
       <td style="text-align:right">0.00</td>
       ${B(t.dues_total)}
       ${B(t.received_amount)}
-      <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
+      ${B(t.received_cgst)}
+      ${B(t.received_sgst)}
       <td style="text-align:right">0.00</td>
       ${B(t.received_amount)}
       <td style="text-align:right"></td>
-      ${blank.repeat(5)}
-      ${B(t.outstanding_amount)}
+      ${B(t.credit_amount)}${blank.repeat(3)}${B(t.credit_amount)}
+      ${B(t.outstanding_net)}
       <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
-      <td style="text-align:right">0.00</td>
+      ${B(t.outstanding_cgst)}
+      ${B(t.outstanding_sgst)}
       ${B(t.outstanding_amount)}
       ${B(t.interest_charged)}
       ${B(t.interest_waived)}
@@ -4525,8 +4543,7 @@ const ReportsPage = {
 
     const dt = v => v ? new Date(v).toLocaleDateString('en-GB') : '';
     const n  = v => parseFloat(v || 0);
-    const pct = r => n(r.received_amount) > 0 && n(r.total_unit_cost) > 0
-      ? (n(r.received_amount) / n(r.total_unit_cost) * 100).toFixed(2) : '0.00';
+    const pct = r => n(r.received_pct).toFixed(2);
 
     const rows = data.map((r, i) => [
       i+1, r.registration_no, r.consumer_name, dt(r.booking_date), r.mobile, r.email,
@@ -4538,16 +4555,14 @@ const ReportsPage = {
       n(r.plc_amount), n(r.other_charge_amount), n(r.total_unit_cost),
       n(r.cost_cgst_amount), n(r.cost_sgst_amount), 0, n(r.total_cost_with_gst),
       n(r.dues_amount), n(r.dues_cgst), n(r.dues_sgst), 0, n(r.dues_total),
-      n(r.received_amount), 0, 0, 0, n(r.received_amount), pct(r),
-      0, 0, 0, 0, 0,
-      n(r.outstanding_amount), 0, 0, 0, n(r.outstanding_amount),
+      n(r.received_amount), n(r.received_cgst), n(r.received_sgst), 0, n(r.received_amount), pct(r),
+      n(r.credit_amount), 0, 0, 0, n(r.credit_amount),
+      n(r.outstanding_net), 0, n(r.outstanding_cgst), n(r.outstanding_sgst), n(r.outstanding_amount),
       0, n(r.interest_received), 0, 0,
     ]);
 
-    let csv = cols.map(c => `"${c}"`).join(',') + '\n';
-    rows.forEach(row => {
-      csv += row.map(v => `"${String(v === null || v === undefined ? '' : v).replace(/"/g,'""')}"`).join(',') + '\n';
-    });
+    let csv = cols.map(c => Utils.csvCell(c)).join(',') + '\n';
+    rows.forEach(row => { csv += row.map(v => Utils.csvCell(v)).join(',') + '\n'; });
 
     const blob = new Blob([csv], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);
@@ -4612,12 +4627,12 @@ const ReportsPage = {
         ['#', 'Consumer Name', 'Reg. No.', 'Mobile', 'Project', 'Tower', 'Unit', 'Booking Date', 'Booking Amount'],
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${(r.consumer_name || '').trim() || '—'}</a></td>
-          <td>${r.registration_no || '—'}</td>
-          <td>${r.mobile || '—'}</td>
-          <td>${r.project_name || '—'}</td>
-          <td>${r.tower_name || '—'}</td>
-          <td>${r.unit_number || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td>${Utils.esc(r.registration_no || '—')}</td>
+          <td>${Utils.esc(r.mobile || '—')}</td>
+          <td>${Utils.esc(r.project_name || '—')}</td>
+          <td>${Utils.esc(r.tower_name || '—')}</td>
+          <td>${Utils.esc(r.unit_number || '—')}</td>
           <td>${fmtDate(r.booking_date)}</td>
           <td style="text-align:right">${fmtAmt(r.booking_amount)}</td>
         </tr>`),
@@ -4655,18 +4670,18 @@ const ReportsPage = {
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
           <td>${fmtDate(r.booking_date)}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${(r.consumer_name || '').trim() || '—'}</a></td>
-          <td>${r.registration_no || '—'}</td>
-          <td>${r.mobile || '—'}</td>
-          <td>${r.project_name || '—'}</td>
-          <td>${r.tower_name || '—'}</td>
-          <td>${r.unit_number || '—'}</td>
-          <td>${r.bhk_type || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td>${Utils.esc(r.registration_no || '—')}</td>
+          <td>${Utils.esc(r.mobile || '—')}</td>
+          <td>${Utils.esc(r.project_name || '—')}</td>
+          <td>${Utils.esc(r.tower_name || '—')}</td>
+          <td>${Utils.esc(r.unit_number || '—')}</td>
+          <td>${Utils.esc(r.bhk_type || '—')}</td>
           <td style="text-align:right">${fmtAmt(r.booking_amount)}</td>
-          <td>${r.payment_mode || '—'}</td>
-          <td>${r.authenticated_by || '—'}</td>
+          <td>${Utils.esc(r.payment_mode || '—')}</td>
+          <td>${Utils.esc(r.authenticated_by || '—')}</td>
           <td>${Utils.chip(r.status || 'active')}</td>
-          <td style="color:var(--text3);font-size:11px">${r.remarks || '—'}</td>
+          <td style="color:var(--text3);font-size:11px">${Utils.esc(r.remarks || '—')}</td>
         </tr>`),
         `<td></td><td colspan="8"><strong>${rows.length} records</strong></td>
          <td style="text-align:right"><strong>${fmtAmt(rows.reduce((s, r) => s + parseFloat(r.booking_amount || 0), 0))}</strong></td>
@@ -4709,19 +4724,19 @@ const ReportsPage = {
         ['#', 'Consumer', 'Reg. No.', 'Project', 'Tower', 'Unit', 'BHK', 'Booking Amt', 'TDS @1%', 'Challan No.', 'Challan Date', 'TDS Paid', 'FY', 'Qtr', 'Status'],
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${(r.consumer_name || '').trim() || '—'}</a></td>
-          <td>${r.registration_no || '—'}</td>
-          <td>${r.project_name || '—'}</td>
-          <td>${r.tower_name || '—'}</td>
-          <td>${r.unit_number || '—'}</td>
-          <td>${r.bhk_type || '—'}</td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td>${Utils.esc(r.registration_no || '—')}</td>
+          <td>${Utils.esc(r.project_name || '—')}</td>
+          <td>${Utils.esc(r.tower_name || '—')}</td>
+          <td>${Utils.esc(r.unit_number || '—')}</td>
+          <td>${Utils.esc(r.bhk_type || '—')}</td>
           <td style="text-align:right">${fmtAmt(r.booking_amount)}</td>
           <td style="text-align:right">${fmtAmt(r.tds_applicable)}</td>
-          <td style="font-size:11px">${r.challan_number || '<em style="color:var(--text3)">Not Filed</em>'}</td>
+          <td style="font-size:11px">${Utils.esc(r.challan_number || '<em style="color:var(--text3)">Not Filed</em>')}</td>
           <td>${fmtDate(r.challan_date)}</td>
           <td style="text-align:right">${fmtAmt(r.tds_paid)}</td>
-          <td>${r.financial_year || '—'}</td>
-          <td>${r.quarter || '—'}</td>
+          <td>${Utils.esc(r.financial_year || '—')}</td>
+          <td>${Utils.esc(r.quarter || '—')}</td>
           <td>${statusChip(r.status)}</td>
         </tr>`),
         `<td></td><td colspan="6"><strong>${rows.length} records</strong></td>
@@ -4883,12 +4898,12 @@ const ReportsPage = {
 
       const cols = ['Registration No','Name','Unit Type','Tower','Floor','Unit Address','Amount'];
       const bodyRows = rows.map(r => `<tr>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_type || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.tower_name || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.registration_no || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.unit_type || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.tower_name || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.floor ?? ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_address || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.unit_address || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
         </tr>`).join('');
 
@@ -4954,7 +4969,7 @@ const ReportsPage = {
       banks.forEach(b => {
         const o = document.createElement('option');
         o.value = b.id;
-        o.textContent = b.account_name ? `${b.bank_name} — ${b.account_name}` : b.bank_name;
+        o.textContent = b.account_name ? `${Utils.esc(b.bank_name)} — ${Utils.esc(b.account_name)}` : b.bank_name;
         sel.appendChild(o);
       });
     } catch (_) {}
@@ -5000,17 +5015,17 @@ const ReportsPage = {
 
       const cols = ['Registration No','Name','Unit Address','Mode','Receipt No','Receipt Date','Amount','Cheque/Draft No','Cheque Date','Bank Name','Branch','Clearing Date','Status'];
       const bodyRows = rows.map(r => `<tr>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.registration_no || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.unit_address || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.mode || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_number || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.registration_no || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.unit_address || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.mode || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.receipt_number || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.receipt_date || ''}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);text-align:right">₹${Number(r.amount || 0).toLocaleString('en-IN')}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.cheque_no || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.cheque_no || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.cheque_date || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.bank_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.branch || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.bank_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.branch || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.clearing_date || ''}</td>
           <td style="padding:6px 8px;border:1px solid var(--border)">${r.status || ''}</td>
         </tr>`).join('');
@@ -5032,7 +5047,7 @@ const ReportsPage = {
             <div class="fg" style="flex:1;min-width:220px">
               <label class="fl">Company</label>
               <select class="fc" id="f-company"><option value="">&lt;--All--&gt;</option>${
-                (this._companies || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+                (this._companies || []).map(c => `<option value="${c.id}">${Utils.esc(c.name)}</option>`).join('')
               }</select>
             </div>
             <div style="margin-bottom:2px;display:flex;gap:8px">
@@ -5090,9 +5105,9 @@ const ReportsPage = {
         'SOLD STOCK (UNIT)','SOLD STOCK (AREA)','SOLD STOCK (VALUE)',
         'UNSOLD STOCK (UNIT)','UNSOLD STOCK (AREA)','UNSOLD STOCK (VALUE)'];
       const bodyRows = rows.map(r => `<tr>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.company_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.uom || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.company_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.project_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.uom || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.stock_unit || 0}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.stock_area||0).toLocaleString('en-IN')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${fmtA(r.sold_stock_value)}</td>
@@ -5121,7 +5136,7 @@ const ReportsPage = {
             <div class="fg" style="flex:1;min-width:220px">
               <label class="fl">Company</label>
               <select class="fc" id="f-company"><option value="">&lt;--All--&gt;</option>${
-                (this._companies || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')
+                (this._companies || []).map(c => `<option value="${c.id}">${Utils.esc(c.name)}</option>`).join('')
               }</select>
             </div>
             <div style="margin-bottom:2px;display:flex;gap:8px">
@@ -5185,9 +5200,9 @@ const ReportsPage = {
         'BALANCE (UNIT)','BALANCE (AREA)','PROJECT VALUE','SOLD VALUE',
         'UPTO RECD(+PENDING)','BALANCE RECOVERABLE','UPTO DEMANDED','CURRENT O/S','DUE INTEREST'];
       const bodyRows = rows.map(r => `<tr>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.company_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.project_name || ''}</td>
-          <td style="padding:6px 8px;border:1px solid var(--border)">${r.uom || ''}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.company_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.project_name || '')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border)">${Utils.esc(r.uom || '')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.total_unit || 0}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${Number(r.total_area||0).toLocaleString('en-IN')}</td>
           <td style="padding:6px 8px;border:1px solid var(--border);${aR}">${r.sold_unit || 0}</td>
@@ -5245,12 +5260,12 @@ const ReportsPage = {
       if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(3,1fr)';
       if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No records found</h3></div>'; return; }
       const bodyRows = rows.map((r,i) => {
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${r.consumer_name}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
-          <td style="${aC}">${i+1}</td><td>${r.registration_no||'—'}</td><td>${nameLink}</td>
-          <td>${r.project_name}</td><td>${r.tower_name||'—'}</td><td>${r.unit_number}</td><td>${r.bhk_type||'—'}</td>
+          <td style="${aC}">${i+1}</td><td>${Utils.esc(r.registration_no||'—')}</td><td>${nameLink}</td>
+          <td>${Utils.esc(r.project_name)}</td><td>${Utils.esc(r.tower_name||'—')}</td><td>${Utils.esc(r.unit_number)}</td><td>${Utils.esc(r.bhk_type||'—')}</td>
           <td style="${aR}">${fmtA(r.booking_plc)}</td><td style="${aR}">${fmtA(r.booking_other)}</td>
-          <td>${r.other_charge_desc||'—'}</td>
+          <td>${Utils.esc(r.other_charge_desc||'—')}</td>
           <td style="${aR};color:#198754">${fmtA(r.received_plc)}</td><td style="${aR}">${fmtA(r.received_edc)}</td>
           <td style="${aR}">${fmtA(r.received_idc)}</td><td style="${aR}">${fmtA(r.received_other)}</td>
           <td style="${aR};font-weight:700;color:#1a56db">${fmtA(r.total_addon_received)}</td>
@@ -5343,9 +5358,9 @@ const ReportsPage = {
         <div style="padding:8px 10px;border-radius:4px;margin:2px 6px;background:var(--bg3);cursor:pointer;transition:background .15s"
              onmouseover="this.style.background='var(--bg4)'"
              onmouseout="this.style.background='var(--bg3)'"
-             onclick="Utils.info('Report: ${r.name}')">
-          <div style="font-weight:600;color:var(--text1)">${r.name}</div>
-          <div style="font-size:10px;color:var(--text3)">${r.type||'custom'}</div>
+             data-v="${Utils.esc(r.name)}" onclick="Utils.info('Report: ' + this.dataset.v)">
+          <div style="font-weight:600;color:var(--text1)">${Utils.esc(r.name)}</div>
+          <div style="font-size:10px;color:var(--text3)">${Utils.esc(r.type||'custom')}</div>
         </div>
       `).join('');
     } catch (err) {
@@ -5399,7 +5414,7 @@ const ReportsPage = {
       const rows = rows_data.map(r => `
         <tr>
           <td class="td-bold" style="color:var(--accent);cursor:pointer" onclick="ReportsPage.loadLedgerMonthlySummary('${r.id}')">
-            ${r.bank_name}${r.account_name ? ' — ' + r.account_name : ''} (${r.account_number})
+            ${Utils.esc(r.bank_name)}${Utils.esc(r.account_name ? ' — ' + r.account_name : '')} (${Utils.esc(r.account_number)})
           </td>
           <td style="text-align:right">${fmt(r.debit)}</td>
           <td style="text-align:right">${fmt(r.credit)}</td>
@@ -5447,7 +5462,7 @@ const ReportsPage = {
 
       const rows = rows_data.map(r => `
         <tr>
-          <td class="td-bold">${r.bank_name}${r.account_name ? ' — ' + r.account_name : ''} (${r.account_number})</td>
+          <td class="td-bold">${Utils.esc(r.bank_name)}${Utils.esc(r.account_name ? ' — ' + r.account_name : '')} (${Utils.esc(r.account_number)})</td>
           <td style="text-align:right">${fmt(r.debit)}</td>
           <td style="text-align:right">${fmt(r.credit)}</td>
           <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)}</td>
@@ -5497,15 +5512,15 @@ const ReportsPage = {
         'Period': r.label,
         'Debit': r.debit,
         'Credit': r.credit,
-        'Closing Balance': `${fmt(r.closing_balance)} ${r.closing_notation}`,
+        'Closing Balance': `${fmt(r.closing_balance)} ${Utils.esc(r.closing_notation)}`,
       }));
 
       const rows = rows_data.map(r => `
         <tr${r.month === null ? ' style="font-weight:700;background:var(--bg2)"' : ''}>
-          <td>${r.label}</td>
+          <td>${Utils.esc(r.label)}</td>
           <td style="text-align:right">${fmt(r.debit)}</td>
           <td style="text-align:right">${fmt(r.credit)}</td>
-          <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)} ${r.closing_notation}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.closing_balance)} ${Utils.esc(r.closing_notation)}</td>
         </tr>
       `);
 
@@ -5600,10 +5615,10 @@ Pages.reports = async function(params = {}) {
   const sidebar = NAV_GROUPS.map(g => `
     <div style="margin-bottom:8px">
       <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;
-                  letter-spacing:.06em;padding:4px 10px 2px">${g.label}</div>
+                  letter-spacing:.06em;padding:4px 10px 2px">${Utils.esc(g.label)}</div>
       ${g.items.map(it => `
         <div id="rpt-nav-${it.id}" class="rpt-nav-item${it.id===tab?' active':''}"
-             onclick="ReportsPage.activate('${it.id}')">${it.label}</div>
+             onclick="ReportsPage.activate('${it.id}')">${Utils.esc(it.label)}</div>
       `).join('')}
     </div>
   `).join('');
@@ -5914,10 +5929,7 @@ const EditsPage = {
     const cols = ['edited_at','document_type','consumer_name','field_label','original_value','current_value','edit_reason','edited_by_name','edit_version','is_active','document_id'];
     let csv = cols.join(',') + '\n';
     this._data.forEach(r => {
-      csv += cols.map(k => {
-        let v = r[k] === null || r[k] === undefined ? '' : String(r[k]);
-        return `"${v.replace(/"/g,'""')}"`;
-      }).join(',') + '\n';
+      csv += cols.map(k => Utils.csvCell(r[k])).join(',') + '\n';
     });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url  = URL.createObjectURL(blob);

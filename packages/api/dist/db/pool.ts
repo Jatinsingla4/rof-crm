@@ -39,6 +39,9 @@ const scopeOf = () => {
 
 export const isScoped = () => !!scopeStore.getStore()?.projectIds;
 
+// Counts the queries of one request (the reports route sends it back as X-Db-Queries when asked), so a test can prove a report does not query once per row
+export const queryCount = new AsyncLocalStorage<{ n: number }>();
+
 async function scopedQuery(ids: string, args: any[]) {
   const client = await pool.connect();
   try {
@@ -73,12 +76,14 @@ export const db = new Proxy(pool, {
   get(target, prop) {
     if (prop === 'query') {
       return (...args: any[]) => {
+        const counter = queryCount.getStore(); if (counter) counter.n++;
         const ids = scopeOf();
         return ids ? scopedQuery(ids, args) : (target.query as any)(...args);
       };
     }
     if (prop === 'connect') {
       return (...args: any[]) => {
+        const counter = queryCount.getStore(); if (counter) counter.n++;
         const ids = scopeOf();
         return ids && !args.length ? scopedConnect(ids) : (target.connect as any)(...args);
       };
