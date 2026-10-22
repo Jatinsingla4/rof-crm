@@ -354,8 +354,8 @@ const performSurrender = async (c, req, res, p) => {
         await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d) => d.id)]);
     if (commissions.length)
         await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
-    if (isCancel)
-        await (0, broker_js_1.flagPaidCommission)(c, booking.id);
+    if (isCancel && booking)
+        await (0, broker_js_1.flagPaidCommission)(c, booking.id); // an allocation made on the Allotment screen has no booking
     await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined, { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };
 };

@@ -280,5 +280,9 @@ if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_
     `delete from booking_records where consumer_id in (${ids})`, `delete from co_applicants where consumer_id in (${ids})`, `delete from consumers where id in (${ids})`,
   ]) { try { psql(sql); } catch { /* leftovers are harmless, names carry the run id */ } }
 }
+
+// an allocation made on the Allotment screen has no booking: cancelling it must work (it was a 500 once the cancel looked at the booking's commission)
+{ const c = await person(P1), u = await unit(); const x = await A('POST', '/allocations', { consumerId: c, unitId: u, projectId: P1 }); t('no-booking allocation: allotted', x.s === 201, x.s + JSON.stringify(x.j));
+  const y = await A('POST', `/allocations/${x.j.data.id}/cancel`, { reason: 'no booking behind it' }); t('no-booking allocation: cancel works (200, not 500)', y.s === 200, y.s + JSON.stringify(y.j)); }
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

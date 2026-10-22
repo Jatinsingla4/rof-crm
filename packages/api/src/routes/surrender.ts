@@ -376,7 +376,7 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
     if (demands.length) await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d: any) => d.id)]);
     if (commissions.length) await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);
-    if (isCancel) await flagPaidCommission(c, booking.id);
+    if (isCancel && booking) await flagPaidCommission(c, booking.id);   // an allocation made on the Allotment screen has no booking
     await auditChange(c, req, res, 'create', isCancel ? 'cancellation' : 'surrender', surrenderId, undefined,
       { consumer_id: consumerId, allocation_id: allocationId, unit_id: alloc.unit_id, surrender_type: sType, forfeiture_amount_inr: f.forfeit, refund_amount_inr: f.refund, demands_cancelled: demands.length });
     return { surrenderId, type: isCancel ? 'cancellation' : 'surrender' };
