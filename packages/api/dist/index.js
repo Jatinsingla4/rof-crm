@@ -271,7 +271,7 @@ app.get('/api/health', (req, res) => {
 // ============================================
 app.get('/api/import/template/units', (req, res) => {
     const headers = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n';
-    const example = 'GalleriaA,1,A-101,2BHK,650,750,100,5000000,5000000,North\n';
+    const example = 'Tower A,1,A-101,2BHK,650,750,100,5000000,5000000,North\n';
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="units_import_template.csv"');
     res.send(headers + example);
@@ -495,7 +495,8 @@ app.use('/api/loans', exports.authenticateToken, rbac('consumers'), loans_js_1.d
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_process_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), financial_ops_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), outgoing_payments_js_1.default);
-app.use('/api/test-data', exports.authenticateToken, test_data_import_js_1.default);
+// Leftover read-only check of the test data import: it lists customers and projects, super_admin only
+app.use('/api/test-data', exports.authenticateToken, (req, res, next) => (req.userRole === 'super_admin' ? next() : res.status(403).json({ error: 'Forbidden' })), test_data_import_js_1.default);
 app.use('/api/roles', exports.authenticateToken, roles_js_1.default);
 app.use('/api/companies', exports.authenticateToken, companies_js_1.default);
 app.use('/api/custom-letters', exports.authenticateToken, rbac('documents'), custom_letters_js_1.default);

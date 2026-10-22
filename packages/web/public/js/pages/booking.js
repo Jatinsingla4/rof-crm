@@ -24,7 +24,7 @@ Pages.booking = async function(params = {}) {
   const salutOpts = salutations.map(s=>`<option>${s.name}</option>`).join('');
   const profOpts  = `<option value="">— Select —</option>` + professions.map(p=>`<option>${p.name}</option>`).join('');
   const natOpts   = `<option value="">— Select —</option>` + nationalities.map(n=>`<option>${n.name}</option>`).join('');
-  const projOpts  = `<option value="">— Select Project —</option>` + projects.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  const projOpts  = `<option value="">— Select Project —</option>` + projects.map(p=>`<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
   const brokerOpts= `<option value="">— No Broker —</option>` + brokers.map(b=>`<option value="${b.id}">${b.firm_name||b.name||b.id}</option>`).join('');
   const empOpts   = `<option value="">— Select Employee —</option>` + users.map(u=>`<option value="${u.id}">${u.name}</option>`).join('');
   const stateOpts = ['Haryana','Delhi','Uttar Pradesh','Rajasthan','Punjab','Maharashtra','Karnataka','Tamil Nadu','Gujarat','Madhya Pradesh','West Bengal','Telangana','Himachal Pradesh','Uttarakhand']

@@ -16,7 +16,7 @@ const router = Router();
 const fail = (err: any, res: Response, next: NextFunction) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
 const PRICE_MAX = 100_000_000_000;   // ₹ 10,000 crore, the column is a whole-rupee bigint
 const AREA_MAX = 1_000_000;
-const floorNo = (v: any): number => {
+export const floorNo = (v: any): number => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d{1,3}$/.test(v) ? Number(v) : NaN;
   if (!Number.isInteger(n) || n < -5 || n > 300) throw bad('Floor must be a whole number from -5 to 300');
   return n;
@@ -27,7 +27,7 @@ const planUrl = (v: any): string | null => {
   return u;
 };
 // One set of rules for a new unit, an edit and a bulk-import row. `cur` is the stored row on edit (unchanged fields keep their value).
-const unitFields = (b: any, cur?: any) => {
+export const unitFields = (b: any, cur?: any) => {
   const pick = (k: string, col: string, label: string, max: number, dec: number) => has(b[k]) ? num(b[k], label, max, dec) : cur ? (cur[col] == null ? null : Number(cur[col])) : null;
   const f = {
     carpet: pick('carpetAreaSqft', 'carpet_area_sqft', 'Carpet area', AREA_MAX, 4), sup: pick('superAreaSqft', 'super_area_sqft', 'Super area', AREA_MAX, 4),

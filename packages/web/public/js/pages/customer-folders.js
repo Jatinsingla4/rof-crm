@@ -65,55 +65,32 @@ const CustomerFoldersPage = {
   _all: [],
 
   async init() {
-    try {
-      const [consRes, unitsRes] = await Promise.allSettled([
-        Api.get('/consumers', { params: { pageSize: 300 } }),
-        Api.get('/units', { params: { pageSize: 300 } }),
-      ]);
-      this._all = consRes.status === 'fulfilled' ? (consRes.value.data || consRes.value || []) : [];
-
-      if (unitsRes.status === 'fulfilled') {
-        const units = unitsRes.value.data || unitsRes.value || [];
-        const projects = [...new Map(
-          units.filter(u => u.project_id||u.projectId)
-               .map(u => [u.project_id||u.projectId, { id: u.project_id||u.projectId, name: u.project_name||u.projectName }])
-        ).values()];
-        const sel = document.getElementById('cf-project');
-        if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-          projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-      }
-
-      this.render(this._all);
-    } catch (err) {
-      document.getElementById('cf-grid').innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
-    }
+    const sel = document.getElementById('cf-project');
+    if (sel) sel.innerHTML = await Utils.projectOptions();
+    await this.load();
   },
 
   async load() {
     try {
+      const params = { pageSize: 300 };
       const projectId = document.getElementById('cf-project')?.value;
       const stage = document.getElementById('cf-stage')?.value;
-      const params = { pageSize: 300 };
+      const search = document.getElementById('cf-search')?.value?.trim();
       if (projectId) params.projectId = projectId;
       if (stage) params.leadStage = stage;
+      if (search) params.search = search;
       const res = await Api.get('/consumers', { params });
       this._all = res.data || res || [];
-      this.filter();
+      this.render(this._all);
     } catch (err) {
-      document.getElementById('cf-grid').innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+      document.getElementById('cf-grid').innerHTML = `<div style="padding:20px;color:var(--red)">${Utils.esc(err.message)}</div>`;
     }
   },
 
+  // every filter is asked of the server (it used to filter the first 300 customers on the screen, and project and stage did nothing)
   filter() {
-    const search = document.getElementById('cf-search')?.value?.toLowerCase() || '';
-    const filtered = search
-      ? this._all.filter(c => {
-          const name = Utils.formatName(c.first_name, c.last_name, c.name).toLowerCase();
-          const mobile = (c.mobile||c.phone||'').toLowerCase();
-          return name.includes(search) || mobile.includes(search);
-        })
-      : this._all;
-    this.render(filtered);
+    clearTimeout(this._t);
+    this._t = setTimeout(() => this.load(), 300);
   },
 
   render(list) {

@@ -156,6 +156,7 @@ router.post('/', requireProcess('applicant_transfer', 'maker'), async (req: Auth
       await move(`UPDATE penal_interests SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);
       await move(`UPDATE interest_waivers SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);
       await move(`UPDATE consumer_addon_charges SET consumer_id = $1 WHERE consumer_id = $2`, [newId, oldId]);
+      await move(`UPDATE parking_slots SET allotted_to_consumer_id = $1 WHERE allotted_to_consumer_id = $2 AND (allotted_unit_id = $3 OR allotted_unit_id IS NULL)`, [newId, oldId, unitId]);   // the parking goes with the unit
       await move(`UPDATE consumers SET allocated_unit_id = NULL, lead_stage = 'transferred' WHERE id = $1`, [oldId]);
       await move(`UPDATE consumers SET allocated_unit_id = $1, lead_stage = 'allotted' WHERE id = $2`, [unitId, newId]);
       await move(`UPDATE allocations SET status = 'transferred' WHERE unit_id = $1 AND consumer_id = $2 AND status NOT IN ('cancelled', 'transferred')`, [unitId, oldId]);

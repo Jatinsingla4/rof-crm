@@ -86,24 +86,18 @@ const UnitDocsPage = {
   _units: [],
 
   async init() {
-    try {
-      const res = await Api.get('/units', { params: { pageSize: 500 } });
-      this._units = res.data || res || [];
-
-      const projects = [...new Map(
-        this._units.filter(u => u.project_id||u.projectId)
-                   .map(u => [u.project_id||u.projectId, { id: u.project_id||u.projectId, name: u.project_name||u.projectName }])
-      ).values()];
-
-      const sel = document.getElementById('ud-project');
-      if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-
-      this.filterUnits();
-    } catch {}
+    const sel = document.getElementById('ud-project');
+    if (sel) sel.innerHTML = await Utils.projectOptions('— Select Project —');
+    this.filterUnits();
   },
 
+  // the units of the chosen project (it used to hold the first 500 units of everything, so a project with many units lost some)
   async loadUnits() {
+    const projectId = document.getElementById('ud-project')?.value;
+    try {
+      this._units = projectId ? ((await Api.get('/units', { params: { projectId, pageSize: 1000 } })).data || []) : [];
+    } catch (err) { this._units = []; Utils.error(err.message); }
+    const towerSel = document.getElementById('ud-tower'); if (towerSel) towerSel.value = '';
     this.filterUnits();
   },
 

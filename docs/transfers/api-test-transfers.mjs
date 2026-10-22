@@ -97,7 +97,10 @@ let tno = 0; const TN = () => `TR${U}${++tno}`;
   await bad('GSTIN "123"', { gstin: '123' }); await bad('transferNo 51 characters', { transferNo: 'n'.repeat(51) }); await bad('transferNo with <b>', { transferNo: '<b>' }); await bad('remarks 1001 characters', { remarks: 'r'.repeat(1001) }); await bad('remarks with <script>', { remarks: '<script>' });
   await bad('brokerCompany 151 characters', { brokerCompany: 'b'.repeat(151) }); await bad('salesPersonName with <b>', { salesPersonName: '<b>' }); await bad('transferReceiptNo 51 characters', { transferReceiptNo: 'r'.repeat(51) });
   t('transfer: nothing moved by all the refused calls', own(S.c).startsWith(S.u) && own(nb).startsWith('/') && psql(`select count(*) from ownership_transfers where unit_id='${S.u}'`) === '0');
+  { const pid = psql(`select project_id from units where id='${S.u}'`); psql(`insert into parking_slots (project_id, slot_number, status, allotted_to_consumer_id, allotted_unit_id) values ('${pid}', 'TR-${U}', 'allotted', '${S.c}', '${S.u}')`); }
   r = await xfer(S, nb, { transferNo: 'DUP' + U }); t('transfer: a transfer number is accepted once', r.s === 201, r.s + JSON.stringify(r.j));
+  t('transfer: the parking slot of the unit goes to the buyer with it', psql(`select allotted_to_consumer_id from parking_slots where slot_number='TR-${U}' and project_id=(select project_id from units where id='${S.u}')`) === nb);
+  try { psql(`delete from parking_slots where slot_number='TR-${U}'`); } catch { /* harmless */ }
   const S2 = await buyer(), nb3 = await person(); r = await xfer(S2, nb3, { transferNo: 'dup' + U }); t('transfer: the same number again (any case) -> 409', r.s === 409, r.s + JSON.stringify(r.j));
 }
 

@@ -182,7 +182,7 @@ const DemandsPage = {
       ['ds-project','pi-project'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-          projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       });
 
       const cSel = document.getElementById('ds-consumer');

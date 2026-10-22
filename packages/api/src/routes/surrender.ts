@@ -373,6 +373,8 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
     if (booking) await c.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [booking.id]);
     await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender']);
+    // the parking slots of this unit go back to the pool (a restore does not take them back: someone else may hold them by then)
+    await c.query(`UPDATE parking_slots SET status = 'available', allotted_to_consumer_id = NULL, allotted_unit_id = NULL, allotted_at = NULL WHERE allotted_to_consumer_id = $1 AND (allotted_unit_id = $2 OR allotted_unit_id IS NULL)`, [consumerId, alloc.unit_id]);
     // Every demand of this unit's plan that is still to be paid stops (the paid ones stay as history)
     if (demands.length) await c.query(`UPDATE demands SET status = 'cancelled', updated_at = NOW() WHERE id = ANY($1::uuid[])`, [demands.map((d: any) => d.id)]);
     if (commissions.length) await c.query(`UPDATE broker_commissions SET status = 'cancelled' WHERE id = ANY($1::uuid[])`, [commissions]);

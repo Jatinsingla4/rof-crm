@@ -462,7 +462,7 @@ const GSTPage = {
       const res = await Api.get('/projects', { params: { pageSize: 100 } });
       const list = res.data || res || [];
       const opts = '<option value="">— All Projects —</option>' +
-        list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        list.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       ['pi-proj','gst-rpt-project'].forEach(id => {
         const el = document.getElementById(id); if (el) el.innerHTML = opts;
       });

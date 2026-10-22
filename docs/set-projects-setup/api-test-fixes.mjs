@@ -63,12 +63,16 @@ r = await A('POST', '/units', unit({ unitTypeId: otherType })); t('unit: unit ty
 r = await A('PATCH', '/units/' + uid, { totalPriceInr: -3 }); t('unit edit: negative price -> 400', r.s === 400, r.s);
 
 // F3: bulk imports count real inserts only and leave no empty tower
-const csv = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n'
-  + 'T1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North\nT1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North\nGhostTower,,CSV-3,2BHK,650,750,100,5000000,5000000,North\nT1,2,CSV-2,3BHK,900,1000,100,7000000,7000000,East';
-r = await A('POST', '/import', { csvText: csv, projectId: pid, importType: 'units', fileName: 't.csv' });
-t('import: 2 created, 2 skipped (duplicate and blank floor)', r.j?.data?.created === 2 && r.j?.data?.skipped === 2, JSON.stringify(r.j?.data));
+const head = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n';
+const badCsv = head + 'T1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North\nT1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North\nGhostTower,,CSV-3,2BHK,650,750,100,5000000,5000000,North';
+r = await A('POST', '/import', { csvText: badCsv, projectId: pid, importType: 'units', fileName: 't.csv' });
+t('import: a file with a blank floor and a unit twice is refused as a whole (422), nothing created', r.s === 422 && !r.j?.data, r.s + JSON.stringify(r.j).slice(0, 200));
 const towers = (await A('GET', `/projects/${pid}/towers`)).j.data.map(x => x.tower_name);
-t('import: blank-floor row leaves no empty tower', !towers.includes('GhostTower'), towers.join(','));
+t('import: the refused file leaves no empty tower', !towers.includes('GhostTower'), towers.join(','));
+r = await A('POST', '/import', { csvText: head + 'T1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North\nT1,2,CSV-2,3BHK,900,1000,100,7000000,7000000,East', projectId: pid, importType: 'units', fileName: 't.csv' });
+t('import: a clean file creates its 2 units', r.j?.data?.created === 2 && r.j?.data?.skipped === 0, JSON.stringify(r.j?.data));
+r = await A('POST', '/import', { csvText: head + 'T1,1,CSV-1,2BHK,650,750,100,5000000,5000000,North', projectId: pid, importType: 'units', fileName: 't.csv' });
+t('import: a unit that is already there is skipped, not counted as created', r.j?.data?.created === 0 && r.j?.data?.skipped === 1, JSON.stringify(r.j?.data));
 r = await A('POST', '/units/bulk-import', { projectId: pid, rows: [{ tower: 'T1', floor: 1, unitNumber: 'CSV-1', bhkType: '2BHK' }, { tower: 'T1', floor: 3, unitNumber: 'BULK-9', bhkType: '2BHK' }] });
 t('bulk-import: duplicate is skipped, not counted as created', r.j?.data?.created === 1 && r.j?.data?.skipped === 1, JSON.stringify(r.j?.data));
 

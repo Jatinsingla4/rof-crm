@@ -469,20 +469,20 @@ const DocsPage = {
       const res = await Api.get('/projects', { params: { pageSize: 100 } });
       this._projects = res.data || res || [];
       const opts = '<option value="">— All Projects —</option>' +
-        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       ['gen','wel','dpr','ats','tpa','cd','lbl'].forEach(prefix => {
         const el = document.getElementById(`${prefix}-project`);
         if (el) el.innerHTML = opts;
       });
       const atsSel = document.getElementById('ats-project-sel');
       if (atsSel) atsSel.innerHTML = '<option value="">— Select —</option>' + 
-        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       const demSel = document.getElementById('dem-project-sel');
       if (demSel) demSel.innerHTML = '<option value="">— Select —</option>' +
-        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       const alsSel = document.getElementById('al-project-sel');
       if (alsSel) alsSel.innerHTML = '<option value="">— Select —</option>' +
-        this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch {}
   },
 

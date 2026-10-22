@@ -107,7 +107,7 @@ const CollectionSetupPage = {
       const res = await Api.get('/projects');
       this._projects = res.data || [];
       const sel = document.getElementById('s-project');
-      sel.innerHTML = this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      sel.innerHTML = this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch (err) { Utils.error(err.message); }
   },
 

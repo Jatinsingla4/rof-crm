@@ -118,11 +118,8 @@ const LeadsPage = {
 
   async loadProjects() {
     try {
-      const res = await Api.get('/projects');
-      const projects = (res.data || res || []).map(p => ({ id: p.id, name: p.name }));
       const sel = document.getElementById('leads-project');
-      if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
+      if (sel) sel.innerHTML = await Utils.projectOptions();
     } catch {}
   },
 

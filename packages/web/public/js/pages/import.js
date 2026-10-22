@@ -54,33 +54,24 @@ Pages.importPage = async function(params = {}) {
           <div class="sp-grid">
             <div class="fg"><label class="fl"><span class="r">*</span>Data Type</label>
               <select class="fc" id="imp-type" onchange="ImportPage.onTypeChange(this.value)">
-                <option value="">— Select Type —</option>
-                <option value="consumers">Consumers / Leads</option>
-                <option value="units">Units / Inventory</option>
-                <option value="payments">Payment Records</option>
-                <option value="edraw">E-Draw Results (TCP Haryana)</option>
+                <option value="units" selected>Units / Inventory (CSV)</option>
               </select>
             </div>
-            <div class="fg" id="imp-project-wrap"><label class="fl">Project (optional)</label>
-              <select class="fc" id="imp-project">
-                <option value="">— All Projects —</option>
-              </select>
+            <div class="fg" id="imp-project-wrap"><label class="fl"><span class="r">*</span>Project</label>
+              <select class="fc" id="imp-project"></select>
             </div>
-            <div class="fg"><label class="fl">Duplicate Handling</label>
-              <select class="fc" id="imp-dup">
-                <option value="skip">Skip duplicates</option>
-                <option value="update">Update existing</option>
-                <option value="error">Error on duplicate</option>
-              </select>
+            <div class="fg"><label class="fl">Duplicates</label>
+              <div style="font-size:12px;color:var(--text2);padding:9px 0">A unit that already exists in its tower is skipped. One wrong row stops the whole file and nothing is imported.</div>
             </div>
           </div>
         </div>
       </div>
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:12px">Applicants are made on the Booking screen and E-Draw results come in on Allotment → E-Draw Import.</div>
 
       <!-- Template download -->
-      <div id="imp-template-bar" style="display:none;margin-bottom:12px">
+      <div id="imp-template-bar" style="margin-bottom:12px">
         <div class="alert alert-info">
-          Download the CSV template for selected data type before uploading.
+          Columns: unitNumber, tower, floor, bhkType, totalPriceInr (needed) and carpetAreaSqft, superAreaSqft, balconyAreaSqft, basePriceInr, facing (optional).
           <button class="btn btn-ghost btn-sm" style="margin-left:10px" onclick="ImportPage.downloadTemplate()">Download Template CSV</button>
         </div>
       </div>
@@ -95,9 +86,9 @@ Pages.importPage = async function(params = {}) {
             ondrop="ImportPage.onDrop(event)"
             onclick="document.getElementById('imp-file').click()">
             <div style="font-size:40px;margin-bottom:8px">📂</div>
-            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Drag & Drop CSV or Excel file here</div>
-            <div style="font-size:12px;color:var(--text3)">Or click to browse · Accepted: .csv, .xlsx, .xls</div>
-            <input type="file" id="imp-file" style="display:none" accept=".csv,.xlsx,.xls" onchange="ImportPage.onFileSelect(this.files[0])">
+            <div style="font-size:14px;font-weight:600;margin-bottom:4px">Drag & Drop a CSV file here</div>
+            <div style="font-size:12px;color:var(--text3)">Or click to browse · Accepted: .csv (up to 2 MB, 5000 rows)</div>
+            <input type="file" id="imp-file" style="display:none" accept=".csv" onchange="ImportPage.onFileSelect(this.files[0])">
           </div>
           <div id="imp-file-info" style="margin-top:8px;display:none">
             <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px">
@@ -139,23 +130,10 @@ const ImportPage = {
   _previewData: null,
 
   async init() {
-    try {
-      const res = await Api.get('/units', { params: { pageSize: 300 } });
-      const units = res.data || res || [];
-      const projects = [...new Map(
-        units.filter(u => u.project_id||u.projectId)
-             .map(u => [u.project_id||u.projectId, { id: u.project_id||u.projectId, name: u.project_name||u.projectName }])
-      ).values()];
-      const sel = document.getElementById('imp-project');
-      if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
-    } catch {}
+    try { document.getElementById('imp-project').innerHTML = await Utils.projectOptions('— Choose a project —'); } catch {}
   },
 
-  onTypeChange(type) {
-    const bar = document.getElementById('imp-template-bar');
-    if (bar) bar.style.display = type ? 'block' : 'none';
-  },
+  onTypeChange() {},
 
   onDrop(event) {
     event.preventDefault();
@@ -166,9 +144,8 @@ const ImportPage = {
 
   onFileSelect(file) {
     if (!file) return;
-    const allowed = ['.csv', '.xlsx', '.xls'];
-    const ext = '.' + file.name.split('.').pop().toLowerCase();
-    if (!allowed.includes(ext)) { Utils.warn('Please select a CSV or Excel file'); return; }
+    if (!/\.csv$/i.test(file.name)) { Utils.warn('Please select a CSV file'); return; }
+    if (file.size > 2_000_000) { Utils.warn('The file is too large (2 MB at most)'); return; }
 
     this._file = file;
     document.getElementById('imp-file-info').style.display = 'block';
@@ -188,91 +165,64 @@ const ImportPage = {
     document.getElementById('imp-preview').innerHTML = '';
   },
 
+  // the CSV is read here and sent as text (the server does not take a file upload)
+  async _body(withProject) {
+    const projectId = document.getElementById('imp-project')?.value;
+    if (withProject && !projectId) { Utils.warn('Please choose a project'); return null; }
+    return { importType: 'units', csvText: await this._file.text(), fileName: this._file.name, projectId: projectId || undefined };
+  },
+
   async preview() {
     if (!this._file) { Utils.warn('Please select a file first'); return; }
-    const dataType = document.getElementById('imp-type')?.value;
-    if (!dataType) { Utils.warn('Please select a data type'); return; }
-
-    const fd = new FormData();
-    fd.append('file', this._file);
-    fd.append('dataType', dataType);
-    fd.append('preview', 'true');
-
+    const body = await this._body(false);
     const el = document.getElementById('imp-preview');
-    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Parsing file…</div>';
-
+    el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Reading file…</div>';
     try {
-      const res = await Api.uploadFile('/import/preview', fd);
-      const data = res.data || res;
-      this._previewData = data;
-
-      const rows = data.rows || data.data || [];
-      const errors = data.errors || [];
-      const total = data.total || rows.length;
-
+      const d = (await Api.post('/import/preview', body)).data;
+      this._previewData = d;
+      const errors = d.errors || [];
       el.innerHTML = `
         <div class="alert ${errors.length ? 'alert-warn' : 'alert-success'}" style="margin-bottom:12px">
-          ${errors.length ? `⚠ ${errors.length} rows have issues · ` : '✓ '}
-          ${total} rows parsed · ${rows.length} valid · ${errors.length} with errors
+          ${errors.length ? '⚠ ' : '✓ '}${d.totalRows} rows read · ${d.validRows} good · ${d.errorRows} with problems
+          ${d.alreadyInProject != null ? ` · ${d.alreadyInProject} already in this project (will be skipped)` : ''}
+          ${errors.length ? ' · nothing is imported until every row is right' : ''}
         </div>
         ${errors.length ? `<div style="margin-bottom:12px;font-size:11px;color:var(--warn)">
-          ${errors.slice(0,5).map(e => `<div>Row ${e.row}: ${e.message}</div>`).join('')}
-          ${errors.length > 5 ? `<div>... and ${errors.length-5} more errors</div>` : ''}
+          ${errors.slice(0,10).map(e => `<div>Row ${e.row} (${Utils.esc(e.unit || 'no unit number')}): ${Utils.esc(e.reason)}</div>`).join('')}
+          ${d.errorRows > 10 ? `<div>... and ${d.errorRows - 10} more</div>` : ''}
         </div>` : ''}
-        ${rows.length > 0 ? `<div class="tbl-wrap"><table>
-          <thead><tr>${Object.keys(rows[0]).map(k=>`<th>${k}</th>`).join('')}</tr></thead>
-          <tbody>
-            ${rows.slice(0,10).map(row=>`<tr>${Object.values(row).map(v=>`<td style="font-size:10.5px">${v||'—'}</td>`).join('')}</tr>`).join('')}
-            ${rows.length>10?`<tr><td colspan="${Object.keys(rows[0]).length}" style="text-align:center;color:var(--text3);font-size:11px">... and ${rows.length-10} more rows</td></tr>`:''}
+        ${d.preview.length ? `<div class="tbl-wrap"><table>
+          <thead><tr>${Object.keys(d.preview[0]).map(k => `<th>${Utils.esc(k)}</th>`).join('')}</tr></thead>
+          <tbody>${d.preview.map(row => `<tr>${Object.values(row).map(v => `<td style="font-size:10.5px">${Utils.esc(v || '—')}</td>`).join('')}</tr>`).join('')}
+            ${d.totalRows > 10 ? `<tr><td colspan="${Object.keys(d.preview[0]).length}" style="text-align:center;color:var(--text3);font-size:11px">... and ${d.totalRows - 10} more rows</td></tr>` : ''}
           </tbody>
-        </table></div>` : ''}
-      `;
+        </table></div>` : ''}`;
     } catch (err) {
-      el.innerHTML = `<div class="alert alert-error">Preview failed: ${err.message}</div>`;
+      el.innerHTML = `<div class="alert alert-error">Preview failed: ${Utils.esc(err.message)}</div>`;
     }
   },
 
   async confirm() {
     if (!this._file) { Utils.warn('Please select a file first'); return; }
-    const dataType = document.getElementById('imp-type')?.value;
-    if (!dataType) { Utils.warn('Please select a data type'); return; }
-    const dup = document.getElementById('imp-dup')?.value;
-    const projectId = document.getElementById('imp-project')?.value;
-
-    Utils.confirm(`Import ${dataType.replace(/_/g,' ')} data? This cannot be undone.`, async () => {
-      const fd = new FormData();
-      fd.append('file', this._file);
-      fd.append('dataType', dataType);
-      fd.append('duplicateHandling', dup);
-      if (projectId) fd.append('projectId', projectId);
-
+    const body = await this._body(true);
+    if (!body) return;
+    Utils.confirm('Import these units into the chosen project? This cannot be undone.', async () => {
       const result = document.getElementById('imp-result');
       result.innerHTML = '<div class="page-loading"><div class="spinner"></div> Importing…</div>';
-
       try {
-        const res = await Api.uploadFile('/import', fd);
-        const data = res.data || res;
+        const d = (await Api.post('/import', body)).data;
         result.innerHTML = `
           <div class="alert alert-success">
-            ✓ Import complete!
-            Created: <strong>${data.created||0}</strong> ·
-            Updated: <strong>${data.updated||0}</strong> ·
-            Skipped: <strong>${data.skipped||0}</strong> ·
-            Errors: <strong>${data.errors||0}</strong>
-          </div>
-        `;
+            ✓ Import complete! Created: <strong>${d.created}</strong> · Skipped (already there): <strong>${d.skipped}</strong> · Rows in file: <strong>${d.totalRows}</strong>
+          </div>`;
         this.clearFile();
       } catch (err) {
-        result.innerHTML = `<div class="alert alert-error">Import failed: ${err.message}</div>`;
+        result.innerHTML = `<div class="alert alert-error">Import failed: ${Utils.esc(err.message)}</div>`;
       }
     });
   },
 
-  downloadTemplate() {
-    const type = document.getElementById('imp-type')?.value;
-    if (!type) { Utils.warn('Select a data type first'); return; }
-    window.open(`/api/import/template/${type}`, '_blank');
-  },
+  downloadTemplate() { window.open('/api/import/template/units', '_blank'); },
 
   async loadHistory() {
     const el = document.getElementById('imp-history-body');
@@ -283,21 +233,22 @@ const ImportPage = {
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><h3>No import history</h3></div>'
         : `<table>
-            <thead><tr><th>Date</th><th>Type</th><th>File</th><th>Created</th><th>Updated</th><th>Errors</th><th>Status</th></tr></thead>
+            <thead><tr><th>Date</th><th>Type</th><th>File</th><th>Created</th><th>Skipped</th><th>Problem rows</th><th>By</th><th>Status</th></tr></thead>
             <tbody>
               ${list.map(h => `<tr>
-                <td style="font-size:10.5px">${Utils.date(h.created_at||h.createdAt)}</td>
-                <td>${Utils.chip(h.data_type||h.dataType||'unknown')}</td>
-                <td style="font-size:10.5px">${h.file_name||h.fileName||'—'}</td>
-                <td style="color:var(--green);font-weight:600">${h.created||0}</td>
-                <td>${h.updated||0}</td>
-                <td style="${h.errors>0?'color:var(--red);font-weight:600':''}">${h.errors||0}</td>
-                <td>${Utils.chip(h.status||'completed')}</td>
+                <td style="font-size:10.5px">${Utils.date(h.created_at)}</td>
+                <td>${Utils.chip(h.import_type || 'units')}</td>
+                <td style="font-size:10.5px">${Utils.esc(h.file_name || '—')}</td>
+                <td style="color:var(--green);font-weight:600">${h.created_rows || 0}</td>
+                <td>${h.skipped_rows || 0}</td>
+                <td style="${h.error_rows > 0 ? 'color:var(--red);font-weight:600' : ''}">${h.error_rows || 0}</td>
+                <td style="font-size:10.5px">${Utils.esc(h.imported_by_name || '—')}</td>
+                <td>${Utils.chip(h.status || 'completed')}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;
     } catch (err) {
-      el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`;
+      el.innerHTML = `<div style="padding:20px;color:var(--red)">${Utils.esc(err.message)}</div>`;
     }
   },
 };

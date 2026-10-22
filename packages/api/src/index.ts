@@ -337,7 +337,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 app.get('/api/import/template/units', (req: Request, res: Response) => {
   const headers = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n';
-  const example = 'GalleriaA,1,A-101,2BHK,650,750,100,5000000,5000000,North\n';
+  const example = 'Tower A,1,A-101,2BHK,650,750,100,5000000,5000000,North\n';
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="units_import_template.csv"');
   res.send(headers + example);
@@ -585,7 +585,8 @@ app.use('/api/loans', authenticateToken, rbac('consumers'), loansRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), receiptProcessRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), financialOpsRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), outgoingPaymentsRoutes);
-app.use('/api/test-data', authenticateToken, testDataImportRoutes);
+// Leftover read-only check of the test data import: it lists customers and projects, super_admin only
+app.use('/api/test-data', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (req.userRole === 'super_admin' ? next() : res.status(403).json({ error: 'Forbidden' })), testDataImportRoutes);
 app.use('/api/roles',          authenticateToken, rolesRoutes);
 app.use('/api/companies',      authenticateToken, companiesRoutes);
 app.use('/api/custom-letters', authenticateToken, rbac('documents'), customLettersRoutes);

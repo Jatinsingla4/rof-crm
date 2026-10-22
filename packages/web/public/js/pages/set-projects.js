@@ -793,7 +793,7 @@ Object.assign(SPJPage, {
 
   populateAllDropdowns() {
     if (!this._projects || this._projects.length === 0) return;
-    const opts = this._projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+    const opts = this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     ['spj-tower-project','spj-tower-list-project','spj-unit-project','spj-bulk-project',
      'spj-ut-project','spj-uloc-project','spj-uloc-list-project','spj-plan-project',
      'spj-plan-edit-project','spj-planview-project','spj-edit-project-sel'].forEach(id => {

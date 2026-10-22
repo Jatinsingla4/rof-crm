@@ -4,6 +4,7 @@
  * Unit inventory, status management, floor plans, bulk import
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.unitFields = exports.floorNo = void 0;
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
@@ -20,6 +21,7 @@ const floorNo = (v) => {
         throw (0, input_js_1.bad)('Floor must be a whole number from -5 to 300');
     return n;
 };
+exports.floorNo = floorNo;
 const planUrl = (v) => {
     const u = (0, input_js_1.text)(v, 'Floor plan link', 500, false);
     if (u && !/^https?:\/\/[^\s]+$/i.test(u))
@@ -39,6 +41,7 @@ const unitFields = (b, cur) => {
         throw (0, input_js_1.bad)('Total price cannot be less than the base price');
     return f;
 };
+exports.unitFields = unitFields;
 // POST /api/units - Create unit
 router.post('/', async (req, res, next) => {
     try {
@@ -48,10 +51,10 @@ router.post('/', async (req, res, next) => {
         const bhkType = (0, input_js_1.text)(b.bhkType, 'BHK type', 50, true);
         if (!(0, input_js_1.has)(b.floor))
             throw (0, input_js_1.bad)('Floor number is required for each unit');
-        const floor = floorNo(b.floor);
+        const floor = (0, exports.floorNo)(b.floor);
         const facing = (0, input_js_1.text)(b.facing, 'Facing', 30, false), floorPlanUrl = planUrl(b.floorPlanUrl);
         const unitTypeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
-        const f = unitFields(b);
+        const f = (0, exports.unitFields)(b);
         const tower = await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [towerId, projectId]);
         if (!tower.rows.length)
             throw (0, input_js_1.bad)('This tower does not belong to the selected project');
@@ -464,10 +467,10 @@ router.patch('/:id', async (req, res, next) => {
                 await client.query('ROLLBACK');
                 return res.status(404).json({ error: 'Unit not found' });
             }
-            const floor = (0, input_js_1.has)(b.floor) ? floorNo(b.floor) : cur.floor;
+            const floor = (0, input_js_1.has)(b.floor) ? (0, exports.floorNo)(b.floor) : cur.floor;
             const facing = (0, input_js_1.has)(b.facing) ? (0, input_js_1.text)(b.facing, 'Facing', 30, false) : cur.facing;
             const floorPlanUrl = (0, input_js_1.has)(b.floorPlanUrl) ? planUrl(b.floorPlanUrl) : cur.floor_plan_url;
-            const f = unitFields({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft, carpetAreaSqft: b.carpetAreaSqft, superAreaSqft: b.superAreaSqft }, cur);
+            const f = (0, exports.unitFields)({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft, carpetAreaSqft: b.carpetAreaSqft, superAreaSqft: b.superAreaSqft }, cur);
             const same = (a, v) => (a === null && v == null) || (a !== null && v != null && Number(v) === a);
             const moneyChanged = !same(f.base, cur.base_price_inr) || !same(f.total, cur.total_price_inr) || !same(f.balcony, cur.balcony_area_sqft) || !same(f.carpet, cur.carpet_area_sqft) || !same(f.sup, cur.super_area_sqft);
             if (moneyChanged) {
@@ -519,8 +522,8 @@ router.post('/bulk-import', async (req, res, next) => {
                 const unitNumber = (0, input_js_1.text)(row.unitNumber, 'Unit number', 50, true), bhkType = (0, input_js_1.text)(row.bhkType, 'BHK type', 50, true);
                 if (!(0, input_js_1.has)(row.floor))
                     throw (0, input_js_1.bad)('Floor number is required for each unit');
-                const floor = floorNo(row.floor), facing = (0, input_js_1.text)(row.facing, 'Facing', 30, false);
-                const f = unitFields({ carpetAreaSqft: row.carpetAreaSqft ?? row.carpetAreaSqm, superAreaSqft: row.superAreaSqft ?? row.superAreaSqm, basePriceInr: row.basePriceInr, totalPriceInr: row.totalPriceInr });
+                const floor = (0, exports.floorNo)(row.floor), facing = (0, input_js_1.text)(row.facing, 'Facing', 30, false);
+                const f = (0, exports.unitFields)({ carpetAreaSqft: row.carpetAreaSqft ?? row.carpetAreaSqm, superAreaSqft: row.superAreaSqft ?? row.superAreaSqm, basePriceInr: row.basePriceInr, totalPriceInr: row.totalPriceInr });
                 let towerId = null;
                 if ((0, input_js_1.has)(row.towerId)) {
                     towerId = (0, input_js_1.uuid)(row.towerId, 'towerId');

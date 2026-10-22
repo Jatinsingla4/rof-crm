@@ -381,7 +381,7 @@ const AllotmentPage = {
       if (searchProjSel) {
         const projects = [...new Map(list.filter(c=>c.project_id).map(c=>[c.project_id,{id:c.project_id,name:c.project_name||c.projectName||c.project_id}])).values()];
         searchProjSel.innerHTML = '<option value="">— All Projects —</option>' +
-          projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       }
 
     } catch (err) { console.error(err); }
@@ -393,7 +393,7 @@ const AllotmentPage = {
       ['allot-project-sel','edraw-project','sr-project','letter-proj-sel'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— Select Project —</option>' +
-          list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          list.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       });
     } catch {}
   },

@@ -813,7 +813,7 @@ const ReceiptsPage = {
       ['hwc-project', 'jr-project'].forEach(id => {
         const sel = document.getElementById(id);
         if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-          list.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          list.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
       });
     } catch {}
   },

@@ -35,7 +35,7 @@ Pages.demandRaise = async function(params = {}) {
       onclick="Router.navigate('/demand-raise',{view:'${t.key}'})">${t.label}</button>
   `).join('');
 
-  const projectOpts = projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const projectOpts = projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
 
   // ─── Filter panels per view ──────────────────────────────────────────────
   const filterPanels = {

@@ -272,7 +272,7 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
   await addUnit('E2E-101');
   await expect(toast('A unit with this number already exists in this tower')).toBeVisible();
 
-  // CSV upload: 1 new unit, 1 duplicate, 1 without a floor
+  // CSV upload: a file with a row that has no floor is refused as a whole; the corrected file adds 1 new unit and skips 1 that exists
   await page.locator('#spj-bulk-project').selectOption({ label: names.project });
   const csv = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n'
     + `${names.tower},2,E2E-201,2BHK,650,750,100,5000000,5000000,North\n`
@@ -280,7 +280,11 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
     + `${names.tower},,E2E-301,2BHK,650,750,100,5000000,5000000,North\n`;
   await page.setInputFiles('#spj-bulk-file', { name: 'units.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await page.locator('[data-panel="add-unit"]').getByRole('button', { name: 'Upload' }).click();
-  await expect(page.locator('#spj-bulk-result')).toContainText('1 units added · 2 skipped');
+  await expect(page.locator('#spj-bulk-result')).toContainText(/nothing was imported.*Row 4 \(E2E-301\)/);
+  const fixed = csv.split('\n').filter((l) => !l.includes('E2E-301')).join('\n');
+  await page.setInputFiles('#spj-bulk-file', { name: 'units.csv', mimeType: 'text/csv', buffer: Buffer.from(fixed) });
+  await page.locator('[data-panel="add-unit"]').getByRole('button', { name: 'Upload' }).click();
+  await expect(page.locator('#spj-bulk-result')).toContainText('1 units added · 1 skipped');
 
   // unit location
   await go('#/set-projects?tab=unit-location');

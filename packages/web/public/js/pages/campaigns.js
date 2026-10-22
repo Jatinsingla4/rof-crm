@@ -114,11 +114,8 @@ const CampaignsPage = {
 
   async loadProjects() {
     try {
-      const res = await Api.get('/projects');
-      const projects = (res.data || res || []).map(p => ({ id: p.id, name: p.name }));
       const sel = document.getElementById('camp-project');
-      if (sel) sel.innerHTML = '<option value="">— Choose a project —</option>' +
-        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
+      if (sel) sel.innerHTML = await Utils.projectOptions('— Choose a project —');
     } catch {}
   },
 

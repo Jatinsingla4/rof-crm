@@ -16,6 +16,12 @@ const Utils = {
     return Utils.toTitleCase(raw) || 'Unknown';
   },
 
+  // <option> list of the projects this login can see, the same everywhere (not built from units, so a project without units or with many units is never missing)
+  async projectOptions(first = '— All Projects —') {
+    const list = await window.ProjectCache.load();
+    return `<option value="">${this.esc(first)}</option>` + list.map(p => `<option value="${this.esc(p.id)}">${this.esc(p.name)}</option>`).join('');
+  },
+
   esc(str) {
     if (str == null) return '';
     return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');

@@ -1,156 +1,164 @@
 "use strict";
 /**
  * Import Routes
- * CSV file import: preview (parse + validate) and confirm (persist)
- * Also serves import history log
+ * Units from a CSV file: preview (read and check, nothing is saved), confirm (all rows are checked first; one bad row stops the whole file),
+ * and the import history.
+ * Applicants are made on the Booking screen and E-Draw results come in on Allotment > E-Draw Import, so only "units" is imported here.
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const sync_1 = require("csv-parse/sync");
 const index_js_1 = require("../index.js");
+const input_js_1 = require("../utils/input.js");
+const units_js_1 = require("./units.js");
 const router = (0, express_1.Router)();
-// POST /api/import/preview — parse CSV and return preview rows (no DB writes)
+const MAX_ROWS = 5000, MAX_CSV = 2000000;
+const REQUIRED = ['unitNumber', 'tower', 'floor', 'bhkType', 'totalPriceInr'];
+const onlyUnits = (v) => {
+    const t = (0, input_js_1.has)(v) ? (0, input_js_1.oneOf)(v, 'importType', ['units']) : 'units';
+    return t;
+};
+// The CSV text to rows, or a clear 400
+const readCsv = (v) => {
+    if (typeof v !== 'string' || !v.trim())
+        throw (0, input_js_1.bad)('csvText is required (the text of the CSV file)');
+    if (v.length > MAX_CSV)
+        throw (0, input_js_1.bad)('The file is too large (2 MB at most)');
+    let rows;
+    try {
+        rows = (0, sync_1.parse)(v, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+    }
+    catch (e) {
+        throw (0, input_js_1.bad)('The file is not a valid CSV: ' + String(e.message).split('\n')[0]);
+    }
+    if (!rows.length)
+        throw (0, input_js_1.bad)('The file has no rows');
+    if (rows.length > MAX_ROWS)
+        throw (0, input_js_1.bad)(`The file has ${rows.length} rows; ${MAX_ROWS} at most in one import`);
+    const headers = Object.keys(rows[0]);
+    const missing = REQUIRED.filter((c) => !headers.includes(c));
+    if (missing.length)
+        throw (0, input_js_1.bad)(`Missing required columns: ${missing.join(', ')}`);
+    return { rows, headers };
+};
+// Every row checked with the same rules as the Unit screen; the second copy of a unit inside the file is a problem too
+const checkRows = (rows) => {
+    const ok = [], errors = [], seen = new Set();
+    rows.forEach((r, i) => {
+        const line = i + 2; // line 1 is the header
+        try {
+            const unit = (0, input_js_1.text)(r.unitNumber, 'Unit number', 50, true), tower = (0, input_js_1.text)(r.tower, 'Tower', 100, true), bhk = (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true);
+            if (!(0, input_js_1.has)(r.floor))
+                throw (0, input_js_1.bad)('Floor number is required for each unit');
+            const floor = (0, units_js_1.floorNo)(r.floor), facing = (0, input_js_1.text)(r.facing, 'Facing', 30, false);
+            const f = (0, units_js_1.unitFields)(r);
+            if (f.total === null)
+                throw (0, input_js_1.bad)('Total price is required');
+            if (!(f.total > 0))
+                throw (0, input_js_1.bad)('Total price must be more than 0');
+            const key = `${tower.toLowerCase()}|${unit.toLowerCase()}`;
+            if (seen.has(key))
+                throw (0, input_js_1.bad)('This unit is in the file more than once');
+            seen.add(key);
+            ok.push({ line, unit, tower, floor, bhk, facing, f });
+        }
+        catch (e) {
+            errors.push({ row: line, unit: String(r.unitNumber ?? '').slice(0, 50), reason: e.http ? e.message : 'This row cannot be read' });
+        }
+    });
+    return { ok, errors };
+};
+const say = (errors) => errors.slice(0, 5).map((e) => `Row ${e.row} (${e.unit || 'no unit number'}): ${e.reason}`).join(' | ') + (errors.length > 5 ? ` | and ${errors.length - 5} more` : '');
+// POST /api/import/preview — read the CSV and tell what would happen (no DB writes)
 router.post('/preview', async (req, res, next) => {
     try {
-        const { csvText, importType = 'units' } = req.body;
-        if (!csvText)
-            return res.status(400).json({ error: 'csvText is required in body' });
-        const rows = (0, sync_1.parse)(csvText, {
-            columns: true,
-            skip_empty_lines: true,
-            trim: true,
-        });
-        // Basic column validation per import type
-        const requiredColumns = {
-            units: ['unitNumber', 'tower', 'floor', 'bhkType', 'totalPriceInr'],
-            consumers: ['name', 'mobile', 'email'],
-            edraw: ['applicationId', 'applicantName', 'mobile', 'result'],
-        };
-        const required = requiredColumns[importType] || [];
-        const headers = rows.length > 0 ? Object.keys(rows[0]) : [];
-        const missingCols = required.filter(c => !headers.includes(c));
-        if (missingCols.length > 0) {
-            return res.status(400).json({
-                error: `Missing required columns: ${missingCols.join(', ')}`,
-                columns: headers,
-            });
+        const b = (0, input_js_1.body)(req);
+        onlyUnits(b.importType);
+        const projectId = (0, input_js_1.has)(b.projectId) ? (0, input_js_1.uuid)(b.projectId, 'projectId') : null;
+        const { rows, headers } = readCsv(b.csvText);
+        const { ok, errors } = checkRows(rows);
+        let existing = null;
+        if (projectId) {
+            if (!(await index_js_1.db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
+                throw (0, input_js_1.bad)('Project not found', 404);
+            existing = (await index_js_1.db.query(`SELECT COUNT(*)::int AS n FROM units u JOIN towers t ON t.id = u.tower_id
+          WHERE u.project_id = $1 AND (lower(t.tower_name), lower(u.unit_number)) IN (SELECT lower(tw), lower(un) FROM unnest($2::text[], $3::text[]) AS x(tw, un))`, [projectId, ok.map((r) => r.tower), ok.map((r) => r.unit)])).rows[0].n;
         }
         res.json({
             success: true,
-            data: {
-                totalRows: rows.length,
-                columns: headers,
-                preview: rows.slice(0, 10),
-                importType,
-            },
+            data: { importType: 'units', totalRows: rows.length, validRows: ok.length, errorRows: errors.length, alreadyInProject: existing, columns: headers, preview: rows.slice(0, 10), errors: errors.slice(0, 50) },
         });
     }
     catch (error) {
-        res.status(400).json({ error: 'CSV parse error: ' + error.message });
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
-// POST /api/import — confirm import (persist rows)
+// POST /api/import — confirm: one bad row stops the whole file, nothing is saved; units that are already there are skipped
 router.post('/', async (req, res, next) => {
     try {
-        const { csvText, importType = 'units', projectId, fileName = 'import.csv' } = req.body;
-        if (!csvText)
-            return res.status(400).json({ error: 'csvText is required' });
-        const rows = (0, sync_1.parse)(csvText, { columns: true, skip_empty_lines: true, trim: true });
-        let created = 0, skipped = 0;
-        const errors = [];
-        if (importType === 'units' && projectId) {
-            for (const row of rows) {
-                try {
-                    // Check the row before creating anything, so a bad row does not leave an empty tower behind
-                    if (row.floor === undefined || row.floor === null || row.floor === '') {
-                        skipped++;
-                        errors.push({ row: row.unitNumber, reason: 'Floor number is required for each unit' });
-                        continue;
-                    }
-                    // Resolve tower
-                    const towerRes = await index_js_1.db.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2)
-             ON CONFLICT (project_id, tower_name) DO UPDATE SET tower_name = EXCLUDED.tower_name
-             RETURNING id`, [projectId, row.tower || 'A']);
-                    const towerId = towerRes.rows[0].id;
-                    const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type,
-               carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing,
-               status, created_by_user_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'available', $11)
-             ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, parseInt(row.floor), row.unitNumber, row.bhkType,
-                        row.carpetAreaSqft || null, row.superAreaSqft || null,
-                        row.basePriceInr || null, row.totalPriceInr, row.facing || null, req.userId]);
-                    if (inserted.rowCount)
-                        created++;
-                    else {
-                        skipped++;
-                        errors.push({ row: row.unitNumber, reason: 'A unit with this number already exists in this tower' });
-                    }
-                }
-                catch (err) {
-                    skipped++;
-                    errors.push({ row: row.unitNumber, reason: err.message.split('\n')[0] });
-                }
-            }
+        const b = (0, input_js_1.body)(req);
+        onlyUnits(b.importType);
+        const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId');
+        const fileName = (0, input_js_1.text)(b.fileName, 'File name', 255, false) || 'import.csv';
+        const { rows } = readCsv(b.csvText);
+        const { ok, errors } = checkRows(rows);
+        if (errors.length) {
+            await index_js_1.db.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,0,0,$3,'failed',$4,$5)`, [fileName, rows.length, errors.length, JSON.stringify(errors.slice(0, 200)), req.userId]);
+            return res.status(422).json({ error: `The file has ${errors.length} row(s) with problems, nothing was imported. ${say(errors)}`, errors: errors.slice(0, 50) });
         }
-        else if (importType === 'edraw' && projectId) {
-            for (const row of rows) {
-                try {
-                    // 1. Update consumer lead stage
-                    const stage = row.result === 'allotted' ? 'allotted' : 'draw_refund_pending';
-                    const updateRes = await index_js_1.db.query(`UPDATE consumers SET lead_stage = $1, updated_at = NOW() 
-             WHERE (id = $2 OR mobile = $3) AND project_id = $4
-             RETURNING id`, [stage, row.consumerId || null, row.mobile, projectId]);
-                    if (updateRes.rowCount > 0 && row.result !== 'allotted') {
-                        // 2. Create refund entry if not allotted
-                        await index_js_1.db.query(`INSERT INTO draw_refunds (consumer_id, project_id, draw_result, refund_status, refund_due_by)
-               VALUES ($1, $2, $3, 'pending', NOW() + INTERVAL '30 days')
-               ON CONFLICT DO NOTHING`, [updateRes.rows[0].id, projectId, row.result]);
-                    }
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
+                throw (0, input_js_1.bad)('Project not found', 404);
+            await (0, input_js_1.lock)(c, `import-units:${projectId}`); // a double click or two files at once: one after the other, duplicates are skipped
+            const towers = new Map();
+            let created = 0;
+            const skipped = [];
+            for (const r of ok) {
+                const tk = r.tower.toLowerCase();
+                if (!towers.has(tk)) {
+                    const t = (await c.query(`SELECT id, deleted_at FROM towers WHERE project_id = $1 AND lower(tower_name) = $2`, [projectId, tk])).rows[0];
+                    if (t?.deleted_at)
+                        throw (0, input_js_1.bad)(`Tower "${r.tower}" was deleted from this project. Bring it back or use another tower name.`, 409);
+                    towers.set(tk, t ? t.id : (await c.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2) RETURNING id`, [projectId, r.tower])).rows[0].id);
+                }
+                const towerId = towers.get(tk);
+                const done = await c.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id)
+           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid
+            WHERE NOT EXISTS (SELECT 1 FROM units WHERE tower_id = $2::uuid AND lower(unit_number) = lower($4::text))`, [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId]);
+                if (done.rowCount)
                     created++;
-                }
-                catch (err) {
-                    skipped++;
-                    errors.push({ row: row.mobile || 'unknown', reason: err.message.split('\n')[0] });
-                }
+                else
+                    skipped.push({ row: r.line, unit: r.unit, reason: 'A unit with this number already exists in this tower' });
             }
-        }
-        else {
-            // Unsupported type — log as-is
-            skipped = rows.length;
-        }
-        // Log import history
-        await index_js_1.db.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`, [fileName, importType, rows.length, created, skipped, errors.length,
-            errors.length === rows.length ? 'failed' : errors.length > 0 ? 'partial' : 'completed',
-            JSON.stringify(errors), req.userId]);
-        res.json({ success: true, data: { totalRows: rows.length, created, skipped, errors } });
+            await c.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,$3,$4,0,'completed',$5,$6)`, [fileName, rows.length, created, skipped.length, JSON.stringify(skipped.slice(0, 200)), req.userId]);
+            return { totalRows: rows.length, created, skipped: skipped.length, skippedRows: skipped.slice(0, 50) };
+        });
+        res.json({ success: true, data: out });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 // GET /api/import/history
 router.get('/history', async (req, res, next) => {
     try {
-        const { importType, page = 1, pageSize = 50 } = req.query;
-        let query = `
-      SELECT ih.id, ih.file_name, ih.import_type, ih.total_rows, ih.created_rows,
-             ih.skipped_rows, ih.error_rows, ih.status, ih.created_at,
-             u.name as imported_by_name
-      FROM import_history ih
-      LEFT JOIN users u ON ih.imported_by = u.id
-      WHERE 1=1`;
+        const importType = (0, input_js_1.oneOf)(req.query.importType, 'importType', ['units']);
+        const { size, offset } = (0, input_js_1.paging)(req.query, 50, 200);
         const params = [];
+        let where = '';
         if (importType) {
-            query += ` AND ih.import_type = $${params.length + 1}`;
             params.push(importType);
+            where = ` AND ih.import_type = $1`;
         }
-        query += ` ORDER BY ih.created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await index_js_1.db.query(query, params);
+        params.push(size, offset);
+        const result = await index_js_1.db.query(`SELECT ih.id, ih.file_name, ih.import_type, ih.total_rows, ih.created_rows, ih.skipped_rows, ih.error_rows, ih.status, ih.errors, ih.created_at,
+              u.name as imported_by_name
+         FROM import_history ih LEFT JOIN users u ON ih.imported_by = u.id
+        WHERE 1=1${where} ORDER BY ih.created_at DESC, ih.id LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 exports.default = router;

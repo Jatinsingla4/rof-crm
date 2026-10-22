@@ -1119,7 +1119,7 @@
       const sel = document.getElementById('sur-project');
       if (sel) {
         sel.innerHTML = '<option value="">--Select--</option>' +
-          _projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          _projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
         _reapply('sur-project');
       }
     } catch(e) {}
@@ -1128,7 +1128,7 @@
   // ── TAB 2: REPORT ─────────────────────────────────────────────────────────
   function _renderReport() {
     const projOpts = _reportProjects.map(p =>
-      `<option value="${p.id}">${p.name}</option>`
+      `<option value="${p.id}">${Utils.esc(p.name)}</option>`
     ).join('');
 
     const rows = _reportRows.map((r, i) => `
@@ -1221,7 +1221,7 @@
       const sel = document.getElementById('rep-project');
       if (sel) {
         sel.innerHTML = '<option value="">-- All Projects --</option>'
-          + _reportProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          + _reportProjects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
         _reapply('rep-project');
       }
     } catch(e) {}
@@ -1292,7 +1292,7 @@
   // ── TAB 3: RESTORE ────────────────────────────────────────────────────────
   function _renderRestore() {
     const projOpts = _restoreProjects.map(p =>
-      `<option value="${p.id}">${p.name}</option>`
+      `<option value="${p.id}">${Utils.esc(p.name)}</option>`
     ).join('');
 
     const rows = _restoreRows.map((r, i) => {
@@ -1386,7 +1386,7 @@
       const sel = document.getElementById('res-project');
       if (sel) {
         sel.innerHTML = '<option value="">-- Select --</option>'
-          + _restoreProjects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+          + _restoreProjects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
         _reapply('res-project');
       }
     } catch(e) {}
