@@ -57,7 +57,7 @@ import rolesRoutes from './routes/roles.js';
 import companiesRoutes from './routes/companies.js';
 import customLettersRoutes from './routes/custom-letters.js';
 import gstConfigRoutes from './routes/gst-configuration.js';
-import { requirePermission } from './middleware/rbac.js';
+import { requirePermission, hasPermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 
@@ -546,7 +546,12 @@ app.use('/api/payments',       authenticateToken, rbac('payments'),       demand
 app.use('/api/payments',       authenticateToken, rbac('payments'),       receiptRoutes);
 app.use('/api/payments',       authenticateToken, rbac('payments'),       paymentRoutes);
 app.use('/api/documents',      authenticateToken, rbac('documents'),      documentRoutes);
-app.use('/api/communications', authenticateToken, rbac('communications'), communicationRoutes);
+// The calling screen is also for finance (permission "calling"): they may open the list, the status codes and log a call
+app.use('/api/communications', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => {
+  const calling = /^\/(calling-list|status-codes)$/.test(req.path) && req.method === 'GET' || req.path === '/log-call' && req.method === 'POST';
+  if (calling && hasPermission(req.userRole, 'calling', req.method === 'GET' ? 'view' : 'create')) return next();
+  return rbac('communications')(req, res, next);
+}, communicationRoutes);
 app.use('/api/users',          authenticateToken, rbac('users'),          userRoutes);
 app.use('/api/reports',        authenticateToken, rbac('reports'),        reportRoutes);
 app.use('/api/milestones',     authenticateToken, rbac('payments'),       milestonesRoutes);
@@ -555,7 +560,7 @@ app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRo
 // Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
 app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
-app.use('/api/automation',    authenticateToken, rbac('reports'),         automationRoutes);
+app.use('/api/automation',    authenticateToken, rbac('communications'),  automationRoutes);
 // Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
 app.use('/api/brokers',       authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokersRoutes);
 app.use('/api/parking',       authenticateToken, rbac('units'),           parkingRoutes);

@@ -164,7 +164,7 @@ const CallingPage = {
 
       // Populate Project select
       const pSel = document.getElementById('f-project');
-      this._projects.forEach(p => { pSel.innerHTML += `<option value="${p.id}">${p.name}</option>`; });
+      this._projects.forEach(p => { pSel.innerHTML += `<option value="${p.id}">${Utils.esc(p.name)}</option>`; });
 
       // Populate Status Code select
       const sSel = document.getElementById('f-status');
@@ -172,7 +172,7 @@ const CallingPage = {
 
       // Populate Employee select
       const eSel = document.getElementById('f-employee');
-      this._users.forEach(u => { eSel.innerHTML += `<option value="${u.id}">${u.name}</option>`; });
+      this._users.forEach(u => { eSel.innerHTML += `<option value="${u.id}">${Utils.esc(u.name)}</option>`; });
 
     } catch (err) { Utils.error(err.message); }
   },
@@ -185,7 +185,7 @@ const CallingPage = {
     try {
       const res = await Api.get(`/units/towers?projectId=${projectId}`);
       const towers = res.data || [];
-      towers.forEach(t => { tSel.innerHTML += `<option value="${t.id}">${t.name}</option>`; });
+      towers.forEach(t => { tSel.innerHTML += `<option value="${t.id}">${Utils.esc(t.name)}</option>`; });
     } catch (err) { Utils.error(err.message); }
   },
 
@@ -241,7 +241,7 @@ const CallingPage = {
     const rows = data.map(c => `
       <tr>
         <td>
-          <div style="font-weight:600">${c.name}</div>
+          <div style="font-weight:600">${Utils.esc(c.name)}</div>
           <div class="cln-sub">${c.mobile} | Reg: ${c.registration_no || '—'}</div>
         </td>
         <td>${c.unit_number}<div class="cln-sub">${c.project_name} | ${c.tower_name || ''}</div></td>
@@ -312,7 +312,7 @@ const CallingPage = {
               ${history.length === 0 ? '<p class="cln-sub">No previous interactions</p>' : history.map(h => `
                 <div class="cln-hist-item">
                   <div class="cln-hist-t">${Utils.date(h.timestamp)} - ${h.channel}</div>
-                  <div class="cln-hist-n">${h.notes || 'No notes'}</div>
+                  <div class="cln-hist-n">${Utils.esc(h.notes || 'No notes')}</div>
                 </div>
               `).join('')}
             </div>

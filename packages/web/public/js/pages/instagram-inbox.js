@@ -76,7 +76,7 @@ const IGPage = {
 
   async init() {
     try {
-      const res = await Api.get('/communications/tickets', { params: { channel: 'instagram', pageSize: 100 } });
+      const res = await Api.get('/communications/messages', { params: { channel: 'instagram', pageSize: 100 } });
       const msgs = res.data || res || [];
       const threadMap = new Map();
       for (const m of msgs) {
@@ -92,7 +92,7 @@ const IGPage = {
       } else {
         el.innerHTML = this._threads.map(t => `
           <div style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer" onclick="IGPage.open('${t.consumerId}')">
-            <div style="font-weight:600;font-size:12px">${t.name}</div>
+            <div style="font-weight:600;font-size:12px">${Utils.esc(t.name)}</div>
             <div style="font-size:10.5px;color:var(--text3);margin-top:2px">${t.messages.length} DM${t.messages.length!==1?'s':''}</div>
           </div>`).join('');
       }
@@ -112,7 +112,7 @@ const IGPage = {
       const isOut = m.direction !== 'inbound';
       return `<div style="display:flex;justify-content:${isOut?'flex-end':'flex-start'}">
         <div style="max-width:70%;padding:8px 12px;border-radius:${isOut?'12px 12px 2px 12px':'12px 12px 12px 2px'};background:${isOut?gradient:'var(--bg2)'};color:${isOut?'#fff':'var(--text)'};font-size:12px">
-          ${m.message||m.subject||'—'}
+          ${Utils.esc(m.message||m.subject||'—')}
         </div>
       </div>`;
     }).join('');

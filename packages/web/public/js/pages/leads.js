@@ -118,15 +118,11 @@ const LeadsPage = {
 
   async loadProjects() {
     try {
-      const res = await Api.get('/units', { params: { pageSize: 300 } });
-      const units = res.data || res || [];
-      const projects = [...new Map(
-        units.filter(u => u.project_id || u.projectId)
-             .map(u => [u.project_id || u.projectId, { id: u.project_id || u.projectId, name: u.project_name || u.projectName }])
-      ).values()];
+      const res = await Api.get('/projects');
+      const projects = (res.data || res || []).map(p => ({ id: p.id, name: p.name }));
       const sel = document.getElementById('leads-project');
       if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch {}
   },
 

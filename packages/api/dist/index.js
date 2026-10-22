@@ -455,7 +455,13 @@ app.use('/api/payments', exports.authenticateToken, rbac('payments'), demands_js
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipts_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), payments_js_1.default);
 app.use('/api/documents', exports.authenticateToken, rbac('documents'), documents_js_1.default);
-app.use('/api/communications', exports.authenticateToken, rbac('communications'), communications_js_1.default);
+// The calling screen is also for finance (permission "calling"): they may open the list, the status codes and log a call
+app.use('/api/communications', exports.authenticateToken, (req, res, next) => {
+    const calling = /^\/(calling-list|status-codes)$/.test(req.path) && req.method === 'GET' || req.path === '/log-call' && req.method === 'POST';
+    if (calling && (0, rbac_js_1.hasPermission)(req.userRole, 'calling', req.method === 'GET' ? 'view' : 'create'))
+        return next();
+    return rbac('communications')(req, res, next);
+}, communications_js_1.default);
 app.use('/api/users', exports.authenticateToken, rbac('users'), users_js_1.default);
 app.use('/api/reports', exports.authenticateToken, rbac('reports'), reports_js_1.default);
 app.use('/api/milestones', exports.authenticateToken, rbac('payments'), milestones_js_1.default);
@@ -464,7 +470,7 @@ app.use('/api/smtp-configs', exports.authenticateToken, rbac('smtp_configs'), sm
 // Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
 app.use('/api/faq', exports.authenticateToken, (req, res, next) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faq_js_1.default);
 app.use('/api/tasks', exports.authenticateToken, rbac('consumers'), tasks_js_1.default);
-app.use('/api/automation', exports.authenticateToken, rbac('reports'), automation_js_1.default);
+app.use('/api/automation', exports.authenticateToken, rbac('communications'), automation_js_1.default);
 // Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
 app.use('/api/brokers', exports.authenticateToken, (req, res, next) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokers_js_1.default);
 app.use('/api/parking', exports.authenticateToken, rbac('units'), parking_js_1.default);

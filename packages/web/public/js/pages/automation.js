@@ -166,7 +166,7 @@ const AutomationPage = {
             <thead><tr><th>Rule Name</th><th>Trigger</th><th>Action</th><th>Executions</th><th>Status</th><th>Action</th></tr></thead>
             <tbody>
               ${list.map(r => `<tr>
-                <td class="td-bold">${r.name||r.rule_name||'—'}</td>
+                <td class="td-bold">${Utils.esc(r.name||r.rule_name||'—')}</td>
                 <td style="font-size:10.5px">${(r.trigger||r.trigger_event||'—').replace(/_/g,' ')}</td>
                 <td style="font-size:10.5px">${(r.action||r.action_type||'—').replace(/_/g,' ')}</td>
                 <td style="text-align:center">${r.execution_count||r.executionCount||0}</td>
@@ -221,8 +221,8 @@ const AutomationPage = {
 
   async run(ruleId) {
     try {
-      await Api.post(`/automation/${ruleId}/run`, {});
-      Utils.success('Rule executed successfully');
+      const res = await Api.post(`/automation/${ruleId}/run`, {});
+      Utils.info(res?.data?.message || 'Rule marked as run. Rules are not executed automatically yet, so nothing was sent.');
     } catch (err) { Utils.error(err.message); }
   },
 
@@ -234,7 +234,7 @@ const AutomationPage = {
       for (const r of active) {
         try { await Api.post(`/automation/${r.id}/run`, {}); ok++; } catch {}
       }
-      Utils.success(`${ok} of ${active.length} rules executed`);
+      Utils.info(`${ok} of ${active.length} rules marked as run. Rules are not executed automatically yet, so nothing was sent.`);
     });
   },
 

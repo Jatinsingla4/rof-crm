@@ -134,7 +134,7 @@ const TasksPage = {
       const list = res.data || res || [];
       const sel = document.getElementById('task-assign');
       if (sel) sel.innerHTML = '<option value="">— Self —</option>' +
-        list.map(u => `<option value="${u.id}">${u.name||u.email}</option>`).join('');
+        list.map(u => `<option value="${u.id}">${Utils.esc(u.name||u.email)}</option>`).join('');
     } catch {}
   },
 
@@ -144,7 +144,7 @@ const TasksPage = {
       const list = res.data || res || [];
       const sel = document.getElementById('task-consumer');
       if (sel) sel.innerHTML = '<option value="">— No Consumer —</option>' +
-        list.map(c => `<option value="${c.id}">${c.first_name||''} ${c.last_name||c.name||'—'} · ${c.mobile||''}</option>`).join('');
+        list.map(c => `<option value="${c.id}">${Utils.esc(`${c.first_name||''} ${c.last_name||c.name||'—'} · ${c.mobile||''}`)}</option>`).join('');
     } catch {}
   },
 
@@ -185,8 +185,8 @@ const TasksPage = {
               ${t.status==='completed'?'checked':''}
               onchange="TasksPage.toggle('${t.id}',this.checked)">
             <div style="flex:1">
-              <div style="font-weight:600;font-size:13px;${t.status==='completed'?'text-decoration:line-through':''}">${t.title||'Untitled'}</div>
-              ${t.description||t.desc ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${t.description||t.desc}</div>` : ''}
+              <div style="font-weight:600;font-size:13px;${t.status==='completed'?'text-decoration:line-through':''}">${Utils.esc(t.title||'Untitled')}</div>
+              ${t.description||t.desc ? `<div style="font-size:11px;color:var(--text3);margin-top:2px">${Utils.esc(t.description||t.desc)}</div>` : ''}
               <div style="display:flex;gap:8px;margin-top:6px;align-items:center;flex-wrap:wrap">
                 ${dueDate ? `<span style="font-size:10.5px;${isOverdue?'color:var(--red);font-weight:600':isDueToday?'color:var(--warn)':'color:var(--text3)'}">
                   ${isOverdue?'⚠ Overdue: ':isDueToday?'Today: ':'Due: '}${Utils.date(dueDate)}
@@ -213,6 +213,7 @@ const TasksPage = {
       assignedTo: document.getElementById('task-assign')?.value || undefined,
       consumerId: document.getElementById('task-consumer')?.value || undefined,
       dueDate: document.getElementById('task-due')?.value,
+      priority: (document.querySelector('#content .btg-item.on')?.textContent || 'Normal').trim().toLowerCase(),
     };
 
     try {

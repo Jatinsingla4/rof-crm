@@ -90,21 +90,15 @@ Pages.campaigns = async function(params = {}) {
             <option value="allotted">Allotted</option>
           </select>
         </div>
-        <div class="fg" style="margin-bottom:8px"><label class="fl">Project Filter</label>
+        <div class="fg" style="margin-bottom:8px"><label class="fl"><span class="r">*</span>Project</label>
           <select class="fc" id="camp-project">
-            <option value="">— All Projects —</option>
+            <option value="">— Choose a project —</option>
           </select>
         </div>
         <div class="fg" style="margin-bottom:8px"><label class="fl"><span class="r">*</span>Message</label>
           <textarea class="fc" id="camp-message" rows="4" placeholder="Use {{consumer_name}}, {{project_name}} as merge fields…"></textarea>
         </div>
-        <div class="fg" style="margin-bottom:12px"><label class="fl">Schedule</label>
-          <div class="btg">
-            <button type="button" class="btg-item on" onclick="btgSelect(this)">Send Now</button>
-            <button type="button" class="btg-item" onclick="btgSelect(this)">Schedule Later</button>
-          </div>
-        </div>
-        <button class="btn btn-teal" style="width:100%" onclick="CampaignsPage.create()">Launch Campaign</button>
+        <button class="btn btn-teal" style="width:100%" onclick="CampaignsPage.create()">Save Campaign (draft)</button>
       </div>
     </div>
     </div>
@@ -120,15 +114,11 @@ const CampaignsPage = {
 
   async loadProjects() {
     try {
-      const res = await Api.get('/units', { params: { pageSize: 300 } });
-      const units = res.data || res || [];
-      const projects = [...new Map(
-        units.filter(u => u.project_id||u.projectId)
-             .map(u => [u.project_id||u.projectId, { id: u.project_id||u.projectId, name: u.project_name||u.projectName }])
-      ).values()];
+      const res = await Api.get('/projects');
+      const projects = (res.data || res || []).map(p => ({ id: p.id, name: p.name }));
       const sel = document.getElementById('camp-project');
-      if (sel) sel.innerHTML = '<option value="">— All Projects —</option>' +
-        projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+      if (sel) sel.innerHTML = '<option value="">— Choose a project —</option>' +
+        projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     } catch {}
   },
 
@@ -138,7 +128,7 @@ const CampaignsPage = {
       const list = res.data || res || [];
 
       const total = list.length;
-      const active = list.filter(c => c.status === 'running' || c.status === 'active').length;
+      const active = list.filter(c => ['queued','sending','running','active'].includes(c.status)).length;
       const completed = list.filter(c => c.status === 'completed').length;
       const totalReach = list.reduce((s,c) => s + (c.total_recipients||c.totalRecipients||0), 0);
 
@@ -162,7 +152,7 @@ const CampaignsPage = {
                 const total = c.total_recipients || c.totalRecipients || 0;
                 const pct = total ? Math.round(delivered/total*100) : 0;
                 return `<tr>
-                  <td class="td-bold">${c.name||c.campaign_name||'—'}</td>
+                  <td class="td-bold">${Utils.esc(c.name||c.campaign_name||'—')}</td>
                   <td><span class="chip ch-blue">${(c.channel||'—').toUpperCase()}</span></td>
                   <td>${total}</td>
                   <td>
@@ -202,10 +192,11 @@ const CampaignsPage = {
 
     if (!name) { Utils.warn('Please enter a campaign name'); return; }
     if (!message) { Utils.warn('Please enter a message'); return; }
+    if (!projectId) { Utils.warn('Please choose a project'); return; }
 
     try {
       await Api.post('/communications/campaigns', { name, message, segment, projectId, channel });
-      Utils.success(`Campaign "${name}" created and queued`);
+      Utils.success(`Campaign "${name}" saved as a draft. Use Launch to queue it.`);
       closeOverlay('camp-overlay');
       document.getElementById('camp-modal').style.display = 'none';
       await this.load();
@@ -220,7 +211,7 @@ const CampaignsPage = {
     Utils.confirm('Launch this campaign now?', async () => {
       try {
         await Api.post(`/communications/campaigns/${id}/launch`, {});
-        Utils.success('Campaign launched');
+        Utils.success('Campaign queued. No sender is connected yet, so nothing has left the system.');
         await this.load();
       } catch (err) { Utils.error(err.message); }
     });

@@ -87,7 +87,7 @@ const WAPage = {
 
   async init() {
     try {
-      const res = await Api.get('/communications/tickets', { params: { channel: 'whatsapp', pageSize: 100 } });
+      const res = await Api.get('/communications/messages', { params: { channel: 'whatsapp', pageSize: 100 } });
       const msgs = res.data || res || [];
 
       // Group by consumer
@@ -126,11 +126,11 @@ const WAPage = {
         <div style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;${t.consumerId===this._activeConsumerId?'background:var(--bg2);border-left:3px solid var(--teal)':''}"
           onclick="WAPage.openThread('${t.consumerId}')">
           <div style="display:flex;justify-content:space-between;align-items:flex-start">
-            <div style="font-weight:600;font-size:12px">${t.name}</div>
+            <div style="font-weight:600;font-size:12px">${Utils.esc(t.name)}</div>
             <div style="font-size:9px;color:var(--text3)">${Utils.date(last.created_at||last.createdAt)}</div>
           </div>
-          <div style="font-size:10.5px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px">${preview}</div>
-          ${t.phone ? `<div style="font-size:9.5px;color:var(--teal);margin-top:2px">${t.phone}</div>` : ''}
+          <div style="font-size:10.5px;color:var(--text3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px">${Utils.esc(preview)}</div>
+          ${t.phone ? `<div style="font-size:9.5px;color:var(--teal);margin-top:2px">${Utils.esc(t.phone)}</div>` : ''}
         </div>
       `;
     }).join('');
@@ -150,8 +150,8 @@ const WAPage = {
     document.getElementById('wa-chat-header').innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center">
         <div>
-          <div>${thread.name}</div>
-          <div style="font-size:10px;color:var(--text3)">${thread.phone}</div>
+          <div>${Utils.esc(thread.name)}</div>
+          <div style="font-size:10px;color:var(--text3)">${Utils.esc(thread.phone)}</div>
         </div>
         <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${consumerId}'})">View Profile</button>
       </div>
@@ -163,7 +163,7 @@ const WAPage = {
       return `
         <div style="display:flex;justify-content:${isOut?'flex-end':'flex-start'}">
           <div style="max-width:70%;padding:8px 12px;border-radius:${isOut?'12px 12px 2px 12px':'12px 12px 12px 2px'};background:${isOut?'var(--teal)':'var(--bg2)'};color:${isOut?'#fff':'var(--text)'};font-size:12px">
-            <div>${m.message||m.subject||'—'}</div>
+            <div>${Utils.esc(m.message||m.subject||'—')}</div>
             <div style="font-size:9px;opacity:0.7;margin-top:4px;text-align:right">${Utils.date(m.created_at||m.createdAt)} · ${m.delivery_status||'sent'}</div>
           </div>
         </div>
@@ -181,7 +181,7 @@ const WAPage = {
     if (!msg) { Utils.warn('Please type a message'); return; }
     try {
       await Api.post(`/communications/${this._activeConsumerId}/send`, { channel: 'whatsapp', message: msg });
-      Utils.success('Message sent');
+      Utils.success('Message recorded (queued). No WhatsApp sender is connected yet, so it has not left the system.');
       document.getElementById('wa-reply-input').value = '';
       await this.init();
       await this.openThread(this._activeConsumerId);

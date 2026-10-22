@@ -6,49 +6,72 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
+const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
+const TRIGGERS = ['lead_created', 'lead_stage_changed', 'payment_received', 'payment_overdue', 'unit_allotted', 'document_uploaded', 'task_due'];
+const ACTIONS = ['send_whatsapp', 'send_email', 'send_sms', 'create_task', 'update_stage', 'generate_document', 'notify_manager'];
+const SENDS = ['send_whatsapp', 'send_email', 'send_sms'];
+const oneWord = (v, label, allowed) => {
+    const t = (0, input_js_1.qtext)(v, label, 50);
+    if (!t || !allowed.includes(t))
+        throw (0, input_js_1.bad)(`${label} must be one of: ${allowed.join(', ')}`);
+    return t;
+};
+const delay = (v) => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, 'Delay (minutes)', 525600, 0) : 0);
 // GET /api/automation
 router.get('/', async (req, res, next) => {
     try {
-        const { isActive, page = 1, pageSize = 100 } = req.query;
-        let query = `
-      SELECT id, name, trigger_event, action_type, message_template,
-             delay_minutes, is_active, execution_count, last_executed_at, created_at
-      FROM automation_rules WHERE 1=1`;
+        const isActive = (0, input_js_1.qtext)(req.query.isActive, 'isActive', 5);
+        if (isActive !== null && isActive !== 'true' && isActive !== 'false')
+            throw (0, input_js_1.bad)('isActive must be true or false');
+        const { size, offset } = (0, input_js_1.paging)(req.query, 100, 500);
         const params = [];
-        if (isActive !== undefined) {
-            query += ` AND is_active = $${params.length + 1}`;
+        let where = '';
+        if (isActive !== null) {
             params.push(isActive === 'true');
+            where = ` AND is_active = $1`;
         }
-        query += ` ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`;
-        const result = await index_js_1.db.query(query, params);
+        params.push(size, offset);
+        const result = await index_js_1.db.query(`SELECT id, name, trigger_event, action_type, message_template,
+              delay_minutes, is_active, execution_count, last_executed_at, created_at
+         FROM automation_rules WHERE 1=1${where}
+        ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 // POST /api/automation
 router.post('/', async (req, res, next) => {
     try {
-        const { name, triggerEvent, actionType, messageTemplate, delayMinutes = 0 } = req.body;
-        if (!name || !triggerEvent || !actionType) {
-            return res.status(400).json({ error: 'name, triggerEvent, and actionType are required' });
-        }
+        const b = (0, input_js_1.body)(req);
+        const name = (0, input_js_1.text)(b.name, 'Name', 255, true);
+        const triggerEvent = oneWord(b.triggerEvent, 'triggerEvent', TRIGGERS), actionType = oneWord(b.actionType, 'actionType', ACTIONS);
+        const messageTemplate = (0, input_js_1.text)(b.messageTemplate, 'Message template', 2000, SENDS.includes(actionType));
+        const delayMinutes = delay(b.delayMinutes);
         const result = await index_js_1.db.query(`INSERT INTO automation_rules (name, trigger_event, action_type, message_template, delay_minutes, is_active, created_by)
        VALUES ($1, $2, $3, $4, $5, true, $6)
-       RETURNING id, name, trigger_event, action_type, is_active, created_at`, [name, triggerEvent, actionType, messageTemplate || null, delayMinutes, req.userId]);
+       RETURNING id, name, trigger_event, action_type, is_active, created_at`, [name, triggerEvent, actionType, messageTemplate, delayMinutes, req.userId]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 // PATCH /api/automation/:id
 router.patch('/:id', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const { isActive, name, triggerEvent, actionType, messageTemplate, delayMinutes } = req.body;
+        const id = (0, input_js_1.uuid)(req.params.id, 'Rule id');
+        const b = (0, input_js_1.body)(req);
+        const isActive = (0, input_js_1.flag)(b.isActive, 'isActive');
+        const name = (0, input_js_1.has)(b.name) ? (0, input_js_1.text)(b.name, 'Name', 255, true) : null;
+        const triggerEvent = (0, input_js_1.has)(b.triggerEvent) ? oneWord(b.triggerEvent, 'triggerEvent', TRIGGERS) : null;
+        const actionType = (0, input_js_1.has)(b.actionType) ? oneWord(b.actionType, 'actionType', ACTIONS) : null;
+        const messageTemplate = (0, input_js_1.has)(b.messageTemplate) ? (0, input_js_1.text)(b.messageTemplate, 'Message template', 2000, false) : null;
+        const delayMinutes = (0, input_js_1.has)(b.delayMinutes) ? delay(b.delayMinutes) : null;
+        if (isActive === undefined && !name && !triggerEvent && !actionType && !messageTemplate && delayMinutes === null)
+            throw (0, input_js_1.bad)('Nothing to change');
         const result = await index_js_1.db.query(`UPDATE automation_rules
        SET is_active = COALESCE($1, is_active),
            name = COALESCE($2, name),
@@ -58,46 +81,48 @@ router.patch('/:id', async (req, res, next) => {
            delay_minutes = COALESCE($6, delay_minutes),
            updated_at = NOW()
        WHERE id = $7
-       RETURNING id, name, trigger_event, action_type, is_active, execution_count`, [isActive ?? null, name || null, triggerEvent || null, actionType || null,
-            messageTemplate || null, delayMinutes ?? null, id]);
+       RETURNING id, name, trigger_event, action_type, is_active, execution_count`, [isActive ?? null, name, triggerEvent, actionType, messageTemplate, delayMinutes, id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Rule not found' });
         res.json({ success: true, data: result.rows[0] });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 // POST /api/automation/:id/run — manually trigger a rule
 router.post('/:id/run', async (req, res, next) => {
     try {
-        const { id } = req.params;
-        const ruleRes = await index_js_1.db.query(`SELECT id, name, trigger_event, action_type, message_template, is_active FROM automation_rules WHERE id = $1`, [id]);
-        if (ruleRes.rows.length === 0)
-            return res.status(404).json({ error: 'Rule not found' });
-        // Increment execution count and update timestamp
-        await index_js_1.db.query(`UPDATE automation_rules SET execution_count = execution_count + 1, last_executed_at = NOW() WHERE id = $1`, [id]);
-        // Real trigger dispatch would queue the job via Bull — stubbed here
+        const id = (0, input_js_1.uuid)(req.params.id, 'Rule id');
+        // ponytail: there is no automation engine yet, a run only counts; the answer says so instead of "queued for execution"
+        const result = await index_js_1.db.query(`UPDATE automation_rules SET execution_count = execution_count + 1, last_executed_at = NOW()
+        WHERE id = $1 AND is_active = TRUE RETURNING id, name`, [id]);
+        if (!result.rows.length) {
+            const exists = await index_js_1.db.query(`SELECT 1 FROM automation_rules WHERE id = $1`, [id]);
+            if (!exists.rows.length)
+                return res.status(404).json({ error: 'Rule not found' });
+            return res.status(409).json({ error: 'This rule is switched off. Switch it on to run it.' });
+        }
         res.json({
             success: true,
-            data: { id, message: `Rule "${ruleRes.rows[0].name}" queued for execution` },
+            data: { id, message: `Rule "${result.rows[0].name}" was marked as run. Rules are not executed automatically yet, so nothing was sent.` },
         });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 // DELETE /api/automation/:id
 router.delete('/:id', async (req, res, next) => {
     try {
-        const { id } = req.params;
+        const id = (0, input_js_1.uuid)(req.params.id, 'Rule id');
         const result = await index_js_1.db.query(`DELETE FROM automation_rules WHERE id = $1 RETURNING id`, [id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Rule not found' });
         res.json({ success: true, data: { id } });
     }
     catch (error) {
-        next(error);
+        (0, input_js_1.failWith)(error, res, next);
     }
 });
 exports.default = router;

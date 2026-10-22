@@ -146,13 +146,13 @@ const CommPage = {
       const list = res.data || res || [];
       const sel = document.getElementById('comm-consumer');
       if (sel) sel.innerHTML = '<option value="">— Select Consumer —</option>' +
-        list.map(c => `<option value="${c.id}">${c.first_name||''} ${c.last_name||''} ${(!c.first_name&&c.name)?c.name:''} · ${c.mobile||''}</option>`).join('');
+        list.map(c => `<option value="${c.id}">${Utils.esc(`${c.first_name||''} ${c.last_name||''} ${(!c.first_name&&c.name)?c.name:''} · ${c.mobile||''}`)}</option>`).join('');
     } catch {}
   },
 
   async loadOverview() {
     try {
-      const res = await Api.get('/communications/tickets', { params: { pageSize: 200 } });
+      const res = await Api.get('/communications/messages', { params: { pageSize: 200 } });
       const msgs = res.data || res || [];
 
       const total = msgs.length;
@@ -161,7 +161,7 @@ const CommPage = {
         const ch = m.channel || 'other';
         byChannel[ch] = (byChannel[ch] || 0) + 1;
       }
-      const pending = msgs.filter(m => (m.status||'') === 'pending' || (m.delivery_status||'') === 'pending').length;
+      const pending = msgs.filter(m => ['pending','queued'].includes(m.status||'') || (m.delivery_status||'') === 'pending').length;
 
       const kpis = document.getElementById('comm-kpis');
       if (kpis) kpis.innerHTML = `
@@ -181,7 +181,7 @@ const CommPage = {
               ${msgs.slice(0,50).map(m => `<tr>
                 <td class="td-bold">${m.consumer_name||m.consumerName||'—'}</td>
                 <td><span class="chip ch-blue">${(m.channel||'—').toUpperCase()}</span></td>
-                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${m.subject||m.message||'—'}</td>
+                <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${Utils.esc(m.subject||m.message||'—')}</td>
                 <td>${Utils.chip(m.status||m.delivery_status||'sent')}</td>
                 <td style="font-size:10.5px">${Utils.date(m.created_at||m.createdAt)}</td>
               </tr>`).join('')}
@@ -199,7 +199,7 @@ const CommPage = {
     if (!el) return;
 
     try {
-      const res = await Api.get('/communications/tickets', { params: { channel, pageSize: 100 } });
+      const res = await Api.get('/communications/messages', { params: { channel, pageSize: 100 } });
       const msgs = res.data || res || [];
 
       el.innerHTML = msgs.length === 0
@@ -210,7 +210,7 @@ const CommPage = {
               ${msgs.map(m => `<tr>
                 <td class="td-bold">${m.consumer_name||m.consumerName||'—'}</td>
                 <td><span class="chip ${m.direction==='inbound'?'ch-warn':'ch-blue'}">${m.direction||'outbound'}</span></td>
-                <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${m.subject||m.message||'—'}</td>
+                <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${Utils.esc(m.subject||m.message||'—')}</td>
                 <td>${Utils.chip(m.delivery_status||m.status||'sent')}</td>
                 <td style="font-size:10.5px">${Utils.date(m.created_at||m.createdAt)}</td>
                 <td><button class="btn btn-ghost btn-sm" onclick="CommPage.reply('${m.consumer_id||m.consumerId}','${channel}')">Reply</button></td>
@@ -233,7 +233,7 @@ const CommPage = {
 
     try {
       await Api.post(`/communications/${consumerId}/send`, { channel, message, subject });
-      Utils.success(`Message sent via ${channel}`);
+      Utils.success(`Message recorded (queued) for ${channel}. No sender is connected yet, so it has not left the system.`);
       document.getElementById('comm-message').value = '';
       document.getElementById('comm-subject').value = '';
       await this.loadOverview();
