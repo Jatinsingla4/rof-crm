@@ -46,3 +46,21 @@ export const inTx = async <T>(fn: (c: any) => Promise<T>): Promise<T> => {
   catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; }
   finally { client.release(); }
 };
+// ?page= and ?pageSize= as whole numbers (they used to be pasted into the SQL as text)
+export const paging = (q: any, defSize: number, maxSize: number) => {
+  const whole = (v: any, label: string, max: number, d: number) => { if (!has(v)) return d; if (typeof v !== 'string' || !/^\d+$/.test(v) || +v < 1 || +v > max) throw bad(`${label} must be a whole number from 1 to ${max}`); return +v; };
+  const size = whole(q.pageSize, 'pageSize', maxSize, defSize), page = whole(q.page, 'page', 100000, 1);
+  return { size, offset: (page - 1) * size };
+};
+// A query string value that must be one plain text (not ?x=a&x=b, not ?x[a]=b)
+export const qtext = (v: any, label: string, max = 100) => { if (v !== undefined && typeof v !== 'string') throw bad(`${label} is not valid`); return text(v, label, max, false); };
+export const oneOf = <T extends string>(v: any, label: string, allowed: readonly T[]): T | null => {
+  const t = qtext(v, label, 50); if (t === null) return null;
+  if (!(allowed as readonly string[]).includes(t)) throw bad(`${label} must be one of: ${allowed.join(', ')}`); return t as T;
+};
+// One writer at a time per key (applicant, number series) for the rest of the transaction
+export const lock = (c: any, key: string) => c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key]);
+export const financeOnly = (req: AuthRequest, res: Response, next: NextFunction) =>
+  ['super_admin', 'accounts_finance'].includes(req.userRole || '') ? next() : res.status(403).json({ error: 'Only accounts and finance can do this' });
+// A money amount that is more than 0 (up to 1,000,000,000, paise allowed unless decimals is 0)
+export const pos = (v: any, label: string, decimals = 2): number => { const n = num(v, label, 1_000_000_000, decimals); if (!(n > 0)) throw bad(`${label} must be more than 0`); return n; };

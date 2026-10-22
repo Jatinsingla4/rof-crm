@@ -270,6 +270,7 @@
           body: JSON.stringify({ project_id: projectId, tower_id: towerId })
         });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Delete failed');
         alert('Interest deleted. ' + (data.deleted || 0) + ' record(s) removed.');
         document.getElementById('is-results').style.display = 'none';
       } catch (err) {

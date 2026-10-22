@@ -102,24 +102,21 @@ const LoanPage = {
 
   async loadList() {
     const el = document.getElementById('loan-list-body');
-    // For now, listing all loans is global. 
-    // Usually we would need a global GET /api/loans endpoint.
-    // I'll assume it exists or we use consumer search.
     try {
-      const res = await Api.get('/consumers', { params: { hasLoan: true } });
-      const list = res.data || res || [];
-      el.innerHTML = `<table>
+      const res = await Api.get('/loans');
+      const list = res.data || [];
+      el.innerHTML = list.length ? `<table>
         <thead><tr><th>Consumer</th><th>Bank</th><th>Amount</th><th>Status</th><th>TPA Signed</th></tr></thead>
         <tbody>
-          ${list.filter(c => c.bank_name).map(l => `<tr>
-            <td class="td-bold"><a href="/api/consumers/${l.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="lnn-link" title="View Applicant File">${l.name}</a></td>
-            <td>${l.bank_name}</td>
-            <td>${Utils.currency(l.loan_amount)}</td>
+          ${list.map(l => `<tr>
+            <td class="td-bold"><a href="/api/consumers/${l.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="lnn-link" title="View Applicant File">${l.consumer_name || '—'}</a></td>
+            <td>${l.bank_name || '—'}</td>
+            <td>${l.loan_amount != null ? Utils.currency(l.loan_amount) : '—'}</td>
             <td>${Utils.chip(l.loan_status)}</td>
             <td>${l.tpa_signed_date ? Utils.date(l.tpa_signed_date) : '—'}</td>
           </tr>`).join('')}
         </tbody>
-      </table>`;
+      </table>` : '<div class="empty-state"><h3>No active loans found</h3></div>';
     } catch { 
       el.innerHTML = '<div class="empty-state"><h3>No active loans found</h3></div>'; 
     }

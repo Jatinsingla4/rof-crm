@@ -92,11 +92,11 @@ const RegistryPage = {
     const date = document.getElementById('reg-date').value;
     const remarks = document.getElementById('reg-remarks').value;
 
-    // We need allocationId. For simplicity, we fetch it or pass it.
-    // Assuming 1 allocation per consumer for now.
+    if (!cid) { Utils.warn('Please select a consumer'); return; }
+    // The consumer's live allocation (not a cancelled or transferred one)
     try {
       const res = await Api.get('/allocations', { params: { consumerId: cid } });
-      const alloc = res.data?.[0];
+      const alloc = (res.data || []).find(a => a.consumer_id === cid && !['cancelled', 'transferred'].includes(a.status));
       if (!alloc) throw new Error('No allocation found for this consumer');
 
       await Api.post('/registry/schedule', { 

@@ -178,14 +178,14 @@
         const installNo = pct != null
           ? `${r.installment_name} (${pct})%`
           : r.installment_name;
-        const storedRate = r.interest_rate_percent != null ? parseFloat(r.interest_rate_percent).toFixed(4) : '0.0000';
+        const storedRate = r.interest_rate_percent != null ? parseFloat(r.interest_rate_percent).toFixed(2) : '0.00';
         const firstCls = i === 0 ? ' ii-row-first' : '';
         rows += `
 <tr class="${firstCls}">
   <td>${i + 1}</td>
   <td>${installNo}</td>
   <td>${r.installment_name}</td>
-  <td><input class="ii-interest-input" type="number" step="0.0001" min="0"
+  <td><input class="ii-interest-input" type="number" step="0.01" min="0" max="100"
        data-idx="${r.installment_index}" value="${storedRate}"></td>
 </tr>`;
       });

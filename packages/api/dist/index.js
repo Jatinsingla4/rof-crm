@@ -461,7 +461,8 @@ app.use('/api/reports', exports.authenticateToken, rbac('reports'), reports_js_1
 app.use('/api/milestones', exports.authenticateToken, rbac('payments'), milestones_js_1.default);
 app.use('/api/reconciliation', exports.authenticateToken, rbac('payments'), reconciliation_js_1.default);
 app.use('/api/smtp-configs', exports.authenticateToken, rbac('smtp_configs'), smtp_config_js_1.default);
-app.use('/api/faq', exports.authenticateToken, faq_js_1.default);
+// Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
+app.use('/api/faq', exports.authenticateToken, (req, res, next) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faq_js_1.default);
 app.use('/api/tasks', exports.authenticateToken, rbac('consumers'), tasks_js_1.default);
 app.use('/api/automation', exports.authenticateToken, rbac('reports'), automation_js_1.default);
 app.use('/api/brokers', exports.authenticateToken, rbac('consumers'), brokers_js_1.default);
@@ -470,7 +471,7 @@ app.use('/api/import', exports.authenticateToken, rbac('units'), import_js_1.def
 app.use('/api/projects', exports.authenticateToken, rbac('units'), projects_js_1.default);
 app.use('/api/broker-setup', exports.authenticateToken, rbac('broker_setup'), broker_setup_js_1.default);
 app.use('/api/inventory-hold', exports.authenticateToken, rbac('inventory_hold'), inventory_hold_js_1.default);
-app.use('/api/dashboard', exports.authenticateToken, dashboard_js_1.default);
+app.use('/api/dashboard', exports.authenticateToken, rbac('payments'), dashboard_js_1.default);
 app.use('/api/master', exports.authenticateToken, master_js_1.default);
 app.use('/api/booking', exports.authenticateToken, booking_js_1.default);
 app.use('/api/booking-documents', exports.authenticateToken, booking_documents_js_1.default);
@@ -482,8 +483,8 @@ app.use('/api/plc-charges', exports.authenticateToken, plc_charges_js_1.default)
 app.use('/api/gst-configuration', exports.authenticateToken, gst_configuration_js_1.default);
 app.use('/api/surrender', exports.authenticateToken, rbac('allocations'), surrender_js_1.default);
 app.use('/api/transfers', exports.authenticateToken, rbac('allocations'), transfers_js_1.default);
-app.use('/api/registry', exports.authenticateToken, registry_js_1.default);
-app.use('/api/loans', exports.authenticateToken, loans_js_1.default);
+app.use('/api/registry', exports.authenticateToken, rbac('allocations'), registry_js_1.default);
+app.use('/api/loans', exports.authenticateToken, rbac('consumers'), loans_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_process_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), financial_ops_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), outgoing_payments_js_1.default);

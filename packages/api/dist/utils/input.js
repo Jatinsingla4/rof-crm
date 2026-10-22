@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.failWith = exports.bad = void 0;
+exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.failWith = exports.bad = void 0;
 const index_js_1 = require("../index.js");
 const bad = (message, http = 400) => Object.assign(new Error(message), { http });
 exports.bad = bad;
@@ -84,4 +84,35 @@ const inTx = async (fn) => {
     }
 };
 exports.inTx = inTx;
+// ?page= and ?pageSize= as whole numbers (they used to be pasted into the SQL as text)
+const paging = (q, defSize, maxSize) => {
+    const whole = (v, label, max, d) => { if (!(0, exports.has)(v))
+        return d; if (typeof v !== 'string' || !/^\d+$/.test(v) || +v < 1 || +v > max)
+        throw (0, exports.bad)(`${label} must be a whole number from 1 to ${max}`); return +v; };
+    const size = whole(q.pageSize, 'pageSize', maxSize, defSize), page = whole(q.page, 'page', 100000, 1);
+    return { size, offset: (page - 1) * size };
+};
+exports.paging = paging;
+// A query string value that must be one plain text (not ?x=a&x=b, not ?x[a]=b)
+const qtext = (v, label, max = 100) => { if (v !== undefined && typeof v !== 'string')
+    throw (0, exports.bad)(`${label} is not valid`); return (0, exports.text)(v, label, max, false); };
+exports.qtext = qtext;
+const oneOf = (v, label, allowed) => {
+    const t = (0, exports.qtext)(v, label, 50);
+    if (t === null)
+        return null;
+    if (!allowed.includes(t))
+        throw (0, exports.bad)(`${label} must be one of: ${allowed.join(', ')}`);
+    return t;
+};
+exports.oneOf = oneOf;
+// One writer at a time per key (applicant, number series) for the rest of the transaction
+const lock = (c, key) => c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [key]);
+exports.lock = lock;
+const financeOnly = (req, res, next) => ['super_admin', 'accounts_finance'].includes(req.userRole || '') ? next() : res.status(403).json({ error: 'Only accounts and finance can do this' });
+exports.financeOnly = financeOnly;
+// A money amount that is more than 0 (up to 1,000,000,000, paise allowed unless decimals is 0)
+const pos = (v, label, decimals = 2) => { const n = (0, exports.num)(v, label, 1000000000, decimals); if (!(n > 0))
+    throw (0, exports.bad)(`${label} must be more than 0`); return n; };
+exports.pos = pos;
 //# sourceMappingURL=input.js.map

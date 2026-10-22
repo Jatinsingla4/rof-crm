@@ -552,7 +552,8 @@ app.use('/api/reports',        authenticateToken, rbac('reports'),        report
 app.use('/api/milestones',     authenticateToken, rbac('payments'),       milestonesRoutes);
 app.use('/api/reconciliation', authenticateToken, rbac('payments'),       reconciliationRoutes);
 app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRoutes);
-app.use('/api/faq',            authenticateToken,                         faqRoutes);
+// Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
+app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
 app.use('/api/automation',    authenticateToken, rbac('reports'),         automationRoutes);
 app.use('/api/brokers',       authenticateToken, rbac('consumers'),       brokersRoutes);
@@ -561,7 +562,7 @@ app.use('/api/import',        authenticateToken, rbac('units'),           import
 app.use('/api/projects',      authenticateToken, rbac('units'),           projectsRoutes);
 app.use('/api/broker-setup',  authenticateToken, rbac('broker_setup'),    brokerSetupRoutes);
 app.use('/api/inventory-hold',authenticateToken, rbac('inventory_hold'),  inventoryHoldRoutes);
-app.use('/api/dashboard',     authenticateToken,                          dashboardRoutes);
+app.use('/api/dashboard',     authenticateToken, rbac('payments'),       dashboardRoutes);
 app.use('/api/master',        authenticateToken,                          masterRoutes);
 app.use('/api/booking',           authenticateToken,                      bookingRoutes);
 app.use('/api/booking-documents', authenticateToken,                      bookingDocumentsRoutes);
@@ -573,8 +574,8 @@ app.use('/api/plc-charges',         authenticateToken, plcChargesRoutes);
 app.use('/api/gst-configuration',   authenticateToken, gstConfigRoutes);
 app.use('/api/surrender', authenticateToken, rbac('allocations'), surrenderRoutes);
 app.use('/api/transfers', authenticateToken, rbac('allocations'), transfersRoutes);
-app.use('/api/registry', authenticateToken, registryRoutes);
-app.use('/api/loans', authenticateToken, loansRoutes);
+app.use('/api/registry', authenticateToken, rbac('allocations'), registryRoutes);
+app.use('/api/loans', authenticateToken, rbac('consumers'), loansRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), receiptProcessRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), financialOpsRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), outgoingPaymentsRoutes);
