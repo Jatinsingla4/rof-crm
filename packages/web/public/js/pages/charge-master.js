@@ -66,7 +66,7 @@
       if (!res.ok) throw new Error(data.error || 'Failed to load');
       _renderTable(data.data || []);
     } catch (e) {
-      tableSection.innerHTML = '<div class="cm-empty">Error loading charge config: ' + e.message + '</div>';
+      tableSection.innerHTML = '<div class="cm-empty">Error loading charge config: ' + _esc(e.message) + '</div>';
     }
   }
 
@@ -85,9 +85,9 @@
     rows.forEach(function(r) {
       html += '<tr>' +
         '<td>' + _esc(r.charge_name) + '</td>' +
-        '<td><input type="number" step="0.01" min="0" max="1000000" id="cm-rate-' + r.charge_key + '" value="' + parseFloat(r.rate_value) + '"></td>' +
+        '<td><input type="number" step="0.01" min="0" max="1000000" id="cm-rate-' + _esc(r.charge_key) + '" value="' + (Number.isFinite(parseFloat(r.rate_value)) ? parseFloat(r.rate_value) : 0) + '"></td>' +
         '<td>' + _esc(r.rate_unit) + '</td>' +
-        '<td>' + (r.cap_value != null ? _fmtNum(r.cap_value) + (r.is_cap_configurable ? '' : ' (fixed)') : '—') + '</td>' +
+        '<td>' + (r.cap_value != null ? _esc(_fmtNum(r.cap_value)) + (r.is_cap_configurable ? '' : ' (fixed)') : '—') + '</td>' +
         '<td><button class="cm-btn-save" onclick="ChargeMaster.save(\'' + r.charge_key + '\')">SAVE</button></td>' +
         '</tr>';
     });
@@ -121,7 +121,7 @@
   }
 
   function _esc(s) {
-    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
   function _fmtNum(n) {

@@ -5,6 +5,7 @@ import { resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
+import { day, failWith } from '../utils/input.js';
 
 const router = Router();
 
@@ -30,13 +31,14 @@ router.get('/config', async (req: AuthRequest, res: Response, next: NextFunction
        ORDER BY charge_name`
     );
     res.json({ success: true, data: result.rows });
-  } catch (error) { next(error); }
+  } catch (error) { failWith(error, res, next); }
 });
 
 // PATCH /api/charge-master/config/:chargeKey - update rate_value (and cap_value where the charge allows it)
 router.patch('/config/:chargeKey', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { chargeKey } = req.params;
+    if (!/^[a-z0-9_]{1,60}$/.test(chargeKey)) return res.status(404).json({ error: 'Charge config not found' });
     const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
     const { rate_value, cap_value } = body;
 
@@ -71,7 +73,7 @@ router.patch('/config/:chargeKey', async (req: AuthRequest, res: Response, next:
 
     await auditChange(db, req, res, 'update', 'charge_master_config', upd.id, prev, upd);
     res.json({ success: true, data: upd });
-  } catch (error) { next(error); }
+  } catch (error) { failWith(error, res, next); }
 });
 
 // GET /api/charge-master/balcony-preview?projectId=X&balconyAreaSqft=Y&bookingDate=Z
@@ -93,9 +95,7 @@ router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: Nex
     const area = money(balconyAreaSqft);
     if (typeof projectId !== 'string' || !UUID.test(projectId)) return res.status(400).json({ success: false, error: 'projectId is not valid' });
     if (!Number.isFinite(area) || area > 100000) return res.status(400).json({ success: false, error: 'balconyAreaSqft must be a number from 0 to 100000' });
-    if (bookingDate !== undefined && (typeof bookingDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(bookingDate) || isNaN(Date.parse(bookingDate)))) {
-      return res.status(400).json({ success: false, error: 'bookingDate must be YYYY-MM-DD' });
-    }
+    if (bookingDate !== undefined) { try { day(bookingDate, 'bookingDate'); } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); } }
 
     const resolveDate = bookingDate || new Date().toISOString().split('T')[0];
 
@@ -129,7 +129,7 @@ router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: Nex
       success: true,
       data: { balconyChargeAmount, balconyCgstAmount, balconySgstAmount },
     });
-  } catch (error) { next(error); }
+  } catch (error) { failWith(error, res, next); }
 });
 
 export default router;

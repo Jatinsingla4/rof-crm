@@ -9,12 +9,13 @@ const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
 // Tags: up to 20 short words
 const tagList = (v) => {
     if (!Array.isArray(v) || v.length > 20)
         throw (0, input_js_1.bad)('tags must be a list of at most 20 words');
-    return v.map((t) => (0, input_js_1.text)(t, 'tag', 50, true));
+    return [...new Set(v.map((t) => (0, input_js_1.text)(t, 'tag', 50, true).toLowerCase()))]; // the tag filter compares exact text, so tags are kept in lower case
 };
 const router = (0, express_1.Router)();
 // GET /api/faq/categories - List all active FAQ categories with article count
@@ -48,7 +49,7 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
       a.created_at, a.updated_at,
       c.name as category_name
      FROM faq_articles a
-     JOIN faq_categories c ON a.category_id = c.id
+     JOIN faq_categories c ON a.category_id = c.id AND c.is_active = true
      WHERE a.is_published = true`;
         const params = [];
         // Full-text search using PostgreSQL tsvector
@@ -63,7 +64,7 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
         }
         // Filter by tags (array overlap)
         if (tags) {
-            const tagsArray = tags.split(',').map(t => t.trim());
+            const tagsArray = tags.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
             query += ` AND a.tags && $${params.length + 1}`;
             params.push(tagsArray);
         }
@@ -72,7 +73,7 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
         query += ` LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
         params.push(pageSize, offset);
         // Build count query
-        let countQuery = `SELECT COUNT(*) FROM faq_articles a
+        let countQuery = `SELECT COUNT(*) FROM faq_articles a JOIN faq_categories c ON a.category_id = c.id AND c.is_active = true
                       WHERE a.is_published = true`;
         const countParams = [];
         if (search) {
@@ -84,7 +85,7 @@ router.get('/articles', (0, rbac_js_1.requirePermission)('communications', 'view
             countParams.push(categoryId);
         }
         if (tags) {
-            const tagsArray = tags.split(',').map(t => t.trim());
+            const tagsArray = tags.toLowerCase().split(',').map(t => t.trim()).filter(Boolean);
             countQuery += ` AND a.tags && $${countParams.length + 1}`;
             countParams.push(tagsArray);
         }
@@ -145,18 +146,16 @@ router.post('/articles', (0, rbac_js_1.requirePermission)('communications', 'cre
         const content = (0, input_js_1.text)(b.content, 'content', 20000, true), isPublished = b.isPublished === undefined ? false : b.isPublished;
         if (typeof isPublished !== 'boolean')
             throw (0, input_js_1.bad)('isPublished must be true or false');
-        // Verify category exists
-        const categoryCheck = await index_js_1.db.query(`SELECT id FROM faq_categories WHERE id = $1`, [categoryId]);
-        if (categoryCheck.rows.length === 0) {
-            return res.status(404).json({ error: 'Category not found' });
-        }
-        const result = await index_js_1.db.query(`INSERT INTO faq_articles (category_id, title, content, tags, is_published, created_by_user_id)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, created_at`, [categoryId, title, content, tags, isPublished, req.userId]);
-        res.status(201).json({
-            success: true,
-            data: result.rows[0],
+        // Same title twice is allowed (a draft and its published version share one); the category is checked in the same statement run
+        const row = await (0, input_js_1.inTx)(async (c) => {
+            if (!(await c.query(`SELECT 1 FROM faq_categories WHERE id = $1`, [categoryId])).rows.length)
+                throw (0, input_js_1.bad)('Category not found', 404);
+            return (await c.query(`INSERT INTO faq_articles (category_id, title, content, tags, is_published, created_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, created_at`, [categoryId, title, content, tags, isPublished, req.userId])).rows[0];
         });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'faq_article', row.id, {}, { title, category_id: categoryId, is_published: isPublished });
+        res.status(201).json({ success: true, data: row });
     }
     catch (error) {
         fail(error, res, next);
@@ -198,17 +197,16 @@ router.patch('/articles/:id', (0, rbac_js_1.requirePermission)('communications',
         params.push(req.userId);
         updates.push(`updated_at = NOW()`);
         params.push(id);
-        const result = await index_js_1.db.query(`UPDATE faq_articles
-       SET ${updates.join(', ')}
-       WHERE id = $${paramCount}
-       RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, updated_at`, params);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Article not found' });
-        }
-        res.json({
-            success: true,
-            data: result.rows[0],
+        const row = await (0, input_js_1.inTx)(async (c) => {
+            const cur = (await c.query(`SELECT category_id, title, is_published FROM faq_articles WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            if (!cur)
+                throw (0, input_js_1.bad)('Article not found', 404);
+            const upd = (await c.query(`UPDATE faq_articles SET ${updates.join(', ')} WHERE id = $${paramCount}
+         RETURNING id, category_id, title, content, tags, is_published, view_count, helpful_count, not_helpful_count, updated_at`, params)).rows[0];
+            return { cur, upd };
         });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'faq_article', id, { title: row.cur.title, is_published: row.cur.is_published }, { ...(title !== undefined && { title }), ...(content !== undefined && { content_changed: true }), ...(tags !== undefined && { tags }), ...(isPublished !== undefined && { is_published: isPublished }) });
+        res.json({ success: true, data: row.upd });
     }
     catch (error) {
         fail(error, res, next);
@@ -221,23 +219,21 @@ router.post('/articles/:id/feedback', (0, rbac_js_1.requirePermission)('communic
         if (helpful === undefined || typeof helpful !== 'boolean') {
             return res.status(400).json({ error: 'helpful field must be boolean' });
         }
-        const updateField = helpful ? 'helpful_count' : 'not_helpful_count';
-        const result = await index_js_1.db.query(`UPDATE faq_articles
-       SET ${updateField} = ${updateField} + 1
-       WHERE id = $1 AND is_published = true
-       RETURNING id, helpful_count, not_helpful_count`, [id]);
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Article not found' });
-        }
-        res.json({
-            success: true,
-            data: {
-                articleId: result.rows[0].id,
-                helpful: helpful,
-                helpful_count: result.rows[0].helpful_count,
-                not_helpful_count: result.rows[0].not_helpful_count,
-            },
+        // One vote per person: voting again does nothing, voting the other way moves the vote (the article row is locked meanwhile)
+        const counts = await (0, input_js_1.inTx)(async (c) => {
+            const a = (await c.query(`SELECT helpful_count, not_helpful_count FROM faq_articles WHERE id = $1 AND is_published = true FOR UPDATE`, [id])).rows[0];
+            if (!a)
+                throw (0, input_js_1.bad)('Article not found', 404);
+            const old = (await c.query(`SELECT helpful FROM faq_article_feedback WHERE article_id = $1 AND user_id = $2`, [id, req.userId])).rows[0];
+            if (old?.helpful === helpful)
+                return a;
+            await c.query(`INSERT INTO faq_article_feedback (article_id, user_id, helpful) VALUES ($1, $2, $3)
+                     ON CONFLICT (article_id, user_id) DO UPDATE SET helpful = EXCLUDED.helpful, updated_at = NOW()`, [id, req.userId, helpful]);
+            const up = helpful ? 1 : (old ? -1 : 0), down = helpful ? (old ? -1 : 0) : 1;
+            return (await c.query(`UPDATE faq_articles SET helpful_count = GREATEST(helpful_count + $2, 0), not_helpful_count = GREATEST(not_helpful_count + $3, 0) WHERE id = $1
+         RETURNING helpful_count, not_helpful_count`, [id, up, down])).rows[0];
         });
+        res.json({ success: true, data: { articleId: id, helpful, helpful_count: counts.helpful_count, not_helpful_count: counts.not_helpful_count } });
     }
     catch (error) {
         fail(error, res, next);

@@ -64,6 +64,7 @@ router.post('/:brokerId', async (req, res, next) => {
             const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
             if (!brk)
                 throw (0, input_js_1.bad)('Broker not found', 404);
+            await (0, input_js_1.lock)(c, 'broker-tax:' + brokerId); // two first saves together: the second sees the first and is logged as an update
             const before = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1 FOR UPDATE`, [brokerId])).rows[0];
             if (!before && (tds === null || gst === null))
                 throw (0, input_js_1.bad)('This broker has no tax setup yet: send both tdsRatePct and gstRatePct');

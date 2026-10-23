@@ -3020,7 +3020,7 @@ const BookingPage = {
               if (hasScan)    dfd.append('scan_reference_no',   hasScan);
               if (hasFile)    dfd.append('file', this._documentFiles[rowKey].file);
               await Api.uploadFile('/booking-documents/upload', dfd);
-            } catch (e) { console.warn('Document row upload failed (non-fatal):', e.message); }
+            } catch (e) { console.warn('Document row upload failed:', e.message); Utils.warn('A booking document was not saved: ' + e.message); }
           }
         }
       }
@@ -3376,7 +3376,8 @@ const BookingPage = {
 
               await Api.uploadFile('/booking-documents/upload', fd);
             } catch (docErr) {
-              console.warn('Document row upload failed (non-fatal):', docErr.message);
+              console.warn('Document row upload failed:', docErr.message);
+              Utils.warn('A booking document was not saved: ' + docErr.message);
             }
           }
         }

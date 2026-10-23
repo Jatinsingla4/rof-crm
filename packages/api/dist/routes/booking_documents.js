@@ -83,7 +83,7 @@ router.post('/upload', oneFile, async (req, res, next) => {
 // GET /api/booking-documents/:id/file — the stored file (page address carries a link token when opened in a tab)
 router.get('/:id/file', async (req, res, next) => {
     try {
-        const d = (await index_js_1.db.query(`SELECT file_data, file_mime_type, file_original_name FROM booking_documents WHERE id = $1 AND deleted_at IS NULL`, [req.params.id])).rows[0];
+        const d = (await index_js_1.db.query(`SELECT file_data, file_mime_type, file_original_name FROM booking_documents WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = booking_record_id)`, [req.params.id])).rows[0];
         if (!d?.file_data)
             return res.status(404).json({ error: 'File not found' });
         const name = String(d.file_original_name || 'document').replace(/[^\w.\- ]/g, '_');
@@ -103,7 +103,7 @@ router.get('/', async (req, res, next) => {
         if (!q.booking_record_id)
             throw (0, input_js_1.bad)('booking_record_id is required');
         const params = [(0, input_js_1.uuid)(q.booking_record_id, 'booking_record_id')];
-        let where = 'WHERE bd.booking_record_id = $1 AND bd.deleted_at IS NULL';
+        let where = 'WHERE bd.booking_record_id = $1 AND bd.deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = bd.booking_record_id)'; // the booking decides the project scope, whatever the applicant's own project is
         if (q.consumer_id) {
             where += ` AND bd.consumer_id = $${params.length + 1}`;
             params.push((0, input_js_1.uuid)(q.consumer_id, 'consumer_id'));
@@ -112,9 +112,10 @@ router.get('/', async (req, res, next) => {
             where += ` AND bd.applicant_number = $${params.length + 1}`;
             params.push((0, input_js_1.num)(q.applicant_number, 'applicant_number', 12, 0));
         }
-        if (q.document_type) {
+        const dt = (0, input_js_1.qtext)(q.document_type, 'document_type', 100);
+        if (dt) {
             where += ` AND bd.document_type = $${params.length + 1}`;
-            params.push(q.document_type);
+            params.push(dt);
         }
         const result = await index_js_1.db.query(`SELECT ${LIST.split(',').map(c => 'bd.' + c.trim()).join(', ')}, u.name as created_by_name
        FROM booking_documents bd
@@ -131,18 +132,18 @@ router.get('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
-        const f = {
-            document_name: (0, input_js_1.text)(b.document_name, 'document_name', 255, false), barcode_no: (0, input_js_1.text)(b.barcode_no, 'barcode_no', 100, false),
-            physical_storage_no: (0, input_js_1.text)(b.physical_storage_no, 'physical_storage_no', 100, false), scan_reference_no: (0, input_js_1.text)(b.scan_reference_no, 'scan_reference_no', 100, false), remarks: (0, input_js_1.text)(b.remarks, 'remarks', 2000, false),
-        };
-        const result = await index_js_1.db.query(`UPDATE booking_documents
-       SET document_name = COALESCE($1, document_name), barcode_no = COALESCE($2, barcode_no), physical_storage_no = COALESCE($3, physical_storage_no),
-           scan_reference_no = COALESCE($4, scan_reference_no), remarks = COALESCE($5, remarks), updated_at = NOW()
-       WHERE id = $6 AND deleted_at IS NULL
-       RETURNING ${LIST}`, [f.document_name, f.barcode_no, f.physical_storage_no, f.scan_reference_no, f.remarks, req.params.id]);
+        // A field that is sent changes (an empty value or null clears it); a field that is left out stays as it is
+        const rules = [['document_name', 255], ['barcode_no', 100], ['physical_storage_no', 100], ['scan_reference_no', 100], ['remarks', 2000]];
+        const sent = rules.filter(([k]) => k in b);
+        if (!sent.length)
+            throw (0, input_js_1.bad)('Send at least one of: ' + rules.map(([k]) => k).join(', '));
+        const f = Object.fromEntries(sent.map(([k, max]) => [k, (0, input_js_1.text)(b[k], k, max, false)]));
+        const result = await index_js_1.db.query(`UPDATE booking_documents SET ${sent.map(([k], i) => `${k} = $${i + 1}`).join(', ')}, updated_at = NOW()
+       WHERE id = $${sent.length + 1} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = booking_record_id)
+       RETURNING ${LIST}`, [...Object.values(f), req.params.id]);
         if (!result.rows[0])
             return res.status(404).json({ error: 'Document not found' });
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking_document', req.params.id, {}, Object.fromEntries(Object.entries(f).filter(([, v]) => v !== null)));
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking_document', req.params.id, {}, f);
         res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
@@ -152,7 +153,7 @@ router.patch('/:id', async (req, res, next) => {
 // DELETE /api/booking-documents/:id
 router.delete('/:id', async (req, res, next) => {
     try {
-        const r = await index_js_1.db.query(`UPDATE booking_documents SET deleted_at = NOW(), deleted_by = $1, file_data = NULL, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL RETURNING id, document_type`, [req.userId, req.params.id]);
+        const r = await index_js_1.db.query(`UPDATE booking_documents SET deleted_at = NOW(), deleted_by = $1, file_data = NULL, updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = booking_record_id) RETURNING id, document_type`, [req.userId, req.params.id]);
         if (!r.rows[0])
             return res.status(404).json({ error: 'Document not found' });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'delete', 'booking_document', req.params.id, { document_type: r.rows[0].document_type }, {});

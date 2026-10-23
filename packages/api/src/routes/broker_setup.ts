@@ -6,7 +6,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
-import { bad, failWith, uuid, has, num, flag, body, inTx, paging, qtext } from '../utils/input.js';
+import { bad, failWith, uuid, has, num, flag, body, inTx, paging, qtext, lock } from '../utils/input.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 
@@ -56,6 +56,7 @@ router.post('/:brokerId', async (req: AuthRequest, res: Response, next: NextFunc
     const out = await inTx(async (c) => {
       const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
       if (!brk) throw bad('Broker not found', 404);
+      await lock(c, 'broker-tax:' + brokerId); // two first saves together: the second sees the first and is logged as an update
       const before = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1 FOR UPDATE`, [brokerId])).rows[0];
       if (!before && (tds === null || gst === null)) throw bad('This broker has no tax setup yet: send both tdsRatePct and gstRatePct');
       const row = (await c.query(
