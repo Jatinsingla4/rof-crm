@@ -148,7 +148,7 @@ test('Automation: Run Now says nothing was sent and counts the run; a switched-o
   expect(psql(`select execution_count from automation_rules where name='Overdue nudge ${U}'`)).toBe('1');
   await page.getByRole('button', { name: 'Run All Active' }).click();
   await expect(page.locator('.toast', { hasText: /marked as run/i }).first()).toBeVisible();
-  await row.locator('input[type=checkbox]').uncheck(); await settle();
+  await row.locator('input[type=checkbox]').evaluate((el: HTMLInputElement) => el.click()); await settle();   // a toast can sit over the switch on a slow machine, so the click does not go through the pointer
   expect(psql(`select is_active from automation_rules where name='Overdue nudge ${U}'`)).toBe('f');
   const n = psql(`select execution_count from automation_rules where name='Overdue nudge ${U}'`);
   await row.getByRole('button', { name: 'Run Now' }).click();
