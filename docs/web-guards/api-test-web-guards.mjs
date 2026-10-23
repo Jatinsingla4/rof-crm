@@ -74,5 +74,11 @@ for (const f of pages) {
 }
 t('a project pick list never shows ${p.name} without escaping', raw.length === 0, raw.slice(0, 5).join(' | '));
 
+// ---------- today's date comes from Utils.today(), not from toISOString() (UTC: yesterday between midnight and 5:30 in India) ----------
+const utc = pages.filter((f) => /new Date\(\)\.toISOString\(\)\s*\.(?:slice\(0,\s*10\)|split\('T'\)\[0\])/.test(fs.readFileSync(path.join(PAGES, f), 'utf8')));
+t('no screen takes today\'s date from toISOString() (use Utils.today())', utc.length === 0, utc.join(', '));
+// the email template screen has its own API; the legal letter table is not for email wording
+t('the email template screen does not use the legal letter templates', !/documents\/templates/.test(fs.readFileSync(path.join(PAGES, 'email-templates.js'), 'utf8')));
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

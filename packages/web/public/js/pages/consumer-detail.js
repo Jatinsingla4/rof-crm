@@ -179,7 +179,7 @@ Pages.consumerDetail = async function(params = {}) {
           <div style="display:flex;gap:12px;align-items:end;margin-bottom:16px">
             <div class="fg" style="flex:1">
               <label class="fl">Allotment Date (Anchor)</label>
-              <input type="date" id="anchor-date" class="fc" value="${new Date().toISOString().split('T')[0]}">
+              <input type="date" id="anchor-date" class="fc" value="${Utils.today()}">
             </div>
             <button class="btn btn-teal" onclick="ConsumerDetailPage.generateSchedule('${id}')">Generate Schedule</button>
           </div>

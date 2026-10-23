@@ -51,6 +51,16 @@ Pages.emailTemplates = async function(params = {}) {
     <div class="tbl-hdr" style="margin-bottom:12px">
       <div class="tbl-title">Templates</div>
       <div class="tbl-actions">
+        <input class="fc" id="et-search" placeholder="Search name or subject" style="width:200px;min-height:30px;padding:5px 10px" oninput="EmailTemplatesPage.search()">
+        <select class="fc" id="et-filter-type" style="width:170px;min-height:30px;padding:5px 10px" onchange="EmailTemplatesPage.load()">
+          <option value="">All types</option>
+          <option value="general">General</option>
+          <option value="allotment_letter">Allotment Letter</option>
+          <option value="demand_letter">Demand Letter</option>
+          <option value="payment_receipt">Payment Receipt</option>
+          <option value="welcome">Welcome Email</option>
+          <option value="reminder">Payment Reminder</option>
+        </select>
         <button class="btn btn-teal btn-sm" onclick="EmailTemplatesPage.showEditor()">+ Create Template</button>
         <button class="btn btn-ghost btn-sm" onclick="EmailTemplatesPage.load()">Refresh</button>
       </div>
@@ -82,14 +92,17 @@ Pages.emailTemplates = async function(params = {}) {
           <div class="fg" style="margin-bottom:8px"><label class="fl">Body</label>
             <textarea class="fc" id="et-body" rows="12" placeholder="Email body. Use {{consumer_name}}, {{unit_number}}, {{amount}}, {{due_date}}, {{project_name}} as merge fields."></textarea>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="et-active" checked> Active</label>
           <div style="font-size:11px;color:var(--text3);margin-bottom:10px">
             Available merge fields: <code>{{consumer_name}}</code> <code>{{unit_number}}</code> <code>{{amount}}</code> <code>{{due_date}}</code> <code>{{project_name}}</code> <code>{{allotment_date}}</code>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-teal" onclick="EmailTemplatesPage.save()">Save Template</button>
             <button class="btn btn-ghost" onclick="EmailTemplatesPage.preview()">Preview</button>
-            <button class="btn btn-ghost" style="margin-left:auto;color:var(--red)" onclick="EmailTemplatesPage.delete()">Delete</button>
+            <button class="btn btn-ghost" id="et-delete" style="margin-left:auto;color:var(--red)" onclick="EmailTemplatesPage.delete()">Delete</button>
           </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:10px">Templates are wording only. No email sender is connected yet, so nothing is sent from here.</div>
+          <div id="et-preview" style="display:none;margin-top:14px;border:1px dashed var(--border2);border-radius:8px;padding:14px"></div>
         </div>
       </div>
 
@@ -109,118 +122,98 @@ Pages.emailTemplates = async function(params = {}) {
 
 const EmailTemplatesPage = {
   _activeId: null,
+  _list: [],
+  _timer: null,
+  _SAMPLE: { consumer_name: 'Mr. Rajesh Kumar', unit_number: 'A-304', project_name: 'Sample Project', amount: '2,45,000', due_date: '15 May 2026', allotment_date: '01 Apr 2026' },
+
+  search() { clearTimeout(this._timer); this._timer = setTimeout(() => this.load(), 300); },
 
   async load() {
     const el = document.getElementById('et-list');
     if (!el) return;
     try {
-      const res = await Api.get('/documents/templates', { params: { pageSize: 50 } });
-      const list = res.data || res || [];
-
-      // Add built-in system templates if list is empty
-      const display = list.length > 0 ? list : [
-        { id: '__allotment__', name: 'Allotment Letter', document_type: 'allotment_letter' },
-        { id: '__demand__', name: 'Demand Letter', document_type: 'demand_letter' },
-        { id: '__receipt__', name: 'Payment Receipt', document_type: 'payment_receipt' },
-        { id: '__welcome__', name: 'Welcome Email', document_type: 'welcome' },
-      ];
-
-      el.innerHTML = display.map(t => `
-        <div style="padding:10px 12px;border:1px solid ${this._activeId===t.id?'var(--teal)':'var(--border)'};cursor:pointer;border-radius:8px;margin-bottom:6px;background:${this._activeId===t.id?'var(--teal-bg)':'var(--surface)'}"
-          onclick="EmailTemplatesPage.select('${t.id}','${(t.name||'').replace(/'/g,'\\x27')}','${t.document_type||t.documentType||'general'}')">
-          <div style="font-weight:600;font-size:12px">${t.name||'—'}</div>
-          <div style="margin-top:3px">${Utils.chip(t.document_type||t.documentType||'general')}</div>
-          ${t.id.startsWith('__') ? '<span style="font-size:9px;color:var(--text3)">System template</span>' : ''}
-        </div>
-      `).join('');
+      const params = { pageSize: 200 };
+      const q = document.getElementById('et-search')?.value?.trim(); if (q) params.q = q;
+      const type = document.getElementById('et-filter-type')?.value; if (type) params.type = type;
+      const res = await Api.get('/email-templates', { params });
+      if (!document.getElementById('et-list')) return;
+      this._list = res.data || [];
+      el.innerHTML = this._list.length === 0
+        ? '<div style="padding:14px;font-size:12px;color:var(--text3)">No template matches.</div>'
+        : this._list.map(t => `
+        <div class="et-item" data-id="${Utils.esc(t.id)}" style="padding:10px 12px;border:1px solid ${this._activeId===t.id?'var(--teal)':'var(--border)'};cursor:pointer;border-radius:8px;margin-bottom:6px;background:${this._activeId===t.id?'var(--teal-bg)':'var(--surface)'}${t.is_active?'':';opacity:.6'}"
+          onclick="EmailTemplatesPage.select('${Utils.esc(t.id)}')">
+          <div style="font-weight:600;font-size:12px">${Utils.esc(t.name || '—')}</div>
+          <div style="margin-top:3px">${Utils.chip(t.template_type || 'general')}</div>
+          ${t.is_system ? '<span style="font-size:9px;color:var(--text3)">Starting template</span> ' : ''}${t.is_active ? '' : '<span style="font-size:9px;color:var(--red)">Inactive</span>'}
+        </div>`).join('');
     } catch (err) {
-      el.innerHTML = `<div style="padding:12px;color:var(--red);font-size:11px">${err.message}</div>`;
+      el.innerHTML = `<div style="padding:12px;color:var(--red);font-size:11px">${Utils.esc(err.message)}</div>`;
     }
   },
 
-  select(id, name, type) {
-    this._activeId = id;
+  _show(t) {
     document.getElementById('et-empty-editor').style.display = 'none';
     document.getElementById('et-editor-panel').style.display = 'block';
-    document.getElementById('et-name').value = name;
-    const typeSel = document.getElementById('et-type');
-    if (typeSel) typeSel.value = type || 'general';
+    document.getElementById('et-name').value = t.name || '';
+    document.getElementById('et-type').value = t.template_type || 'general';
+    document.getElementById('et-subject').value = t.subject || '';
+    document.getElementById('et-body').value = t.body || '';
+    document.getElementById('et-active').checked = t.is_active !== false;
+    document.getElementById('et-delete').disabled = !t.id || !!t.is_system;
+    document.getElementById('et-preview').style.display = 'none';
+  },
 
-    // Pre-fill system templates
-    const defaults = {
-      '__allotment__': { subject: 'Allotment Letter - Unit {{unit_number}}', body: 'Dear {{consumer_name}},\n\nCongratulations! You have been allotted Unit {{unit_number}} in {{project_name}}.\n\nAllotment Date: {{allotment_date}}\n\nPlease complete the payment of 20% (₹{{amount}}) within 15 days.\n\nRegards,\nROF Infratech & Housing Pvt. Ltd.' },
-      '__demand__': { subject: 'Payment Demand Notice - Unit {{unit_number}}', body: 'Dear {{consumer_name}},\n\nThis is a reminder that your instalment of ₹{{amount}} is due on {{due_date}}.\n\nUnit: {{unit_number}} | Project: {{project_name}}\n\nPlease make the payment to avoid penal interest under HRERA Rule 15.\n\nRegards,\nROF Infratech' },
-      '__receipt__': { subject: 'Payment Receipt - ₹{{amount}}', body: 'Dear {{consumer_name}},\n\nWe have received your payment of ₹{{amount}}.\n\nUnit: {{unit_number}} | Project: {{project_name}}\n\nThank you for your timely payment.\n\nRegards,\nROF Infratech' },
-      '__welcome__': { subject: 'Welcome to ROF Infratech!', body: 'Dear {{consumer_name}},\n\nWelcome to ROF Infratech & Housing Pvt. Ltd.!\n\nYour application has been registered successfully.\n\nProject: {{project_name}}\n\nFor any queries, contact our support team.\n\nRegards,\nROF Infratech' },
-    };
-
-    if (defaults[id]) {
-      document.getElementById('et-subject').value = defaults[id].subject;
-      document.getElementById('et-body').value = defaults[id].body;
-    } else {
-      // Could load from API
-      document.getElementById('et-subject').value = '';
-      document.getElementById('et-body').value = '';
-    }
-
-    this.load(); // re-render list to show active state
+  async select(id) {
+    try {
+      const res = await Api.get(`/email-templates/${id}`);   // the stored wording, not a copy from the list
+      this._activeId = id;
+      this._show(res.data);
+      this.load();
+    } catch (err) { Utils.error(err.message); }
   },
 
   showEditor() {
     this._activeId = null;
-    document.getElementById('et-empty-editor').style.display = 'none';
-    document.getElementById('et-editor-panel').style.display = 'block';
-    document.getElementById('et-name').value = '';
-    document.getElementById('et-subject').value = '';
-    document.getElementById('et-body').value = '';
+    this._show({ template_type: 'general', is_active: true });
+    this.load();
   },
 
   async save() {
     const name = document.getElementById('et-name')?.value?.trim();
     const subject = document.getElementById('et-subject')?.value?.trim();
     const body = document.getElementById('et-body')?.value?.trim();
-    const type = document.getElementById('et-type')?.value;
-
     if (!name) { Utils.warn('Please enter a template name'); return; }
-
-    if (this._activeId?.startsWith('__')) {
-      Utils.info('System templates cannot be modified. Create a custom template instead.');
-      return;
-    }
-
+    if (!body) { Utils.warn('Please enter the body of the email'); return; }
+    const payload = { name, subject, body, templateType: document.getElementById('et-type').value, isActive: document.getElementById('et-active').checked };
     try {
       if (this._activeId) {
-        await Api.patch(`/documents/templates/${this._activeId}`, { name, subject, body: body, documentType: type });
+        await Api.patch(`/email-templates/${this._activeId}`, payload);
       } else {
-        await Api.post('/documents/templates', { name, subject, body: body, documentType: type });
+        const res = await Api.post('/email-templates', payload);
+        this._activeId = res.data.id;
+        document.getElementById('et-delete').disabled = false;
       }
       Utils.success('Template saved');
       await this.load();
     } catch (err) { Utils.error(err.message); }
   },
 
+  // the sample values are filled in and everything is shown as text, so a "<" typed in the body cannot run as markup
   preview() {
-    const body = document.getElementById('et-body')?.value || '';
-    const name = document.getElementById('et-name')?.value || 'Preview';
-    const preview = body
-      .replace(/{{consumer_name}}/g, 'Mr. Rajesh Kumar')
-      .replace(/{{unit_number}}/g, 'A-304')
-      .replace(/{{project_name}}/g, 'ROF Aalayas')
-      .replace(/{{amount}}/g, '2,45,000')
-      .replace(/{{due_date}}/g, '15 May 2026')
-      .replace(/{{allotment_date}}/g, '01 Apr 2026');
-    const win = window.open('', '_blank');
-    if (win) win.document.write(`<html><head><title>${name} - Preview</title></head><body style="font-family:Arial;padding:30px;max-width:600px;margin:0 auto"><h3>${name}</h3><pre style="white-space:pre-wrap;font-family:Arial">${preview}</pre></body></html>`);
+    const fill = (t) => t.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (m, k) => this._SAMPLE[k] ?? m);
+    const box = document.getElementById('et-preview');
+    box.innerHTML = '<div style="font-size:11px;color:var(--text3);margin-bottom:6px">Preview with sample values</div><div id="et-pv-sub" style="font-weight:600;margin-bottom:8px"></div><pre id="et-pv-body" style="white-space:pre-wrap;font-family:inherit;margin:0"></pre>';
+    box.querySelector('#et-pv-sub').textContent = fill(document.getElementById('et-subject').value || '(no subject)');
+    box.querySelector('#et-pv-body').textContent = fill(document.getElementById('et-body').value || '');
+    box.style.display = 'block';
   },
 
   async delete() {
-    if (!this._activeId || this._activeId.startsWith('__')) {
-      Utils.info('Cannot delete system templates');
-      return;
-    }
+    if (!this._activeId) { Utils.info('This template is not saved yet'); return; }
     Utils.confirm('Delete this template?', async () => {
       try {
-        await Api.delete(`/documents/templates/${this._activeId}`);
+        await Api.delete(`/email-templates/${this._activeId}`);
         Utils.success('Template deleted');
         this._activeId = null;
         document.getElementById('et-editor-panel').style.display = 'none';

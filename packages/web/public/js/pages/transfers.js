@@ -354,7 +354,7 @@
   }
 
   async function _initForm() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = Utils.today();
     const td = document.getElementById('tr-transfer-date');
     if (td) td.value = today;
     const ad = document.getElementById('tr-app-date');

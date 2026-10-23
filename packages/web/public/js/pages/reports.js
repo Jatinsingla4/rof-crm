@@ -2156,7 +2156,7 @@ const ReportsPage = {
   },
 
   loadDateWiseDues() {
-    const today = new Date().toISOString().slice(0,10);
+    const today = Utils.today();
     this.loadDueReport(today, today, 'Date Wise Dues');
   },
 
@@ -2559,7 +2559,7 @@ const ReportsPage = {
             </div>
             <div class="fg" style="min-width:130px">
               <label class="fl">As On Date</label>
-              <input type="date" class="fc" id="f-asondate" value="${new Date().toISOString().slice(0,10)}">
+              <input type="date" class="fc" id="f-asondate" value="${Utils.today()}">
             </div>
             <div style="margin-bottom:2px">
               <button class="btn btn-primary" onclick="ReportsPage.fetchAgeingReport()">FETCH</button>
@@ -2659,7 +2659,7 @@ const ReportsPage = {
             </div>
             <div class="fg" style="min-width:130px">
               <label class="fl">As On Date</label>
-              <input type="date" class="fc" id="f-asondate" value="${new Date().toISOString().slice(0,10)}">
+              <input type="date" class="fc" id="f-asondate" value="${Utils.today()}">
             </div>
             <div style="margin-bottom:2px">
               <button class="btn btn-primary" onclick="ReportsPage.fetchAgeingInstallment()">FETCH</button>
@@ -2989,7 +2989,7 @@ const ReportsPage = {
             </div>
             <div class="fg" style="min-width:150px">
               <label class="fl">Date</label>
-              <input type="date" class="fc" id="f-date" value="${Utils.today ? Utils.today() : new Date().toISOString().slice(0,10)}">
+              <input type="date" class="fc" id="f-date" value="${Utils.today()}">
             </div>
             <div style="margin-bottom:2px;display:flex;gap:8px">
               <button class="btn btn-primary" onclick="ReportsPage.fetchTowerFloorSales()">FETCH</button>

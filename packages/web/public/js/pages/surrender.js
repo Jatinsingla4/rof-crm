@@ -961,7 +961,7 @@
             </div>
             <div class="sur-action-field" style="min-width:140px">
               <label>Surrender Date:</label>
-              <input type="date" id="sur-date" value="${new Date().toISOString().slice(0,10)}">
+              <input type="date" id="sur-date" value="${Utils.today()}">
             </div>
             <div class="sur-toggle-group">
               <span class="sur-toggle-lbl">Mode of Payment:</span>

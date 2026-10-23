@@ -182,7 +182,7 @@ const DS = {
   },
 
   async init() {
-    const today = new Date().toISOString().split('T')[0];
+    const today = Utils.today();
     const dueTo = document.getElementById('ds-due-to');
     if (dueTo) dueTo.value = today;
 
@@ -291,7 +291,7 @@ const DS = {
 
   async openLetter(consumerId) {
     const token = Auth?.getToken?.() || localStorage.getItem('rof-jwt') || '';
-    const today = new Date().toISOString().split('T')[0];
+    const today = Utils.today();
     const win = window.open('', '_blank');
     win.document.write('<p style="font-family:Arial;padding:20px;">Generating demand letter…</p>');
     try {

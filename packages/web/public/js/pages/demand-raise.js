@@ -1055,7 +1055,7 @@ const StageWisePage = {
 
     if (labelEl)   labelEl.textContent   = `Stage ${installmentIndex}: ${stage.installment_name}`;
     if (summaryEl) summaryEl.textContent = `This will raise demands for ${totalConsumers} consumer(s) across ${towerCount} tower(s).`;
-    if (dateEl)    dateEl.value = Utils.today ? Utils.today() : new Date().toISOString().split('T')[0];
+    if (dateEl)    dateEl.value = Utils.today();
 
     document.getElementById('sw-raise-modal').style.display = 'block';
   },

@@ -34,6 +34,7 @@ const smtp_config_js_1 = __importDefault(require("./routes/smtp_config.js"));
 const faq_js_1 = __importDefault(require("./routes/faq.js"));
 const tasks_js_1 = __importDefault(require("./routes/tasks.js"));
 const automation_js_1 = __importDefault(require("./routes/automation.js"));
+const email_templates_js_1 = __importDefault(require("./routes/email-templates.js"));
 const brokers_js_1 = __importDefault(require("./routes/brokers.js"));
 const parking_js_1 = __importDefault(require("./routes/parking.js"));
 const import_js_1 = __importDefault(require("./routes/import.js"));
@@ -471,6 +472,7 @@ app.use('/api/smtp-configs', exports.authenticateToken, rbac('smtp_configs'), sm
 app.use('/api/faq', exports.authenticateToken, (req, res, next) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faq_js_1.default);
 app.use('/api/tasks', exports.authenticateToken, rbac('consumers'), tasks_js_1.default);
 app.use('/api/automation', exports.authenticateToken, rbac('communications'), automation_js_1.default);
+app.use('/api/email-templates', exports.authenticateToken, rbac('communications'), email_templates_js_1.default);
 // Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
 app.use('/api/brokers', exports.authenticateToken, (req, res, next) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokers_js_1.default);
 app.use('/api/parking', exports.authenticateToken, rbac('units'), parking_js_1.default);

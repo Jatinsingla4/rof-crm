@@ -1086,7 +1086,7 @@ const DocsPage = {
     g.classList.toggle('on',type==='gst'); b.classList.toggle('on',type==='before');
   },
   async initDemandPrinting() {
-    const today=new Date().toISOString().split('T')[0];
+    const today=Utils.today();
     const dd=document.getElementById('dpr-due-date'); if(dd)dd.value=today;
     const pd=document.getElementById('dpr-print-date'); if(pd)pd.value=today;
     const sel=document.getElementById('dpr-project');
@@ -1167,7 +1167,7 @@ const DocsPage = {
       const token=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';
       const res=await fetch('/api/documents/generate',{
         method:'POST',headers:{'Content-Type':'application/json','Authorization':`Bearer ${token}`},
-        body:JSON.stringify({documentType:'demand_letter',consumerId,dueDate:document.getElementById('dpr-due-date')?.value||new Date().toISOString().split('T')[0]}),
+        body:JSON.stringify({documentType:'demand_letter',consumerId,dueDate:document.getElementById('dpr-due-date')?.value||Utils.today()}),
       });
       const json=await res.json();
       const docId=json.data?.documentId||json.documentId;

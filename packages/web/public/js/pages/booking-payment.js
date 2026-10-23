@@ -24,7 +24,7 @@ Pages.bookingPayment = async function(params = {}) {
   // Load banks, employees, real project GST rate in parallel
   let banks = [], employees = [], gstRate = null;
   try {
-    const gstDate = booking.booking_date || new Date().toISOString().split('T')[0];
+    const gstDate = booking.booking_date || Utils.today();
     const [banksRes, empsRes, gstRes] = await Promise.all([
       Api.get('/master/banks'),
       Api.get('/employees/directory'),
@@ -446,7 +446,7 @@ Pages.bookingPayment = async function(params = {}) {
 
   // Default receipt date to today
   const rdEl = document.getElementById('bkp-receipt-date');
-  if (rdEl && !rdEl.value) rdEl.value = new Date().toISOString().split('T')[0];
+  if (rdEl && !rdEl.value) rdEl.value = Utils.today();
 
   BkPayPage.calculatePaymentTaxes();
   BkPayPage.updateTaxLabels();

@@ -209,13 +209,19 @@ const Utils = {
 
   // ── DATE INPUT ───────────────────────────────
 
+  // A date as YYYY-MM-DD in the user's own calendar. toISOString() is UTC, so between midnight and 5:30 in the morning in India it gave yesterday
+  // and the first of the month gave the last day of the month before; every screen takes its default dates from here.
+  isoDate(d = new Date()) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  },
+
   today() {
-    return new Date().toISOString().slice(0, 10);
+    return this.isoDate(new Date());
   },
 
   monthStart() {
     const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+    return this.isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
   },
 
   displayDate() {

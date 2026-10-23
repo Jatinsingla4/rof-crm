@@ -30,6 +30,7 @@ import smtpRoutes from './routes/smtp_config.js';
 import faqRoutes from './routes/faq.js';
 import tasksRoutes from './routes/tasks.js';
 import automationRoutes from './routes/automation.js';
+import emailTemplatesRoutes from './routes/email-templates.js';
 import brokersRoutes from './routes/brokers.js';
 import parkingRoutes from './routes/parking.js';
 import importRoutes from './routes/import.js';
@@ -561,6 +562,7 @@ app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRo
 app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
 app.use('/api/automation',    authenticateToken, rbac('communications'),  automationRoutes);
+app.use('/api/email-templates', authenticateToken, rbac('communications'), emailTemplatesRoutes);
 // Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
 app.use('/api/brokers',       authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokersRoutes);
 app.use('/api/parking',       authenticateToken, rbac('units'),           parkingRoutes);

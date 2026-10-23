@@ -98,7 +98,7 @@
     },
 
     async init() {
-      document.getElementById('im-date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('im-date').value = Utils.today();
       await this.loadProjects();
     },
 
@@ -250,7 +250,7 @@
     close() {
       document.getElementById('im-results').innerHTML = '';
       document.getElementById('im-rate').value = '';
-      document.getElementById('im-date').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('im-date').value = Utils.today();
       document.getElementById('im-project').value = '';
       document.getElementById('im-msg').innerHTML = '';
     },

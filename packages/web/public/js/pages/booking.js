@@ -1492,7 +1492,7 @@ const BookingPage = {
     } catch {}
     // Default receipt date to today
     const rdEl = document.getElementById('bk-receipt-date');
-    if (rdEl && !rdEl.value) rdEl.value = new Date().toISOString().split('T')[0];
+    if (rdEl && !rdEl.value) rdEl.value = Utils.today();
     // S.Tax is a legacy field — always defaults to 0
     ['bk-stax-pct','bk-stax-pct-d','bk-stax-pct-o','bk-stax-pct-c'].forEach(id => {
       const el = document.getElementById(id); if (el) el.value = 0;
@@ -1504,7 +1504,7 @@ const BookingPage = {
   async _applyProjectGstRate(projectId) {
     if (!projectId) return;
     try {
-      const bookingDate = new Date().toISOString().split('T')[0];
+      const bookingDate = Utils.today();
       const gstRes = await Api.get(`/gst-configuration/resolve?projectId=${projectId}&chargeType=BASIC&date=${bookingDate}`);
       const { cgstPct, sgstPct } = gstRes.data || {};
       if (cgstPct !== undefined) {
@@ -3392,7 +3392,7 @@ const BookingPage = {
         form_no: body.form_no || registrationNo,
         consumer_id: consumer.id,
         consumer_name: `${body.first_name || ''} ${body.last_name || ''}`.trim() || 'N/A',
-        booking_date: body.booking_date || new Date().toISOString().split('T')[0]
+        booking_date: body.booking_date || Utils.today()
       });
     } catch (err) {
       Utils.error(err.message);
