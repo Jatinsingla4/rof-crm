@@ -18,7 +18,6 @@ const content = () => page.locator('#content');
 const toast = (t: string | RegExp) => page.locator('.toast', { hasText: t }).first();
 const go = async (hash: string) => { await page.evaluate((h) => { location.hash = h; }, hash); await settle(); };
 const signIn = async (email: string) => {
-  await page.goto('/pages/login.html');
   await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch {} });
   await page.goto('/pages/login.html');
   await page.locator('input[type=email]').fill(email);
