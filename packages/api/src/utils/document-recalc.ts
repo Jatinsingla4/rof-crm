@@ -24,7 +24,7 @@ export function applyOverridesToHtml(
       `(data-field-key="${safeKey}"[^>]*>)[^<]*(</[a-zA-Z][a-zA-Z0-9]*>)`,
       'g'
     );
-    result = result.replace(regex, `$1${value}$2`);
+    result = result.replace(regex, (_m, open, close) => open + value + close);
   }
   return result;
 }
@@ -80,7 +80,7 @@ export function buildEditScript(docId: string, token: string, docType: string): 
   return `<script>
 (function() {
   var DOC_ID   = '${docId.replace(/'/g, "\\'")}';
-  var TOKEN    = '${token.replace(/'/g, "\\'")}';
+  var TOKEN    = localStorage.getItem('rof-jwt') || '';   // never written into the page; a link token cannot call the edit route
   var DOC_TYPE = '${docType.replace(/'/g, "\\'")}';
 
   var isEditMode    = false;
@@ -512,7 +512,7 @@ export function buildEditScript(docId: string, token: string, docType: string): 
     if (daysOverdue <= 0) return;
     var penalRateEl = document.querySelector('[data-field-key="penalRate"]');
     var penalRateRaw = penalRateEl ? (penalRateEl.querySelector('input') || penalRateEl) : null;
-    var penalRate = penalRateRaw ? (_dlParseFmt(penalRateRaw.value !== undefined ? penalRateRaw.value : penalRateRaw.textContent) || 11.10) : 11.10;
+    var penalRate = penalRateRaw ? (_dlParseFmt(penalRateRaw.value !== undefined ? penalRateRaw.value : penalRateRaw.textContent) || 15) : 15;
     var basicAmt = _dlGetVal('basicAmt_' + idx);
     var basicInterest = parseFloat((basicAmt * (penalRate / 100) * daysOverdue / 365).toFixed(2));
     _dlSetVal('basicInterest_' + idx, _dlFmtIN(basicInterest), 'currency');

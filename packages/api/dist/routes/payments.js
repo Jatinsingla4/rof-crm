@@ -16,10 +16,11 @@ const financial_ops_js_1 = require("./financial-ops.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
+const penal_rate_js_1 = require("../utils/penal-rate.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
- * HRERA Rule 15: 11.10% per annum
+ * Rate: the penal_interest_rate_percent setting (utils/penal-rate.ts)
  */
 const getPenalInterestRate = async (projectId) => {
     try {
@@ -28,14 +29,13 @@ const getPenalInterestRate = async (projectId) => {
             if (projRate.rows.length > 0)
                 return parseFloat(projRate.rows[0].rate_percent);
         }
-        const res = await index_js_1.db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
-        return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 11.10;
+        return await (0, penal_rate_js_1.getPenalRate)(index_js_1.db);
     }
     catch {
-        return 11.10;
+        return penal_rate_js_1.DEFAULT_PENAL_RATE;
     }
 };
-const calculatePenalInterest = (principalInr, daysOverdue, rate = 11.10) => {
+const calculatePenalInterest = (principalInr, daysOverdue, rate = penal_rate_js_1.DEFAULT_PENAL_RATE) => {
     return Math.round((principalInr * rate * daysOverdue / 365) / 100);
 };
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);

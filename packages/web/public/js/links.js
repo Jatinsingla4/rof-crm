@@ -11,6 +11,13 @@
     return u.pathname + u.search;
   }
   window.linkUrl = linkUrl;
+  // Opens a vault document from a button carrying data-id, data-has-file and data-url (a stored file goes through a link token, a scan link opens as it is)
+  window.openStored = (btn) => {
+    const d = btn.dataset;
+    if (d.hasFile === 'true') window.open('/api/documents/vault/file/' + d.id + '?token=1', '_blank');
+    else if (d.url) window.open(d.url, '_blank', 'noopener');
+    else if (window.Utils && Utils.warn) Utils.warn('This document has no file');
+  };
   const open = window.open.bind(window);
   window.open = function (url, target, features) {
     if (!isLink(url)) return open(url, target, features);

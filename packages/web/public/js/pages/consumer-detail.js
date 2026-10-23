@@ -473,7 +473,7 @@ const ConsumerDetailPage = {
           </thead>
           <tbody id="kyc-checklist-body">
             ${kycItems.map(item => {
-              const uploaded = docs.some(d => (d.title||d.name||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
+              const uploaded = docs.some(d => (d.title||d.name||d.document_category||'').toLowerCase().includes(item.split(' ')[0].toLowerCase()));
               let isPopulated = false;
               let docNumber = '';
               if (item === 'Aadhaar Card' && consumer.aadhaar_no) { isPopulated = true; docNumber = consumer.aadhaar_no; }
@@ -506,11 +506,11 @@ const ConsumerDetailPage = {
               <thead><tr><th>Document</th><th>Category</th><th>Type</th><th>Uploaded</th><th>Action</th></tr></thead>
               <tbody>
                 ${docs.map(d => `<tr>
-                  <td class="td-bold">${d.title||d.name||d.file_name||'—'}</td>
-                  <td>${d.document_category||d.documentCategory||'—'}</td>
-                  <td>${d.document_type||d.documentType||'—'}</td>
+                  <td class="td-bold">${Utils.esc(d.title||d.name||d.file_name||'—')}</td>
+                  <td>${Utils.esc(d.document_category||d.documentCategory||'—')}</td>
+                  <td>${Utils.esc(d.document_type||d.documentType||'—')}</td>
                   <td>${Utils.date(d.created_at)}</td>
-                  <td><button class="btn btn-ghost btn-sm">Download</button></td>
+                  <td><button class="btn btn-ghost btn-sm" data-id="${Utils.esc(d.id)}" data-has-file="${d.has_file ? 'true' : 'false'}" data-url="${Utils.esc(d.file_url || '')}" onclick="openStored(this)">Download</button></td>
                 </tr>`).join('')}
               </tbody>
             </table>

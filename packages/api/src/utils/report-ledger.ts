@@ -9,6 +9,7 @@
 //  - Received (cash) = cleared receipts of the plan that are not the synthetic "advance" copies of an overpayment (those would count the money twice).
 import { db } from '../db/pool.js';
 import { applyWaterfall, buildInterestRows } from './payment-waterfall.js';
+import { penalRateFrom } from './penal-rate.js';
 
 export const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const num = (v: any) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -204,7 +205,7 @@ export async function loadInterestCtx(plans: LedgerPlan[]): Promise<InterestCtx>
   for (const c of cons.rows) settings.set(c.id, { grace: parseInt(String(c.grace_period_days || 0)) || 0, start: c.interest_start_date ? new Date(c.interest_start_date) : null });
   const stored = new Map<string, { idx: number; amount: number; waived: number }[]>();
   for (const r of pi.rows) { if (!stored.has(r.payment_plan_id)) stored.set(r.payment_plan_id, []); stored.get(r.payment_plan_id)!.push({ idx: Number(r.installment_index), amount: num(r.amount_inr), waived: num(r.waived) }); }
-  return { penalRate: parseFloat(rate.rows[0]?.value || '15') || 15, settings, stored };
+  return { penalRate: penalRateFrom({ penal_interest_rate_percent: rate.rows[0]?.value }), settings, stored };
 }
 
 export function interestOf(p: LedgerPlan, ctx: InterestCtx) {

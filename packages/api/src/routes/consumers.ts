@@ -21,6 +21,7 @@ import {
   children, titleCase, LEAD_STAGES, INCOME_CATS, likeOf,
 } from '../utils/applicant.js';
 import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, sha, lock, conflict, checkIdentity, personName, hasLetter } from '../utils/applicant-fields.js';
+import { penalRateFrom } from '../utils/penal-rate.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -858,7 +859,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     const addonCharges = addonChargesRes.rows;
 
     // ── Interest calculation rows ─────────────
-    let penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+    let penalRate = penalRateFrom(settings);
     if (projectId) {
       try {
         const projRateRes = await db.query(

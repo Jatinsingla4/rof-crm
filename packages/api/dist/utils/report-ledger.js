@@ -15,6 +15,7 @@ exports.interestOf = interestOf;
 //  - Received (cash) = cleared receipts of the plan that are not the synthetic "advance" copies of an overpayment (those would count the money twice).
 const pool_js_1 = require("../db/pool.js");
 const payment_waterfall_js_1 = require("./payment-waterfall.js");
+const penal_rate_js_1 = require("./penal-rate.js");
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 exports.r2 = r2;
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -193,7 +194,7 @@ async function loadInterestCtx(plans) {
             stored.set(r.payment_plan_id, []);
         stored.get(r.payment_plan_id).push({ idx: Number(r.installment_index), amount: num(r.amount_inr), waived: num(r.waived) });
     }
-    return { penalRate: parseFloat(rate.rows[0]?.value || '15') || 15, settings, stored };
+    return { penalRate: (0, penal_rate_js_1.penalRateFrom)({ penal_interest_rate_percent: rate.rows[0]?.value }), settings, stored };
 }
 function interestOf(p, ctx) {
     const st = ctx.settings.get(p.consumer_id) || { grace: 0, start: null };

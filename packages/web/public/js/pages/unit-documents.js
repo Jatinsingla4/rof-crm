@@ -113,7 +113,7 @@ const UnitDocsPage = {
     if (towerSel) {
       const prev = towerSel.value;
       towerSel.innerHTML = '<option value="">— All Towers —</option>' +
-        towers.map(t => `<option value="${t}" ${t===prev?'selected':''}>${t}</option>`).join('');
+        towers.map(t => `<option value="${Utils.esc(t)}" ${t===prev?'selected':''}>${Utils.esc(t)}</option>`).join('');
     }
 
     if (tower) filtered = filtered.filter(u => u.tower === tower);
@@ -201,10 +201,10 @@ const UnitDocsPage = {
             <thead><tr><th>File Name</th><th>Category</th><th>Uploaded</th><th>Action</th></tr></thead>
             <tbody>
               ${docs.map(d => `<tr>
-                <td class="td-bold">${d.file_name||d.fileName||d.name||'—'}</td>
-                <td><span class="chip ch-blue">${d.doc_category||d.docCategory||'General'}</span></td>
+                <td class="td-bold">${Utils.esc(d.file_name||d.fileName||d.name||'—')}</td>
+                <td><span class="chip ch-blue">${Utils.esc(d.doc_category||d.docCategory||'General')}</span></td>
                 <td style="font-size:10.5px">${Utils.date(d.created_at||d.createdAt)}</td>
-                <td><button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/vault/${d.id}/download','_blank')">Download</button></td>
+                <td><button class="btn btn-ghost btn-sm" data-id="${Utils.esc(d.id)}" data-has-file="${d.has_file ? 'true' : 'false'}" data-url="${Utils.esc(d.file_url || '')}" onclick="openStored(this)">Download</button></td>
               </tr>`).join('')}
             </tbody>
           </table>`;

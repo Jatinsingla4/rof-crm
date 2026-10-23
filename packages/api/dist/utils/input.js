@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.failWith = exports.bad = void 0;
+exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.failWith = exports.bad = void 0;
 const index_js_1 = require("../index.js");
 const bad = (message, http = 400) => Object.assign(new Error(message), { http });
 exports.bad = bad;
@@ -115,4 +115,10 @@ exports.financeOnly = financeOnly;
 const pos = (v, label, decimals = 2) => { const n = (0, exports.num)(v, label, 1000000000, decimals); if (!(n > 0))
     throw (0, exports.bad)(`${label} must be more than 0`); return n; };
 exports.pos = pos;
+// A search word as a LIKE pattern where % _ and \ in the word are plain letters (use with ESCAPE '\')
+const likeOf = (s) => '%' + s.replace(/[\\%_]/g, '\\$&') + '%';
+exports.likeOf = likeOf;
+// A text value that will be put into HTML as page text
+const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+exports.escHtml = escHtml;
 //# sourceMappingURL=input.js.map

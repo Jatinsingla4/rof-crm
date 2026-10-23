@@ -20,6 +20,7 @@ const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
+const penal_rate_js_1 = require("../utils/penal-rate.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -921,7 +922,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
                 cac.created_at ASC`, [consumerId]);
         const addonCharges = addonChargesRes.rows;
         // ── Interest calculation rows ─────────────
-        let penalRate = parseFloat(settings['penal_interest_rate_percent'] || '15');
+        let penalRate = (0, penal_rate_js_1.penalRateFrom)(settings);
         if (projectId) {
             try {
                 const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`, [projectId]);

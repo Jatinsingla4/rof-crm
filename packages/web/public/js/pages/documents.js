@@ -508,7 +508,7 @@ const DocsPage = {
         <div class="alert alert-success">
           ✓ ${count} document${count>1?'s':''} generated.
           ${delivery !== 'none' ? `· Queued for delivery via ${delivery}.` : ''}
-          ${data.documentId ? `<a href="/api/documents/${data.documentId}/pdf" target="_blank" style="margin-left:8px;color:var(--teal)">Download PDF ↗</a>` : ''}
+          ${data.documentId ? `<a href="/api/documents/${data.documentId}/html?token=1" target="_blank" style="margin-left:8px;color:var(--teal)">Open document ↗</a>` : ''}
         </div>`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
@@ -541,7 +541,7 @@ const DocsPage = {
       result.innerHTML = `
         <div class="alert alert-success">
           ✓ Letter generated.
-          ${data.documentId ? `<a href="/api/documents/${data.documentId}/pdf" target="_blank" style="margin-left:8px;color:var(--teal)">Download PDF ↗</a>` : ''}
+          ${data.documentId ? `<a href="/api/documents/${data.documentId}/html?token=1" target="_blank" style="margin-left:8px;color:var(--teal)">Open document ↗</a>` : ''}
         </div>`;
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
@@ -598,7 +598,7 @@ const DocsPage = {
       });
       const data = res.data || res;
       if (data.documentId) {
-        window.open(`/api/documents/${data.documentId}/pdf`, '_blank');
+        window.open(`/api/documents/${data.documentId}/html?token=1`, '_blank');
         Utils.success('Document generated successfully');
       }
     } catch (err) { Utils.error(err.message); }
@@ -636,7 +636,7 @@ const DocsPage = {
       const docId = data.data?.documentId || data.documentId;
 
       if (docId) {
-        window.open(`/api/documents/${docId}/html?token=${token}`, '_blank');
+        window.open(`/api/documents/${docId}/html?token=1`, '_blank');
       } else {
         throw new Error('No document ID returned');
       }
@@ -677,13 +677,13 @@ const DocsPage = {
             <thead><tr><th>Template Name</th><th>Type</th><th>Variables</th><th>Last Updated</th><th>Action</th></tr></thead>
             <tbody>
               ${list.map(t => `<tr>
-                <td class="td-bold">${t.name||t.template_name||'—'}</td>
+                <td class="td-bold">${Utils.esc(t.name||t.template_name||'—')}</td>
                 <td>${Utils.chip(t.document_type||t.documentType||'custom')}</td>
                 <td style="font-size:10.5px">${(t.variables||[]).join(', ')||'—'}</td>
                 <td style="font-size:10.5px">${Utils.date(t.updated_at||t.created_at)}</td>
                 <td><div style="display:flex;gap:4px">
                   <button class="btn btn-ghost btn-sm" onclick="DocsPage.editTemplate('${t.id}')">Edit</button>
-                  <button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/templates/${t.id}/preview','_blank')">Preview</button>
+                  <button class="btn btn-ghost btn-sm" onclick="DocsPage.previewTemplate('${t.id}')">Preview</button>
                 </div></td>
               </tr>`).join('')}
             </tbody>
@@ -713,13 +713,13 @@ const DocsPage = {
             <tbody>
               ${list.map(d => `<tr>
                 <td class="td-mono">${(d.id||'').slice(0,8)}</td>
-                <td class="td-bold">${d.consumer_name||d.consumerName||'—'}</td>
+                <td class="td-bold">${Utils.esc(d.consumer_name||d.consumerName||'—')}</td>
                 <td style="font-size:10.5px">${(d.document_type||d.documentType||'—').replace(/_/g,' ')}</td>
                 <td>${Utils.chip(d.status||'generated')}</td>
                 <td>${Utils.chip(d.delivery_status||d.deliveryStatus||'pending')}</td>
                 <td style="font-size:10.5px">${d.created_at ? `Generated on ${Utils.date(d.created_at)}` : '—'}</td>
                 <td><div style="display:flex;gap:4px">
-                  <button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/${d.id}/pdf','_blank')">PDF</button>
+                  <button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/${d.id}/html?token=1','_blank')">Open</button>
                   ${d.delivery_status !== 'delivered' ? `<button class="btn btn-teal btn-sm" onclick="DocsPage.sendDoc('${d.id}',this)">Send</button>` : ''}
                 </div></td>
               </tr>`).join('')}
@@ -746,15 +746,27 @@ const DocsPage = {
             <thead><tr><th>File Name</th><th>Consumer</th><th>Category</th><th>Uploaded</th><th>Action</th></tr></thead>
             <tbody>
               ${list.map(d => `<tr>
-                <td class="td-bold">${d.file_name||d.fileName||d.name||'—'}</td>
-                <td>${d.consumer_name||d.consumerName||'—'}</td>
+                <td class="td-bold">${Utils.esc(d.file_name||d.fileName||d.name||'—')}</td>
+                <td>${Utils.esc(d.consumer_name||d.consumerName||'—')}</td>
                 <td><span class="chip ch-blue">${d.doc_category||d.docCategory||'General'}</span></td>
                 <td style="font-size:10.5px">${Utils.date(d.created_at)}</td>
-                <td><button class="btn btn-ghost btn-sm" onclick="window.open('/api/documents/vault/${d.id}/download','_blank')">Download</button></td>
+                <td><button class="btn btn-ghost btn-sm" data-id="${Utils.esc(d.id)}" data-has-file="${d.has_file ? 'true' : 'false'}" data-url="${Utils.esc(d.file_url || '')}" onclick="openStored(this)">Download</button></td>
               </tr>`).join('')}
             </tbody>
           </table>`;
     } catch (err) { el.innerHTML = `<div style="padding:20px;color:var(--red)">${err.message}</div>`; }
+  },
+
+  // The template text is shown in a frame that cannot run scripts
+  async previewTemplate(id) {
+    try {
+      const res = await Api.get(`/documents/templates/${id}`);
+      const html = (res.data || res).body_html || '';
+      const w = window.open('about:blank', '_blank');
+      if (!w) return;
+      w.document.write(`<title>Template preview</title><iframe sandbox style="width:100%;height:96vh;border:0" srcdoc="${Utils.esc(html)}"></iframe>`);
+      w.document.close();
+    } catch (err) { Utils.error(err.message); }
   },
 
   async sendDoc(docId, btn) {

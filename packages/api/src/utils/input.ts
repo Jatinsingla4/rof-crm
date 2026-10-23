@@ -64,3 +64,7 @@ export const financeOnly = (req: AuthRequest, res: Response, next: NextFunction)
   ['super_admin', 'accounts_finance'].includes(req.userRole || '') ? next() : res.status(403).json({ error: 'Only accounts and finance can do this' });
 // A money amount that is more than 0 (up to 1,000,000,000, paise allowed unless decimals is 0)
 export const pos = (v: any, label: string, decimals = 2): number => { const n = num(v, label, 1_000_000_000, decimals); if (!(n > 0)) throw bad(`${label} must be more than 0`); return n; };
+// A search word as a LIKE pattern where % _ and \ in the word are plain letters (use with ESCAPE '\')
+export const likeOf = (s: string) => '%' + s.replace(/[\\%_]/g, '\\$&') + '%';
+// A text value that will be put into HTML as page text
+export const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');

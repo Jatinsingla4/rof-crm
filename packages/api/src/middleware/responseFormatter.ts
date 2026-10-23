@@ -1,3 +1,4 @@
+import { DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
 /**
  * Response Formatter Middleware
  * Fixes field name mismatches between backend and frontend
@@ -95,7 +96,7 @@ const formatAllocation = (allocation: any): any => {
 const formatDemand = (demand: any): any => {
   const formatted: any = { ...demand };
 
-  // Calculate penal interest if overdue (HRERA Rule 15: 11.10% per annum)
+  // Calculate penal interest if overdue (default rate from utils/penal-rate.ts)
   // Handle both amount_inr and amount_due_inr field names
   const amountInr = demand.amount_inr || demand.amount_due_inr;
 
@@ -105,7 +106,7 @@ const formatDemand = (demand: any): any => {
 
     if (now > dueDate) {
       const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-      const penalInterest = Math.round((amountInr * 0.111 * daysOverdue / 365) * 100) / 100;
+      const penalInterest = Math.round((amountInr * (DEFAULT_PENAL_RATE / 100) * daysOverdue / 365) * 100) / 100;
       formatted.penal_interest_amount = penalInterest;
       formatted.penal_interest = penalInterest; // Also add alias for compatibility
     } else {

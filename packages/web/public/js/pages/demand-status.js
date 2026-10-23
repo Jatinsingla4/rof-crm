@@ -313,7 +313,7 @@ const DS = {
       }
       // Otherwise open PDF link:
       const docId = json.data?.documentId || json.documentId;
-      if (docId) { win.location.href = `/api/documents/${docId}/html`; return; }
+      if (docId) { win.location.href = await window.linkUrl(`/api/documents/${docId}/html`); return; }
       throw new Error('No content returned');
     } catch (err) { win.document.body.innerHTML = `<p style="color:red;font-family:Arial;padding:20px;">Error: ${err.message}</p>`; }
   },

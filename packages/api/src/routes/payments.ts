@@ -17,12 +17,13 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
+import { getPenalRate, DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
 
 const router = Router();
 
 /**
  * Calculate Penal Interest (Late Payment Penalty)
- * HRERA Rule 15: 11.10% per annum
+ * Rate: the penal_interest_rate_percent setting (utils/penal-rate.ts)
  */
 const getPenalInterestRate = async (projectId?: string): Promise<number> => {
   try {
@@ -33,14 +34,13 @@ const getPenalInterestRate = async (projectId?: string): Promise<number> => {
       );
       if (projRate.rows.length > 0) return parseFloat(projRate.rows[0].rate_percent);
     }
-    const res = await db.query("SELECT value FROM global_settings WHERE key = 'penal_interest_rate_percent'");
-    return res.rows.length > 0 ? parseFloat(res.rows[0].value) : 11.10;
+    return await getPenalRate(db);
   } catch {
-    return 11.10;
+    return DEFAULT_PENAL_RATE;
   }
 };
 
-const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate: number = 11.10): number => {
+const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate: number = DEFAULT_PENAL_RATE): number => {
   return Math.round((principalInr * rate * daysOverdue / 365) / 100);
 };
 
