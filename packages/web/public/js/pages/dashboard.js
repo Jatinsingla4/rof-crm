@@ -126,7 +126,7 @@ Pages.dashboard = async function() {
         <div class="dbn-body" id="dash-donut-demand"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
       <div class="tbl-wrap" style="margin-bottom:0">
-        <div class="tbl-hdr"><span class="tbl-icon">🎫</span><div class="tbl-title">Ticket Status</div><div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">Open</button></div></div>
+        <div class="tbl-hdr"><span class="tbl-icon">🎫</span><div class="tbl-title">Task Status</div><div class="tbl-actions"><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">Open</button></div></div>
         <div class="dbn-body" id="dash-donut-tickets"><div class="page-loading"><div class="spinner"></div></div></div>
       </div>
     </div>
@@ -149,7 +149,7 @@ Pages.dashboard = async function() {
       </div>
     </div>
 
-    <!-- Row 2: Pending Approval + Employee Ticket Details -->
+    <!-- Row 2: Pending Approval + Employee Task Details -->
     <div class="g2" style="margin-top:14px">
       <div class="tbl-wrap">
         <div class="tbl-hdr"><span class="tbl-icon">✅</span><div class="tbl-title">Pending Approval</div></div>
@@ -157,7 +157,7 @@ Pages.dashboard = async function() {
       </div>
       <div class="tbl-wrap">
         <div class="tbl-hdr">
-          <span class="tbl-icon">👥</span><div class="tbl-title">Employee Wise Ticket Details</div>
+          <span class="tbl-icon">👥</span><div class="tbl-title">Employee Wise Task Details</div>
           <div class="tbl-actions">
             <button class="collapse-toggle" onclick="DashboardPage.toggleCollapse('dash-employee-tickets')" aria-label="Collapse">▾</button>
             <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/tasks')">View All</button>
@@ -225,10 +225,10 @@ Pages.dashboard = async function() {
   const totalPending    = chequeRows.reduce((s, r) => s + parseInt(r.pending    || 0), 0);
   const totalPDC        = chequeRows.reduce((s, r) => s + parseInt(r.pdc        || 0), 0);
   const totalAmount     = chequeRows.reduce((s, r) => s + parseFloat(r.amount   || 0), 0);
-  const totalApproval   = approvalRows.length;
+  const totalApproval   = summary.pendingApprovalCount ?? approvalRows.length;
   const totalToday      = forthRows.reduce((s, r)  => s + parseInt(r.today_dues || 0), 0);
   const total17Days     = forthRows.reduce((s, r)  => s + parseInt(r.days_1_7   || 0), 0);
-  const totalTicketsOpen = tickRows.reduce((s, r) => s + parseInt(r.open_tickets || 0), 0);
+  const totalTicketsOpen = tickRows.reduce((s, r) => s + parseInt(r.pending || 0), 0);
   const totalCollection = dailyRows.reduce((s, r) => s + parseFloat(r.coll_today || 0), 0);
 
   const kpi = (c, ico, lbl, val, sub, go, bad) => `
@@ -244,7 +244,7 @@ Pages.dashboard = async function() {
     kpi('var(--accent)', '🏦', 'PDC / Demand Draft', totalPDC, 'Post-dated instruments', '') +
     kpi('var(--blue)',   '✅', 'Pending Approval', totalApproval, 'Receipts awaiting approval', '/receipts') +
     kpi('var(--red)',    '⏰', "Today's Dues", totalToday, `${total17Days} due in next 7 days`, '/demands', totalToday > 0) +
-    kpi('var(--green)',  '🎫', 'Open Tickets', totalTicketsOpen, 'Across all employees', '/tasks');
+    kpi('var(--green)',  '🎫', 'Open Tasks', totalTicketsOpen, 'Across all employees', '/tasks');
 
   // Hero
   const _u = (window.Auth && Auth.getUser && Auth.getUser()) || {};
@@ -271,7 +271,7 @@ Pages.dashboard = async function() {
       : top.map(r => {
           const v = parseFloat(r.coll_month || 0);
           return `<div class="dbn-bar-row">
-            <div class="dbn-bar-name" title="${r.project || ''}">${r.project || '—'}</div>
+            <div class="dbn-bar-name" title="${Utils.esc(r.project || '')}">${Utils.esc(r.project || '—')}</div>
             <div class="dbn-bar-track"><div class="dbn-bar-fill" style="width:${Math.max(1, v / maxC * 100)}%"></div></div>
             <div class="dbn-bar-val">${Utils.currency(v)}<small>Today ${Utils.currency(r.coll_today)}</small></div>
           </div>`;
@@ -315,12 +315,12 @@ Pages.dashboard = async function() {
         (sentN + unsentN) ? Math.round(sentN / (sentN + unsentN) * 100) + '%' : '0%', 'sent');
 
   const tsum = k => tickRows.reduce((a, r) => a + parseInt(r[k] || 0), 0);
-  const tOpen = tsum('open_tickets'), tProg = tsum('in_progress'), tRes = tsum('resolved'), tOver = tsum('overdue');
+  const tOpen = tsum('pending'), tRes = tsum('completed'), tOver = tsum('overdue');
   const td = document.getElementById('dash-donut-tickets');
   if (td) td.innerHTML = tickRows.length === 0
-    ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No active tickets</div></div>`
-    : stack([{ l:'Open', n:tOpen, c:'var(--warn)' }, { l:'In progress', n:tProg, c:'var(--blue)' }, { l:'Resolved', n:tRes, c:'var(--teal)' }, { l:'Overdue', n:tOver, c:'var(--red)' }],
-        tsum('total_tickets'), 'tickets');
+    ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No tasks assigned</div></div>`
+    : stack([{ l:'Pending', n:tOpen, c:'var(--warn)' }, { l:'Completed', n:tRes, c:'var(--teal)' }, { l:'Overdue', n:tOver, c:'var(--red)' }],
+        tsum('total'), 'tasks');
 
   // Needs attention
   const att = (t, n, go, bad) => `<div class="dbn-att" onclick="Router.navigate('${go}')"><b>${t}</b><span${bad && n ? ' class="bad"' : ''}>${n}</span></div>`;
@@ -330,7 +330,7 @@ Pages.dashboard = async function() {
     att('Pending cheques', totalPending, '/receipts') +
     att('Receipts to approve', totalApproval, '/receipts') +
     att('Unsent demand letters', unsentN, '/demands') +
-    att('Overdue tickets', tOver, '/tasks', true);
+    att('Overdue tasks', tOver, '/tasks', true);
 
   // Alert bar
   if (totalPending > 0 || totalApproval > 0) {
@@ -364,7 +364,7 @@ Pages.dashboard = async function() {
         <tbody>
           ${chequeRows.map((r, i) => `<tr>
             <td>${i + 1}</td>
-            <td class="td-bold">${r.project || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.project || '—')}</td>
             <td class="txt-right" style="color:var(--warn)"><a href="/pending-cheques.html?project_id=${r.project_id}" style="color:var(--teal);font-weight:600;text-decoration:none;">${r.pending || 0}</a></td>
             <td class="txt-right" style="color:var(--teal)">${r.deposite || 0}</td>
             <td class="txt-right">${r.total || 0}</td>
@@ -407,7 +407,7 @@ Pages.dashboard = async function() {
         </thead>
         <tbody>
           ${demandRows.map(r => `<tr>
-            <td class="td-bold">${r.project || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.project || '—')}</td>
             <td class="txt-right" style="color:var(--warn)">${r.demand_unsend || 0}</td>
             <td class="txt-right" style="color:var(--teal)">${r.demand_send || 0}</td>
             <td class="txt-right" style="color:var(--warn)">${r.rem1_unsend || 0}</td>
@@ -432,13 +432,13 @@ Pages.dashboard = async function() {
         </tr></thead>
         <tbody>
           ${approvalRows.map(r => `<tr>
-            <td class="td-bold">${r.consumer_name || '—'}</td>
-            <td class="td-mono">${r.mobile || '—'}</td>
-            <td>${r.project_name || '—'}</td>
-            <td>${r.unit_number || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.consumer_name || '—')}</td>
+            <td class="td-mono">${Utils.esc(r.mobile || '—')}</td>
+            <td>${Utils.esc(r.project_name || '—')}</td>
+            <td>${Utils.esc(r.unit_number || '—')}</td>
             <td class="txt-right" style="color:var(--teal);font-weight:600">${Utils.currency(r.amount_received_inr)}</td>
-            <td><span class="chip chip-blue">${r.payment_method || '—'}</span></td>
-            <td style="font-size:10.5px">${Utils.date(r.payment_date)}</td>
+            <td><span class="chip chip-blue">${Utils.esc(r.payment_method || '—')}</span></td>
+            <td style="font-size:10.5px">${Utils.date(r.received_date)}</td>
             <td><button class="btn btn-teal btn-sm" data-action="approve-receipt" onclick="DashboardPage.approveReceipt('${r.id}', this)">Approve</button></td>
           </tr>`).join('')}
         </tbody>
@@ -446,22 +446,20 @@ Pages.dashboard = async function() {
 
   // ── EMPLOYEE TICKET DETAILS ────────────────────────────────────────────────
   document.getElementById('dash-employee-tickets').innerHTML = tickRows.length === 0
-    ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No active tickets</div></div>`
+    ? `<div class="empty-state"><div class="empty-icon">👥</div><div>No tasks assigned</div></div>`
     : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Employee Name</th>
-          <th class="txt-right">Total</th><th class="txt-right" style="color:var(--warn)">Open</th>
-          <th class="txt-right" style="color:var(--blue)">In Progress</th>
-          <th class="txt-right" style="color:var(--teal)">Resolved</th>
+          <th class="txt-right">Total</th><th class="txt-right" style="color:var(--warn)">Pending</th>
+          <th class="txt-right" style="color:var(--teal)">Completed</th>
           <th class="txt-right" style="color:var(--red)">Overdue</th>
         </tr></thead>
         <tbody>
           ${tickRows.map(r => `<tr>
-            <td class="td-bold">${r.employee_name || '—'}</td>
-            <td class="txt-right">${r.total_tickets || 0}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.open_tickets || 0}</td>
-            <td class="txt-right" style="color:var(--blue)">${r.in_progress || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.resolved || 0}</td>
+            <td class="td-bold">${Utils.esc(r.employee_name || '—')}</td>
+            <td class="txt-right">${r.total || 0}</td>
+            <td class="txt-right" style="color:var(--warn)">${r.pending || 0}</td>
+            <td class="txt-right" style="color:var(--teal)">${r.completed || 0}</td>
             <td class="txt-right" style="color:var(--red)">${r.overdue || 0}</td>
           </tr>`).join('')}
         </tbody>
@@ -479,7 +477,7 @@ Pages.dashboard = async function() {
         </tr></thead>
         <tbody>
           ${dailyRows.map(r => `<tr>
-            <td class="td-bold">${r.project || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.project || '—')}</td>
             <td class="txt-right">${r.sales_today || 0}</td>
             <td class="txt-right" style="color:var(--teal)">${Utils.currency(r.coll_today)}</td>
             <td class="txt-right">${r.sales_month || 0}</td>
@@ -505,19 +503,16 @@ Pages.dashboard = async function() {
     : `<div class="dash-scroll"><table class="dash-tbl">
         <thead><tr>
           <th>Project</th><th>Parking Type</th>
-          <th class="txt-right">Total</th><th class="txt-right" style="color:var(--teal)">Paid</th>
-          <th class="txt-right" style="color:var(--green)">Free</th>
-          <th class="txt-right">Total Issued</th><th class="txt-right" style="color:var(--blue)">Remaining</th>
+          <th class="txt-right">Total</th><th class="txt-right" style="color:var(--teal)">Allotted</th>
+          <th class="txt-right" style="color:var(--green)">Available</th>
         </tr></thead>
         <tbody>
           ${parkRows.map(r => `<tr>
-            <td class="td-bold">${r.project || '—'}</td>
-            <td>${r.parking_type || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.project || '—')}</td>
+            <td>${Utils.esc(r.parking_type || '—')}</td>
             <td class="txt-right">${r.total || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.paid || 0}</td>
-            <td class="txt-right" style="color:var(--green)">${r.free || 0}</td>
-            <td class="txt-right">${r.total_issued || 0}</td>
-            <td class="txt-right" style="color:var(--blue)">${r.remaining || 0}</td>
+            <td class="txt-right" style="color:var(--teal)">${r.allotted || 0}</td>
+            <td class="txt-right" style="color:var(--green)">${r.available || 0}</td>
           </tr>`).join('')}
         </tbody>
       </table></div>`;
@@ -536,7 +531,7 @@ Pages.dashboard = async function() {
         </tr></thead>
         <tbody>
           ${forthRows.map(r => `<tr>
-            <td class="td-bold">${r.project_name || '—'}</td>
+            <td class="td-bold">${Utils.esc(r.project_name || '—')}</td>
             <td class="txt-right" style="color:var(--red)">${r.today_dues || 0}</td>
             <td class="txt-right" style="color:var(--warn)">${r.days_1_7 || 0}</td>
             <td class="txt-right">${r.days_8_14 || 0}</td>

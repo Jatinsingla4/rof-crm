@@ -416,10 +416,9 @@ const AllotmentPage = {
         await this.onProjectChange();
       }
       if (booking.unit_id) {
-        setTimeout(() => {
-          const unitSel = document.getElementById('allot-unit-sel');
-          if (unitSel) unitSel.value = booking.unit_id;
-        }, 500);
+        // the unit list was awaited above, so the unit can be picked now (a fixed 500 ms wait lost the race on a slow machine)
+        const unitSel = document.getElementById('allot-unit-sel');
+        if (unitSel) unitSel.value = booking.unit_id;
       }
     } catch (err) {
       console.warn('Could not fetch booking for consumer:', err.message);
