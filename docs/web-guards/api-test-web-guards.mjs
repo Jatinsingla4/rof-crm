@@ -29,7 +29,7 @@ const collect = (file, base, seen = new Set()) => {
     routes.push({ method: r[1].toUpperCase(), re: toRe(base + (p === '/' ? '' : p)) });
   }
   const local = {};
-  for (const m of src.matchAll(/import (\w+) from '\.\/([\w.-]+?)(?:\.js)?'/g)) local[m[1]] = path.join(path.dirname(file), m[2] + '.ts');
+  for (const m of src.matchAll(/import (\w+) from '\.\/([\w./-]+?)(?:\.js)?'/g)) local[m[1]] = path.join(path.dirname(file), m[2] + '.ts');
   for (const m of src.matchAll(/router\.use\(\s*(?:'([^']*)',\s*)?([\w\s,]+)\)/g)) for (const n of m[2].split(',').map((x) => x.trim())) if (local[n]) collect(local[n], base + (m[1] || ''), seen);
 };
 // each app.use('/api/...') block runs until the next top-level app. / comment / const line, so a mount that spans lines (a small wrapper before the router) is read whole
