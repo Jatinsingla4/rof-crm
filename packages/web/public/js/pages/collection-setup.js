@@ -81,6 +81,10 @@ const CollectionSetupPage = {
                 <input type="text" id="s-name" class="fc">
               </div>
               <div class="fg">
+                <label class="fl">Sender Email</label>
+                <input type="text" id="s-from" class="fc" placeholder="e.g. accounts@company.com">
+              </div>
+              <div class="fg">
                 <label class="fl">SSL / TLS</label>
                 <div class="csn-radio">
                   <label><input type="radio" name="s-ssl" value="true" checked> Yes</label>
@@ -119,9 +123,9 @@ const CollectionSetupPage = {
 
       const rows = data.map(c => `
         <tr>
-          <td><strong>${c.project_name}</strong></td>
-          <td>${c.host}:${c.port}</td>
-          <td>${c.from_email}</td>
+          <td><strong>${Utils.esc(c.project_name)}</strong></td>
+          <td>${Utils.esc(c.host)}:${Utils.esc(String(c.port))}</td>
+          <td>${Utils.esc(c.from_email)}</td>
           <td>${c.use_ssl ? 'SSL' : 'Plain'}</td>
           <td>
             <button class="csn-edit" onclick="CollectionSetupPage.edit('${c.id}')">Edit</button>
@@ -153,13 +157,14 @@ const CollectionSetupPage = {
       username: document.getElementById('s-user').value,
       password: document.getElementById('s-pass').value,
       fromName: document.getElementById('s-name').value,
-      fromEmail: document.getElementById('s-user').value, // default same as username
+      fromEmail: document.getElementById('s-from').value,
       useSsl: document.querySelector('input[name="s-ssl"]:checked').value === 'true'
     };
 
     try {
       await Api.post('/smtp-configs', payload);
       Utils.success('Configuration saved');
+      document.getElementById('s-pass').value = '';
       this.fetchConfigs();
     } catch (err) { Utils.error(err.message); }
   },
@@ -170,8 +175,11 @@ const CollectionSetupPage = {
     document.getElementById('s-project').value = c.project_id;
     document.getElementById('s-host').value = c.host;
     document.getElementById('s-port').value = c.port;
-    document.getElementById('s-user').value = c.username;
-    document.getElementById('s-name').value = c.from_name;
+    document.getElementById('s-user').value = c.username || '';
+    document.getElementById('s-from').value = c.from_email || '';
+    document.getElementById('s-pass').value = '';
+    document.getElementById('s-pass').placeholder = c.has_password ? 'Saved. Leave blank to keep it' : '';
+    document.getElementById('s-name').value = c.from_name || '';
     document.querySelector(`input[name="s-ssl"][value="${c.use_ssl}"]`).checked = true;
   }
 };
