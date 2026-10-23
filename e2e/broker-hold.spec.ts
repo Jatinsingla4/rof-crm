@@ -479,8 +479,8 @@ test('Expiry: a hold whose time is up disappears from Active Holds, shows as Exp
   sql(`update unit_holds set expires_at = now() - interval '2 minutes' where id = '${h.id}'`);
   await go('/brokers?tab=list'); await go('/inventory-hold');
   await expect(page.locator('#active-holds-body tr', { hasText: `BU5-${U}` })).toHaveCount(0);
-  expect(sql(`select status from units where id = '${u}'`)).toBe('available');
-  expect(sql(`select status from unit_holds where id = '${h.id}'`)).toBe('expired');
+  await expect.poll(() => sql(`select status from units where id = '${u}'`)).toBe('available');   // the sweep runs beside the list, so the database is polled
+  await expect.poll(() => sql(`select status from unit_holds where id = '${h.id}'`)).toBe('expired');
   await tab('Hold History');
   const hist = page.locator('#history-holds-body tr', { hasText: `Expiry Client ${U}` });
   await expect(hist).toHaveCount(1); await expect(hist).toContainText('Expired');
@@ -491,7 +491,7 @@ test('Expiry: a hold whose time is up disappears from Active Holds, shows as Exp
   await must('suspend', api('PATCH', `/brokers/${S.other}/status`, { status: 'suspended' }));
   await go('/brokers?tab=list'); await go('/inventory-hold');
   await expect(page.locator('#active-holds-body tr', { hasText: `BU6-${U}` })).toHaveCount(0);
-  expect(sql(`select status from units where id = '${u2}'`)).toBe('available');
+  await expect.poll(() => sql(`select status from units where id = '${u2}'`)).toBe('available');
   // the hold screen offers only active brokers
   await tab('New Hold');
   await expect(page.locator('#hold-broker option', { hasText: `Rival Brokers ${U}` })).toHaveCount(0);
