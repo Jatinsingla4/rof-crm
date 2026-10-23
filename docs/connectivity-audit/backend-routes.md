@@ -38,7 +38,6 @@ Generated: May 2, 2026
 | `/api/master` | master.ts | 51 | Master data (countries, states, cities, banks) |
 | `/api/booking` | booking.ts | 3 | Booking workflow |
 | `/api/employees` | employees.ts | 19 | Employee records and organization |
-| `/api/operations` | operations.ts | 2 | Operations management |
 | `/api/transfers` | transfers.ts | 2 | Unit transfers |
 | `/api/registry` | registry.ts | 2 | Registry management |
 | `/api/loans` | loans.ts | 2 | Loan management |

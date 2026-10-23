@@ -42,7 +42,6 @@ import masterRoutes from './routes/master.js';
 import bookingRoutes from './routes/booking.js';
 import bookingDocumentsRoutes from './routes/booking_documents.js';
 import employeesRoutes from './routes/employees.js';
-import operationsRoutes from './routes/operations.js';
 import addonChargesRoutes from './routes/addon-charges.js';
 import chargeMasterRoutes from './routes/charge-master.js';
 import plcChargesRoutes from './routes/plc-charges.js';
@@ -575,7 +574,6 @@ app.use('/api/master',        authenticateToken,                          master
 app.use('/api/booking',           authenticateToken,                      bookingRoutes);
 app.use('/api/booking-documents', authenticateToken,                      bookingDocumentsRoutes);
 app.use('/api/employees', authenticateToken, rbac('users'), employeesRoutes);
-app.use('/api/operations', authenticateToken, operationsRoutes);
 app.use('/api/addon-charges',       authenticateToken, addonChargesRoutes);
 app.use('/api/charge-master',       authenticateToken, chargeMasterRoutes);
 app.use('/api/plc-charges',         authenticateToken, plcChargesRoutes);
