@@ -75,11 +75,13 @@ router.get('/:id', async (req, res, next) => {
     }
 });
 const taken = 'A template with this name already exists';
+// A blank type (only spaces) reads as "nothing" in oneOf; on a save it must be a real type, or the column would get a null
+const typeOf = (v) => (0, input_js_1.oneOf)(v, 'templateType', exports.TYPES) ?? (() => { throw (0, input_js_1.bad)(`templateType must be one of: ${exports.TYPES.join(', ')}`); })();
 // POST /api/email-templates
 router.post('/', async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
-        const name = (0, input_js_1.text)(b.name, 'Name', 150, true), type = (0, input_js_1.has)(b.templateType) ? (0, input_js_1.oneOf)(b.templateType, 'templateType', exports.TYPES) : 'general';
+        const name = (0, input_js_1.text)(b.name, 'Name', 150, true), type = (0, input_js_1.has)(b.templateType) ? typeOf(b.templateType) : 'general';
         const subject = wording(b.subject, 'Subject', 200, false) ?? '', content = wording(b.body, 'Body', 20000, true), active = (0, input_js_1.flag)(b.isActive, 'isActive') ?? true;
         if ((await index_js_1.db.query(`SELECT 1 FROM email_templates WHERE lower(name) = lower($1)`, [name])).rows.length)
             throw (0, input_js_1.bad)(taken, 409);
@@ -100,7 +102,7 @@ router.patch('/:id', async (req, res, next) => {
         if ((0, input_js_1.has)(b.name))
             set('name', (0, input_js_1.text)(b.name, 'Name', 150, true));
         if ((0, input_js_1.has)(b.templateType))
-            set('template_type', (0, input_js_1.oneOf)(b.templateType, 'templateType', exports.TYPES));
+            set('template_type', typeOf(b.templateType));
         if (b.subject !== undefined)
             set('subject', wording(b.subject, 'Subject', 200, false) ?? '');
         if ((0, input_js_1.has)(b.body))

@@ -108,6 +108,13 @@ const rr = await Promise.all(calls);
 t('random: 140 hostile requests, none gave a 5xx', no5(rr), JSON.stringify(rr.filter((x) => x.s >= 500).slice(0, 3)));
 t('random: the four starting templates and the letter table are intact', psql(`select count(*) from email_templates where is_system`) === '4' && psql(`select id from document_templates where document_type='allotment_letter' and created_by_user_id is null order by created_at limit 1`) !== undefined);
 
+t('type: a blank template type (only spaces) is 400 on create and on edit, never a database error', await (async () => {
+  const c = await A('POST', '/email-templates', { name: `Blank type ${U}`, body: 'Hello', templateType: '   ' });
+  const mine = (await A('POST', '/email-templates', { name: `Typed ${U}`, body: 'Hello' })).j?.data?.id;
+  const e = await A('PATCH', `/email-templates/${mine}`, { templateType: '   ' });
+  return c.s === 400 && e.s === 400;
+})());
+
 // ---------- clean up ----------
 const rm = (sql) => { try { psql(sql); } catch {} };
 rm(`DELETE FROM email_templates WHERE is_system = false AND (name LIKE '%${U}%' OR created_at > now() - interval '30 minutes' AND name LIKE 'ok%')`);

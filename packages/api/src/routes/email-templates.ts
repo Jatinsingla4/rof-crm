@@ -59,12 +59,14 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
 });
 
 const taken = 'A template with this name already exists';
+// A blank type (only spaces) reads as "nothing" in oneOf; on a save it must be a real type, or the column would get a null
+const typeOf = (v: any) => oneOf(v, 'templateType', TYPES) ?? (() => { throw bad(`templateType must be one of: ${TYPES.join(', ')}`); })();
 
 // POST /api/email-templates
 router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const b = body(req);
-    const name = text(b.name, 'Name', 150, true)!, type = has(b.templateType) ? oneOf(b.templateType, 'templateType', TYPES)! : 'general';
+    const name = text(b.name, 'Name', 150, true)!, type = has(b.templateType) ? typeOf(b.templateType) : 'general';
     const subject = wording(b.subject, 'Subject', 200, false) ?? '', content = wording(b.body, 'Body', 20000, true)!, active = flag(b.isActive, 'isActive') ?? true;
     if ((await db.query(`SELECT 1 FROM email_templates WHERE lower(name) = lower($1)`, [name])).rows.length) throw bad(taken, 409);
     const r = await db.query(
@@ -82,7 +84,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     const sets: string[] = [], values: any[] = [];
     const set = (col: string, v: any) => sets.push(`${col} = $${values.push(v)}`);
     if (has(b.name)) set('name', text(b.name, 'Name', 150, true));
-    if (has(b.templateType)) set('template_type', oneOf(b.templateType, 'templateType', TYPES));
+    if (has(b.templateType)) set('template_type', typeOf(b.templateType));
     if (b.subject !== undefined) set('subject', wording(b.subject, 'Subject', 200, false) ?? '');
     if (has(b.body)) set('body', wording(b.body, 'Body', 20000, true));
     else if (b.body !== undefined) throw bad('Body is required');
