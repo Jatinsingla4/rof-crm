@@ -8,9 +8,10 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { cleanBody } from './master.js';
+import { projectSettings } from '../utils/project-settings.js';
 import { isScoped } from '../db/pool.js';
 import { auditChange } from '../middleware/auditLogger.js';
-import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas } from '../utils/input.js';
+import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas, oneOf as inOneOf, failWith } from '../utils/input.js';
 
 const router = Router();
 
@@ -281,11 +282,32 @@ router.get('/:id/plans', async (req: AuthRequest, res: Response, next: NextFunct
       `SELECT t.plan_name, COUNT(*)::int AS rows, COALESCE(SUM(t.percentage), 0)::float AS total_pct,
               COALESCE(SUM(t.flat_amount_inr), 0)::bigint AS flat_total, MAX(t.updated_at) AS updated_at,
               (SELECT COUNT(*)::int FROM booking_records b WHERE b.project_id = t.project_id AND b.selected_plan_name = t.plan_name
-                 AND COALESCE(b.status, '') NOT IN ('cancelled', 'canceled')) AS bookings
-         FROM plan_schedule_templates t WHERE t.project_id = $1 GROUP BY t.project_id, t.plan_name ORDER BY t.plan_name`,
+                 AND COALESCE(b.status, '') NOT IN ('cancelled', 'canceled')) AS bookings,
+              COALESCE(h.plan_type, 'Time Linked') AS plan_type, h.description
+         FROM plan_schedule_templates t LEFT JOIN plan_headers h ON h.project_id = t.project_id AND lower(h.plan_name) = lower(t.plan_name)
+         WHERE t.project_id = $1 GROUP BY t.project_id, t.plan_name, h.plan_type, h.description ORDER BY t.plan_name`,
       [req.params.id]
     );
     res.json({ success: true, data: r.rows.map((x: any) => ({ ...x, complete: Math.abs(x.total_pct - 100) < 0.001 })) });
+  } catch (err) { planFail(err, res, next); }
+});
+
+// PUT /api/projects/:id/plans/header  { plan_name, plan_type, description }  (plan type and a note; the rows stay as they are)
+const PLAN_KINDS = ['Construction Linked', 'Down Payment', 'Flexi', 'Time Linked'] as const;
+router.put('/:id/plans/header', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    await projectOk(req.params.id);
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const name = await canonPlan(db, req.params.id, planName(b.plan_name));
+    const type = inOneOf(b.plan_type ?? 'Time Linked', 'Plan type', PLAN_KINDS);
+    const descr = b.description == null || b.description === '' ? null : inText(b.description, 'Description', 500, false);
+    if (!(await db.query('SELECT 1 FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 LIMIT 1', [req.params.id, name])).rows.length) return res.status(404).json({ error: 'Plan not found' });
+    const r = (await db.query(
+      `INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (project_id, lower(plan_name)) DO UPDATE SET plan_type = EXCLUDED.plan_type, description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING plan_name, plan_type, description`,
+      [req.params.id, name, type, descr, req.userId])).rows[0];
+    await auditChange(db, req, res, 'update', 'payment_plan', req.params.id, undefined, r);
+    res.json({ success: true, data: r });
   } catch (err) { planFail(err, res, next); }
 });
 
@@ -372,6 +394,7 @@ router.delete('/:id/plans', async (req: AuthRequest, res: Response, next: NextFu
     const r = await inPlanTx(req.params.id, name, async (c) => {
       const used = await planUse(c, req.params.id, name);
       if (used) throw frozen(used);
+      await c.query(`DELETE FROM plan_headers WHERE project_id = $1 AND lower(plan_name) = lower($2)`, [req.params.id, name]);
       return c.query(`DELETE FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 RETURNING id`, [req.params.id, name]);
     });
     if (!r.rowCount) return res.status(404).json({ error: 'Plan not found' });
@@ -401,6 +424,7 @@ router.post('/:id/plans/copy', async (req: AuthRequest, res: Response, next: Nex
         [target, to, req.params.id, fromName, req.userId]
       );
       if (!made.rowCount) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Plan to copy not found' }); }
+      await client.query(`INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by) SELECT $1, $2, plan_type, description, $5 FROM plan_headers WHERE project_id = $3 AND lower(plan_name) = lower($4)`, [target, to, req.params.id, fromName, req.userId]);
       if (target === req.params.id) {
         await client.query(
           `INSERT INTO plan_addon_charge_pct (plan_schedule_template_id, charge_master_id, pct, created_by)
@@ -560,7 +584,10 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       [id]
     );
 
-    res.json({ success: true, data: { ...result.rows[0], towers: towers.rows } });
+    // DATE columns arrive as JS Dates (local midnight); send the plain day so a screen in any time zone shows the day that was saved
+    const row = { ...result.rows[0] };
+    for (const k of Object.keys(row)) if (row[k] instanceof Date && /date$/.test(k)) row[k] = `${row[k].getFullYear()}-${String(row[k].getMonth() + 1).padStart(2, '0')}-${String(row[k].getDate()).padStart(2, '0')}`;
+    res.json({ success: true, data: { ...row, towers: towers.rows } });
   } catch (error) {
     next(error);
   }
@@ -702,9 +729,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
 router.get('/:id/towers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(
-      `SELECT t.id, t.tower_name, t.project_id, COUNT(u.id) as unit_count
+      `SELECT t.id, t.tower_name, t.project_id, t.address_prefix, t.sort_order, t.completion_date::text AS completion_date, COUNT(u.id) as unit_count
        FROM towers t LEFT JOIN units u ON t.id = u.tower_id
-       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.tower_name`,
+       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.sort_order NULLS LAST, t.tower_name`,
       [req.params.id]
     );
     res.json({ success: true, data: result.rows });
@@ -854,6 +881,93 @@ router.delete('/:id/unit-locations/:locId', async (req: AuthRequest, res: Respon
   } catch (err) { next(err); }
 });
 
+// ── Numbering settings of one project ──
+const prefixOf = (v: any, label: string) => {
+  if (v == null || v === '') return null;
+  const x = inText(v, label, 10, true)!.toUpperCase();
+  if (!/^[A-Z0-9-]{1,10}$/.test(x)) throw bad(`${label} can have only letters, digits and a dash`);
+  return x;
+};
+router.get('/:id/settings', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id');
+    if (!(await db.query('SELECT 1 FROM projects WHERE id = $1', [id])).rows.length) return res.status(404).json({ error: 'Project not found' });
+    res.json({ success: true, data: await projectSettings(db, id) });
+  } catch (error) { failWith(error, res, next); }
+});
+router.put('/:id/settings', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    if (!(await db.query('SELECT 1 FROM projects WHERE id = $1', [id])).rows.length) return res.status(404).json({ error: 'Project not found' });
+    const cur = await projectSettings(db, id);
+    const next_ = {
+      receipt_prefix: 'receipt_prefix' in b ? prefixOf(b.receipt_prefix, 'Receipt prefix') : cur.receipt_prefix,
+      receipt_number_mode: 'receipt_number_mode' in b ? inOneOf(b.receipt_number_mode, 'Receipt number mode', ['Automatic', 'Manual'] as const)! : cur.receipt_number_mode,
+      registration_prefix: 'registration_prefix' in b ? prefixOf(b.registration_prefix, 'Registration prefix') : cur.registration_prefix,
+      registration_number_mode: 'registration_number_mode' in b ? inOneOf(b.registration_number_mode, 'Registration number mode', ['Automatic', 'Manual'] as const)! : cur.registration_number_mode,
+      registration_number_size: 'registration_number_size' in b ? inNum(b.registration_number_size, 'Registration number size', 8, 0) : cur.registration_number_size,
+    };
+    if (!Number.isInteger(next_.registration_number_size) || next_.registration_number_size < 3) throw bad('Registration number size must be a whole number from 3 to 8');
+    const r = (await db.query(
+      `INSERT INTO project_settings (project_id, receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (project_id) DO UPDATE SET receipt_prefix = EXCLUDED.receipt_prefix, receipt_number_mode = EXCLUDED.receipt_number_mode, registration_prefix = EXCLUDED.registration_prefix,
+         registration_number_mode = EXCLUDED.registration_number_mode, registration_number_size = EXCLUDED.registration_number_size, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size`,
+      [id, next_.receipt_prefix, next_.receipt_number_mode, next_.registration_prefix, next_.registration_number_mode, next_.registration_number_size, req.userId])).rows[0];
+    await auditChange(db, req, res, 'update', 'project_settings', id, cur, r);
+    res.json({ success: true, data: r });
+  } catch (error) { failWith(error, res, next); }
+});
+
 router.use(pgErrorHandler);
+
+
+// ── Project type, the unit of the land area, and the tower fields of the client's Edit Tower screen ──────────────────────
+const PROJECT_TYPES = ['Commercial', 'Residential', 'Plotting', 'Group Housing', 'SCO'] as const;
+const cardInput = async (b: any) => {
+  const out: Record<string, any> = {};
+  if ('projectType' in b) out.project_type = b.projectType === null || b.projectType === '' ? null : inOneOf(b.projectType, 'Project type', PROJECT_TYPES);
+  if ('landAreaUnit' in b) {
+    const u = b.landAreaUnit === null || b.landAreaUnit === '' ? null : inText(b.landAreaUnit, 'Land area unit', 50, true);
+    if (u && !(await db.query('SELECT 1 FROM area_types WHERE lower(name) = lower($1)', [u])).rows.length) throw bad('Land area unit must be one of the Area Types in Set Master');
+    out.land_area_unit = u;
+  }
+  return out;
+};
+router.patch('/:id/card', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id');
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const f = await cardInput(b);
+    if (!Object.keys(f).length) throw bad('Nothing to update');
+    const cur = (await db.query('SELECT project_type, land_area_unit FROM projects WHERE id = $1', [id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Project not found' });
+    const keys = Object.keys(f);
+    const r = await db.query(`UPDATE projects SET ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1 RETURNING id, name, project_type, land_area_unit`, [id, ...keys.map(k => f[k])]);
+    await auditChange(db, req, res, 'update', 'project', id, cur, f);
+    res.json({ success: true, data: r.rows[0] });
+  } catch (error) { failWith(error, res, next); }
+});
+router.patch('/:id/towers/:towerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), tid = inUuid(req.params.towerId, 'Tower id');
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const f: Record<string, any> = {};
+    if ('towerName' in b) { f.tower_name = inText(b.towerName, 'Tower name', 100, true); }
+    if ('addressPrefix' in b) f.address_prefix = inText(b.addressPrefix, 'Prefix for unit address', 20, false);
+    if ('sortOrder' in b) f.sort_order = b.sortOrder === null || b.sortOrder === '' ? null : inNum(b.sortOrder, 'Sort order', 100000, 0);
+    if (f.sort_order != null && !Number.isInteger(f.sort_order)) throw bad('Sort order must be a whole number');
+    if ('completionDate' in b) f.completion_date = b.completionDate === null || b.completionDate === '' ? null : inDay(b.completionDate, 'Completion date');
+    if (!Object.keys(f).length) throw bad('Nothing to update');
+    const cur = (await db.query('SELECT tower_name, address_prefix, sort_order, completion_date::text AS completion_date FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [tid, id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'Tower not found in this project' });
+    if (f.tower_name && (await db.query('SELECT 1 FROM towers WHERE project_id = $1 AND lower(tower_name) = lower($2) AND id <> $3 AND deleted_at IS NULL', [id, f.tower_name, tid])).rows.length) return res.status(409).json({ error: 'A tower with this name already exists in this project' });
+    const keys = Object.keys(f);
+    const r = await db.query(`UPDATE towers SET ${keys.map((k, i) => `${k} = $${i + 3}`).join(', ')}, updated_at = now() WHERE id = $1 AND project_id = $2 RETURNING id, tower_name, address_prefix, sort_order, completion_date::text AS completion_date`, [tid, id, ...keys.map(k => f[k])]);
+    await auditChange(db, req, res, 'update', 'tower', tid, cur, r.rows[0]);
+    res.json({ success: true, data: r.rows[0] });
+  } catch (error) { failWith(error, res, next); }
+});
 
 export default router;

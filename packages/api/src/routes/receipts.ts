@@ -9,6 +9,7 @@ import { requireProcess } from '../middleware/processPermission.js';
 import { cascadeOverpaymentExcess, checkAndAutoRaiseInstallment1 } from '../utils/payment-waterfall.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
+import { projectSettings } from '../utils/project-settings.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
@@ -96,7 +97,8 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     const out = await inTx(async (c) => {
       // Receipts of one customer are recorded one at a time so the instalment numbering and demand matching cannot cross
       await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${consumerId}`]);
-      if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);
+      const consumerRow = (await c.query(`SELECT project_id FROM consumers WHERE id = $1`, [consumerId])).rows[0];
+      if (!consumerRow) throw bad('Applicant not found', 404);
 
       let planId: string | null = null;
       if (planGiven) {
@@ -114,7 +116,13 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         idx = (await c.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 AS n FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [planId])).rows[0].n;
       }
 
-      const receiptNumber = await nextReceiptNumber(c);
+      // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
+      let receiptNumber: string;
+      if ((await projectSettings(c, consumerRow.project_id)).receipt_number_mode === 'Manual') {
+        receiptNumber = text(b.receiptNumber, 'Receipt number', 40, true)!;
+        await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-no:${receiptNumber.toLowerCase()}`]);
+        if ((await c.query(`SELECT 1 FROM receipts WHERE lower(receipt_number) = lower($1)`, [receiptNumber])).rows.length) throw bad(`Receipt number "${receiptNumber}" is already used`, 409);
+      } else receiptNumber = await nextReceiptNumber(c, '', consumerRow.project_id);
       const ins = await c.query(
         `INSERT INTO receipts
            (payment_plan_id, installment_index, consumer_id, amount_received_inr, payment_method, transaction_ref, received_date, received_by_user_id, receipt_number,

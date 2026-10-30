@@ -315,8 +315,9 @@ for (const P of ALLP) {
   if (mine.length > 1) { const pg = await get(`/applicant-payment-file?projectId=${P}&pageSize=1&page=2`); t(`${pn} applicant-payment-file: page 2 of size 1`, pg.data.length === 1 && pg.total === mine.length && pg.totalPages === mine.length && near(pg.summary.totalReceived, j.summary.totalReceived), J(pg.summary)); }
 }
 // ---- interest: charged once, waiver taken off once ----
+// Interest runs on the BASIC amount of the installment, without GST (owner decision 2026-10-29, same as the client's own file)
 {
-  const dm = rows(`select id, amount_due_inr + coalesce(cgst_amount,0) + coalesce(sgst_amount,0) total from demands where payment_plan_id='${S.c10.plan}' and installment_index=1`)[0];
+  const dm = rows(`select id, amount_due_inr total from demands where payment_plan_id='${S.c10.plan}' and installment_index=1`)[0];
   const exp = r2(Math.round(Number(dm.total) * interestRate / 100 / 365 * 40 * 100) / 100);
   let j = await get(`/applicant-payment-file?projectId=${P3}`); let x = j.data.find(y => y.consumer_id === S.c10.c);
   t('interest: a demand 40 days late with no payment is charged amount x rate / 365 x 40 days', near(x.interest_charged, exp, 0.02) && x.interest_waived === 0 && near(x.interest_outstanding, exp, 0.02), `${x.interest_charged} vs ${exp} at ${interestRate}%`);

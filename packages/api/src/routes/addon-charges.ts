@@ -3,7 +3,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
-import { bad, failWith, uuid, has, num, text, day, body, r2, inTx } from '../utils/input.js';
+import { bad, failWith, uuid, has, num, text, day, body, r2, inTx, oneOf } from '../utils/input.js';
 
 const router = Router();
 
@@ -155,11 +155,27 @@ const gstPcts = (b: any, cur?: { cgst_pct: any; sgst_pct: any }) => ({
 router.get('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = uuid(req.query.projectId, 'projectId');
-    const result = await db.query(`SELECT * FROM addon_charge_master WHERE project_id = $1 AND is_active = true ORDER BY charge_name ASC`, [projectId]);
+    const result = await db.query(`SELECT m.*, (SELECT COUNT(*)::int FROM plan_addon_charge_pct p WHERE p.charge_master_id = m.id) AS plan_pct_rows FROM addon_charge_master m WHERE m.project_id = $1 AND m.is_active = true ORDER BY m.charge_name ASC`, [projectId]);
     res.json({ success: true, data: result.rows });
   } catch (err) { fail(err, res, next); }
 });
 
+
+// The client's add-on master options: charge type, when it applies (Possession or a date set per customer), which area it is calculated on, and whether it counts in the dues
+const addonOptions = (b: any, cur?: any) => {
+  const applyDate = has(b.applyDateType) ? oneOf(b.applyDateType, 'Apply date type', ['Possession', 'Customer Wise Date'] as const)! : cur?.apply_date_type ?? 'Customer Wise Date';
+  const calc = has(b.calculateRateType) ? text(b.calculateRateType, 'Calculate rate type', 30, true)! : cur?.calculate_rate_type ?? 'Old Area';
+  const chargeType = has(b.chargeType) ? text(b.chargeType, 'Charge type', 30, true)! : cur?.charge_type ?? 'Other';
+  if (b.includeInDues !== undefined && typeof b.includeInDues !== 'boolean') throw bad('includeInDues must be true or false');
+  const flag = (k: string, col: string) => { if (b[k] !== undefined && typeof b[k] !== 'boolean') throw bad(`${k} must be true or false`); return b[k] ?? cur?.[col] ?? false; };
+  const f = { mandatory: flag('isMandatory', 'is_mandatory'), parking: flag('isParking', 'is_parking'), inventory: flag('inventoryBase', 'inventory_base'), multiple: flag('multipleBooking', 'multiple_booking'), alteration: flag('isAlteration', 'is_alteration'), agreement: flag('isAgreement', 'is_agreement') };
+  if (f.inventory && !f.parking) throw bad('Inventory base is only for a parking charge');
+  const qty = has(b.quantity) ? num(b.quantity, 'Quantity', 100000, 0) : 'quantity' in b ? null : cur?.quantity ?? null;
+  if (qty != null && !Number.isInteger(qty)) throw bad('Quantity must be a whole number');
+  const eff = has(b.effectiveDate) ? day(b.effectiveDate, 'Effective date') : 'effectiveDate' in b ? null : cur?.effective_date ?? null;
+  const descr = has(b.description) ? text(b.description, 'Description', 500, false) : 'description' in b ? null : cur?.description ?? null;
+  return { applyDate, calc, chargeType, inDues: b.includeInDues ?? cur?.include_in_dues ?? true, ...f, qty, eff, descr };
+};
 // ── B: POST /api/addon-charges/master ────────────────────────────────────────
 router.post('/master', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -176,6 +192,7 @@ router.post('/master', async (req: AuthRequest, res: Response, next: NextFunctio
     } else {
       amount = has(b.defaultAmount) ? num(b.defaultAmount, 'Amount', 1_000_000_000, 2) : 0;
     }
+    const opt = addonOptions(b);
     if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw Object.assign(new Error('Project not found'), { http: 404 });
     const made = await inTx(async (c) => {
       await c.query(`SELECT pg_advisory_xact_lock(hashtext('addonmaster|' || $1 || '|' || lower($2)))`, [projectId, chargeName]);
@@ -183,9 +200,9 @@ router.post('/master', async (req: AuthRequest, res: Response, next: NextFunctio
         throw bad(`An add-on charge named "${chargeName}" already exists in this project`);
       }
       return (await c.query(
-        `INSERT INTO addon_charge_master (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [projectId, chargeName, amount, cgst, sgst, req.userId || null, rateType, rate])).rows[0];
+        `INSERT INTO addon_charge_master (project_id, charge_name, default_amount, cgst_pct, sgst_pct, created_by, rate_type, rate_per_sqft_inr, apply_date_type, calculate_rate_type, include_in_dues, charge_type, is_mandatory, is_parking, inventory_base, multiple_booking, is_alteration, is_agreement, quantity, effective_date, description)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21) RETURNING *`,
+        [projectId, chargeName, amount, cgst, sgst, req.userId || null, rateType, rate, opt.applyDate, opt.calc, opt.inDues, opt.chargeType, opt.mandatory, opt.parking, opt.inventory, opt.multiple, opt.alteration, opt.agreement, opt.qty, opt.eff, opt.descr])).rows[0];
     });
     await auditChange(db, req, res, 'create', 'addon_charge_master', made.id, undefined, made);
     res.status(201).json({ success: true, data: made });
@@ -203,6 +220,7 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
       const cur = (await c.query(`SELECT * FROM addon_charge_master WHERE id = $1 FOR UPDATE`, [mid])).rows[0];
       if (!cur) throw Object.assign(new Error('Charge master not found'), { http: 404 });
       const name = has(b.chargeName) ? text(b.chargeName, 'Charge name', 200, true)! : cur.charge_name;
+      const opt = addonOptions(b, cur);
       const rateType = has(b.rateType) ? b.rateType : cur.rate_type;
       if (rateType !== 'flat' && rateType !== 'per_sqft') throw bad('Rate type must be flat or per_sqft');
       const { cgst, sgst } = gstPcts(b, cur);
@@ -224,8 +242,9 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
       const holders = await lockHolders(c, mid);
       const master = (await c.query(
         `UPDATE addon_charge_master SET charge_name = $2, default_amount = $3, cgst_pct = $4, sgst_pct = $5, rate_type = $6,
-           rate_per_sqft_inr = $7, is_active = COALESCE($8, is_active), updated_at = now() WHERE id = $1 RETURNING *`,
-        [mid, name, amount, cgst, sgst, rateType, rate, b.isActive ?? null])).rows[0];
+           rate_per_sqft_inr = $7, is_active = COALESCE($8, is_active), apply_date_type = $9, calculate_rate_type = $10, include_in_dues = $11, charge_type = $12,
+           is_mandatory = $13, is_parking = $14, inventory_base = $15, multiple_booking = $16, is_alteration = $17, is_agreement = $18, quantity = $19, effective_date = $20, description = $21, updated_at = now() WHERE id = $1 RETURNING *`,
+        [mid, name, amount, cgst, sgst, rateType, rate, b.isActive ?? null, opt.applyDate, opt.calc, opt.inDues, opt.chargeType, opt.mandatory, opt.parking, opt.inventory, opt.multiple, opt.alteration, opt.agreement, opt.qty, opt.eff, opt.descr])).rows[0];
       // Active customer charges follow the master: GST is on (amount + increase) so per-customer increases are kept;
       // per-sq.ft. charges are priced from each customer's own unit
       if (rateType === 'per_sqft') {

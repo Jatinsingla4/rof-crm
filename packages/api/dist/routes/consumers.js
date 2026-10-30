@@ -7,6 +7,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const classification_js_1 = require("../utils/classification.js");
 const express_1 = require("express");
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
@@ -109,8 +110,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
         if (!name || !(0, applicant_fields_js_1.hasLetter)(name))
             throw (0, input_js_1.bad)('Applicant name is required');
         const inc = b.incomeCategory ?? b.income_category;
-        if ((0, input_js_1.has)(inc) && !applicant_js_1.INCOME_CATS.includes(inc))
-            throw (0, input_js_1.bad)(`Income category must be one of ${applicant_js_1.INCOME_CATS.join(', ')}`);
+        await (0, classification_js_1.classificationOk)(project, (0, input_js_1.has)(inc) ? inc : null);
         const stage = b.lead_stage ?? b.leadStage;
         if ((0, input_js_1.has)(stage) && !applicant_js_1.LEAD_STAGES.includes(stage))
             throw (0, input_js_1.bad)(`Lead stage must be one of ${applicant_js_1.LEAD_STAGES.join(', ')}`);
@@ -376,8 +376,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
         }
         const inc = b.incomeCategory ?? b.income_category;
         if (inc !== undefined) {
-            if (inc !== null && inc !== '' && !applicant_js_1.INCOME_CATS.includes(inc))
-                throw (0, input_js_1.bad)(`Income category must be one of ${applicant_js_1.INCOME_CATS.join(', ')}`);
+            await (0, classification_js_1.classificationOk)((await index_js_1.db.query('SELECT project_id FROM consumers WHERE id = $1', [id])).rows[0]?.project_id, inc);
             upd.income_category = inc || null;
         }
         const stage = b.leadStage ?? b.lead_stage;
@@ -873,7 +872,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

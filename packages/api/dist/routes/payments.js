@@ -2385,7 +2385,7 @@ router.delete('/interest-scheduler', async (req, res, next) => {
 // GET /api/payments/interest-master/:projectId — rate history for a project
 router.get('/interest-master/:projectId', async (req, res, next) => {
     try {
-        const result = await index_js_1.db.query(`SELECT pir.id, pir.rate_percent, pir.effective_from, pir.created_at,
+        const result = await index_js_1.db.query(`SELECT pir.id, pir.rate_percent, pir.effective_from, pir.created_at, pir.interest_type, pir.compound_frequency, pir.calculated_on,
               u.name AS created_by_name
        FROM project_interest_rates pir
        LEFT JOIN users u ON u.id = pir.created_by
@@ -2398,10 +2398,18 @@ router.get('/interest-master/:projectId', async (req, res, next) => {
     }
 });
 // The rate that starts on a date is one per project (the newest date wins when penal interest is worked out), so a second one on the same date is refused
-const rateInput = (b) => {
+const rateInput = (b, cur) => {
     if (!(0, input_js_1.has)(b.rate_percent))
         throw (0, input_js_1.bad)('rate_percent is required');
-    return { rate: (0, input_js_1.num)(b.rate_percent, 'rate_percent', 100, 2), from: (0, input_js_1.day)(b.effective_from, 'effective_from') };
+    // Simple or Compound (with how often it compounds) and what the interest is calculated on, as the client's interest master has them
+    const type = (0, input_js_1.has)(b.interest_type) ? (0, input_js_1.oneOf)(b.interest_type, 'interest_type', ['Simple', 'Compound']) : cur?.interest_type ?? 'Simple';
+    const freq = type === 'Compound' ? ((0, input_js_1.has)(b.compound_frequency) ? (0, input_js_1.oneOf)(b.compound_frequency, 'compound_frequency', ['Monthly', 'Quarterly', 'Half Yearly', 'Yearly']) : ('compound_frequency' in b ? null : cur?.compound_frequency ?? null)) : null;
+    if (type === 'Compound' && !freq)
+        throw (0, input_js_1.bad)('compound_frequency is required for compound interest');
+    if (type === 'Simple' && (0, input_js_1.has)(b.compound_frequency))
+        throw (0, input_js_1.bad)('compound_frequency is only for compound interest');
+    const on = (0, input_js_1.has)(b.calculated_on) ? (0, input_js_1.text)(b.calculated_on, 'calculated_on', 30, true) : cur?.calculated_on ?? 'Receipt Date Wise';
+    return { rate: (0, input_js_1.num)(b.rate_percent, 'rate_percent', 100, 2), from: (0, input_js_1.day)(b.effective_from, 'effective_from'), type, freq, on };
 };
 // POST /api/payments/interest-master — create new project interest rate (accounts and finance only)
 router.post('/interest-master', input_js_1.financeOnly, async (req, res, next) => {
@@ -2409,13 +2417,13 @@ router.post('/interest-master', input_js_1.financeOnly, async (req, res, next) =
         const b = (0, input_js_1.body)(req);
         if (!(0, input_js_1.has)(b.project_id))
             throw (0, input_js_1.bad)('project_id is required');
-        const project_id = (0, input_js_1.uuid)(b.project_id, 'project_id'), { rate, from } = rateInput(b), eff = from || today();
+        const project_id = (0, input_js_1.uuid)(b.project_id, 'project_id'), ri = rateInput(b), { rate, from } = ri, eff = from || today();
         const row = await (0, input_js_1.inTx)(async (c) => {
             await projectInScope(c, project_id);
             await (0, input_js_1.lock)(c, 'rate:' + project_id);
             if ((await c.query(`SELECT 1 FROM project_interest_rates WHERE project_id = $1 AND effective_from = $2`, [project_id, eff])).rows.length)
                 throw (0, input_js_1.bad)('A rate already starts on this date, edit that one', 409);
-            return (await c.query(`INSERT INTO project_interest_rates (project_id, rate_percent, effective_from, created_by) VALUES ($1, $2, $3, $4) RETURNING id, rate_percent, effective_from, created_at`, [project_id, rate, eff, req.userId || null])).rows[0];
+            return (await c.query(`INSERT INTO project_interest_rates (project_id, rate_percent, effective_from, created_by, interest_type, compound_frequency, calculated_on) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, rate_percent, effective_from, created_at, interest_type, compound_frequency, calculated_on`, [project_id, rate, eff, req.userId || null, ri.type, ri.freq, ri.on])).rows[0];
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'project_interest_rate', row.id, undefined, { project_id, rate_percent: rate, effective_from: eff });
         res.json({ success: true, data: row });
@@ -2427,18 +2435,19 @@ router.post('/interest-master', input_js_1.financeOnly, async (req, res, next) =
 // PUT /api/payments/interest-master/:id — update an existing rate record (accounts and finance only)
 router.put('/interest-master/:id', input_js_1.financeOnly, async (req, res, next) => {
     try {
-        const id = (0, input_js_1.uuid)(req.params.id, 'Rate id'), { rate, from } = rateInput((0, input_js_1.body)(req));
+        const id = (0, input_js_1.uuid)(req.params.id, 'Rate id'), rb = (0, input_js_1.body)(req);
         const out = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT project_id, rate_percent, effective_from FROM project_interest_rates WHERE id = $1`, [id])).rows[0];
+            const cur = (await c.query(`SELECT project_id, rate_percent, effective_from, interest_type, compound_frequency, calculated_on FROM project_interest_rates WHERE id = $1`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Rate record not found', 404);
+            const { rate, from, type, freq, on } = rateInput(rb, cur);
             await (0, input_js_1.lock)(c, 'rate:' + cur.project_id);
             if (from && (await c.query(`SELECT 1 FROM project_interest_rates WHERE project_id = $1 AND effective_from = $2 AND id <> $3`, [cur.project_id, from, id])).rows.length)
                 throw (0, input_js_1.bad)('A rate already starts on this date', 409);
-            const row = (await c.query(`UPDATE project_interest_rates SET rate_percent = $1, effective_from = COALESCE($2, effective_from) WHERE id = $3 RETURNING id, rate_percent, effective_from`, [rate, from, id])).rows[0];
-            return { row, cur };
+            const row = (await c.query(`UPDATE project_interest_rates SET rate_percent = $1, effective_from = COALESCE($2, effective_from), interest_type = $4, compound_frequency = $5, calculated_on = $6 WHERE id = $3 RETURNING id, rate_percent, effective_from, interest_type, compound_frequency, calculated_on`, [rate, from, id, type, freq, on])).rows[0];
+            return { row, cur, rate, from };
         });
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'project_interest_rate', id, { rate_percent: out.cur.rate_percent, effective_from: out.cur.effective_from }, { rate_percent: rate, effective_from: from });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'project_interest_rate', id, { rate_percent: out.cur.rate_percent, effective_from: out.cur.effective_from }, { rate_percent: out.rate, effective_from: out.from });
         res.json({ success: true, data: out.row });
     }
     catch (error) {

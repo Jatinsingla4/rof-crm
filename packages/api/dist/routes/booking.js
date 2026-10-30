@@ -1,10 +1,12 @@
 "use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildApplicantFileHtml = buildApplicantFileHtml;
+const project_settings_js_1 = require("../utils/project-settings.js");
 /**
  * Booking Routes
  * Handles booking form submission, list, view, and edit booking records
  */
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.buildApplicantFileHtml = buildApplicantFileHtml;
+const classification_js_1 = require("../utils/classification.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
@@ -139,6 +141,7 @@ const parseNew = (b) => {
     o.finance_bank = T(b.finance_bank, 'finance_bank', 200);
     o.remarks = T(b.remarks, 'remarks', 2000);
     o.form_no = T(b.form_no, 'form_no', 100);
+    o.registration_no = T(b.registration_no, 'registration_no', 50);
     o.has_plc = (0, input_js_1.flag)(b.has_plc ?? false, 'has_plc');
     o.has_other_charge = (0, input_js_1.flag)(b.has_other_charge ?? false, 'has_other_charge');
     o.plc_amount = money(b.plc_amount, 'PLC amount', 1e9);
@@ -160,6 +163,7 @@ const parseNew = (b) => {
 // Generate registration number with project-based prefix and sequential numbering
 async function generateRegistrationNo(projectId, client) {
     const year = new Date().getFullYear();
+    const st = await (0, project_settings_js_1.projectSettings)(client, projectId);
     // Get project name for prefix
     const projResult = await client.query('SELECT name FROM projects WHERE id = $1', [projectId]);
     if (projResult.rowCount === 0) {
@@ -193,7 +197,7 @@ async function generateRegistrationNo(projectId, client) {
         counterResult = await client.query('SELECT last_number FROM booking_counters WHERE project_id = $1', [projectId]);
     }
     const num = counterResult.rows[0].last_number;
-    return `${projectName}-${year}-${String(num).padStart(4, '0')}`;
+    return `${st.registration_prefix || projectName}-${year}-${String(num).padStart(st.registration_number_size, '0')}`;
 }
 // GET /api/booking/check-cheque?ref=XXXX[&exclude_id=UUID]
 // Returns whether a cheque/reference number already exists in booking_records or receipts.
@@ -362,7 +366,18 @@ router.post('/', async (req, res, next) => {
                 throw conflict(`Unit ${existing.unit_number} already has an active booking (${existing.status}) for ${existing.first_name} ${existing.last_name} (${existing.registration_no}). Cancel or complete the existing booking first.`);
             }
             // Generate registration and form numbers
-            const registrationNo = await generateRegistrationNo(project_id, client);
+            // Manual numbering: the registration number is typed on the form
+            let registrationNo;
+            if ((await (0, project_settings_js_1.projectSettings)(client, project_id)).registration_number_mode === 'Manual') {
+                registrationNo = T(o.registration_no, 'registration_no', 50) || '';
+                if (!registrationNo)
+                    throw (0, input_js_1.bad)('This project numbers registrations by hand: enter the registration number');
+                await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`reg-no:${registrationNo.toLowerCase()}`]);
+                if ((await client.query(`SELECT 1 FROM booking_records WHERE lower(registration_no) = lower($1)`, [registrationNo])).rows.length)
+                    throw conflict(`Registration number "${registrationNo}" is already used`);
+            }
+            else
+                registrationNo = await generateRegistrationNo(project_id, client);
             const formNo = form_no || registrationNo;
             // Determine status: pending_payment when no amount and no mode provided
             const bookingStatus = booking_amount === 0 ? 'pending_payment' : 'active';
@@ -580,8 +595,7 @@ router.patch('/:id/edit', async (req, res, next) => {
         const cons = (0, applicant_fields_js_1.cleanFields)(b, undefined, errs);
         delete cons.ppp_id;
         if ((0, input_js_1.has)(b.income_category)) {
-            if (!['EWS', 'LIG', 'MIG'].includes(b.income_category))
-                throw (0, input_js_1.bad)('Income category must be one of EWS, LIG, MIG');
+            await (0, classification_js_1.classificationOk)((await index_js_1.db.query('SELECT project_id FROM booking_records WHERE id = $1', [id])).rows[0]?.project_id, b.income_category);
             cons.income_category = b.income_category;
         }
         if ((0, input_js_1.has)(b.mobile)) {
@@ -940,7 +954,7 @@ router.patch('/:id', async (req, res, next) => {
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
                             : safeLocalDate(new Date());
-                        const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client);
+                        const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client, '', booking.project_id);
                         const stepGReceiptRes = await client.query(`INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
                   payment_method, transaction_ref, received_date, received_by_user_id,
@@ -1015,6 +1029,22 @@ router.patch('/:id', async (req, res, next) => {
                AND pst.plan_name = $2
                AND acm.is_active = true
                AND u.id = $3`, [booking.project_id, booking.selected_plan_name, booking.unit_id]);
+                    // Charges attached to the unit in advance (with their quantity) and every Mandatory charge of the project go on the customer too
+                    // A charge with a % in the plan is billed by that plan, but it goes on this booking only when it is Mandatory or attached to the unit
+                    const wanted = new Set((await client.query(`SELECT acm.id FROM addon_charge_master acm LEFT JOIN unit_addon_charges uac ON uac.unit_id = $2 AND uac.charge_master_id = acm.id
+              WHERE acm.project_id = $1 AND acm.is_active AND (acm.is_mandatory OR uac.unit_id IS NOT NULL)`, [booking.project_id, booking.unit_id])).rows.map((r) => r.id));
+                    addonPctRows.rows = addonPctRows.rows.filter((r) => wanted.has(r.charge_master_id));
+                    const have = new Set(addonPctRows.rows.map((r) => r.charge_master_id));
+                    const extra = await client.query(`SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, u.carpet_area_sqft,
+                    COALESCE(uac.quantity, 1) AS quantity
+               FROM addon_charge_master acm CROSS JOIN units u
+               LEFT JOIN unit_addon_charges uac ON uac.unit_id = u.id AND uac.charge_master_id = acm.id
+              WHERE acm.project_id = $1 AND acm.is_active AND u.id = $2 AND (acm.is_mandatory OR uac.unit_id IS NOT NULL)`, [booking.project_id, booking.unit_id]);
+                    for (const r of extra.rows)
+                        if (!have.has(r.charge_master_id))
+                            addonPctRows.rows.push(r);
+                    const qtyMap = new Map((await client.query('SELECT charge_master_id, quantity FROM unit_addon_charges WHERE unit_id = $1', [booking.unit_id])).rows.map((r) => [r.charge_master_id, Number(r.quantity)]));
+                    const qtyOf = (r) => qtyMap.get(r.charge_master_id) ?? 1;
                     for (const row of addonPctRows.rows) {
                         // Skip if already exists (idempotency guard)
                         const existing = await client.query(`SELECT id FROM consumer_addon_charges
@@ -1024,9 +1054,9 @@ router.patch('/:id', async (req, res, next) => {
                         if (existing.rows.length > 0)
                             continue;
                         // Compute GST amounts from master
-                        const amt = row.rate_type === 'per_sqft'
+                        const amt = (row.rate_type === 'per_sqft'
                             ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.carpet_area_sqft) * 100) / 100
-                            : parseFloat(row.default_amount);
+                            : parseFloat(row.default_amount)) * qtyOf(row);
                         const cPct = parseFloat(row.cgst_pct);
                         const sPct = parseFloat(row.sgst_pct);
                         const cgstAmt = Math.round(amt * cPct / 100 * 100) / 100;
@@ -1346,7 +1376,8 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const sgst = (activeDemands.length > 0 && Math.abs(demandSgstSum - holisticSgst) <= 1000) ? demandSgstSum : holisticSgst;
     const totalTax = cgst + sgst;
     const totalWithTax = totalConsideration + totalTax;
-    const totalReceivables = totalWithTax + interest;
+    const interestWaived = Math.min(Math.max(0, totalWaivedInr), interest);
+    const totalReceivables = totalWithTax + interest - interestWaived;
     const totalReceived = parseFloat(b.total_received_inr || 0);
     // Show only cleared receipts. No fallback to booking amount — if nothing cleared yet, show ₹0.
     const lessReceipt = totalReceived;
@@ -1525,8 +1556,8 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       ${pRow('Total Consideration With Tax', `<span data-field-key="totalAmountWithGst" data-field-label="Total with GST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalWithTax)}</span>`, true)}
       <tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;">In words: (${amtWords(totalWithTax)})</td></tr>
       ${pRow('Interest (Rs.)', `<span data-field-key="interestAmt" data-field-label="Interest Amount" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(interest)}</span>`)}
-      ${pRow('Interest Waive off (Rs.)', 'Rs. 0.00')}
-      ${pRow('', fmtIndianCurrency(interest))}
+      ${pRow('Interest Waive off (Rs.)', fmtIndianCurrency(interestWaived))}
+      ${pRow('', fmtIndianCurrency(interest - interestWaived))}
       ${pRow('Total Receivables', `<span data-field-key="totalReceivables" data-field-label="Total Receivables" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalReceivables)}</span>`, true)}
       ${pRow(`Less Receipt (Rs.) (${paidPct} % Paid Amount)`, fmtIndianCurrency(lessReceipt))}
       ${pRow('Balance (Rs.) (To be Paid)', fmtIndianCurrency(balance), true)}
@@ -2493,6 +2524,10 @@ async function buildApplicantPage3(b, consumer, settings, documentDispatches, co
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
 async function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, consumerId = '') {
+    // One interest figure for the whole file: the total of the interest table (page 2), not the old value stored on the booking row
+    const interestTotal = Math.round(interestCalcRows.reduce((a, r) => a + (parseFloat(r.interest_amount) || 0), 0));
+    if (interestCalcRows.length)
+        b = { ...b, interest_amount: interestTotal };
     const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
     const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);

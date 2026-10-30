@@ -27,13 +27,15 @@ SM.LISTS = {
   professions:   { label: 'Professions',        one: 'profession',        url: '/master/professions',        usage: 'professions',   hint: 'for example Engineer' },
   nationalities: { label: 'Nationalities',      one: 'nationality',       url: '/master/nationalities',      usage: 'nationalities', hint: 'for example Indian',
                    note: 'Nationality decides GST on receipts and letters (NRI, OCI and PIO are treated differently). Do not rename or remove these without Accounts.' },
+  areaTypes:     { label: 'Area types',         one: 'area type',         url: '/master/area-types',         usage: 'areaTypes',     hint: 'for example Sq. Ft., Acres, Sq. Yrd.' },
+  currencies:    { label: 'Currencies',         one: 'currency',          url: '/master/currencies',         usage: 'currencies',    hint: 'for example Rs.' },
   sources:       { label: 'Sources of enquiry', one: 'source of enquiry', url: '/master/sources-of-enquiry', usage: 'sources',       hint: 'for example Walk-in', desc: true },
 };
 
 SM.EP = {
   countries: '/master/countries', states: '/master/states', cities: '/master/cities',
   salutations: '/master/salutations', professions: '/master/professions', nationalities: '/master/nationalities',
-  sources: '/master/sources-of-enquiry', banks: '/master/banks', doctypes: '/master/document-types', companies: '/companies',
+  sources: '/master/sources-of-enquiry', areaTypes: '/master/area-types', currencies: '/master/currencies', banks: '/master/banks', doctypes: '/master/document-types', companies: '/companies',
 };
 
 // Links from the top menu use the old tab names
@@ -86,7 +88,7 @@ SM.paint = () => {
   const d = SM.d;
   const counts = {
     locations: d.countries.length,
-    lists: d.salutations.length + d.professions.length + d.nationalities.length + d.sources.length,
+    lists: d.salutations.length + d.professions.length + d.nationalities.length + d.sources.length + d.areaTypes.length + d.currencies.length,
     banks: d.banks.length, companies: d.companies.length, checklist: d.doctypes.length,
   };
   const warn = { companies: d.companies.some((c) => !c.primary_accounts) };
@@ -289,7 +291,11 @@ SM.locAction = async (kind, id, act) => {
   const spec = {
     country: { label: 'country', url: SM.EP.countries, key: ['countries', 'states', 'cities'], fields: [
       { key: 'name', label: 'Country name', required: true, maxlength: 150, placeholder: 'India' },
-      { key: 'code', label: 'ISO code', maxlength: 10, placeholder: 'IN' }] },
+      { key: 'abbreviation', label: 'Abbreviation', required: true, maxlength: 10, placeholder: 'In' },
+      { key: 'iso_code', label: 'ISO code', required: true, maxlength: 3, placeholder: 'IN' },
+      { key: 'isd_code', label: 'ISD code', required: true, maxlength: 5, placeholder: '91', hint: 'Dialling code without the plus' },
+      { key: 'mobile_digits', label: 'Number of mobile digits', required: true, maxlength: 2, placeholder: '10', hint: 'A mobile number of this country must have this many digits' },
+      { key: 'code', label: 'Other code (old)', maxlength: 10 }] },
     state: { label: 'state', url: SM.EP.states, key: ['states', 'cities'], fields: [
       { key: 'name', label: 'State name', required: true, maxlength: 150, placeholder: 'Haryana' },
       { key: 'country_id', label: 'Country', type: 'select', required: true, options: countryOpts },
@@ -380,9 +386,11 @@ SM.screens.banks = (root) => {
       <input class="sm-input" name="name" maxlength="200" placeholder="Bank name" aria-label="Bank name" autocomplete="off">
       <input class="sm-input" name="ifsc_prefix" maxlength="10" placeholder="IFSC prefix, for example HDFC" aria-label="IFSC prefix" autocomplete="off">
       <input class="sm-input" name="branch" maxlength="200" placeholder="Branch (optional)" aria-label="Branch" autocomplete="off">
+      <select class="sm-input" name="use" aria-label="Used as"><option value="customer">Customer bank</option><option value="loan">Loan bank</option><option value="both">Customer and loan bank</option></select>
       <button class="sm-btn sm-btn--primary" type="submit">Add</button></form>` : ''}
-    ${rows.length ? `<table class="sm-tbl"><thead><tr><th>Bank</th><th>IFSC prefix</th><th>Branch</th><th class="num">Receipts</th><th></th></tr></thead><tbody>
+    ${rows.length ? `<table class="sm-tbl"><thead><tr><th>Bank</th><th>IFSC prefix</th><th>Branch</th><th>Used as</th><th class="num">Receipts</th><th></th></tr></thead><tbody>
       ${rows.map((r) => { const n = used[r.id] || 0; return `<tr data-row><td>${esc(r.name)}</td><td class="mono">${esc(r.ifsc_prefix || '-')}</td><td class="sm-muted">${esc(r.branch || '-')}</td>
+        <td>${r.is_loan_bank ? (r.is_customer_bank ? 'Customer and loan' : 'Loan') : 'Customer'}${r.is_loan_bank ? ` <small class="sm-muted">${(r.project_ids || []).length ? SM.plural(r.project_ids.length, 'project') : 'all projects'}</small>` : ''}</td>
         <td class="num">${n || '<span class="sm-muted">-</span>'}</td>
         <td class="act">${rowActions('bank', r.id, { canEdit, canDelete: canDel, deleteTitle: n ? `Clearing bank on ${n} receipt(s)` : '' })}</td></tr>`; }).join('')}
       </tbody></table>` : SM.empty('No banks yet', 'Add a bank above.')}
@@ -394,6 +402,7 @@ SM.screens.banks = (root) => {
     const body = {};
     [...form.elements].forEach((el) => { if (el.name) body[el.name] = el.value.trim(); });
     if (!body.name) { form.elements.name.focus(); return; }
+    body.is_customer_bank = body.use !== 'loan'; body.is_loan_bank = body.use !== 'customer'; delete body.use;
     if (await SM.run(() => Api.post(SM.EP.banks, body), 'Bank added')) { await SM.reload('banks'); document.querySelector('#sm-add [name=name]')?.focus(); }
   };
 };
@@ -402,11 +411,12 @@ SM.bankAction = async (kind, id, act) => {
   const row = SM.d.banks.find((r) => r.id === id);
   if (act === 'del') return SM.deleteItem(SM.EP.banks, id, row.name, ['banks']);
   SM.openForm({
-    title: 'Edit bank', values: row, submit: 'Save changes',
+    title: 'Edit bank', values: { ...row, use: row.is_loan_bank ? (row.is_customer_bank ? 'both' : 'loan') : 'customer' }, submit: 'Save changes',
     fields: [{ key: 'name', label: 'Bank name', required: true, maxlength: 200 },
+      { key: 'use', label: 'Used as', type: 'select', required: true, options: [{ value: 'customer', label: 'Customer bank' }, { value: 'loan', label: 'Loan bank' }, { value: 'both', label: 'Customer and loan bank' }] },
       { key: 'ifsc_prefix', label: 'IFSC prefix', maxlength: 10, hint: 'First four letters of the IFSC code' },
       { key: 'branch', label: 'Branch', maxlength: 200 }],
-    onSubmit: async (v) => { await Api.put(`${SM.EP.banks}/${id}`, v); Utils.success('Saved'); await SM.reload('banks'); },
+    onSubmit: async (v) => { const use = v.use; delete v.use; v.is_customer_bank = use !== 'loan'; v.is_loan_bank = use !== 'customer'; await Api.put(`${SM.EP.banks}/${id}`, v); Utils.success('Saved'); await SM.reload('banks'); },
   });
 };
 

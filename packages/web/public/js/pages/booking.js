@@ -1522,7 +1522,22 @@ const BookingPage = {
     }
   },
 
+  // The project's own Customer Classification list (or the standard EWS / LIG / MIG)
+  async fillClassifications(projectId) {
+    const sel = document.querySelector('select[name="income_category"]'); if (!sel) return;
+    let names = ['EWS', 'LIG', 'MIG'];
+    if (projectId) try { const r = await Api.get(`/master/customer-classifications?projectId=${projectId}`); if (!r.using_defaults) names = r.data.map(x => x.name); } catch {}
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Select —</option>' + names.map(n => `<option>${Utils.esc(n)}</option>`).join('');
+    if (names.includes(cur)) sel.value = cur;
+  },
+
   async onProjectChange(projectId) {
+    this.fillClassifications(projectId);
+    try {
+      const st = projectId ? (await Api.get(`/projects/${projectId}/settings`)).data : null, reg = document.querySelector('input[name="reg_no"]');
+      if (reg) { const manual = st?.registration_number_mode === 'Manual'; reg.readOnly = !manual; reg.required = manual; reg.style.opacity = manual ? '' : '.6'; reg.placeholder = manual ? 'Enter the registration no.' : 'Auto-generated'; if (!manual) reg.value = ''; }
+    } catch {}
     const towSel = document.getElementById('bk-tower');
     const unitSel = document.getElementById('bk-unit-select');
     if (!projectId) {
@@ -2849,7 +2864,7 @@ const BookingPage = {
           : `${body.first_name||''} ${body.last_name||''}`.trim(),
         email: body.email, mobile: body.mobile,
         project_id: body.project_id || null,
-        income_category: body.income_category || 'EWS',
+        income_category: body.income_category || document.querySelector('select[name="income_category"] option:nth-child(2)')?.value || 'EWS',
         middle_name: body.middle_name || null, dob: body.dob || null,
         gender: body.gender || null, education: body.education || null,
         alt_mobile: body.alt_mobile || null, pan_no: body.pan_no,
@@ -2919,6 +2934,7 @@ const BookingPage = {
           loan_amount:        parseFloat(body.loan_amount || 0),
           finance_bank:       body.finance_bank, remarks: body.booking_remarks,
           form_no:            body.form_no || null,
+          registration_no:    body.reg_no || undefined,
           mailing_address_type: body.mailing_address_type || 'present',
           communication_mode:   body.communication_mode || 'email',
           comm_address_line1: body.comm_address_line1 || null,
@@ -3073,7 +3089,7 @@ const BookingPage = {
         email: body.email,
         mobile: body.mobile,
         project_id: body.project_id || null,
-        income_category: body.income_category || 'EWS',
+        income_category: body.income_category || document.querySelector('select[name="income_category"] option:nth-child(2)')?.value || 'EWS',
         middle_name: body.middle_name || null,
         dob: body.dob || null,
         gender: body.gender || null,
@@ -3220,6 +3236,7 @@ const BookingPage = {
           finance_bank:      body.finance_bank,
           remarks:           body.booking_remarks,
           form_no:           body.form_no || null,
+          registration_no:   body.reg_no || undefined,
           mailing_address_type:  body.mailing_address_type || 'present',
           communication_mode:    body.communication_mode || 'email',
           comm_address_line1:    body.comm_address_line1 || null,

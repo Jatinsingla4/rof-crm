@@ -3,6 +3,7 @@
  * All consumer endpoints: create, list, get, update, KYC, remarks, co-applicants
  */
 
+import { classificationOk } from '../utils/classification.js';
 import { Router, Request, Response, NextFunction } from 'express';
 import { createHash } from 'crypto';
 import multer from 'multer';
@@ -98,7 +99,7 @@ router.post('/', requireProcess('new_applicant', 'maker'), async (req: AuthReque
     const name = personName(b.name, f.first_name, f.last_name, f.applicant_type);
     if (!name || !hasLetter(name)) throw bad('Applicant name is required');
     const inc = b.incomeCategory ?? b.income_category;
-    if (has(inc) && !INCOME_CATS.includes(inc)) throw bad(`Income category must be one of ${INCOME_CATS.join(', ')}`);
+    await classificationOk(project, has(inc) ? inc : null);
     const stage = b.lead_stage ?? b.leadStage;
     if (has(stage) && !LEAD_STAGES.includes(stage)) throw bad(`Lead stage must be one of ${LEAD_STAGES.join(', ')}`);
     if (has(stage) && stage !== 'enquiry' && stage !== 'interested') throw bad('A new applicant can only start as enquiry or interested');
@@ -317,7 +318,7 @@ router.patch('/:id', requireProcess('edit_applicant', 'maker'), async (req: Auth
     if (f.ppp_id !== undefined) upd.parivar_pehchan_patra = f.ppp_id;
     if (b.mobile !== undefined) { try { upd.mobile = mobileNo(b.mobile, 'Mobile number', true); } catch (e: any) { if (!e?.http || !has(b.mobile)) throw e; errs.mobile = { e, raw: b.mobile }; } }
     const inc = b.incomeCategory ?? b.income_category;
-    if (inc !== undefined) { if (inc !== null && inc !== '' && !INCOME_CATS.includes(inc)) throw bad(`Income category must be one of ${INCOME_CATS.join(', ')}`); upd.income_category = inc || null; }
+    if (inc !== undefined) { await classificationOk((await db.query('SELECT project_id FROM consumers WHERE id = $1', [id])).rows[0]?.project_id, inc); upd.income_category = inc || null; }
     const stage = b.leadStage ?? b.lead_stage;
     if (stage !== undefined) { if (!LEAD_STAGES.includes(stage)) throw bad(`Lead stage must be one of ${LEAD_STAGES.join(', ')}`); upd.lead_stage = stage; }
     if (upd.pan_no !== undefined) upd.pan_hash = upd.pan_no ? sha(upd.pan_no) : null;
@@ -800,7 +801,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
       db.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

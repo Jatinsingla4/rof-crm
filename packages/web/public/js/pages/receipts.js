@@ -94,6 +94,9 @@ Pages.receipts = async function(params = {}) {
           <div class="sp-hdr"><div class="sp-title">Instrument Details</div></div>
           <div class="sp-body">
             <div class="sp-grid">
+              <div class="fg" id="rec-no-wrap" style="display:none"><label class="fl"><span class="r">*</span> Receipt No.</label>
+                <input class="fc" id="rec-no" maxlength="40" placeholder="This project numbers receipts by hand">
+              </div>
               <div class="fg"><label class="fl">Instrument / TXN No.</label>
                 <input class="fc" id="rec-txn" placeholder="Cheque / TXN reference">
               </div>
@@ -841,6 +844,11 @@ const ReceiptsPage = {
       const c = consRes.status === 'fulfilled' ? (consRes.value.data || consRes.value) : {};
       const receipts = receiptsRes.status === 'fulfilled' ? (receiptsRes.value.data || receiptsRes.value || []) : [];
       this._selectedConsumer = c;
+      // A project that numbers receipts by hand shows the Receipt No. box
+      try {
+        const st = c.project_id ? (await Api.get(`/projects/${c.project_id}/settings`)).data : null;
+        const wrap = document.getElementById('rec-no-wrap'); if (wrap) wrap.style.display = st?.receipt_number_mode === 'Manual' ? '' : 'none';
+      } catch {}
 
       const totalPaid = receipts.filter(r => (r.status||r.approval_status)==='approved')
         .reduce((s,r) => s + parseFloat(r.amount||0), 0);
@@ -932,6 +940,7 @@ const ReceiptsPage = {
       otherChargeAmount:  other    || undefined,
       otherChargeDesc:    document.getElementById('rec-other-charge-desc')?.value || undefined,
       paymentDate: date,
+      receiptNumber: document.getElementById('rec-no-wrap')?.style.display === 'none' ? undefined : (document.getElementById('rec-no')?.value.trim() || undefined),
       paymentMode: this._payType,
       referenceNumber: document.getElementById('rec-txn')?.value || undefined,
       bankName: document.getElementById('rec-bank')?.value || undefined,

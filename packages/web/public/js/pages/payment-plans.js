@@ -43,9 +43,10 @@ PLX.list = async (el) => {
   el.innerHTML = `<div class="sm-panel">
     <div class="sm-panel-h"><div><div class="sm-panel-t">Plans</div><div class="sm-panel-s">${SM.plural(PLX.plans.length, 'plan')} in this project. Only a plan that adds up to 100% can be chosen while booking.</div></div>
       <div class="sm-tools">${PLX.projectPicker()}${PLX.can ? '<button class="sm-btn sm-btn--primary" data-act="new">New plan</button>' : ''}</div></div>
-    ${PLX.plans.length ? `<div class="sm-scroll" style="max-height:none"><table class="sm-tbl"><thead><tr><th>Plan</th><th class="num">Rows</th><th>Total</th><th class="num">Bookings</th><th></th></tr></thead><tbody>
-      ${PLX.plans.map((p) => `<tr data-row><td><a href="javascript:void 0" data-act="open" data-plan="${px(p.plan_name)}" style="font-weight:700;color:inherit;text-decoration:none">${px(p.plan_name)}</a></td><td class="num">${p.rows}</td><td>${PLX.badge(p)}</td><td class="num">${p.bookings}</td>
+    ${PLX.plans.length ? `<div class="sm-scroll" style="max-height:none"><table class="sm-tbl"><thead><tr><th>Plan</th><th>Type</th><th class="num">Rows</th><th>Total</th><th class="num">Bookings</th><th></th></tr></thead><tbody>
+      ${PLX.plans.map((p) => `<tr data-row><td><a href="javascript:void 0" data-act="open" data-plan="${px(p.plan_name)}" style="font-weight:700;color:inherit;text-decoration:none">${px(p.plan_name)}</a>${p.description ? `<div class="sm-panel-s">${px(p.description)}</div>` : ''}</td><td>${px(p.plan_type || 'Time Linked')}</td><td class="num">${p.rows}</td><td>${PLX.badge(p)}</td><td class="num">${p.bookings}</td>
         <td class="act"><button class="sm-btn sm-btn--quiet" data-act="open" data-plan="${px(p.plan_name)}">${PLX.can && !p.bookings ? 'Open and edit' : 'Open'}</button>
+        ${PLX.can ? `<button class="sm-btn sm-btn--quiet" data-act="details" data-plan="${px(p.plan_name)}">Type and note</button>` : ''}
         ${PLX.can ? `<button class="sm-btn sm-btn--quiet" data-act="copy" data-plan="${px(p.plan_name)}">Copy</button>` : ''}
         ${PLX.admin ? `<button class="sm-btn sm-btn--quiet sm-btn--danger" data-act="del" data-plan="${px(p.plan_name)}">Delete</button>` : ''}</td></tr>`).join('')}
       </tbody></table></div>` : SM.empty('No plans in this project', PLX.can ? 'Make the first plan. The usual 9-row schedule is one click.' : 'Ask a project manager to set one up.')}</div>`;
@@ -56,6 +57,7 @@ PLX.list = async (el) => {
     if (b.dataset.act === 'new') PLX.newPlan();
     if (b.dataset.act === 'open') PLX.go(b.dataset.plan);
     if (b.dataset.act === 'copy') PLX.copyPlan(b.dataset.plan);
+    if (b.dataset.act === 'details') PLX.planDetails(b.dataset.plan);
     if (b.dataset.act === 'del') PLX.deletePlan(b.dataset.plan);
   };
 };
@@ -65,16 +67,29 @@ PLX.newPlan = () => {
     title: 'New plan', submit: 'Create',
     fields: [
       { key: 'plan_name', label: 'Plan name', required: true, maxlength: 100, placeholder: 'e.g. CLP 30:70 or Standard AHP Plan' },
+      { key: 'plan_type', label: 'Plan type', type: 'select', options: ['Time Linked', 'Construction Linked', 'Down Payment', 'Flexi'].map((x) => ({ value: x, label: x })), hint: 'Time Linked: dues by date. Construction Linked: dues by stage. Down Payment: most is paid up front. Flexi: mixed.' },
+      { key: 'description', label: 'Note', maxlength: 500, placeholder: 'Optional, shown in the plan list' },
       { key: 'start', label: 'Start from', type: 'select', options: [{ value: 'empty', label: 'An empty plan (I add the rows)' }, { value: 'standard', label: 'The usual 9-row schedule (5 + 20 + 6 x 12.5 + possession)' }].concat(PLX.plans.filter((p) => p.rows).map((p) => ({ value: 'copy:' + p.plan_name, label: 'A copy of ' + p.plan_name }))), hint: 'You can change every row afterwards.' },
     ],
-    values: { start: 'empty' },
+    values: { start: 'empty', plan_type: 'Time Linked' },
     onSubmit: async (v) => {
       const start = v.start || 'empty';
       if (start === 'standard') await Api.post(`/projects/${PLX.projectId}/plans/standard`, { plan_name: v.plan_name });
       else if (start.startsWith('copy:')) await Api.post(`/projects/${PLX.projectId}/plans/copy`, { from: start.slice(5), to: v.plan_name });
       else if (PLX.plans.some((p) => p.plan_name.toLowerCase() === v.plan_name.toLowerCase())) throw new Error('A plan with this name already exists');
+      if (v.plan_type !== 'Time Linked' || v.description) await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null });
       PLX.go(v.plan_name);
     },
+  });
+};
+
+PLX.planDetails = (name) => {
+  const p = PLX.plans.find((x) => x.plan_name === name) || {};
+  SM.openForm({
+    title: `Type and note: "${name}"`, submit: 'Save',
+    fields: [{ key: 'plan_type', label: 'Plan type', type: 'select', options: ['Time Linked', 'Construction Linked', 'Down Payment', 'Flexi'].map((x) => ({ value: x, label: x })) }, { key: 'description', label: 'Note', maxlength: 500 }],
+    values: { plan_type: p.plan_type || 'Time Linked', description: p.description || '' },
+    onSubmit: async (v) => { await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: name, plan_type: v.plan_type, description: v.description || null }); Utils.success('Saved'); PLX.go(); },
   });
 };
 

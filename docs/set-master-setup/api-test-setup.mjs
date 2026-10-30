@@ -37,12 +37,12 @@ for (const [path, extra] of [['salutations',{}],['professions',{}],['nationaliti
 }
 // In-use guards are tested for real in api-test-deep.mjs
 // ---- Locations
-const c = `Country-${U}`; let r = await A('POST','/master/countries',{name:c,code:'TC'}); t('country: add', r.s===201, JSON.stringify(r.j)); const cid=r.j?.data?.id;
+const c = `Country-${U}`; let r = await A('POST','/master/countries',{name:c,code:'TC',abbreviation:'TC',iso_code:'TC',isd_code:'99',mobile_digits:10}); t('country: add', r.s===201, JSON.stringify(r.j)); const cid=r.j?.data?.id;
 r = await A('POST','/master/states',{name:'S-'+U}); t('state: no country -> 400', r.s===400, r.s);
 r = await A('POST','/master/states',{name:'S-'+U,country_id:'00000000-0000-0000-0000-000000000000'}); t('state: unknown country -> 4xx not 500', r.s>=400&&r.s<500, r.s);
 r = await A('POST','/master/states',{name:'S-'+U,country_id:cid}); t('state: add', r.s===201, JSON.stringify(r.j)); const sid=r.j?.data?.id;
 r = await A('POST','/master/states',{name:('S-'+U).toLowerCase(),country_id:cid}); t('state: duplicate in same country -> 409', r.s===409, r.s);
-r = await A('POST','/master/countries',{name:c+'2'}); const c2=r.j?.data?.id;
+r = await A('POST','/master/countries',{name:c+'2',abbreviation:'TB',iso_code:'TB',isd_code:'98',mobile_digits:10}); const c2=r.j?.data?.id;
 r = await A('POST','/master/states',{name:'S-'+U,country_id:c2}); t('state: same name in another country allowed', r.s===201, r.s); const s2=r.j?.data?.id;
 r = await A('POST','/master/cities',{name:'Ci-'+U}); t('city: no state -> 400', r.s===400, r.s);
 r = await A('POST','/master/cities',{name:'Ci-'+U,state_id:sid}); t('city: add', r.s===201, JSON.stringify(r.j)); const ciid=r.j?.data?.id;

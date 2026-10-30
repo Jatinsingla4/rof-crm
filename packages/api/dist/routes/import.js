@@ -13,7 +13,8 @@ const input_js_1 = require("../utils/input.js");
 const units_js_1 = require("./units.js");
 const router = (0, express_1.Router)();
 const MAX_ROWS = 5000, MAX_CSV = 2000000;
-const REQUIRED = ['unitNumber', 'tower', 'floor', 'bhkType', 'totalPriceInr'];
+// A unit needs its number, tower and floor; the type comes from a unitType column (the project's own unit type, which also gives areas and price) or from bhkType and totalPriceInr
+const REQUIRED = ['unitNumber', 'tower', 'floor'];
 const onlyUnits = (v) => {
     const t = (0, input_js_1.has)(v) ? (0, input_js_1.oneOf)(v, 'importType', ['units']) : 'units';
     return t;
@@ -37,21 +38,40 @@ const readCsv = (v) => {
         throw (0, input_js_1.bad)(`The file has ${rows.length} rows; ${MAX_ROWS} at most in one import`);
     const headers = Object.keys(rows[0]);
     const missing = REQUIRED.filter((c) => !headers.includes(c));
+    if (!headers.includes('unitType') && !(headers.includes('bhkType') && headers.includes('totalPriceInr')))
+        missing.push('unitType (or bhkType and totalPriceInr)');
     if (missing.length)
         throw (0, input_js_1.bad)(`Missing required columns: ${missing.join(', ')}`);
     return { rows, headers };
 };
+// The project's unit types and locations by name (lower case), so a row can name them
+const lookupsOf = async (c, projectId) => ({
+    types: new Map((await c.query('SELECT * FROM unit_types WHERE project_id = $1', [projectId])).rows.map((r) => [r.name.toLowerCase(), r])),
+    locations: new Map((await c.query('SELECT id, name FROM unit_locations WHERE project_id = $1', [projectId])).rows.map((r) => [r.name.toLowerCase(), r.id])),
+});
 // Every row checked with the same rules as the Unit screen; the second copy of a unit inside the file is a problem too
-const checkRows = (rows) => {
+const checkRows = (rows, look = null) => {
     const ok = [], errors = [], seen = new Set();
     rows.forEach((r, i) => {
         const line = i + 2; // line 1 is the header
         try {
-            const unit = (0, input_js_1.text)(r.unitNumber, 'Unit number', 50, true), tower = (0, input_js_1.text)(r.tower, 'Tower', 100, true), bhk = (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true);
+            const unit = (0, input_js_1.text)(r.unitNumber, 'Unit number', 50, true), tower = (0, input_js_1.text)(r.tower, 'Tower', 100, true);
             if (!(0, input_js_1.has)(r.floor))
                 throw (0, input_js_1.bad)('Floor number is required for each unit');
             const floor = (0, units_js_1.floorNo)(r.floor), facing = (0, input_js_1.text)(r.facing, 'Facing', 30, false);
-            const f = (0, units_js_1.unitFields)(r);
+            // unit type and location are names of the project's own masters
+            const typeName = (0, input_js_1.text)(r.unitType, 'Unit type', 200, false), locName = (0, input_js_1.text)(r.location, 'Location', 200, false);
+            const type = typeName && look ? look.types.get(typeName.toLowerCase()) : null;
+            if (typeName && look && !type)
+                throw (0, input_js_1.bad)(`Unit type "${typeName}" is not in this project`);
+            const locationId = locName && look ? look.locations.get(locName.toLowerCase()) ?? null : null;
+            if (locName && look && !locationId)
+                throw (0, input_js_1.bad)(`Location "${locName}" is not in this project`);
+            const bhk = (0, input_js_1.has)(r.bhkType) ? (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true) : type ? type.name : (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true);
+            const area = type ? { 'Super Area': type.super_area_sqft, 'Carpet Area': type.carpet_area_sqft, 'Built Up Area': type.built_up_area_sqft, 'Plot Area': type.plot_area }[type.rate_basis] : null;
+            const typePrice = type && type.base_rate_sqft != null && area ? Math.round(Number(type.base_rate_sqft) * Number(area)) : undefined;
+            const f = (0, units_js_1.unitFields)({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typePrice, totalPriceInr: typePrice,
+                ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) });
             if (f.total === null)
                 throw (0, input_js_1.bad)('Total price is required');
             if (!(f.total > 0))
@@ -60,7 +80,7 @@ const checkRows = (rows) => {
             if (seen.has(key))
                 throw (0, input_js_1.bad)('This unit is in the file more than once');
             seen.add(key);
-            ok.push({ line, unit, tower, floor, bhk, facing, f });
+            ok.push({ line, unit, tower, floor, bhk, facing, f, typeId: type?.id ?? null, locationId });
         }
         catch (e) {
             errors.push({ row: line, unit: String(r.unitNumber ?? '').slice(0, 50), reason: e.http ? e.message : 'This row cannot be read' });
@@ -76,7 +96,7 @@ router.post('/preview', async (req, res, next) => {
         onlyUnits(b.importType);
         const projectId = (0, input_js_1.has)(b.projectId) ? (0, input_js_1.uuid)(b.projectId, 'projectId') : null;
         const { rows, headers } = readCsv(b.csvText);
-        const { ok, errors } = checkRows(rows);
+        const { ok, errors } = checkRows(rows, projectId ? await lookupsOf(index_js_1.db, projectId) : null);
         let existing = null;
         if (projectId) {
             if (!(await index_js_1.db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
@@ -101,7 +121,9 @@ router.post('/', async (req, res, next) => {
         const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId');
         const fileName = (0, input_js_1.text)(b.fileName, 'File name', 255, false) || 'import.csv';
         const { rows } = readCsv(b.csvText);
-        const { ok, errors } = checkRows(rows);
+        if (!(await index_js_1.db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
+            throw (0, input_js_1.bad)('Project not found', 404);
+        const { ok, errors } = checkRows(rows, await lookupsOf(index_js_1.db, projectId));
         if (errors.length) {
             await index_js_1.db.query(`INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,0,0,$3,'failed',$4,$5)`, [fileName, rows.length, errors.length, JSON.stringify(errors.slice(0, 200)), req.userId]);
             return res.status(422).json({ error: `The file has ${errors.length} row(s) with problems, nothing was imported. ${say(errors)}`, errors: errors.slice(0, 50) });
@@ -122,9 +144,9 @@ router.post('/', async (req, res, next) => {
                     towers.set(tk, t ? t.id : (await c.query(`INSERT INTO towers (project_id, tower_name) VALUES ($1, $2) RETURNING id`, [projectId, r.tower])).rows[0].id);
                 }
                 const towerId = towers.get(tk);
-                const done = await c.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id)
-           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid
-            WHERE NOT EXISTS (SELECT 1 FROM units WHERE tower_id = $2::uuid AND lower(unit_number) = lower($4::text))`, [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId]);
+                const done = await c.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id, unit_type_id, unit_location_id)
+           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid,$13::uuid,$14::uuid
+            WHERE NOT EXISTS (SELECT 1 FROM units WHERE tower_id = $2::uuid AND lower(unit_number) = lower($4::text))`, [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId, r.typeId, r.locationId]);
                 if (done.rowCount)
                     created++;
                 else

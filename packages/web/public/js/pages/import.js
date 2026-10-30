@@ -222,7 +222,7 @@ const ImportPage = {
     });
   },
 
-  downloadTemplate() { window.open('/api/import/template/units', '_blank'); },
+  downloadTemplate() { Utils.downloadUnitTemplate(); },
 
   async loadHistory() {
     const el = document.getElementById('imp-history-body');

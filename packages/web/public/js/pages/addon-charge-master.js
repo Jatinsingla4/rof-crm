@@ -18,7 +18,7 @@
 .acm-divider { border:none; border-top:1px solid var(--border); margin:4px 0 16px; }
 .acm-form-title { font-size:12px; font-weight:600; letter-spacing:.6px; text-transform:uppercase; color:var(--teal); margin-bottom:12px; }
 .acm-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:14px 20px; margin-bottom:16px; }
-.acm-grid input[type="text"], .acm-grid input[type="number"] { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:100%; box-sizing:border-box; background:var(--surface); color:var(--text); }
+.acm-grid input[type="text"], .acm-grid input[type="number"], .acm-grid input[type="date"], .acm-grid select { padding:9px 12px; min-height:38px; border:1px solid var(--border2); border-radius:8px; font-size:13px; width:100%; box-sizing:border-box; background:var(--surface); color:var(--text); }
 .acm-grid input:focus, .acm-project-row select:focus { outline:none; border-color:var(--teal); box-shadow:0 0 0 3px var(--teal-bg); }
 .acm-grid input[type="radio"] { accent-color:var(--teal); }
 .acm-btn-row { display:flex; align-items:center; gap:10px; }
@@ -107,6 +107,23 @@
             <span class="acm-lbl">SGST (%)</span>
             <input type="number" id="acm-sgst" min="0" step="0.01" value="9">
           </div>
+          <div class="acm-field"><span class="acm-lbl">Charge Type</span><input type="text" id="acm-charge-type" maxlength="30" value="Other" placeholder="e.g. Parking, Restoration"></div>
+          <div class="acm-field"><span class="acm-lbl">Apply date</span><select id="acm-apply-date"><option>Customer Wise Date</option><option>Possession</option></select></div>
+          <div class="acm-field"><span class="acm-lbl">Calculate rate on</span><input type="text" id="acm-calc-rate" maxlength="30" value="Old Area"></div>
+          <div class="acm-field"><span class="acm-lbl">Quantity</span><input type="number" id="acm-quantity" min="0" step="1" placeholder="e.g. 2"></div>
+          <div class="acm-field"><span class="acm-lbl">Effective date</span><input type="date" id="acm-effective-date"></div>
+          <div class="acm-field" style="grid-column: span 2"><span class="acm-lbl">Description</span><input type="text" id="acm-description" maxlength="500"></div>
+          <div class="acm-field" style="grid-column: span 4">
+            <div style="display:flex;gap:18px;flex-wrap:wrap;min-height:30px;align-items:center">
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-mandatory"> Mandatory</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-parking"> Is Parking</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-inventory"> Inventory Base</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-multiple"> Multiple Booking</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-alteration"> Alteration</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-agreement"> Is Agreement</label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;"><input type="checkbox" id="acm-f-dues" checked> Include in dues</label>
+            </div>
+          </div>
         </div>
         <div class="acm-btn-row">
           <button class="acm-btn-save" id="acm-save-btn" onclick="AddonChargeMaster.save()">SAVE</button>
@@ -182,7 +199,7 @@
       return;
     }
     let html = _TH + '<table class="acm-table"><thead><tr>' +
-      '<th>S.NO</th><th>CHARGE NAME</th><th>RATE</th>' +
+      '<th>S.NO</th><th>CHARGE NAME</th><th>TYPE</th><th>RATE</th><th>QTY</th><th>FLAGS</th>' +
       '<th>CGST %</th><th>SGST %</th><th>STATUS</th><th>ACTION</th>' +
       '</tr></thead><tbody>';
     rows.forEach(function(r, i) {
@@ -195,7 +212,10 @@
       html += '<tr>' +
         '<td>' + (i + 1) + '</td>' +
         '<td>' + _esc(r.charge_name) + '</td>' +
+        '<td>' + _esc(r.charge_type) + '</td>' +
         '<td style="text-align:right">' + rateLabel + '</td>' +
+        '<td style="text-align:center">' + (r.quantity != null ? r.quantity : '—') + '</td>' +
+        '<td>' + _FLAGS.filter(function(f) { return f[0] !== 'dues' && r[f[2]]; }).map(function(f) { return f[0]; }).join(', ') + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.cgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.sgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + statusBadge + '</td>' +
@@ -224,6 +244,7 @@
     _applyRateTypeVisibility(isPerSqft);
     _setVal('acm-cgst', parseFloat(row.cgst_pct));
     _setVal('acm-sgst', parseFloat(row.sgst_pct));
+    _fillExtras(row);
     const titleEl = document.getElementById('acm-form-title');
     if (titleEl) titleEl.textContent = 'EDIT CHARGE TYPE';
     const saveBtn = document.getElementById('acm-save-btn');
@@ -280,6 +301,7 @@
         ratePerSqftInr: parseFloat(_gv('acm-rate-per-sqft') || '0'),
         cgstPct:       parseFloat(_gv('acm-cgst') || '9'),
         sgstPct:       parseFloat(_gv('acm-sgst') || '9'),
+        ..._extras(),
       };
 
       let res, data;
@@ -287,11 +309,7 @@
         res = await fetch('/api/addon-charges/master/' + _editingId, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({
-            chargeName: body.chargeName, rateType: body.rateType,
-            defaultAmount: body.defaultAmount, ratePerSqftInr: body.ratePerSqftInr,
-            cgstPct: body.cgstPct, sgstPct: body.sgstPct
-          })
+          body: JSON.stringify(Object.assign({}, body, { projectId: undefined }))
         });
       } else {
         res = await fetch('/api/addon-charges/master', {
@@ -340,6 +358,19 @@
     }
   }
 
+  const _FLAGS = [['mandatory','isMandatory','is_mandatory'],['parking','isParking','is_parking'],['inventory','inventoryBase','inventory_base'],['multiple','multipleBooking','multiple_booking'],['alteration','isAlteration','is_alteration'],['agreement','isAgreement','is_agreement'],['dues','includeInDues','include_in_dues']];
+  function _extras() {
+    const o = { chargeType: _gv('acm-charge-type'), applyDateType: _gv('acm-apply-date'), calculateRateType: _gv('acm-calc-rate'),
+      quantity: _gv('acm-quantity') === '' ? null : Number(_gv('acm-quantity')), effectiveDate: _gv('acm-effective-date') || null, description: _gv('acm-description') || null };
+    _FLAGS.forEach(function(f) { o[f[1]] = !!document.getElementById('acm-f-' + f[0]).checked; });
+    return o;
+  }
+  function _fillExtras(row) {
+    _setVal('acm-charge-type', row ? row.charge_type : 'Other'); _setVal('acm-apply-date', row ? row.apply_date_type : 'Customer Wise Date'); _setVal('acm-calc-rate', row ? row.calculate_rate_type : 'Old Area');
+    _setVal('acm-quantity', row && row.quantity != null ? row.quantity : ''); _setVal('acm-effective-date', row && row.effective_date ? String(row.effective_date).slice(0, 10) : ''); _setVal('acm-description', row && row.description ? row.description : '');
+    _FLAGS.forEach(function(f) { document.getElementById('acm-f-' + f[0]).checked = row ? !!row[f[2]] : f[0] === 'dues'; });
+  }
+
   function _resetForm() {
     _setVal('acm-charge-name', '');
     _setVal('acm-default-amount', '0');
@@ -351,6 +382,7 @@
     _applyRateTypeVisibility(false);
     _setVal('acm-cgst', '9');
     _setVal('acm-sgst', '9');
+    _fillExtras(null);
     const titleEl = document.getElementById('acm-form-title');
     if (titleEl) titleEl.textContent = 'ADD NEW CHARGE TYPE';
     const saveBtn = document.getElementById('acm-save-btn');

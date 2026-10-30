@@ -56,7 +56,7 @@ const team = (await call('POST', '/employees/teams', { name: 'Gurugram Site Sale
 for (const [u, role] of [['amit.kumar', 'Closer'], ['pooja.singh', 'Walk-in desk']]) await call('POST', `/employees/teams/${team}/members`, { user_id: uid[u], role_in_team: role });
 
 // ---- 3. Set Up lists ----
-const India = (await call('POST', '/master/countries', { name: 'India', code: 'IN' }))?.id;
+const India = (await call('POST', '/master/countries', { name: 'India', code: 'IN', abbreviation: 'In', iso_code: 'IN', isd_code: '91', mobile_digits: 10 }))?.id;
 const states = {};
 for (const [n, c] of [['Haryana', 'HR'], ['Delhi', 'DL'], ['Uttar Pradesh', 'UP'], ['Punjab', 'PB']]) states[n] = (await call('POST', '/master/states', { name: n, code: c, country_id: India }))?.id;
 for (const [s, cs] of [['Haryana', ['Gurugram', 'Faridabad', 'Panipat', 'Karnal']], ['Delhi', ['New Delhi']], ['Uttar Pradesh', ['Noida', 'Ghaziabad']], ['Punjab', ['Chandigarh', 'Mohali']]]) for (const c of cs) await call('POST', '/master/cities', { name: c, state_id: states[s] });

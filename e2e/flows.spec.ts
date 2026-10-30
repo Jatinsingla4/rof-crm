@@ -156,7 +156,7 @@ test('Set Up: banks (add, edit, delete with Cancel and confirm)', async () => {
 test('Set Up: locations (country, state, city, parent delete is blocked)', async () => {
   await go('#/set-master?screen=locations');
   await content().getByRole('button', { name: 'Add country' }).click();
-  await fillDrawer({ name: names.country, code: 'EL' }); await saveDrawer();
+  await fillDrawer({ name: names.country, abbreviation: 'El', iso_code: 'EL', isd_code: '999', mobile_digits: '10', code: 'EL' }); await saveDrawer();
   await expect(rowOf(names.country)).toBeVisible();
 
   await rowOf(names.country).click();
@@ -253,6 +253,7 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
 
   // unit, with a unit type and a price
   await go('#/set-projects?tab=add-unit');
+  await page.getByRole('button', { name: 'One unit' }).click();
   const unit = page.locator('#spj-unit-form');
   const addUnit = async (number: string) => {
     await unit.locator('#spj-unit-project').selectOption({ label: names.project });
@@ -261,7 +262,6 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
     await unit.locator('#spj-unit-type').selectOption({ label: names.unitType });
     await unit.locator('[name=unit_number]').fill(number);
     await unit.locator('[name=floor]').fill('1');
-    await unit.locator('[name=bhk_type]').selectOption('2BHK');
     await unit.locator('#spj-unit-carpet').fill('500');
     await unit.locator('#spj-unit-balcony').fill('50');
     await unit.locator('[name=total_price_inr]').fill('4500000');
@@ -269,10 +269,14 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
   };
   await addUnit('E2E-101');
   await expect(toast('Unit E2E-101 added')).toBeVisible();
+  // after a unit is added the number field holds the suggested next number (E2E-101 -> E2E-102) and the place and type stay
+  await expect(unit.locator('[name=unit_number]')).toHaveValue('E2E-102');
+  await expect(unit.locator('#spj-unit-type').locator('option:checked')).toHaveText(names.unitType);
   await addUnit('E2E-101');
   await expect(toast('A unit with this number already exists in this tower')).toBeVisible();
 
   // CSV upload: a file with a row that has no floor is refused as a whole; the corrected file adds 1 new unit and skips 1 that exists
+  await page.getByRole('button', { name: 'From a CSV file' }).click();
   await page.locator('#spj-bulk-project').selectOption({ label: names.project });
   const csv = 'tower,floor,unitNumber,bhkType,carpetAreaSqft,superAreaSqft,balconyAreaSqft,basePriceInr,totalPriceInr,facing\n'
     + `${names.tower},2,E2E-201,2BHK,650,750,100,5000000,5000000,North\n`

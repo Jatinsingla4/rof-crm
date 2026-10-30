@@ -70,7 +70,7 @@ r = await A('POST', `/projects/${proj}/plan-templates`, { plan_name: planName, i
 t('one more percent over 100 is refused', r.s === 400, r.s + JSON.stringify(r.j));
 // add-on charge (random flat or per sq ft), billed on random rows summing to <= 100%
 const addType = pick(['flat', 'per_sqft']);
-const addon = await must('addon master', A('POST', '/addon-charges/master', { projectId: proj, chargeName: 'Club ' + U, rateType: addType, ...(addType === 'flat' ? { defaultAmount: ri(5, 50) * 10000 } : { ratePerSqftInr: ri(20, 200) }), cgstPct: 9, sgstPct: 9 }));
+const addon = await must('addon master', A('POST', '/addon-charges/master', { projectId: proj, isMandatory: true, chargeName: 'Club ' + U, rateType: addType, ...(addType === 'flat' ? { defaultAmount: ri(5, 50) * 10000 } : { ratePerSqftInr: ri(20, 200) }), cgstPct: 9, sgstPct: 9 }));
 const addPct = []; let addLeft = 100;
 for (const rid of rowIds) { if (rnd() < 0.6 && addLeft > 0) { const p = Math.min(addLeft, ri(10, 60)); addLeft -= p; addPct.push(p); await must('addon pct', A('POST', `/projects/${proj}/plan-templates/${rid}/addon-charges`, { charge_master_id: addon.id, pct: p })); } else addPct.push(0); }
 const addTotalPct = addPct.reduce((s, x) => s + x, 0);

@@ -79,6 +79,18 @@
         <input type="text" id="im-rate" placeholder="Interest Value(%)">
       </div>
       <div class="im-row">
+        <span class="im-lbl">Interest Type:</span>
+        <select id="im-type" onchange="document.getElementById('im-freq-row').style.display = this.value === 'Compound' ? '' : 'none'"><option>Simple</option><option>Compound</option></select>
+      </div>
+      <div class="im-row" id="im-freq-row" style="display:none">
+        <span class="im-lbl"><span class="im-req">*</span>Compound Frequency:</span>
+        <select id="im-freq"><option>Monthly</option><option>Quarterly</option><option>Half Yearly</option><option>Yearly</option></select>
+      </div>
+      <div class="im-row">
+        <span class="im-lbl">Calculated On:</span>
+        <input type="text" id="im-on" maxlength="30" value="Receipt Date Wise">
+      </div>
+      <div class="im-row">
         <span class="im-lbl">Effective Date:</span>
         <div class="im-date-wrap">
           <span class="im-cal">&#128197;</span>
@@ -138,7 +150,8 @@
         const res = await fetch('/api/payments/interest-master', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-          body: JSON.stringify({ project_id: projectId, rate_percent: parseFloat(rate), effective_from: dateVal || undefined }),
+          body: JSON.stringify({ project_id: projectId, rate_percent: parseFloat(rate), effective_from: dateVal || undefined, interest_type: document.getElementById('im-type').value,
+            compound_frequency: document.getElementById('im-type').value === 'Compound' ? document.getElementById('im-freq').value : undefined, calculated_on: document.getElementById('im-on').value.trim() || undefined }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Save failed');
@@ -186,6 +199,8 @@
 <tr id="im-row-${r.id}">
   <td>${i + 1}</td>
   <td id="im-rate-cell-${r.id}">${parseFloat(r.rate_percent).toFixed(2)}</td>
+  <td>${r.interest_type || 'Simple'}${r.compound_frequency ? ' (' + r.compound_frequency + ')' : ''}</td>
+  <td>${r.calculated_on || ''}</td>
   <td>${fmtDate(r.effective_from)}</td>
   <td><a class="im-edit-link" onclick="InterestMaster.startEdit('${r.id}', ${r.rate_percent}, '${r.effective_from || ''}')">Edit</a></td>
 </tr>`;
@@ -203,8 +218,10 @@
     <thead>
       <tr>
         <th style="width:8%">SR. NO.</th>
-        <th style="width:42%">INTEREST VALUE(%)</th>
-        <th style="width:35%">EFFECTIVE DATE</th>
+        <th style="width:20%">INTEREST VALUE(%)</th>
+        <th style="width:20%">TYPE</th>
+        <th style="width:20%">CALCULATED ON</th>
+        <th style="width:17%">EFFECTIVE DATE</th>
         <th style="width:15%">EDIT</th>
       </tr>
     </thead>

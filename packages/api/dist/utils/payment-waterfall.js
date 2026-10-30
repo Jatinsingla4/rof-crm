@@ -32,45 +32,20 @@ function buildInterestRows(receipts, demands, penalRate, options) {
         const tb = new Date(b.received_date || b.created_at || 0).getTime();
         return ta - tb;
     });
-    // demand_id → installment_index lookup for linked receipts
-    const demandIdToIdx = {};
-    sortedDemands.forEach(d => { demandIdToIdx[d.id] = d.installment_index; });
-    // Per-installment pre-allocated credits (linked + index-orphan receipts)
-    const creditsByIdx = {};
-    // Advance pool: receipts with no demand_id AND no installment_index
+    // Interest runs on the BASIC amount, the way the client's own file does it: a receipt counts without its CGST and SGST, a demand without its tax.
+    // Money is matched to the oldest installment first, by date received, whatever installment the receipt was filed under
+    // (a receipt entered while an earlier cheque was still pending was filed under the wrong installment and charged interest that was not due).
     const pool = [];
     for (const r of sorted) {
-        const amt = parseFloat(String(r.amount_received_inr));
-        const rcvdDate = r.received_date ? new Date(r.received_date) : null;
-        if (r.demand_id && demandIdToIdx[r.demand_id] !== undefined) {
-            const idx = demandIdToIdx[r.demand_id];
-            if (!creditsByIdx[idx])
-                creditsByIdx[idx] = [];
-            creditsByIdx[idx].push({ amount: amt, received_date: rcvdDate });
-        }
-        else if (!r.demand_id && r.installment_index !== null) {
-            const idx = Number(r.installment_index);
-            if (!creditsByIdx[idx])
-                creditsByIdx[idx] = [];
-            creditsByIdx[idx].push({ amount: amt, received_date: rcvdDate });
-        }
-        else {
-            pool.push({ remaining: amt, received_date: rcvdDate });
-        }
+        const gross = parseFloat(String(r.amount_received_inr));
+        const amt = Math.max(0, gross - (parseFloat(String(r.cgst_amount ?? 0)) || 0) - (parseFloat(String(r.sgst_amount ?? 0)) || 0));
+        pool.push({ remaining: amt, received_date: r.received_date ? new Date(r.received_date) : null });
     }
     const rows = [];
     for (const demand of sortedDemands) {
-        // Full NET DUE = BSP + GST + addon
-        // + addon GST (Option B — interest
-        // on complete installment amount).
-        // Non-addon bookings unaffected:
-        // optional fields default via || 0.
+        // The basic amount of the installment (plus the base of an add-on charge), without GST
         const dueAmt = parseFloat(String(demand.amount_due_inr || 0))
-            + parseFloat(String(demand.cgst_amount || 0))
-            + parseFloat(String(demand.sgst_amount || 0))
-            + parseFloat(String(demand.addon_charge_amount || 0))
-            + parseFloat(String(demand.addon_cgst_amount || 0))
-            + parseFloat(String(demand.addon_sgst_amount || 0));
+            + parseFloat(String(demand.addon_charge_amount || 0));
         const dueDate = demand.due_date ? new Date(demand.due_date) : null;
         let balance = dueAmt;
         let isFirst = true;
@@ -110,15 +85,10 @@ function buildInterestRows(receipts, demands, penalRate, options) {
             });
             isFirst = false;
             anyApplied = true;
-            lastEventDate = rcvdDate;
+            // A payment made before the due date does not start the clock: later delay is counted from the due date (same rule as the trailing row below)
+            lastEventDate = rcvdDate && dueDate && rcvdDate < dueDate ? dueDate : rcvdDate;
         };
-        // Pre-allocated credits first
-        for (const credit of (creditsByIdx[demand.installment_index] || [])) {
-            if (balance <= 0)
-                break;
-            applyCredit(Math.min(credit.amount, balance), credit.received_date);
-        }
-        // Then advance pool in waterfall order
+        // Oldest money first
         for (const entry of pool) {
             if (balance <= 0)
                 break;

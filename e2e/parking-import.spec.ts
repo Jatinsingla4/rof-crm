@@ -248,10 +248,12 @@ test('Import: a good file is imported (units and tower in the database), the sam
   await clean();
 });
 
-test('Import: Download Template gives the server file', async () => {
+test('Import: Download Template gives a CSV with the columns the import reads', async () => {
   await tab('Upload');
-  const [popup] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: 'Download Template CSV' }).click().catch(() => {})]);
-  void popup;
+  const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download Template CSV' }).click()]);
+  expect(file.suggestedFilename()).toBe('units-template.csv');
+  const chunks: Buffer[] = []; for await (const c of (await file.createReadStream())!) chunks.push(c as Buffer);
+  expect(Buffer.concat(chunks).toString().split('\n')[0]).toBe('unitNumber,tower,floor,unitType,location,facing');
 });
 
 // ---------------- Customer Folders ----------------

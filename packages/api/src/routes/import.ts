@@ -14,9 +14,11 @@ import { floorNo, unitFields } from './units.js';
 
 const router = Router();
 const MAX_ROWS = 5000, MAX_CSV = 2_000_000;
-const REQUIRED = ['unitNumber', 'tower', 'floor', 'bhkType', 'totalPriceInr'];
+// A unit needs its number, tower and floor; the type comes from a unitType column (the project's own unit type, which also gives areas and price) or from bhkType and totalPriceInr
+const REQUIRED = ['unitNumber', 'tower', 'floor'];
 
-type Clean = { line: number; unit: string; tower: string; floor: number; bhk: string; facing: string | null; f: ReturnType<typeof unitFields> };
+type Clean = { line: number; unit: string; tower: string; floor: number; bhk: string; facing: string | null; f: ReturnType<typeof unitFields>; typeId: string | null; locationId: string | null };
+type Lookups = { types: Map<string, any>; locations: Map<string, string> } | null;
 
 const onlyUnits = (v: any) => {
   const t = has(v) ? oneOf(v, 'importType', ['units'] as const) : 'units';
@@ -34,26 +36,43 @@ const readCsv = (v: any) => {
   if (rows.length > MAX_ROWS) throw bad(`The file has ${rows.length} rows; ${MAX_ROWS} at most in one import`);
   const headers = Object.keys(rows[0]);
   const missing = REQUIRED.filter((c) => !headers.includes(c));
+  if (!headers.includes('unitType') && !(headers.includes('bhkType') && headers.includes('totalPriceInr'))) missing.push('unitType (or bhkType and totalPriceInr)');
   if (missing.length) throw bad(`Missing required columns: ${missing.join(', ')}`);
   return { rows, headers };
 };
 
+// The project's unit types and locations by name (lower case), so a row can name them
+const lookupsOf = async (c: { query: (sql: string, p?: any[]) => Promise<any> }, projectId: string): Promise<Lookups> => ({
+  types: new Map((await c.query('SELECT * FROM unit_types WHERE project_id = $1', [projectId])).rows.map((r: any) => [r.name.toLowerCase(), r])),
+  locations: new Map((await c.query('SELECT id, name FROM unit_locations WHERE project_id = $1', [projectId])).rows.map((r: any) => [r.name.toLowerCase(), r.id])),
+});
+
 // Every row checked with the same rules as the Unit screen; the second copy of a unit inside the file is a problem too
-const checkRows = (rows: any[]) => {
+const checkRows = (rows: any[], look: Lookups = null) => {
   const ok: Clean[] = [], errors: { row: number; unit: string; reason: string }[] = [], seen = new Set<string>();
   rows.forEach((r, i) => {
     const line = i + 2;   // line 1 is the header
     try {
-      const unit = text(r.unitNumber, 'Unit number', 50, true)!, tower = text(r.tower, 'Tower', 100, true)!, bhk = text(r.bhkType, 'BHK type', 50, true)!;
+      const unit = text(r.unitNumber, 'Unit number', 50, true)!, tower = text(r.tower, 'Tower', 100, true)!;
       if (!has(r.floor)) throw bad('Floor number is required for each unit');
       const floor = floorNo(r.floor), facing = text(r.facing, 'Facing', 30, false);
-      const f = unitFields(r);
+      // unit type and location are names of the project's own masters
+      const typeName = text(r.unitType, 'Unit type', 200, false), locName = text(r.location, 'Location', 200, false);
+      const type = typeName && look ? look.types.get(typeName.toLowerCase()) : null;
+      if (typeName && look && !type) throw bad(`Unit type "${typeName}" is not in this project`);
+      const locationId = locName && look ? look.locations.get(locName.toLowerCase()) ?? null : null;
+      if (locName && look && !locationId) throw bad(`Location "${locName}" is not in this project`);
+      const bhk = has(r.bhkType) ? text(r.bhkType, 'BHK type', 50, true)! : type ? type.name : text(r.bhkType, 'BHK type', 50, true)!;
+      const area = type ? ({ 'Super Area': type.super_area_sqft, 'Carpet Area': type.carpet_area_sqft, 'Built Up Area': type.built_up_area_sqft, 'Plot Area': type.plot_area } as any)[type.rate_basis] : null;
+      const typePrice = type && type.base_rate_sqft != null && area ? Math.round(Number(type.base_rate_sqft) * Number(area)) : undefined;
+      const f = unitFields({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typePrice, totalPriceInr: typePrice,
+        ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) });
       if (f.total === null) throw bad('Total price is required');
       if (!(f.total > 0)) throw bad('Total price must be more than 0');
       const key = `${tower.toLowerCase()}|${unit.toLowerCase()}`;
       if (seen.has(key)) throw bad('This unit is in the file more than once');
       seen.add(key);
-      ok.push({ line, unit, tower, floor, bhk, facing, f });
+      ok.push({ line, unit, tower, floor, bhk, facing, f, typeId: type?.id ?? null, locationId });
     } catch (e: any) { errors.push({ row: line, unit: String(r.unitNumber ?? '').slice(0, 50), reason: e.http ? e.message : 'This row cannot be read' }); }
   });
   return { ok, errors };
@@ -69,7 +88,7 @@ router.post('/preview', async (req: AuthRequest, res: Response, next: NextFuncti
     onlyUnits(b.importType);
     const projectId = has(b.projectId) ? uuid(b.projectId, 'projectId') : null;
     const { rows, headers } = readCsv(b.csvText);
-    const { ok, errors } = checkRows(rows);
+    const { ok, errors } = checkRows(rows, projectId ? await lookupsOf(db, projectId) : null);
     let existing: number | null = null;
     if (projectId) {
       if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
@@ -93,7 +112,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const projectId = uuid(b.projectId, 'projectId');
     const fileName = text(b.fileName, 'File name', 255, false) || 'import.csv';
     const { rows } = readCsv(b.csvText);
-    const { ok, errors } = checkRows(rows);
+    if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
+    const { ok, errors } = checkRows(rows, await lookupsOf(db, projectId));
     if (errors.length) {
       await db.query(
         `INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,0,0,$3,'failed',$4,$5)`,
@@ -116,10 +136,10 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         }
         const towerId = towers.get(tk)!;
         const done = await c.query(
-          `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id)
-           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid
+          `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id, unit_type_id, unit_location_id)
+           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid,$13::uuid,$14::uuid
             WHERE NOT EXISTS (SELECT 1 FROM units WHERE tower_id = $2::uuid AND lower(unit_number) = lower($4::text))`,
-          [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId]);
+          [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId, r.typeId, r.locationId]);
         if (done.rowCount) created++; else skipped.push({ row: r.line, unit: r.unit, reason: 'A unit with this number already exists in this tower' });
       }
       await c.query(

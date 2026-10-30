@@ -42,24 +42,99 @@ const unitFields = (b, cur) => {
     return f;
 };
 exports.unitFields = unitFields;
+// The charges a unit carries in advance: [{ chargeMasterId, quantity }]. A Mandatory charge is not stored; it goes on every booking by itself.
+const chargeList = (v) => {
+    if (v === undefined)
+        return undefined;
+    if (!Array.isArray(v) || v.length > 50)
+        throw (0, input_js_1.bad)('charges must be a list of up to 50 charges');
+    const seen = new Set();
+    return v.map((x) => {
+        if (!x || typeof x !== 'object' || Array.isArray(x))
+            throw (0, input_js_1.bad)('Each charge needs chargeMasterId and quantity');
+        const id = (0, input_js_1.uuid)(x.chargeMasterId, 'chargeMasterId'), q = (0, input_js_1.has)(x.quantity) ? (0, input_js_1.num)(x.quantity, 'Quantity', 20, 0) : 1;
+        if (!Number.isInteger(q) || q < 1)
+            throw (0, input_js_1.bad)('Quantity must be a whole number from 1 to 20');
+        if (seen.has(id))
+            throw (0, input_js_1.bad)('A charge is listed twice');
+        seen.add(id);
+        return { id, q };
+    });
+};
+const saveUnitCharges = async (c, unitId, projectId, list, userId) => {
+    const masters = (await c.query('SELECT id, charge_name, is_mandatory, multiple_booking FROM addon_charge_master WHERE project_id = $1 AND is_active AND id = ANY($2::uuid[])', [projectId, list.map(x => x.id)])).rows;
+    await c.query('DELETE FROM unit_addon_charges WHERE unit_id = $1', [unitId]);
+    for (const x of list) {
+        const m = masters.find((r) => r.id === x.id);
+        if (!m)
+            throw (0, input_js_1.bad)('A charge does not belong to this project or is switched off');
+        if (m.is_mandatory)
+            continue;
+        if (x.q > 1 && !m.multiple_booking)
+            throw (0, input_js_1.bad)(`"${m.charge_name}" is not set for multiple booking, so its quantity must be 1`);
+        await c.query('INSERT INTO unit_addon_charges (unit_id, charge_master_id, project_id, quantity, created_by) VALUES ($1,$2,$3,$4,$5)', [unitId, x.id, projectId, x.q, userId || null]);
+    }
+};
+// GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
+router.get('/:id/charges', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
+        const u = (await index_js_1.db.query('SELECT project_id FROM units WHERE id = $1', [id])).rows[0];
+        if (!u)
+            return res.status(404).json({ error: 'Unit not found' });
+        const attached = (await index_js_1.db.query('SELECT charge_master_id, quantity FROM unit_addon_charges WHERE unit_id = $1', [id])).rows;
+        const mandatory = (await index_js_1.db.query('SELECT id AS charge_master_id, charge_name FROM addon_charge_master WHERE project_id = $1 AND is_active AND is_mandatory ORDER BY charge_name', [u.project_id])).rows;
+        res.json({ success: true, data: { attached, mandatory } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// PUT /api/units/:id/charges  { charges: [{ chargeMasterId, quantity }] } - replaces the list; not after the unit is booked
+router.put('/:id/charges', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id'), list = chargeList((0, input_js_1.body)(req).charges);
+        if (!list)
+            throw (0, input_js_1.bad)('charges is required');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const u = (await c.query('SELECT project_id, status FROM units WHERE id = $1 FOR UPDATE', [id])).rows[0];
+            if (!u)
+                throw Object.assign((0, input_js_1.bad)('Unit not found'), { http: 404 });
+            if ((u.status !== 'available' && u.status !== 'locked' && u.status !== 'held') || (await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length)
+                throw Object.assign((0, input_js_1.bad)('This unit already has a booking, so its charges can no longer be changed here. Use Set Add-on Charge for the customer.'), { http: 409 });
+            await saveUnitCharges(c, id, u.project_id, list, req.userId);
+            return list.length;
+        });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit_charges', id, undefined, { charges: out });
+        res.json({ success: true, data: { saved: out } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
 // POST /api/units - Create unit
 router.post('/', async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
         const projectId = (0, input_js_1.uuid)(b.projectId, 'projectId'), towerId = (0, input_js_1.uuid)(b.towerId, 'towerId');
         const unitNumber = (0, input_js_1.text)(b.unitNumber, 'Unit number', 50, true);
-        const bhkType = (0, input_js_1.text)(b.bhkType, 'BHK type', 50, true);
         if (!(0, input_js_1.has)(b.floor))
             throw (0, input_js_1.bad)('Floor number is required for each unit');
         const floor = (0, exports.floorNo)(b.floor);
         const facing = (0, input_js_1.text)(b.facing, 'Facing', 30, false), floorPlanUrl = planUrl(b.floorPlanUrl);
         const unitTypeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
+        const locationId = (0, input_js_1.has)(b.unitLocationId) ? (0, input_js_1.uuid)(b.unitLocationId, 'unitLocationId') : null;
+        const charges = chargeList(b.charges);
+        // The type is the unit type's name when a unit type is chosen and no type is typed
+        const bhkType = (0, input_js_1.has)(b.bhkType) || !unitTypeId ? (0, input_js_1.text)(b.bhkType, 'BHK type', 50, true) : ((await index_js_1.db.query('SELECT name FROM unit_types WHERE id = $1', [unitTypeId])).rows[0]?.name ?? (0, input_js_1.text)(b.bhkType, 'BHK type', 50, true));
         const f = (0, exports.unitFields)(b);
         const tower = await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [towerId, projectId]);
         if (!tower.rows.length)
             throw (0, input_js_1.bad)('This tower does not belong to the selected project');
         if (unitTypeId && !(await index_js_1.db.query('SELECT 1 FROM unit_types WHERE id = $1 AND project_id = $2', [unitTypeId, projectId])).rows.length)
             throw (0, input_js_1.bad)('This unit type does not belong to the selected project');
+        if (locationId && !(await index_js_1.db.query('SELECT 1 FROM unit_locations WHERE id = $1 AND project_id = $2', [locationId, projectId])).rows.length)
+            throw (0, input_js_1.bad)('This unit location does not belong to the selected project');
         const client = await index_js_1.db.connect();
         let made;
         try {
@@ -70,9 +145,11 @@ router.post('/', async (req, res, next) => {
                 return res.status(409).json({ success: false, error: 'A unit with this number already exists in this tower. Please use a different unit number.' });
             }
             made = (await client.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft,
-           base_price_inr, total_price_inr, facing, floor_plan_url, status, created_by_user_id, unit_type_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'available',$13,$14)
-         RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.balcony || null, f.base, f.total, facing, floorPlanUrl, req.userId, unitTypeId])).rows[0];
+           base_price_inr, total_price_inr, facing, floor_plan_url, status, created_by_user_id, unit_type_id, unit_location_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'available',$13,$14,$15)
+         RETURNING id, unit_number, bhk_type, status, total_price_inr, created_at`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.balcony || null, f.base, f.total, facing, floorPlanUrl, req.userId, unitTypeId, locationId])).rows[0];
+            if (charges?.length)
+                await saveUnitCharges(client, made.id, projectId, charges, req.userId);
             await client.query('COMMIT');
         }
         catch (e) {
@@ -433,7 +510,7 @@ router.get('/:id', async (req, res, next) => {
               u.carpet_area_sqft, u.super_area_sqft, u.base_price_inr,
               u.total_price_inr, u.facing, u.floor_plan_url,
               u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
-              u.status, u.status_changed_at, u.created_at
+              u.status, u.status_changed_at, u.created_at, u.unit_type_id, u.unit_location_id
        FROM units u
        JOIN towers t ON u.tower_id = t.id
        JOIN projects p ON u.project_id = p.id
@@ -470,18 +547,31 @@ router.patch('/:id', async (req, res, next) => {
             const floor = (0, input_js_1.has)(b.floor) ? (0, exports.floorNo)(b.floor) : cur.floor;
             const facing = (0, input_js_1.has)(b.facing) ? (0, input_js_1.text)(b.facing, 'Facing', 30, false) : cur.facing;
             const floorPlanUrl = (0, input_js_1.has)(b.floorPlanUrl) ? planUrl(b.floorPlanUrl) : cur.floor_plan_url;
+            const unitNumber = (0, input_js_1.has)(b.unitNumber) ? (0, input_js_1.text)(b.unitNumber, 'Unit number', 50, true) : cur.unit_number;
+            if (unitNumber.toLowerCase() !== cur.unit_number.toLowerCase()) {
+                await client.query(`SELECT pg_advisory_xact_lock(hashtext('unit|' || $1 || '|' || lower($2)))`, [cur.tower_id, unitNumber]);
+                if ((await client.query('SELECT 1 FROM units WHERE tower_id = $1 AND lower(unit_number) = lower($2) AND id <> $3', [cur.tower_id, unitNumber, id])).rows.length)
+                    throw Object.assign((0, input_js_1.bad)('A unit with this number already exists in this tower. Please use a different unit number.'), { http: 409 });
+            }
+            const locationId = 'unitLocationId' in b ? ((0, input_js_1.has)(b.unitLocationId) ? (0, input_js_1.uuid)(b.unitLocationId, 'unitLocationId') : null) : cur.unit_location_id;
+            if (locationId && locationId !== cur.unit_location_id && !(await client.query('SELECT 1 FROM unit_locations WHERE id = $1 AND project_id = $2', [locationId, cur.project_id])).rows.length)
+                throw (0, input_js_1.bad)('This unit location does not belong to the unit\'s project');
+            const typeId = 'unitTypeId' in b ? ((0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null) : cur.unit_type_id;
+            if (typeId && typeId !== cur.unit_type_id && !(await client.query('SELECT 1 FROM unit_types WHERE id = $1 AND project_id = $2', [typeId, cur.project_id])).rows.length)
+                throw (0, input_js_1.bad)('This unit type does not belong to the unit\'s project');
             const f = (0, exports.unitFields)({ basePriceInr: b.basePriceInr, totalPriceInr: b.totalPriceInr, balconyAreaSqft: b.balconyAreaSqft, carpetAreaSqft: b.carpetAreaSqft, superAreaSqft: b.superAreaSqft }, cur);
             const same = (a, v) => (a === null && v == null) || (a !== null && v != null && Number(v) === a);
             const moneyChanged = !same(f.base, cur.base_price_inr) || !same(f.total, cur.total_price_inr) || !same(f.balcony, cur.balcony_area_sqft) || !same(f.carpet, cur.carpet_area_sqft) || !same(f.sup, cur.super_area_sqft);
-            if (moneyChanged) {
+            const identityChanged = typeId !== cur.unit_type_id || unitNumber !== cur.unit_number;
+            if (moneyChanged || identityChanged) {
                 // Booking, demands and receipts were priced from these figures, so they stay as they are once the unit is sold
                 const sold = cur.status !== 'available' && cur.status !== 'locked' && cur.status !== 'held'
                     || (await client.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length > 0;
                 if (sold)
-                    throw Object.assign((0, input_js_1.bad)('This unit already has a booking, so its price and areas can no longer be changed.'), { http: 409 });
+                    throw Object.assign((0, input_js_1.bad)('This unit already has a booking, so its number, type, price and areas can no longer be changed.'), { http: 409 });
             }
-            const upd = (await client.query(`UPDATE units SET floor = $2, facing = $3, floor_plan_url = $4, base_price_inr = $5, total_price_inr = $6, balcony_area_sqft = $7, carpet_area_sqft = $8, super_area_sqft = $9, updated_at = NOW()
-         WHERE id = $1 RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`, [id, floor, facing, floorPlanUrl, f.base, f.total, f.balcony, f.carpet, f.sup])).rows[0];
+            const upd = (await client.query(`UPDATE units SET floor = $2, facing = $3, floor_plan_url = $4, base_price_inr = $5, total_price_inr = $6, balcony_area_sqft = $7, carpet_area_sqft = $8, super_area_sqft = $9, unit_number = $10, unit_location_id = $11, unit_type_id = $12, updated_at = NOW()
+         WHERE id = $1 RETURNING id, unit_number, bhk_type, status, total_price_inr, updated_at`, [id, floor, facing, floorPlanUrl, f.base, f.total, f.balcony, f.carpet, f.sup, unitNumber, locationId, typeId])).rows[0];
             await client.query('COMMIT');
             out = { cur, upd };
         }
@@ -494,6 +584,47 @@ router.patch('/:id', async (req, res, next) => {
         }
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit', id, out.cur, out.upd);
         res.json({ success: true, data: out.upd });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// POST /api/units/bulk-price  { projectId, towerId?, unitTypeId?, mode: 'percent' | 'amount', value, preview? }
+// Raises or lowers the price of the units that are not booked yet (a negative value lowers it). Total price moves by the same amount as the base price.
+router.post('/bulk-price', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req), projectId = (0, input_js_1.uuid)(b.projectId, 'projectId'), preview = b.preview === true;
+        const towerId = (0, input_js_1.has)(b.towerId) ? (0, input_js_1.uuid)(b.towerId, 'towerId') : null, typeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
+        const mode = b.mode === 'percent' || b.mode === 'amount' ? b.mode : (() => { throw (0, input_js_1.bad)("mode must be 'percent' or 'amount'"); })();
+        const value = typeof b.value === 'number' ? b.value : typeof b.value === 'string' && /^-?\d+(\.\d{1,2})?$/.test(b.value.trim()) ? Number(b.value) : NaN;
+        if (!Number.isFinite(value) || Math.abs(value) > (mode === 'percent' ? 100 : 1000000000) || Math.round(value * 100) !== value * 100 && Math.abs(Math.round(value * 100) - value * 100) > 1e-6)
+            throw (0, input_js_1.bad)('Value must be a number (minus lowers the price) with up to 2 decimals');
+        if (!value)
+            throw (0, input_js_1.bad)('Value cannot be zero');
+        if (mode === 'percent' && value <= -100)
+            throw (0, input_js_1.bad)('A fall of 100% or more is not possible');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            if (!(await c.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length)
+                throw Object.assign((0, input_js_1.bad)('Project not found'), { http: 404 });
+            const rows = (await c.query(`SELECT u.id, u.base_price_inr, u.total_price_inr FROM units u
+          WHERE u.project_id = $1 AND ($2::uuid IS NULL OR u.tower_id = $2) AND ($3::uuid IS NULL OR u.unit_type_id = $3)
+            AND u.status IN ('available', 'locked', 'held') AND u.base_price_inr IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM booking_records b WHERE b.unit_id = u.id AND COALESCE(b.status, '') <> 'cancelled') FOR UPDATE OF u`, [projectId, towerId, typeId])).rows;
+            const delta = (x) => mode === 'percent' ? Math.round(x * value / 100) : Math.round(value);
+            const bad1 = rows.find((r) => Number(r.base_price_inr) + delta(Number(r.base_price_inr)) <= 0);
+            if (bad1)
+                throw (0, input_js_1.bad)('This change would take a unit price to zero or below');
+            if (!preview)
+                for (const r of rows) {
+                    const d = delta(Number(r.base_price_inr));
+                    await c.query('UPDATE units SET base_price_inr = base_price_inr + $2, total_price_inr = COALESCE(total_price_inr, base_price_inr) + $2, updated_at = now() WHERE id = $1', [r.id, d]);
+                }
+            const sample = rows[0] ? { before: Number(rows[0].base_price_inr), after: Number(rows[0].base_price_inr) + delta(Number(rows[0].base_price_inr)) } : null;
+            return { units: rows.length, updated: preview ? 0 : rows.length, sample };
+        });
+        if (!preview)
+            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit_bulk_price', projectId, undefined, { mode, value, towerId, typeId, units: out.units });
+        res.json({ success: true, data: out });
     }
     catch (error) {
         fail(error, res, next);

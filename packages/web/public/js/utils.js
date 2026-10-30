@@ -215,6 +215,13 @@ const Utils = {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   },
 
+  // The CSV template of the unit import is made in the browser (the columns the import reads)
+  downloadUnitTemplate() {
+    const csv = 'unitNumber,tower,floor,unitType,location,facing\nA-101,Tower A,1,2BHK Type A,Corner,East\nA-102,Tower A,1,2BHK Type A,,West\n';
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: 'units-template.csv' });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  },
+
   today() {
     return this.isoDate(new Date());
   },

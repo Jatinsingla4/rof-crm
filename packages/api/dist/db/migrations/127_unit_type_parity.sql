@@ -1,0 +1,26 @@
+-- Unit type master parity with the client CRM: every area, the rate basis, group, salable flag, costs, unit of measure (docs/set-projects-parity/README.md). Idempotent.
+ALTER TABLE unit_types ALTER COLUMN carpet_area_sqft TYPE numeric(14,4);
+ALTER TABLE unit_types ALTER COLUMN balcony_area_sqft TYPE numeric(14,4);
+ALTER TABLE unit_types ALTER COLUMN base_rate_sqft TYPE numeric(14,2);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS super_area_sqft numeric(14,4);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS built_up_area_sqft numeric(14,4);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS udsl_area_sqft numeric(14,4);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS plot_area numeric(14,4);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS plot_area_unit varchar(50);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS group_name varchar(100);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS rate_type varchar(10) NOT NULL DEFAULT 'Per Area';
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS area_type varchar(15) NOT NULL DEFAULT 'Salable';
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS rate_basis varchar(15) NOT NULL DEFAULT 'Carpet Area';
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS show_on_payment_file text[] NOT NULL DEFAULT '{}';
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS construction_cost numeric(14,2);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS udsl_cost numeric(14,2);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS unit_of_measurement varchar(50);
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS rate_date date;
+ALTER TABLE unit_types ADD COLUMN IF NOT EXISTS unit_map_url text;
+ALTER TABLE unit_types DROP CONSTRAINT IF EXISTS unit_types_rate_type_chk;
+ALTER TABLE unit_types ADD CONSTRAINT unit_types_rate_type_chk CHECK (rate_type IN ('Per Area','In Fix'));
+ALTER TABLE unit_types DROP CONSTRAINT IF EXISTS unit_types_area_type_chk;
+ALTER TABLE unit_types ADD CONSTRAINT unit_types_area_type_chk CHECK (area_type IN ('Salable','Non Salable'));
+ALTER TABLE unit_types DROP CONSTRAINT IF EXISTS unit_types_rate_basis_chk;
+ALTER TABLE unit_types ADD CONSTRAINT unit_types_rate_basis_chk CHECK (rate_basis IN ('Super Area','Carpet Area','Built Up Area','Plot Area'));
+SELECT rof_apply_project_scope();
