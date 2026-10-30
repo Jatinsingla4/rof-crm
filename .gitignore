@@ -60,3 +60,7 @@ packages/api/uploads/*/*
 !packages/api/uploads/*/.gitkeep
 .vercel
 .env*
+
+# client CRM screenshots hold real customer names
+docs/client-crm/screens/
+docs/client-crm/exports/

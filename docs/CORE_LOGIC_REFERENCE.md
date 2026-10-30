@@ -160,6 +160,8 @@ resolving its own rate.
 
 ## SECTION 3 — INTEREST CALCULATION
 
+> **Changed 2026-10-29 (owner decision, matches the client's own Applicant File).** `buildInterestRows()` now (1) charges interest on the **basic** amount only: the installment amount plus the base of an add-on, without CGST / SGST, and a receipt counts without its own CGST / SGST; (2) matches money to installments **oldest first by date received** as one pool, whatever installment a receipt was filed under; (3) a payment made before the due date does not start the delay clock (the delay of a later payment is counted from the due date). The "anchor-date model", "Option B" (interest on the GST-inclusive installment) and the per-credit pre-allocation described below are the **old** behaviour and are kept only as history. The Applicant File page 1 shows the total of the interest table, the real approved waiver, and Balance = total with tax + interest - waiver - receipts. Golden check: `docs/client-crm/check-interest-parity.mts` and `docs/client-crm/e2e-payment-file-parity.mjs`.
+
 **File:** `packages/api/src/utils/payment-waterfall.ts`, `buildInterestRows()` — lines 60–261.
 
 ### The anchor-date model
@@ -366,6 +368,7 @@ sgst_amount = $2` — same function, same pattern as a manual receipt.
    demand today has 2+ non-cancelled receipts both arriving before its own `due_date`, so this bug
    is not currently producing any wrong `delay_days`/`interest_amount` for any real consumer.
    Needs the same clamp added to `applyCredit()`.
+   **Fixed 2026-10-29**: `applyCredit()` now sets `lastEventDate` to the due date when the receipt came before it. The client CRM's own file (rate 15%, plan 9/10/81, receipts on 23 Jan, 17 Feb and 20 Apr 2023) charges 3,111 with delay days -30, -5, 57; before the fix ours gave 8,221 (25 and 62 days). Check: `docs/client-crm/check-interest-parity.mts`.
 4. **Mayank Kumar / Sangeeta Bansal stale legacy installment-1 `amount_due_inr`** — not
    independently re-verified this session (would require a live DB lookup against those specific
    consumer records); carried forward as-stated from the brief, unchanged.
