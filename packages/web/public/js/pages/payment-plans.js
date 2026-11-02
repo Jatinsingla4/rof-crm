@@ -75,6 +75,7 @@ PLX.newPlan = () => {
     ],
     values: { start: PLX.plans.length ? 'empty' : 'standard', plan_type: 'Time Linked', timely: 'no' },
     onSubmit: async (v) => {
+      if (v.timely === 'yes' && !(Number(v.discount_pct) > 0 && Number(v.discount_pct) <= 100)) throw new Error('Enter a Discount % more than 0 and at most 100, or set Timely discount to No');
       const start = v.start || 'empty';
       if (start === 'standard') await Api.post(`/projects/${PLX.projectId}/plans/standard`, { plan_name: v.plan_name });
       else if (start.startsWith('copy:')) await Api.post(`/projects/${PLX.projectId}/plans/copy`, { from: start.slice(5), to: v.plan_name });

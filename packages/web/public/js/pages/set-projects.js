@@ -473,7 +473,7 @@ Pages.setProjects = async function(params = {}) {
           <div class="spjn-sec"><div class="spjn-grid-3">
             <div class="fg"><label class="fl"><span class="r">*</span> Unit Number</label><input class="fc" name="unit_number" maxlength="50" required></div>
             <div class="fg"><label class="fl"><span class="r">*</span> Floor</label><input type="number" class="fc" name="floor" min="-5" max="300" step="1" required></div>
-            <div class="fg"><label class="fl">Unit Type</label><select class="fc" name="unit_type_id" id="spj-eu-type"><option value="">None</option></select></div>
+            <div class="fg"><label class="fl">Unit Type</label><select class="fc" name="unit_type_id" id="spj-eu-type" onchange="SPJPage.editTypeChange()"><option value="">None</option></select></div>
             <div class="fg"><label class="fl">Location</label><select class="fc" name="unit_location_id" id="spj-eu-location"><option value="">None</option></select></div>
             <div class="fg"><label class="fl">Facing</label><select class="fc" name="facing"><option value="">Select</option>${ROF.FACINGS.map(f=>`<option>${f}</option>`).join('')}</select></div>
           </div></div>
@@ -1219,7 +1219,7 @@ Object.assign(SPJPage, {
       const when = g('when').value, bill = when ? (await Api.post(`/projects/${projectId}/addon-charge-billing`, { charge_master_id: made.id, when })).data : null;
       this._unitMasters = (await Api.get(`/addon-charges/master?projectId=${projectId}`)).data || [];
       this.renderUnitCharges(boxId, [...keep, { charge_master_id: made.id, quantity: 1 }], false);
-      Utils.success(`Charge "${name}" added` + (bill ? `, billed ${{ booking: 'with the booking', possession: 'at possession', equal: 'equally in every installment' }[when]} in ${bill.applied.length} plan${bill.applied.length === 1 ? '' : 's'}` : ''));
+      Utils.success(`Charge "${name}" added` + (bill?.applied.length ? `, billed ${{ booking: 'with the booking', possession: 'at possession', equal: 'equally in every installment' }[when]} in ${bill.applied.length} plan${bill.applied.length === 1 ? '' : 's'}` : ''));
       if (!when) { const d = document.getElementById(`${boxId}-qc-name`)?.closest('details'); if (d) d.open = true; d?.insertAdjacentHTML('beforeend', `<div class="spjn-hint" style="margin-top:8px">Set the % per installment in the plan: <button type="button" class="btn btn-teal" onclick="Router.navigate('/payment-plans', { project: '${projectId}' })">Open Payment Plans</button></div>`); }
       if (bill?.skipped.length) Utils.warn(`Not set in ${bill.skipped.join(', ')}: bookings already use ${bill.skipped.length === 1 ? 'that plan' : 'those plans'}, so it is fixed. Copy the plan to change it.`);
       else if (when && !bill.applied.length) Utils.warn('This project has no payment plan yet. Make one in Payment Plans, then choose when this charge is billed.');
@@ -1262,8 +1262,7 @@ Object.assign(SPJPage, {
     const t = this._unitTypes?.[document.getElementById(`${pfx}-type`).value]; if (!t) return;
     const set = (id, v) => { document.getElementById(`${pfx}-${id}`).value = v == null || v === '' ? '' : Number.isFinite(Number(v)) ? Number(v) : v; };
     set('super', t.super_area_sqft); set('carpet', t.carpet_area_sqft); set('balcony', t.balcony_area_sqft);
-    const area = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area }[t.rate_basis];
-    const price = t.base_rate_sqft && area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : '';
+    const price = this.typePrice(t) ?? '';
     set('base', price); set('total', price);
     this.unitSummary(pfx);
   },
@@ -1650,10 +1649,12 @@ Object.assign(SPJPage, {
     const g = (id) => document.getElementById(id)?.value, el = document.getElementById('spj-pv-preview');
     if (!el) return;
     if (!g('spj-pv-project') || !g('spj-pv-tower') || !g('spj-pv-type')) { el.textContent = ''; return; }
+    const mine = this._pvSeq = (this._pvSeq || 0) + 1;
     try {
       const r = (await Api.post('/units/add-more', { projectId: g('spj-pv-project'), towerId: g('spj-pv-tower'), unitTypeId: g('spj-pv-type'), count: Number(g('spj-pv-count')), preview: true })).data;
+      if (mine !== this._pvSeq) return;
       el.textContent = `Will add ${r.count} unit${r.count === 1 ? '' : 's'}: ${r.first}${r.count > 1 ? ' to ' + r.last : ''}` + (r.basePrice ? `, each at ₹${Number(r.basePrice).toLocaleString('en-IN')}` : ', with no price (the type has no rate)');
-    } catch (err) { el.textContent = err.message; }
+    } catch (err) { if (mine === this._pvSeq) el.textContent = err.message; }
   },
   async addMoreUnits() {
     const g = (id) => document.getElementById(id)?.value;
@@ -1710,10 +1711,11 @@ Object.assign(SPJPage, {
   async floorPreview() {
     const pid = document.getElementById('spj-fl-project')?.value, tid = document.getElementById('spj-fl-tower')?.value, el = document.getElementById('spj-fl-preview');
     if (!el || !pid || !tid) return;
+    const mine = this._flSeq = (this._flSeq || 0) + 1;   // only the latest answer is shown; an older one that arrives late is dropped
     try {
       const f = (await Api.post(`/projects/${pid}/towers/${tid}/floors/pattern`, { ...this._floorBody(), preview: true })).data.floors;
-      el.textContent = 'Will become: ' + f.slice(0, 6).map(x => x.floor_name).join(', ') + (f.length > 6 ? ' ... ' + f[f.length - 1].floor_name : '');
-    } catch (err) { el.textContent = err.message; }
+      if (mine === this._flSeq) el.textContent = 'Will become: ' + f.slice(0, 6).map(x => x.floor_name).join(', ') + (f.length > 6 ? ' ... ' + f[f.length - 1].floor_name : '');
+    } catch (err) { if (mine === this._flSeq) el.textContent = err.message; }
   },
   async applyFloorPattern() {
     const pid = document.getElementById('spj-fl-project').value, tid = document.getElementById('spj-fl-tower').value;
@@ -1905,9 +1907,25 @@ Object.assign(SPJPage, {
   },
   genNumbers() {
     const f = document.getElementById('spj-gen-form').elements, from = Number(f.from.value), to = Number(f.to.value), per = Number(f.per.value), tw = this._genTowers?.[f.tower.value], out = [];
-    if (![from, to, per].every(Number.isInteger) || to < from || per < 1) return out;
+    if (![from, to, per].every(Number.isInteger) || to < from || per < 1 || per > 50 || from < -5 || to > 300) return out;
     for (let fl = from; fl <= to; fl++) for (let i = 1; i <= per; i++) out.push({ floor: fl, pos: i, no: (f.style.value === 'prefix' ? (tw?.address_prefix || '') : '') + (fl === 0 ? '0' : String(fl)) + String(i).padStart(2, '0') });
     return out;
+  },
+  // Picking another type in Edit Unit fills the areas and the price from it, as Add Unit does (a booked unit's type is locked)
+  editTypeChange() {
+    const f = document.getElementById('spj-eu-form')?.elements, t = this._unitTypes?.[document.getElementById('spj-eu-type').value];
+    if (!f || !t) return;
+    const n = (v) => v == null || v === '' ? '' : Number(v), price = this.typePrice(t) ?? '';
+    f.super_area_sqft.value = n(t.super_area_sqft); f.carpet_area_sqft.value = n(t.carpet_area_sqft); f.balcony_area_sqft.value = n(t.balcony_area_sqft);
+    f.base_price_inr.value = price; f.total_price_inr.value = price;
+    this.unitSummary('spj-eu');
+  },
+  // The price a unit gets from its type: Per Area is the rate x the area it is charged on; In Fix, the rate is the price itself
+  typePrice(t) {
+    if (!t || t.base_rate_sqft == null || t.base_rate_sqft === '') return null;
+    if (t.rate_type === 'In Fix') return Math.round(Number(t.base_rate_sqft)) || null;
+    const area = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area }[t.rate_basis];
+    return area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : null;
   },
   // A floor often mixes layouts (A-101 and A-102 Type-A, A-103 and A-104 Type-D): each position on a floor can have its own unit type; a blank one takes the type chosen above
   genTypeOf(pos) {
@@ -1941,7 +1959,7 @@ Object.assign(SPJPage, {
     const tyOf = (pos) => this.genTypeOf(pos);
     if (!ty || !list.length) { Utils.warn('Choose the tower, the unit type and a valid floor range'); return; }
     if (list.length > 2000) { Utils.warn('At most 2000 units at a time'); return; }
-    const priceOf = (t) => { const area = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area }[t.rate_basis]; return t.base_rate_sqft && area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : null; };
+    const priceOf = (t) => this.typePrice(t);
     const rows = list.map(x => { const t = tyOf(x.pos), base = priceOf(t); return { towerId: f.tower.value, unitNumber: x.no, floor: x.floor, unitTypeId: t.id, bhkType: t.name, carpetAreaSqft: t.carpet_area_sqft || undefined, superAreaSqft: t.super_area_sqft || undefined, balconyAreaSqft: t.balcony_area_sqft || undefined, basePriceInr: base ?? undefined, totalPriceInr: base ?? undefined }; });
     res.innerHTML = '<div class="page-loading"><div class="spinner"></div>Creating...</div>';
     try {
