@@ -392,6 +392,9 @@ t('towers list: another project\'s towers do not appear', (await A('GET', `/unit
 t('towers list: no project given still answers', (await A('GET', '/units/towers')).s === 200);
 t('towers list: a bad project id is a 400, not a server error', (await A('GET', '/units/towers?projectId=abc')).s === 400);
 t('towers list: a sales executive can read it', (await SE('GET', `/units/towers?projectId=${P}`)).s === 200);
+// ---------- an imported unit with only a total price has a base price too (the booking form reads the base price) ----------
+r = await impS(`unitNumber,tower,floor,bhkType,totalPriceInr\nTP-1,Tot ${U},1,2BHK,4400000\n`);
+t('import: a unit with only totalPriceInr gets that as its base price too', r.s === 200 && psql(`select base_price_inr || '/' || total_price_inr from units where project_id = '${P}' and unit_number = 'TP-1'`) === '4400000/4400000', r);
 psql(`delete from units where project_id in ('${P}','${P2}')`);
 for (const x of (await A('GET', '/master/unit-types')).j?.data || []) if (x.project_id === P) await A('DELETE', `/master/unit-types/${x.id}`);
 for (const x of (await A('GET', '/master/reminder-master')).j?.data || []) if ([P, P2].includes(x.project_id) || x.name.endsWith(U)) await A('DELETE', `/master/reminder-master/${x.id}`);

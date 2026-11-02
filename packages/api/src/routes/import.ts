@@ -193,7 +193,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         const towerId = towers.get(tk)!;
         const done = await c.query(
           `INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id, unit_type_id, unit_location_id)
-           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,$9::numeric,$10::numeric,$11::text,'available',$12::uuid,$13::uuid,$14::uuid
+           SELECT $1::uuid,$2::uuid,$3::int,$4::text,$5::text,$6::numeric,$7::numeric,$8::numeric,COALESCE($9::numeric,$10::numeric),COALESCE($10::numeric,$9::numeric),$11::text,'available',$12::uuid,$13::uuid,$14::uuid
             WHERE NOT EXISTS (SELECT 1 FROM units WHERE tower_id = $2::uuid AND lower(unit_number) = lower($4::text))`,
           [projectId, towerId, r.floor, r.unit, r.bhk, r.f.carpet, r.f.sup, r.f.balcony, r.f.base, r.f.total, r.facing, req.userId, r.typeId, r.locationId]);
         if (done.rowCount) created++; else skipped.push({ row: r.line, unit: r.unit, reason: 'A unit with this number already exists in this tower' });

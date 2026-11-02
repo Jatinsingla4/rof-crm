@@ -55,8 +55,9 @@ router.post('/:brokerId', async (req, res, next) => {
     try {
         const brokerId = (0, input_js_1.uuid)(req.params.brokerId, 'Broker id');
         const b = (0, input_js_1.body)(req);
-        const tds = (0, input_js_1.has)(b.tdsRatePct) ? (0, input_js_1.num)(b.tdsRatePct, 'TDS rate', 100, 2) : null;
-        const gst = (0, input_js_1.has)(b.gstRatePct) ? (0, input_js_1.num)(b.gstRatePct, 'GST rate', 100, 2) : null;
+        // the highest GST slab is 28% and the highest ordinary TDS rate 30%; a 99% GST on a commission was once saved
+        const tds = (0, input_js_1.has)(b.tdsRatePct) ? (0, input_js_1.num)(b.tdsRatePct, 'TDS rate', 30, 2) : null;
+        const gst = (0, input_js_1.has)(b.gstRatePct) ? (0, input_js_1.num)(b.gstRatePct, 'GST rate', 28, 2) : null;
         const exempt = (0, input_js_1.flag)(b.isGstExempt, 'isGstExempt') ?? null;
         if (tds === null && gst === null && exempt === null)
             throw (0, input_js_1.bad)('Send tdsRatePct, gstRatePct or isGstExempt');
