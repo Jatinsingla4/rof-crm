@@ -246,12 +246,8 @@
     },
 
     // The rows as plain text columns, shared by Print and Download
-    // The server sends a DATE as local midnight in UTC form, so read it back in local time
-    _day(v) {
-      if (!v) return '';
-      const d = new Date(v);
-      return isNaN(d) ? String(v).slice(0, 10) : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    },
+    // The server runs on UTC, so a DATE arrives as 'YYYY-MM-DDT00:00:00Z': its first ten characters are the day
+    _day(v) { return String(v || '').slice(0, 10); },
     _historyRows() {
       return (this._history || []).map(r => [Number(r.rate_percent).toFixed(2), (r.interest_type || 'Simple') + (r.compound_frequency ? ' (' + r.compound_frequency + ')' : ''), r.calculated_on || 'Receipt Date Wise', this._day(r.effective_from)]);
     },

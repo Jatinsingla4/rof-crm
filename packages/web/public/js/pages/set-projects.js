@@ -86,8 +86,8 @@ Pages.setProjects = async function(params = {}) {
     <div style="display:flex;flex-wrap:wrap;gap:8px 22px;border-bottom:1px solid var(--border);margin-bottom:14px;padding-bottom:6px">
       ${[
         ['1 · Project', [['new-project', 'New Project'], ['edit-project', 'Project Details']]],
-        ['2 · Structure', [['add-tower', 'Towers'], ['unit-address', 'Unit Types'], ['unit-location', 'Locations (optional)']]],
-        ['3 · Units', [['add-unit', 'Add Units'], ['edit-unit', 'Edit Unit'], ['rate-report', 'Rate Report']]],
+        ['2 · Structure', [['add-tower', 'Towers'], ['floors', 'Floors'], ['unit-address', 'Unit Types'], ['unit-location', 'Locations (optional)']]],
+        ['3 · Units', [['add-unit', 'Add Units'], ['more-units', 'Plot / Villa count'], ['edit-unit', 'Edit Unit'], ['unit-area', 'Unit Wise Area'], ['rate-report', 'Rate Report']]],
       ].map(([cap, items]) => `<div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">${cap}</div><div class="tabs-line" style="border:0;margin:0;padding:0">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
       <div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">4 · Money (opens its own page)</div>
         <div class="tabs-line" style="border:0;margin:0;padding:0">
@@ -95,7 +95,7 @@ Pages.setProjects = async function(params = {}) {
           <button class="tab-line" onclick="Router.navigate('/addon-charge-master', { project: SPJPage._guideProject })">Other Charges ↗</button>
           <button class="tab-line" onclick="Router.navigate('/interest-master')">Interest ↗</button></div></div>
       ${[
-        ['5 · Rules', [['numbering', 'Numbering'], ['balcony', 'Balcony charge'], ['customer-class', 'Classification'], ['reminder-master', 'Reminders']]],
+        ['5 · Rules', [['numbering', 'Numbering'], ['authentication', 'Authentications'], ['timely', 'Timely discount'], ['balcony', 'Balcony charge'], ['customer-class', 'Classification'], ['reminder-master', 'Reminders']]],
       ].map(([cap, items]) => `<div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">${cap}</div><div class="tabs-line" style="border:0;margin:0;padding:0">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
     </div>
 
@@ -431,8 +431,9 @@ Pages.setProjects = async function(params = {}) {
           </div>
           <div class="fg">
             <label class="fl">CSV File</label>
-            <input type="file" class="fc" id="spj-bulk-file" accept=".csv,.xlsx">
+            <input type="file" class="fc" id="spj-bulk-file" accept=".csv,.xls,.xlsx">
           </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:0 8px;max-width:330px"><input type="checkbox" id="spj-bulk-types" checked> Make the unit types that this project does not have yet (from the Group, Unit Type, Area and Balcony columns)</label>
           <button class="btn btn-teal" onclick="SPJPage.bulkAddUnits()">Upload</button>
         </div>
         <div class="spjn-hint" style="padding:0 18px 8px">Enough columns: <b>unitNumber, tower, floor, unitType</b>. The unit type must be one of this project's unit types; it gives the areas and the price. Optional: location (a project location), facing, areas and prices if a unit differs. One wrong row stops the whole file and nothing is saved.</div>
@@ -445,11 +446,12 @@ Pages.setProjects = async function(params = {}) {
           <div class="spjn-sec"><div class="spjn-grid-3">
             <div class="fg"><label class="fl"><span class="r">*</span> Project</label><select class="fc" id="spj-gen-project" onchange="SPJPage.genProject()" required><option value="">Select Project</option></select></div>
             <div class="fg"><label class="fl"><span class="r">*</span> Tower</label><select class="fc" name="tower" id="spj-gen-tower" required onchange="SPJPage.genTower()"><option value="">Select tower</option></select></div>
-            <div class="fg"><label class="fl"><span class="r">*</span> Unit type</label><select class="fc" name="unitType" id="spj-gen-type" required><option value="">Select unit type</option></select></div>
+            <div class="fg"><label class="fl"><span class="r">*</span> Unit type (for every unit)</label><select class="fc" name="unitType" id="spj-gen-type" required onchange="SPJPage.genPositions()"><option value="">Select unit type</option></select></div>
             <div class="fg"><label class="fl">From floor</label><input type="number" class="fc" name="from" value="1" min="-5" max="300" step="1"></div>
             <div class="fg"><label class="fl">To floor</label><input type="number" class="fc" name="to" value="10" min="-5" max="300" step="1"></div>
             <div class="fg"><label class="fl">Units on each floor</label><input type="number" class="fc" name="per" value="4" min="1" max="50" step="1"></div>
             <div class="fg"><label class="fl">Number style</label><select class="fc" name="style"><option value="plain">Floor + 2 digits (101, 102 ... 1001)</option><option value="prefix">Tower prefix + floor + 2 digits (A-101)</option></select></div>
+            <div class="fg spjn-full"><div id="spj-gen-pos"></div></div>
             <div class="fg spjn-full"><div id="spj-gen-preview"></div></div>
           </div></div>
           <div class="spjn-foot"><div class="spjn-note">Area and price come from the unit type (rate on its rate basis). Numbers that already exist in the tower are skipped. To copy a layout to another tower, run this again for that tower.</div><button class="btn btn-teal" type="submit">Create units</button></div>
@@ -565,6 +567,109 @@ Pages.setProjects = async function(params = {}) {
         </form>
       </div>
       <div id="spj-unit-types-list" class="spjn-wrap"></div>
+    </div>
+
+    <!-- CUSTOMER WISE TIMELY DISCOUNT -->
+    <div data-panel-group="spj" data-panel="timely" ${tab!=='timely'?'style="display:none"':''}>
+      <div class="sp spjn">
+        <div class="spjn-intro">
+          <div class="spjn-intro-ico">⏱</div>
+          <div>
+            <div class="spjn-intro-t">Timely discount</div>
+            <div class="spjn-intro-s">A plan with timely discount gives its % off an installment the customer pays in full by the due date, as a credit note on that installment's invoice. Here a customer can get his own % instead (0 = none for him). Turn the discount on for a plan in Payment Plans.</div>
+          </div>
+        </div>
+        <div class="spjn-bar">
+          <div class="fg"><label class="fl">Project</label><select class="fc" id="spj-td-project" onchange="SPJPage.loadTimely()"><option value="">Select Project</option></select></div>
+          <button class="btn btn-teal" onclick="SPJPage.runTimely()">Issue credit notes now</button>
+        </div>
+        <div id="spj-td-body" style="padding:0 18px 14px"><div class="spjn-hint">Choose a project.</div></div>
+      </div>
+    </div>
+
+    <!-- AUTHENTICATIONS -->
+    <div data-panel-group="spj" data-panel="authentication" ${tab!=='authentication'?'style="display:none"':''}>
+      <div class="sp spjn">
+        <div class="spjn-intro">
+          <div class="spjn-intro-ico">🔐</div>
+          <div>
+            <div class="spjn-intro-t">Authentications</div>
+            <div class="spjn-intro-s">Per project: does this kind of work need a checker's approval first (Manual) or not (Automatic)? Manual is how the CRM worked before.</div>
+          </div>
+        </div>
+        <div class="spjn-bar">
+          <div class="fg"><label class="fl">Project</label><select class="fc" id="spj-au-project" onchange="SPJPage.loadAuth()"><option value="">Select Project</option></select></div>
+        </div>
+        <form id="spj-au-form" onsubmit="SPJPage.saveAuth(event)" style="display:none;padding:0 18px 16px">
+          <div class="spjn-grid-3">
+            <div class="fg"><label class="fl">Brokers</label><select class="fc" name="broker_auth_mode"><option>Manual</option><option>Automatic</option></select>
+              <div class="spjn-hint">Manual: only an approved (active) broker can hold a unit here. Automatic: a broker still waiting for approval can hold units in this project too.</div></div>
+            <div class="fg"><label class="fl">Credit / debit notes</label><select class="fc" name="journal_auth_mode"><option>Manual</option><option>Automatic</option></select>
+              <div class="spjn-hint">Manual: a note stays pending until a checker (not the maker) approves it. Automatic: the note is issued as soon as it is raised.</div></div>
+          </div>
+          <div style="margin-top:10px"><button type="submit" class="btn btn-teal">Save</button></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- UNIT WISE AREA -->
+    <div data-panel-group="spj" data-panel="unit-area" ${tab!=='unit-area'?'style="display:none"':''}>
+      <div class="sp spjn">
+        <div class="spjn-intro">
+          <div class="spjn-intro-ico">📐</div>
+          <div>
+            <div class="spjn-intro-t">Unit Wise Area</div>
+            <div class="spjn-intro-s">All 12 area fields of a unit, with the date a change takes effect and a history. Super, carpet and balcony 1 cannot change once the unit is booked; the other areas can.</div>
+          </div>
+        </div>
+        <div class="spjn-bar">
+          <div class="fg"><label class="fl">Project</label><select class="fc" id="spj-ua-project" onchange="SPJPage.areaProject()"><option value="">Select Project</option></select></div>
+          <div class="fg"><label class="fl">Tower</label><select class="fc" id="spj-ua-tower" onchange="SPJPage.loadAreas()"><option value="">All towers</option></select></div>
+          <button class="btn btn-ghost" onclick="SPJPage.downloadAreas()">Download CSV</button>
+        </div>
+        <div id="spj-ua-list" style="padding:0 18px 10px;overflow-x:auto"><div class="spjn-hint">Choose a project.</div></div>
+        <div id="spj-ua-edit" style="padding:0 18px 16px"></div>
+      </div>
+    </div>
+
+    <!-- PLOT / VILLA COUNT -->
+    <div data-panel-group="spj" data-panel="more-units" ${tab!=='more-units'?'style="display:none"':''}>
+      <div class="sp spjn">
+        <div class="spjn-intro">
+          <div class="spjn-intro-ico">🏡</div>
+          <div>
+            <div class="spjn-intro-t">Plot / Villa count</div>
+            <div class="spjn-intro-s">Add more plots or villas of one unit type to a tower or block. They get the type's areas and price and the next free numbers. No floors are needed.</div>
+          </div>
+        </div>
+        <div class="spjn-bar">
+          <div class="fg"><label class="fl">Project</label><select class="fc" id="spj-pv-project" onchange="SPJPage.moreProject()"><option value="">Select Project</option></select></div>
+          <div class="fg"><label class="fl">Tower / block</label><select class="fc" id="spj-pv-tower" onchange="SPJPage.morePreview()"><option value="">Select tower</option></select></div>
+          <div class="fg"><label class="fl">Unit type</label><select class="fc" id="spj-pv-type" onchange="SPJPage.morePreview()"><option value="">Select unit type</option></select></div>
+          <div class="fg"><label class="fl">How many to add</label><input type="number" class="fc" id="spj-pv-count" min="1" max="2000" step="1" value="1" oninput="SPJPage.morePreview()"></div>
+          <button class="btn btn-teal" onclick="SPJPage.addMoreUnits()">Add</button>
+        </div>
+        <div id="spj-pv-preview" class="spjn-hint" style="padding:0 18px 8px"></div>
+        <div id="spj-pv-body" style="padding:0 18px 14px"><div class="spjn-hint">Choose a project.</div></div>
+      </div>
+    </div>
+
+    <!-- FLOORS -->
+    <div data-panel-group="spj" data-panel="floors" ${tab!=='floors'?'style="display:none"':''}>
+      <div class="sp spjn">
+        <div class="spjn-intro">
+          <div class="spjn-intro-ico">🏢</div>
+          <div>
+            <div class="spjn-intro-t">Floors</div>
+            <div class="spjn-intro-s">The name each floor shows on screens and reports (Ground Floor, 1st Floor, First Floor ...). Units keep their floor number; only the name changes.</div>
+          </div>
+        </div>
+        <div class="spjn-bar">
+          <div class="fg"><label class="fl">Project</label><select class="fc" id="spj-fl-project" onchange="SPJPage.floorsProject()"><option value="">Select Project</option></select></div>
+          <div class="fg"><label class="fl">Tower</label><select class="fc" id="spj-fl-tower" onchange="SPJPage.loadFloors()"><option value="">Select tower</option></select></div>
+        </div>
+        <div id="spj-fl-body" style="padding:0 18px 14px"><div class="spjn-hint">Choose a project and a tower.</div></div>
+      </div>
     </div>
 
     <!-- UNIT LOCATION MASTER -->
@@ -751,7 +856,7 @@ Object.assign(SPJPage, {
     if (!this._projects || this._projects.length === 0) return;
     const opts = this._projects.map(p => `<option value="${p.id}">${Utils.esc(p.name)}</option>`).join('');
     ['spj-tower-project','spj-tower-list-project','spj-unit-project','spj-bulk-project',
-     'spj-ut-project','spj-eu-project','spj-cc-project','spj-num-project','spj-bal-project','spj-gen-project','spj-uloc-project','spj-uloc-list-project','spj-edit-project-sel'].forEach(id => {
+     'spj-ut-project','spj-eu-project','spj-cc-project','spj-num-project','spj-bal-project','spj-gen-project','spj-uloc-project','spj-uloc-list-project','spj-edit-project-sel','spj-fl-project','spj-pv-project','spj-ua-project','spj-au-project','spj-td-project'].forEach(id => {
       const el = document.getElementById(id);
       if (el) {
         const hasBlank = el.options.length > 0 && el.options[0].value === '';
@@ -770,6 +875,11 @@ Object.assign(SPJPage, {
       'add-unit':       () => this.addMode(this._addMode || (this._guideUnits === 0 ? 'many' : 'one')),
       'unit-address':   () => this.loadUnitTypes(),
       'unit-location':  () => this.loadUnitLocations(),
+      'floors':         () => this.floorsProject(),
+      'more-units':     () => this.moreProject(),
+      'unit-area':      () => this.areaProject(),
+      'authentication': () => this.loadAuth(),
+      'timely':         () => this.loadTimely(),
       'reminder-master':() => this.loadReminders(),
       'customer-class': () => this.loadClasses(),
       'numbering':      () => this.loadNumbering(),
@@ -1064,14 +1174,14 @@ Object.assign(SPJPage, {
     const box = document.getElementById(boxId), ms = this._unitMasters || [], qty = Object.fromEntries(attached.map(a => [a.charge_master_id, a.quantity]));
     if (!box) return;
     box.innerHTML = ms.length ? ms.map(m => {
-      const price = m.rate_type === 'per_sqft' ? `₹${Number(m.rate_per_sqft_inr).toLocaleString('en-IN')}/sqft` : `₹${Number(m.default_amount).toLocaleString('en-IN')}`;
+      const price = m.rate_type === 'percent' ? `${Number(m.percent_value)}% of basic price` : m.rate_type === 'per_sqft' ? `₹${Number(m.rate_per_sqft_inr).toLocaleString('en-IN')}/sqft` : `₹${Number(m.default_amount).toLocaleString('en-IN')}`;
       const on = m.is_mandatory || m.id in qty;
-      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)"><label style="display:flex;align-items:center;gap:8px;flex:1;margin:0"><input type="checkbox" data-charge="${m.id}" ${on ? 'checked' : ''} ${m.is_mandatory || locked ? 'disabled' : ''}> <b>${Utils.esc(m.charge_name)}</b> <span style="color:var(--text3)">${price}</span>${m.is_mandatory ? ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal-bg);color:var(--teal)">Mandatory: on every booking</span>' : ''}${m.plan_pct_rows ? '' : ` <select style="font-size:11px;padding:2px 6px;border-radius:10px;background:#fff3cd;color:#8a6d00;border:1px solid #e6d28a" title="No payment plan bills this charge yet, so no demand will ask for it" onchange="SPJPage.billCharge('${boxId}','${m.id}',this)"><option value=\"\">Not billed yet: choose when</option><option value=\"booking\">Bill with the booking</option><option value=\"possession\">Bill at possession</option><option value=\"equal\">Bill equally in every installment</option></select>`}</label>${m.multiple_booking && !m.is_mandatory ? `<label style="margin:0">Qty <input type="number" class="fc" data-qty="${m.id}" min="1" max="20" step="1" value="${qty[m.id] || 1}" style="width:70px;display:inline-block" ${locked ? 'disabled' : ''}></label>` : ''}</div>`;
+      return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border)"><label style="display:flex;align-items:center;gap:8px;flex:1;margin:0"><input type="checkbox" data-charge="${m.id}" ${on ? 'checked' : ''} ${m.is_mandatory || locked ? 'disabled' : ''}> <b>${Utils.esc(m.charge_name)}</b> <span style="color:var(--text3)">${price}${m.stock_used != null ? ` · ${Math.max(0, Number(m.quantity) - Number(m.stock_used))} of ${m.quantity} left` : ''}</span>${m.is_mandatory ? ' <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--teal-bg);color:var(--teal)">Mandatory: on every booking</span>' : ''}${m.plan_pct_rows ? '' : ` <select style="font-size:11px;padding:2px 6px;border-radius:10px;background:#fff3cd;color:#8a6d00;border:1px solid #e6d28a" title="No payment plan bills this charge yet, so no demand will ask for it" onchange="SPJPage.billCharge('${boxId}','${m.id}',this)"><option value=\"\">Not billed yet: choose when</option><option value=\"booking\">Bill with the booking</option><option value=\"possession\">Bill at possession</option><option value=\"equal\">Bill equally in every installment</option></select>`}</label>${m.multiple_booking && !m.is_mandatory ? `<label style="margin:0">Qty <input type="number" class="fc" data-qty="${m.id}" min="1" max="20" step="1" value="${qty[m.id] || 1}" style="width:70px;display:inline-block" ${locked ? 'disabled' : ''}></label>` : ''}</div>`;
     }).join('') : '<div class="spjn-hint">This project has no other charges yet. Add the first one below.</div>';
     if (!locked) box.insertAdjacentHTML('beforeend', `<details style="margin-top:10px"><summary style="cursor:pointer;color:var(--teal);font-weight:600;font-size:12.5px">+ Add a new charge (any name)</summary>
       <div class="spjn-grid-3" style="margin-top:10px">
         <div class="fg"><label class="fl">Charge name</label><input class="fc" id="${boxId}-qc-name" maxlength="100" placeholder="e.g. Club membership, UDSL charge"></div>
-        <div class="fg"><label class="fl">How it is charged</label><select class="fc" id="${boxId}-qc-type" onchange="SPJPage.quickChargeType('${boxId}')"><option value="flat">Fixed amount</option><option value="per_sqft">Per sqft</option></select></div>
+        <div class="fg"><label class="fl">How it is charged</label><select class="fc" id="${boxId}-qc-type" onchange="SPJPage.quickChargeType('${boxId}')"><option value="flat">Fixed amount</option><option value="per_sqft">Per sqft</option><option value="percent">% of basic price</option></select></div>
         <div class="fg"><label class="fl" id="${boxId}-qc-amt-l">Amount (₹)</label><input type="number" class="fc" id="${boxId}-qc-amt" min="0" step="0.01"></div>
         <div class="fg" id="${boxId}-qc-area-w" style="display:none"><label class="fl">Per sqft on</label><select class="fc" id="${boxId}-qc-area"><option>Carpet Area</option><option>Super Area</option><option>Balcony Area</option><option>Plot Area</option></select></div>
         <div class="fg"><label class="fl">GST</label><select class="fc" id="${boxId}-qc-gst"><option value="18">18%</option><option value="12">12%</option><option value="5">5%</option><option value="0">0%</option></select></div>
@@ -1094,18 +1204,18 @@ Object.assign(SPJPage, {
     } catch (err) { Utils.error(err.message); sel.value = ''; }
   },
   quickChargeType(boxId) {
-    const per = document.getElementById(`${boxId}-qc-type`).value === 'per_sqft';
-    document.getElementById(`${boxId}-qc-area-w`).style.display = per ? '' : 'none';
-    document.getElementById(`${boxId}-qc-amt-l`).textContent = per ? 'Rate per sqft (₹)' : 'Amount (₹)';
+    const kind = document.getElementById(`${boxId}-qc-type`).value;
+    document.getElementById(`${boxId}-qc-area-w`).style.display = kind === 'per_sqft' ? '' : 'none';
+    document.getElementById(`${boxId}-qc-amt-l`).textContent = kind === 'per_sqft' ? 'Rate per sqft (₹)' : kind === 'percent' ? 'Percent of basic price (%)' : 'Amount (₹)';
   },
   // A charge made right where it is needed: saved for the project, then ticked on this unit
   async addQuickCharge(boxId) {
     const g = (k) => document.getElementById(`${boxId}-qc-${k}`), projectId = document.getElementById(boxId === 'spj-eu-charges' ? 'spj-eu-project' : 'spj-unit-project').value;
-    const name = g('name').value.trim(), per = g('type').value === 'per_sqft', amt = g('amt').value, gst = Number(g('gst').value) / 2;
-    if (!projectId || !name || !(Number(amt) > 0)) { Utils.warn(per ? 'Give the charge a name and a rate per sqft' : 'Give the charge a name and an amount'); return; }
+    const name = g('name').value.trim(), kind = g('type').value, per = kind === 'per_sqft', amt = g('amt').value, gst = Number(g('gst').value) / 2;
+    if (!projectId || !name || !(Number(amt) > 0)) { Utils.warn(per ? 'Give the charge a name and a rate per sqft' : kind === 'percent' ? 'Give the charge a name and a percent' : 'Give the charge a name and an amount'); return; }
     try {
       const keep = this.readUnitCharges(boxId).map(c => ({ charge_master_id: c.chargeMasterId, quantity: c.quantity }));
-      const made = (await Api.post('/addon-charges/master', { projectId, chargeName: name, rateType: per ? 'per_sqft' : 'flat', ...(per ? { ratePerSqftInr: Number(amt), calculateRateType: g('area').value } : { defaultAmount: Number(amt) }), cgstPct: gst, sgstPct: gst })).data;
+      const made = (await Api.post('/addon-charges/master', { projectId, chargeName: name, rateType: kind, ...(per ? { ratePerSqftInr: Number(amt), calculateRateType: g('area').value } : kind === 'percent' ? { percentValue: Number(amt) } : { defaultAmount: Number(amt) }), cgstPct: gst, sgstPct: gst })).data;
       const when = g('when').value, bill = when ? (await Api.post(`/projects/${projectId}/addon-charge-billing`, { charge_master_id: made.id, when })).data : null;
       this._unitMasters = (await Api.get(`/addon-charges/master?projectId=${projectId}`)).data || [];
       this.renderUnitCharges(boxId, [...keep, { charge_master_id: made.id, quantity: 1 }], false);
@@ -1192,7 +1302,7 @@ Object.assign(SPJPage, {
 
   // Every form that asks "Project" starts on the project chosen in the guide (a project picked by hand is kept unless the guide's own choice changes)
   followGuide(pid, force = false) {
-    for (const id of ['spj-tower-project', 'spj-unit-project', 'spj-bulk-project', 'spj-ut-project', 'spj-eu-project', 'spj-cc-project', 'spj-num-project', 'spj-bal-project', 'spj-gen-project', 'spj-uloc-project', 'spj-edit-project-sel', 'spj-tower-list-project', 'spj-uloc-list-project']) {
+    for (const id of ['spj-tower-project', 'spj-unit-project', 'spj-bulk-project', 'spj-ut-project', 'spj-eu-project', 'spj-cc-project', 'spj-num-project', 'spj-bal-project', 'spj-gen-project', 'spj-uloc-project', 'spj-edit-project-sel', 'spj-tower-list-project', 'spj-uloc-list-project', 'spj-fl-project', 'spj-pv-project', 'spj-ua-project', 'spj-au-project', 'spj-td-project']) {
       const el = document.getElementById(id);
       if (el && el.value !== pid && (force || !el.value) && [...el.options].some(o => o.value === pid)) { el.value = pid; el.dispatchEvent(new Event('change')); }
     }
@@ -1314,6 +1424,7 @@ Object.assign(SPJPage, {
     const projectId = document.getElementById('spj-bulk-project')?.value;
     const result    = document.getElementById('spj-bulk-result');
     if (!file) { Utils.warn('Please select a CSV file'); return; }
+    if (/\.(xls|xlsx)$/i.test(file.name)) { result.innerHTML = '<div class="alert alert-danger">This is an Excel file. Open it in Excel and use File, Save As, CSV (comma separated), then upload that CSV. Nothing else needs to change: the sheet\'s own columns (Tower, Floor, Group, Unit Type, Area, Balcony, Unit No.) are read as they are.</div>'; return; }
     if (!projectId) { Utils.warn('Please select a project'); return; }
     result.innerHTML = '<div class="page-loading"><div class="spinner"></div>Importing...</div>';
     try {
@@ -1324,10 +1435,11 @@ Object.assign(SPJPage, {
         csvText,
         projectId,
         importType: 'units',
-        fileName: file.name
+        fileName: file.name,
+        createTypes: !!document.getElementById('spj-bulk-types')?.checked
       });
       const data = res.data || res;
-      result.innerHTML = `<div class="alert alert-success">✓ ${data.created||0} units added · ${data.skipped||0} skipped · ${data.errors?.length||0} errors</div>`;
+      result.innerHTML = `<div class="alert alert-success">✓ ${data.created||0} units added · ${data.skipped||0} skipped${data.createdUnitTypes ? ` · ${data.createdUnitTypes} unit type${data.createdUnitTypes === 1 ? '' : 's'} made (set their rate in Unit Types, then Update units, to price the units)` : ''}</div>`;
       // Reset file input
       document.getElementById('spj-bulk-file').value = '';
     } catch (err) {
@@ -1394,6 +1506,230 @@ Object.assign(SPJPage, {
     const t = base.form.elements.total_price_inr;
     if (t.value === '' || t.value === base.dataset.prev) t.value = base.value;
     base.dataset.prev = base.value;
+  },
+
+  // ── Customer wise timely discount
+  async loadTimely() {
+    const pid = document.getElementById('spj-td-project')?.value, body = document.getElementById('spj-td-body');
+    if (!body) return;
+    if (!pid) { body.innerHTML = '<div class="spjn-hint">Choose a project.</div>'; return; }
+    try {
+      const [l, a] = await Promise.all([Api.get(`/projects/${pid}/timely-discount`), Api.get(`/projects/${pid}/timely-discount/awards`)]);
+      const { plans, customers } = l.data, inr = (n) => '₹' + Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+      body.innerHTML = !plans.length ? '<div class="spjn-hint">No plan of this project has timely discount yet. Open Payment Plans, choose a plan, Type and note, and set Timely discount to Yes.</div>'
+        : `<div class="spjn-hint" style="margin:8px 0">Plans with timely discount: ${plans.map(x => `${Utils.esc(x.plan_name)} (${x.discount_pct}%)`).join(', ')}</div>
+        ${customers.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Customer</th><th>Reg. no.</th><th>Unit</th><th>Plan</th><th class="txt-right">Plan %</th><th>His own %</th><th class="txt-right">Earned</th><th class="txt-right">Waiting</th><th></th></tr></thead><tbody>${customers.map(c => `<tr>
+          <td class="td-bold">${Utils.esc(c.consumer_name)}</td><td>${Utils.esc(c.registration_no || '')}</td><td>${Utils.esc(c.unit_number || '')}</td><td>${Utils.esc(c.plan_name)}</td><td class="txt-right">${c.plan_pct}</td>
+          <td><input type="number" class="fc" style="max-width:90px" min="0" max="100" step="0.0001" id="spj-td-own-${c.consumer_id}" value="${c.own_pct ?? ''}" placeholder="${c.plan_pct}"></td>
+          <td class="txt-right">${inr(c.earned)}</td><td class="txt-right">${c.waiting || ''}</td>
+          <td><button class="btn btn-ghost btn-xs" onclick="SPJPage.saveTimely('${c.consumer_id}')">Save</button> ${c.own_pct != null ? `<button class="btn btn-ghost btn-xs" onclick="SPJPage.resetTimely('${c.consumer_id}')">Use plan %</button>` : ''}</td></tr>`).join('')}</tbody></table>` : '<div class="spjn-hint">No customer is booked on these plans yet.</div>'}
+        <div style="margin-top:14px"><b>Discounts earned</b>${a.data.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Customer</th><th>Installment</th><th>Paid on</th><th>Due</th><th class="txt-right">%</th><th class="txt-right">Discount</th><th>Credit note</th></tr></thead><tbody>${a.data.map(x => `<tr><td>${Utils.esc(x.consumer_name)}</td><td>${Utils.esc(x.installment_name || '')}</td><td>${Utils.esc(x.paid_on || '')}</td><td>${Utils.esc(x.due_date || '')}</td><td class="txt-right">${x.discount_pct}</td><td class="txt-right">${inr(x.discount_amount)}</td><td>${x.status === 'issued' ? Utils.esc((x.note_number || '') + (x.note_status ? ' (' + x.note_status + ')' : '')) : `<span style="color:#8a6d00">Waiting: ${Utils.esc(x.note || '')}</span>`}</td></tr>`).join('')}</tbody></table>` : '<div class="spjn-hint">Nothing earned yet.</div>'}</div>`;
+    } catch (err) { body.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
+  },
+  async saveTimely(cid) {
+    const pid = document.getElementById('spj-td-project').value, v = document.getElementById(`spj-td-own-${cid}`).value;
+    if (v === '') { Utils.warn('Type his own % (or leave the plan %: use "Use plan %")'); return; }
+    try { await Api.put(`/projects/${pid}/timely-discount/customers/${cid}`, { discountPct: v }); Utils.success('Saved'); await this.loadTimely(); } catch (err) { Utils.error(err.message); }
+  },
+  async resetTimely(cid) {
+    const pid = document.getElementById('spj-td-project').value;
+    try { await Api.delete(`/projects/${pid}/timely-discount/customers/${cid}`); Utils.success('Back to the plan %'); await this.loadTimely(); } catch (err) { Utils.error(err.message); }
+  },
+  async runTimely() {
+    const pid = document.getElementById('spj-td-project').value;
+    if (!pid) { Utils.warn('Choose a project'); return; }
+    try {
+      const r = (await Api.post(`/projects/${pid}/timely-discount/run`, {})).data;
+      Utils.success(r.issued || r.waiting ? `${r.issued} credit note${r.issued === 1 ? '' : 's'} raised, ${r.waiting} waiting for an invoice` : 'Nothing new to issue');
+      await this.loadTimely();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // ── Authentications
+  async loadAuth() {
+    const pid = document.getElementById('spj-au-project')?.value, form = document.getElementById('spj-au-form');
+    if (!form) return;
+    form.style.display = pid ? '' : 'none';
+    if (!pid) return;
+    try {
+      const st = (await Api.get(`/projects/${pid}/settings`)).data;
+      form.elements.broker_auth_mode.value = st.broker_auth_mode; form.elements.journal_auth_mode.value = st.journal_auth_mode;
+    } catch (err) { Utils.error(err.message); }
+  },
+  async saveAuth(e) {
+    e.preventDefault();
+    const pid = document.getElementById('spj-au-project').value, f = e.target.elements;
+    try {
+      await Api.put(`/projects/${pid}/settings`, { broker_auth_mode: f.broker_auth_mode.value, journal_auth_mode: f.journal_auth_mode.value });
+      Utils.success('Saved');
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // ── Unit Wise Area
+  _areaCols: [['superAreaSqft','Super area'],['carpetAreaSqft','Carpet area'],['balcony1AreaSqft','Balcony 1'],['builtUpAreaSqft','Built-up area'],['udslAreaSqft','UDSL area'],['plotArea','Plot area'],['balcony2AreaSqft','Balcony 2'],['balcony3AreaSqft','Balcony 3'],['basementAreaSqft','Basement'],['stiltAreaSqft','Stilt'],['commonAreaSqft','Common area']],
+  async areaProject() {
+    const pid = document.getElementById('spj-ua-project')?.value, tw = document.getElementById('spj-ua-tower');
+    if (!tw) return;
+    tw.innerHTML = '<option value="">All towers</option>';
+    document.getElementById('spj-ua-edit').innerHTML = '';
+    if (pid) try { tw.innerHTML += ((await Api.get(`/projects/${pid}/towers`)).data || []).map(x => `<option value="${x.id}">${Utils.esc(x.tower_name)}</option>`).join(''); } catch (err) { Utils.error(err.message); }
+    await this.loadAreas();
+  },
+  async loadAreas() {
+    const pid = document.getElementById('spj-ua-project')?.value, tid = document.getElementById('spj-ua-tower')?.value, el = document.getElementById('spj-ua-list');
+    if (!el) return;
+    if (!pid) { el.innerHTML = '<div class="spjn-hint">Choose a project.</div>'; return; }
+    try {
+      const rows = (await Api.get(`/units/areas/report?projectId=${pid}${tid ? `&towerId=${tid}` : ''}`)).data || [];
+      this._areaRows = rows;
+      const n = (v) => v == null ? '—' : Number(v).toLocaleString('en-IN', { maximumFractionDigits: 4 });
+      el.innerHTML = rows.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Tower</th><th>Unit</th><th>Floor</th>${this._areaCols.map(c => `<th class="txt-right">${c[1]}</th>`).join('')}<th></th></tr></thead><tbody>${rows.map(r => `<tr>
+        <td>${Utils.esc(r.tower_name)}</td><td class="td-bold">${Utils.esc(r.unit_number)}</td><td>${r.floor ?? '—'}</td>${this._areaCols.map(c => `<td class="txt-right">${n(r[c[0]])}</td>`).join('')}
+        <td><button class="btn btn-ghost btn-xs" onclick="SPJPage.editAreas('${r.unit_id}')">Edit</button></td></tr>`).join('')}</tbody></table>` : '<div class="spjn-hint">No units here yet.</div>';
+    } catch (err) { el.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
+  },
+  async editAreas(unitId) {
+    const box = document.getElementById('spj-ua-edit');
+    try {
+      const [a, h] = await Promise.all([Api.get(`/units/${unitId}/areas`), Api.get(`/units/${unitId}/areas/history`)]);
+      const u = a.data, locked = new Set(u.sold ? ['superAreaSqft', 'carpetAreaSqft', 'balcony1AreaSqft'] : []);
+      box.innerHTML = `<form id="spj-ua-form" data-unit="${unitId}" onsubmit="SPJPage.saveAreas(event)" style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px">
+        <div style="font-weight:600;margin-bottom:8px">Unit ${Utils.esc(u.unit_number)} (${Utils.esc(u.tower_name)})${u.sold ? ' <span class="spjn-hint" style="display:inline">booked: super, carpet and balcony 1 are fixed</span>' : ''}</div>
+        <div class="spjn-grid-3">
+          ${this._areaCols.map(c => `<div class="fg"><label class="fl">${c[1]}</label><input type="number" class="fc" name="${c[0]}" min="0" step="0.0001" value="${u[c[0]] ?? ''}" ${locked.has(c[0]) ? 'disabled' : ''}></div>`).join('')}
+          <div class="fg"><label class="fl">Area measurement</label><select class="fc" name="areaMeasurement" id="spj-ua-measure"></select></div>
+          <div class="fg"><label class="fl">Effective from</label><input type="date" class="fc" name="effectiveDate" value="${Utils.today()}"></div>
+          <div class="fg"><label class="fl">Note (optional)</label><input class="fc" name="note" maxlength="500"></div>
+        </div>
+        <div style="margin-top:10px"><button type="submit" class="btn btn-teal">Save areas</button> <button type="button" class="btn btn-ghost" onclick="document.getElementById('spj-ua-edit').innerHTML=''">Close</button></div>
+      </form>
+      <div style="margin-top:14px"><b>History</b>${(h.data || []).length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Effective from</th><th>Changed</th><th>By</th><th>Note</th></tr></thead><tbody>${h.data.map(x => `<tr><td>${Utils.esc(x.effective_date)}</td><td>${Utils.esc(this._areaCols.concat([['areaMeasurement', 'Measurement']]).filter(c => (x.before[c[0]] ?? null) !== (x.after[c[0]] ?? null)).map(c => `${c[1]}: ${x.before[c[0]] ?? '—'} → ${x.after[c[0]] ?? '—'}`).join('; '))}</td><td>${Utils.esc(x.changed_by_name || '')}</td><td>${Utils.esc(x.note || '')}</td></tr>`).join('')}</tbody></table>` : '<div class="spjn-hint">No change recorded yet.</div>'}</div>`;
+      await this.fillAreaSelect('spj-ua-measure', u.areaMeasurement);
+      box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } catch (err) { Utils.error(err.message); }
+  },
+  async saveAreas(e) {
+    e.preventDefault();
+    const f = e.target, body = { effectiveDate: f.elements.effectiveDate.value || undefined, note: f.elements.note.value.trim() || undefined, areaMeasurement: f.elements.areaMeasurement.value || null };
+    for (const [k] of this._areaCols) if (!f.elements[k].disabled) body[k] = f.elements[k].value === '' ? null : f.elements[k].value;
+    try {
+      const r = (await Api.put(`/units/${f.dataset.unit}/areas`, body)).data;
+      Utils.success(r.changed.length ? 'Areas saved' : 'Nothing changed');
+      await this.loadAreas(); await this.editAreas(f.dataset.unit);
+    } catch (err) { Utils.error(err.message); }
+  },
+  downloadAreas() {
+    const rows = this._areaRows || [];
+    if (!rows.length) { Utils.warn('Choose a project first'); return; }
+    const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const head = ['Tower', 'Unit No', 'Floor', ...this._areaCols.map(c => c[1]), 'Area measurement'];
+    const csv = [head, ...rows.map(r => [r.tower_name, r.unit_number, r.floor, ...this._areaCols.map(c => r[c[0]]), r.areaMeasurement])].map(r => r.map(q).join(',')).join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'unit-wise-area.csv'; a.click(); URL.revokeObjectURL(a.href);
+  },
+
+  // ── Plot / Villa count
+  async moreProject() {
+    const pid = document.getElementById('spj-pv-project')?.value, tw = document.getElementById('spj-pv-tower'), ty = document.getElementById('spj-pv-type'), body = document.getElementById('spj-pv-body');
+    if (!tw) return;
+    tw.innerHTML = '<option value="">Select tower</option>'; ty.innerHTML = '<option value="">Select unit type</option>';
+    document.getElementById('spj-pv-preview').textContent = '';
+    if (!pid) { body.innerHTML = '<div class="spjn-hint">Choose a project.</div>'; return; }
+    try {
+      const [t, u] = await Promise.all([Api.get(`/projects/${pid}/towers`), Api.get(`/master/unit-types?project_id=${pid}`)]);
+      const towers = t.data || [], types = u.data || [], units = [];
+      for (let page = 1; page <= 50; page++) { const l = (await Api.get(`/units?projectId=${pid}&pageSize=1000&page=${page}`)).data || []; units.push(...l); if (l.length < 1000) break; }
+      tw.innerHTML += towers.map(x => `<option value="${x.id}">${Utils.esc(x.tower_name)}</option>`).join('');
+      ty.innerHTML += types.map(x => `<option value="${x.id}">${Utils.esc(x.name)}</option>`).join('');
+      if (towers.length === 1) tw.value = towers[0].id; if (types.length === 1) ty.value = types[0].id;
+      const rows = []; for (const x of towers) for (const y of types) { const n = units.filter(z => z.tower_id === x.id && z.unit_type_id === y.id).length; if (n) rows.push(`<tr><td>${Utils.esc(x.tower_name)}</td><td>${Utils.esc(y.name)}</td><td class="txt-right">${n}</td></tr>`); }
+      body.innerHTML = rows.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Tower / block</th><th>Unit type</th><th class="txt-right">Units now</th></tr></thead><tbody>${rows.join('')}</tbody></table>` : '<div class="spjn-hint">No units of any type yet.</div>';
+      this.morePreview();
+    } catch (err) { Utils.error(err.message); }
+  },
+  async morePreview() {
+    const g = (id) => document.getElementById(id)?.value, el = document.getElementById('spj-pv-preview');
+    if (!el) return;
+    if (!g('spj-pv-project') || !g('spj-pv-tower') || !g('spj-pv-type')) { el.textContent = ''; return; }
+    try {
+      const r = (await Api.post('/units/add-more', { projectId: g('spj-pv-project'), towerId: g('spj-pv-tower'), unitTypeId: g('spj-pv-type'), count: Number(g('spj-pv-count')), preview: true })).data;
+      el.textContent = `Will add ${r.count} unit${r.count === 1 ? '' : 's'}: ${r.first}${r.count > 1 ? ' to ' + r.last : ''}` + (r.basePrice ? `, each at ₹${Number(r.basePrice).toLocaleString('en-IN')}` : ', with no price (the type has no rate)');
+    } catch (err) { el.textContent = err.message; }
+  },
+  async addMoreUnits() {
+    const g = (id) => document.getElementById(id)?.value;
+    if (!g('spj-pv-project') || !g('spj-pv-tower') || !g('spj-pv-type')) { Utils.warn('Choose the project, the tower and the unit type'); return; }
+    try {
+      const r = (await Api.post('/units/add-more', { projectId: g('spj-pv-project'), towerId: g('spj-pv-tower'), unitTypeId: g('spj-pv-type'), count: Number(g('spj-pv-count')) })).data;
+      Utils.success(`${r.created} unit${r.created === 1 ? '' : 's'} added: ${r.first}${r.created > 1 ? ' to ' + r.last : ''}`);
+      await this.moreProject(); this.renderGuide();
+    } catch (err) { Utils.error(err.message); }
+  },
+
+  // ── Floors
+  async floorsProject() {
+    const pid = document.getElementById('spj-fl-project')?.value, tw = document.getElementById('spj-fl-tower');
+    if (!tw) return;
+    tw.innerHTML = '<option value="">Select tower</option>';
+    if (!pid) { this.loadFloors(); return; }
+    try {
+      const t = (await Api.get(`/projects/${pid}/towers`)).data || [];
+      tw.innerHTML += t.map(x => `<option value="${x.id}">${Utils.esc(x.tower_name)}</option>`).join('');
+      if (t.length === 1) tw.value = t[0].id;
+    } catch (err) { Utils.error(err.message); }
+    await this.loadFloors();
+  },
+  async loadFloors() {
+    const body = document.getElementById('spj-fl-body'), pid = document.getElementById('spj-fl-project')?.value, tid = document.getElementById('spj-fl-tower')?.value;
+    if (!body) return;
+    if (!pid || !tid) { body.innerHTML = '<div class="spjn-hint">Choose a project and a tower.</div>'; return; }
+    try {
+      const rows = (await Api.get(`/projects/${pid}/towers/${tid}/floors`)).data || [];
+      const lo = rows.length ? rows[0].floor_number : 0, hi = rows.length ? rows[rows.length - 1].floor_number : 10;
+      body.innerHTML = `<details open style="margin:14px 0"><summary style="cursor:pointer;font-weight:600;color:var(--teal)">Name all floors by a pattern</summary>
+        <div class="spjn-grid-3" style="margin-top:10px">
+          <div class="fg"><label class="fl">From floor</label><input type="number" class="fc" id="spj-fl-from" min="-5" max="300" step="1" value="${lo}" oninput="SPJPage.floorPreview()"></div>
+          <div class="fg"><label class="fl">To floor</label><input type="number" class="fc" id="spj-fl-to" min="-5" max="300" step="1" value="${hi}" oninput="SPJPage.floorPreview()"></div>
+          <div class="fg"><label class="fl">Style</label><select class="fc" id="spj-fl-style" onchange="SPJPage.floorPreview()"><option value="number">1, 2, 3</option><option value="ordinal" selected>1st, 2nd, 3rd</option><option value="words">First, Second, Third</option></select></div>
+          <div class="fg"><label class="fl">Before the name (optional)</label><input class="fc" id="spj-fl-prefix" maxlength="20" placeholder="e.g. Floor " oninput="SPJPage.floorPreview()"></div>
+          <div class="fg"><label class="fl">After the name (optional)</label><input class="fc" id="spj-fl-suffix" maxlength="20" placeholder="e.g.  Floor" value=" Floor" oninput="SPJPage.floorPreview()"></div>
+          <div class="fg" style="align-self:end"><button type="button" class="btn btn-teal" onclick="SPJPage.applyFloorPattern()">Apply to these floors</button></div>
+        </div><div id="spj-fl-preview" class="spjn-hint"></div></details>
+        ${rows.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Floor no.</th><th>Name shown</th><th class="txt-right">Units</th><th>Action</th></tr></thead><tbody>${rows.map(r => `<tr>
+          <td>${r.floor_number}</td>
+          <td><input class="fc" style="max-width:260px" maxlength="50" id="spj-fl-name-${r.floor_number}" value="${Utils.esc(r.floor_name || '')}" placeholder="${Utils.esc(r.default_label)}"></td>
+          <td class="txt-right">${r.units}</td>
+          <td><button class="btn btn-ghost btn-xs" onclick="SPJPage.saveFloorName(${r.floor_number})">Save</button></td></tr>`).join('')}</tbody></table>
+          <div class="spjn-hint">Leave the name blank to go back to the default (${Utils.esc(rows[0].default_label)} ...).</div>` : '<div class="spjn-hint">This tower has no floors yet. Add units, or name floors with the pattern above.</div>'}`;
+      this.floorPreview();
+    } catch (err) { body.innerHTML = `<div class="alert alert-danger">${Utils.esc(err.message)}</div>`; }
+  },
+  _floorBody() {
+    const v = (id) => document.getElementById(id)?.value ?? '';
+    return { from: v('spj-fl-from') === '' ? undefined : Number(v('spj-fl-from')), to: v('spj-fl-to') === '' ? undefined : Number(v('spj-fl-to')), style: v('spj-fl-style'), prefix: v('spj-fl-prefix'), suffix: v('spj-fl-suffix') };
+  },
+  async floorPreview() {
+    const pid = document.getElementById('spj-fl-project')?.value, tid = document.getElementById('spj-fl-tower')?.value, el = document.getElementById('spj-fl-preview');
+    if (!el || !pid || !tid) return;
+    try {
+      const f = (await Api.post(`/projects/${pid}/towers/${tid}/floors/pattern`, { ...this._floorBody(), preview: true })).data.floors;
+      el.textContent = 'Will become: ' + f.slice(0, 6).map(x => x.floor_name).join(', ') + (f.length > 6 ? ' ... ' + f[f.length - 1].floor_name : '');
+    } catch (err) { el.textContent = err.message; }
+  },
+  async applyFloorPattern() {
+    const pid = document.getElementById('spj-fl-project').value, tid = document.getElementById('spj-fl-tower').value;
+    try {
+      const f = (await Api.post(`/projects/${pid}/towers/${tid}/floors/pattern`, this._floorBody())).data.floors;
+      await this.loadFloors();
+      Utils.success(`${f.length} floor${f.length === 1 ? '' : 's'} named`);
+    } catch (err) { Utils.error(err.message); }
+  },
+  async saveFloorName(n) {
+    const pid = document.getElementById('spj-fl-project').value, tid = document.getElementById('spj-fl-tower').value, input = document.getElementById(`spj-fl-name-${n}`);
+    try {
+      await Api.put(`/projects/${pid}/towers/${tid}/floors/${n}`, { floorName: input.value.trim() });
+      Utils.success(input.value.trim() ? 'Floor name saved' : 'Floor name cleared');
+      await this.loadFloors();
+    } catch (err) { Utils.error(err.message); }
   },
 
   // Edit a location in the same form: the project stays fixed, Save replaces Add
@@ -1555,8 +1891,8 @@ Object.assign(SPJPage, {
   },
   async genProject() {
     const pid = document.getElementById('spj-gen-project').value, tw = document.getElementById('spj-gen-tower'), ty = document.getElementById('spj-gen-type');
-    tw.innerHTML = '<option value="">Select tower</option>'; ty.innerHTML = '<option value="">Select unit type</option>'; this._genTowers = {}; this._genTypes = {};
-    if (!pid) return;
+    tw.innerHTML = '<option value="">Select tower</option>'; ty.innerHTML = '<option value="">Select unit type</option>'; this._genTowers = {}; this._genTypes = {}; this._genPos = {};
+    if (!pid) { this.genPositions(); return; }
     try {
       const [t, u] = await Promise.all([Api.get(`/projects/${pid}/towers`), Api.get(`/master/unit-types?project_id=${pid}`)]);
       for (const x of t.data || []) this._genTowers[x.id] = x; for (const x of u.data || []) this._genTypes[x.id] = x;
@@ -1564,31 +1900,49 @@ Object.assign(SPJPage, {
       ty.innerHTML += (u.data || []).map(x => `<option value="${x.id}">${Utils.esc(x.name)}</option>`).join('');
       // Only one choice: nothing to decide, so it is already picked
       if (t.data?.length === 1) tw.value = t.data[0].id; if (u.data?.length === 1) ty.value = u.data[0].id;
+      this.genPositions();
     } catch (err) { Utils.error(err.message); }
   },
   genNumbers() {
     const f = document.getElementById('spj-gen-form').elements, from = Number(f.from.value), to = Number(f.to.value), per = Number(f.per.value), tw = this._genTowers?.[f.tower.value], out = [];
     if (![from, to, per].every(Number.isInteger) || to < from || per < 1) return out;
-    for (let fl = from; fl <= to; fl++) for (let i = 1; i <= per; i++) out.push({ floor: fl, no: (f.style.value === 'prefix' ? (tw?.address_prefix || '') : '') + (fl === 0 ? '0' : String(fl)) + String(i).padStart(2, '0') });
+    for (let fl = from; fl <= to; fl++) for (let i = 1; i <= per; i++) out.push({ floor: fl, pos: i, no: (f.style.value === 'prefix' ? (tw?.address_prefix || '') : '') + (fl === 0 ? '0' : String(fl)) + String(i).padStart(2, '0') });
     return out;
+  },
+  // A floor often mixes layouts (A-101 and A-102 Type-A, A-103 and A-104 Type-D): each position on a floor can have its own unit type; a blank one takes the type chosen above
+  genTypeOf(pos) {
+    const f = document.getElementById('spj-gen-form').elements;
+    return this._genTypes?.[(this._genPos || {})[pos]] || this._genTypes?.[f.unitType.value];
+  },
+  genPositions() {
+    const f = document.getElementById('spj-gen-form').elements, el = document.getElementById('spj-gen-pos'), per = Number(f.per.value);
+    if (!el) return;
+    this._genPos = this._genPos || {};
+    if (!Number.isInteger(per) || per < 1 || per > 50 || !Object.keys(this._genTypes || {}).length) { el.innerHTML = ''; this.genPreview(); return; }
+    const main = this._genTypes?.[f.unitType.value];
+    el.innerHTML = `<div style="margin:4px 0 6px;font-weight:600">Unit type of each position on a floor <span class="spjn-hint" style="display:inline;font-weight:400">leave it as it is to use ${Utils.esc(main ? main.name : 'the type above')} for all</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${Array.from({ length: per }, (_, k) => k + 1).map(i => `<label style="display:flex;flex-direction:column;font-size:11.5px;color:var(--text3)">Unit ${i} of the floor
+        <select class="fc" style="min-width:150px" onchange="SPJPage._genPos[${i}] = this.value; SPJPage.genPreview()"><option value="">${main ? 'Same: ' + Utils.esc(main.name) : 'Same as above'}</option>${Object.values(this._genTypes).map(t => `<option value="${t.id}"${this._genPos[i] === t.id ? ' selected' : ''}>${Utils.esc(t.name)}</option>`).join('')}</select></label>`).join('')}</div>`;
+    this.genPreview();
   },
   // What will be made, as the building looks: one row per floor (top floor first), one column per unit on it
   genPreview() {
+    if (document.getElementById('spj-gen-pos') && this._genPer !== document.getElementById('spj-gen-form').elements.per.value) { this._genPer = document.getElementById('spj-gen-form').elements.per.value; this.genPositions(); return; }
     const list = this.genNumbers(), el = document.getElementById('spj-gen-preview');
     if (!list.length) { el.textContent = 'Check the floors and units per floor'; return; }
     const floors = [...new Set(list.map(x => x.floor))].reverse(), per = list.filter(x => x.floor === floors[0]).length, cell = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap';
     el.innerHTML = `<div style="margin-bottom:6px;font-family:inherit"><b>${list.length} units</b> in ${floors.length} floor${floors.length === 1 ? '' : 's'}, ${per} on each</div>
-      <div style="max-height:260px;overflow:auto;border:1px solid var(--border2);border-radius:8px;font-family:monospace;font-size:12px"><table style="border-collapse:collapse;width:100%"><thead><tr style="background:var(--surface2);position:sticky;top:0"><th style="${cell};text-align:left;font-family:inherit;font-size:11px;color:var(--text3)">FLOOR</th>${Array.from({ length: per }, (_, i) => `<th style="${cell};text-align:left;font-family:inherit;font-size:11px;color:var(--text3)">UNIT ${i + 1}</th>`).join('')}</tr></thead><tbody>
+      <div style="max-height:260px;overflow:auto;border:1px solid var(--border2);border-radius:8px;font-family:monospace;font-size:12px"><table style="border-collapse:collapse;width:100%"><thead><tr style="background:var(--surface2);position:sticky;top:0"><th style="${cell};text-align:left;font-family:inherit;font-size:11px;color:var(--text3)">FLOOR</th>${Array.from({ length: per }, (_, i) => { const t = this.genTypeOf(i + 1), n = (v) => v == null || v === '' || Number(v) === 0 ? '' : Number(v); return `<th style="${cell};text-align:left;font-family:inherit;font-size:11px;color:var(--text3)">UNIT ${i + 1}<div style="font-weight:600;color:var(--text)">${Utils.esc(t ? t.name : '—')}</div><div style="font-weight:400">${Utils.esc(t?.group_name || '')}${t && n(t.carpet_area_sqft) ? ` · carpet ${n(t.carpet_area_sqft)}` : ''}${t && n(t.balcony_area_sqft) ? ` · balcony ${n(t.balcony_area_sqft)}` : ''}</div></th>`; }).join('')}</tr></thead><tbody>
       ${floors.map(fl => `<tr><td style="${cell};font-family:inherit;font-weight:600">${fl === 0 ? 'Ground' : fl}</td>${list.filter(x => x.floor === fl).map(x => `<td style="${cell}">${Utils.esc(x.no)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
   },
   async generateUnits(e) {
     e.preventDefault();
     const f = e.target.elements, pid = document.getElementById('spj-gen-project').value, ty = this._genTypes?.[f.unitType.value], list = this.genNumbers(), res = document.getElementById('spj-gen-result');
+    const tyOf = (pos) => this.genTypeOf(pos);
     if (!ty || !list.length) { Utils.warn('Choose the tower, the unit type and a valid floor range'); return; }
     if (list.length > 2000) { Utils.warn('At most 2000 units at a time'); return; }
-    const area = { 'Super Area': ty.super_area_sqft, 'Carpet Area': ty.carpet_area_sqft, 'Built Up Area': ty.built_up_area_sqft, 'Plot Area': ty.plot_area }[ty.rate_basis];
-    const base = ty.base_rate_sqft && area ? Math.round(Number(ty.base_rate_sqft) * Number(area)) : null;
-    const rows = list.map(x => ({ towerId: f.tower.value, unitNumber: x.no, floor: x.floor, unitTypeId: ty.id, bhkType: ty.name, carpetAreaSqft: ty.carpet_area_sqft || undefined, superAreaSqft: ty.super_area_sqft || undefined, balconyAreaSqft: ty.balcony_area_sqft || undefined, basePriceInr: base ?? undefined, totalPriceInr: base ?? undefined }));
+    const priceOf = (t) => { const area = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area }[t.rate_basis]; return t.base_rate_sqft && area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : null; };
+    const rows = list.map(x => { const t = tyOf(x.pos), base = priceOf(t); return { towerId: f.tower.value, unitNumber: x.no, floor: x.floor, unitTypeId: t.id, bhkType: t.name, carpetAreaSqft: t.carpet_area_sqft || undefined, superAreaSqft: t.super_area_sqft || undefined, balconyAreaSqft: t.balcony_area_sqft || undefined, basePriceInr: base ?? undefined, totalPriceInr: base ?? undefined }; });
     res.innerHTML = '<div class="page-loading"><div class="spinner"></div>Creating...</div>';
     try {
       const r = (await Api.post('/units/bulk-import', { projectId: pid, rows })).data;

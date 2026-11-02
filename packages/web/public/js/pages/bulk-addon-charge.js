@@ -338,8 +338,9 @@
     const opt = sel && sel.selectedOptions[0];
     const chargeName = opt && opt.dataset.name ? opt.dataset.name : '';
     const chargeMasterId = opt ? opt.value : null;
-    const isPerSqft = !!(opt && opt.dataset.rateType === 'per_sqft');
-    const ratePerSqft = isPerSqft ? parseFloat(opt.dataset.ratePerSqft || 0) : 0;
+    // A rate or a percent is worked out by the server for each customer's own unit, so no amount is sent for it
+    const isPerSqft = !!(opt && (opt.dataset.rateType === 'per_sqft' || opt.dataset.rateType === 'percent'));
+    const ratePerSqft = opt && opt.dataset.rateType === 'per_sqft' ? parseFloat(opt.dataset.ratePerSqft || 0) : 1;
     const amount = parseFloat(_gv('bac-amount') || '0');
     const remark = _gv('bac-remark');
     const cgstPct = opt && opt.dataset.cgst ? parseFloat(opt.dataset.cgst) : 9;
@@ -364,9 +365,7 @@
     const promises = selectedIndices.map(function(idx) {
       const consumer = _consumers[idx];
       if (!consumer) return Promise.resolve(null);
-      const consumerAmount = isPerSqft
-        ? Math.round(ratePerSqft * parseFloat(consumer.carpet_area_sqft || 0) * 100) / 100
-        : amount;
+      const consumerAmount = isPerSqft ? undefined : amount;
       return fetch('/api/addon-charges/consumer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },

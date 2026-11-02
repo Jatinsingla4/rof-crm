@@ -278,6 +278,8 @@ const UnitStatusPage = {
     if (bhk)      filtered = filtered.filter(u => (u.bhk_type || '') === bhk);
     if (unitNo)   filtered = filtered.filter(u => (u.unit_number || '').toLowerCase().includes(unitNo));
     if (groupVal) filtered = filtered.filter(u => (u.unit_group || '') === groupVal);
+    const locVal = document.getElementById('us-location')?.value;
+    if (locVal) filtered = filtered.filter(u => (u.location_name || '') === locVal);
 
     return filtered;
   },
@@ -318,8 +320,11 @@ const UnitStatusPage = {
 
       const fSel = document.getElementById('us-floor');
       if (fSel) fSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
-        floors.map(f => `<option value="${f}">${UnitStatusPage._ordinalFloor(f)}</option>`).join('');
+        floors.map(f => `<option value="${f}">${Utils.esc((units.find(u => Number(u.floor) === Number(f) && u.floor_name) || {}).floor_name || UnitStatusPage._ordinalFloor(f))}</option>`).join('');
 
+      const lSel = document.getElementById('us-location');
+      if (lSel) lSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
+        [...new Set(units.map(u => u.location_name).filter(Boolean))].sort().map(l => `<option value="${Utils.esc(l)}">${Utils.esc(l)}</option>`).join('');
       const gSel = document.getElementById('us-group');
       if (gSel) gSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
         groups.map(g => `<option value="${g}">${g}</option>`).join('');
@@ -347,9 +352,12 @@ const UnitStatusPage = {
       const floors = [...new Set(units.map(u => u.floor).filter(f => f != null))].sort((a,b)=>Number(a)-Number(b));
       const fSel = document.getElementById('us-floor');
       if (fSel) fSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
-        floors.map(f => `<option value="${f}">${UnitStatusPage._ordinalFloor(f)}</option>`).join('');
+        floors.map(f => `<option value="${f}">${Utils.esc((units.find(u => Number(u.floor) === Number(f) && u.floor_name) || {}).floor_name || UnitStatusPage._ordinalFloor(f))}</option>`).join('');
 
       const groups = [...new Set(units.map(u => u.unit_group).filter(Boolean))].sort();
+      const lSel = document.getElementById('us-location');
+      if (lSel) lSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
+        [...new Set(units.map(u => u.location_name).filter(Boolean))].sort().map(l => `<option value="${Utils.esc(l)}">${Utils.esc(l)}</option>`).join('');
       const gSel = document.getElementById('us-group');
       if (gSel) gSel.innerHTML = '<option value="">&#8592;&#8211;All&#8211;&#8594;</option>' +
         groups.map(g => `<option value="${g}">${g}</option>`).join('');
@@ -360,6 +368,7 @@ const UnitStatusPage = {
   _ordinalFloor(n) {
     const num = Number(n);
     if (num === 0) return 'Ground Floor';
+    if (num < 0) return 'Basement ' + (-num);
     const s = ['th','st','nd','rd'];
     const v = num % 100;
     return num + (s[(v-20)%10] || s[v] || s[0]) + ' Floor';
@@ -486,7 +495,7 @@ const UnitStatusPage = {
         ? `${label}<br><span style="font-size:10.5px;color:var(--text2)">(${dateStr})</span>`
         : label;
 
-      const floorLabel = u.floor != null ? this._ordinalFloor(u.floor) : '—';
+      const floorLabel = u.floor_name || (u.floor != null ? this._ordinalFloor(u.floor) : '—');
       const regNo      = u.registration_no || '';
       const name       = u.consumer_name || '';
       const tower      = u.tower_name || u.tower || '—';
@@ -516,7 +525,7 @@ const UnitStatusPage = {
         <td>${carpet}</td>
         <td>${balconyArea}</td>
         <td class="td-unitno">${unitNo}</td>
-        <td>N/A</td>
+        <td>${Utils.esc(u.location_name || 'N/A')}</td>
         <td>${broker}</td>
         <td class="td-status">${statusHtml}</td>
       </tr>`;
@@ -570,13 +579,13 @@ const UnitStatusPage = {
         u.registration_no || '',
         u.consumer_name || '',
         u.tower_name || u.tower || '',
-        u.floor != null ? this._ordinalFloor(u.floor) : '',
+        u.floor_name || (u.floor != null ? this._ordinalFloor(u.floor) : ''),
         u.unit_group || 'N/A',
         u.bhk_type || '',
         u.carpet_area_sqft != null ? parseFloat(u.carpet_area_sqft).toFixed(3) : '',
         u.balcony_area_sqft  != null ? parseFloat(u.balcony_area_sqft).toFixed(4)  : '',
         u.unit_number || '',
-        'N/A',
+        u.location_name || 'N/A',
         u.broker_name || 'Direct',
         (() => {
           const label   = this._STATUS_LABELS[u.status||'available'] || u.status || 'Available';
@@ -840,6 +849,7 @@ const UnitStatusPage = {
       if (f == null) return '—';
       const n = parseInt(f);
       if (n === 0) return 'Ground Floor';
+      if (n < 0) return 'Basement ' + (-n);
       const s = ['th','st','nd','rd'];
       const v = n % 100;
       return n + (s[(v-20)%10] || s[v] || s[0]) + ' Floor';
@@ -859,7 +869,7 @@ const UnitStatusPage = {
         if (isAvailable) {
           rowsHtml += `<tr style="background:${bg}">
             ${td(i + 1)} ${td(u.unit_number)} ${td(u.unit_type)} ${td(parseFloat(u.area||0).toFixed(4),'right')}
-            ${td(fmtFloor(u.floor))} ${td(parseFloat(u.balcony_area_sqft||0).toFixed(4),'right')} ${td(u.status)}
+            ${td(u.floor_name || fmtFloor(u.floor))} ${td(parseFloat(u.balcony_area_sqft||0).toFixed(4),'right')} ${td(u.status)}
           </tr>`;
         } else {
           rowsHtml += `<tr style="background:${bg}">

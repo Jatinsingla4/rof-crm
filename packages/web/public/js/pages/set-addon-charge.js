@@ -408,16 +408,18 @@
     }
   }
 
-  function onChargeSelect() {
+  async function onChargeSelect() {
     const sel = document.getElementById('sac-charge-name');
     if (!sel) return;
     const opt = sel.selectedOptions[0];
     if (!opt || !opt.dataset.amount) return;
-    if (opt.dataset.rateType === 'per_sqft' && _selectedConsumer) {
-      const rate = parseFloat(opt.dataset.ratePerSqft || 0);
-      const carpetArea = parseFloat(_selectedConsumer.carpet_area_sqft || 0);
-      _setVal('sac-amount', Math.round(rate * carpetArea * 100) / 100);
-      return;
+    // A rate or a percent is worked out by the server from this customer's own unit (the area the charge names, or the basic price)
+    if ((opt.dataset.rateType === 'per_sqft' || opt.dataset.rateType === 'percent') && _selectedConsumer) {
+      try {
+        const res = await fetch('/api/addon-charges/suggest?consumerId=' + encodeURIComponent(_selectedConsumer.consumer_id) + '&projectId=' + encodeURIComponent(_gv('sac-project')) + '&chargeMasterId=' + encodeURIComponent(opt.value), { headers: { Authorization: 'Bearer ' + _token() } });
+        const d = await res.json();
+        if (res.ok) { _setVal('sac-amount', d.data.amount); return; }
+      } catch (e) { /* the amount box stays as it is */ }
     }
     _setVal('sac-amount', parseFloat(opt.dataset.amount || 0));
   }

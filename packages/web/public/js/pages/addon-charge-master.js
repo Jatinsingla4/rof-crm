@@ -89,11 +89,19 @@
               <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;">
                 <input type="radio" name="acm-rate-type" id="acm-rate-type-persqft" value="per_sqft" onchange="AddonChargeMaster.onRateTypeChange()"> Per Sq.Ft.
               </label>
+              <label style="display:flex;align-items:center;gap:4px;font-size:13px;font-weight:normal;cursor:pointer;">
+                <input type="radio" name="acm-rate-type" id="acm-rate-type-percent" value="percent" onchange="AddonChargeMaster.onRateTypeChange()"> % of basic price
+              </label>
             </div>
           </div>
           <div class="acm-field" id="acm-default-amount-field">
             <span class="acm-lbl">Default Amount (Rs.)</span>
             <input type="number" id="acm-default-amount" min="0" step="0.01" value="0">
+          </div>
+          <div class="acm-field" id="acm-percent-field" style="display:none">
+            <span class="acm-lbl">Percent (%)</span>
+            <input type="number" id="acm-percent" min="0" max="100" step="0.0001" value="0">
+            <select id="acm-percent-basis" style="margin-top:4px"><option value="basic">of the basic price</option><option value="after_discount">of the basic price after discounts</option></select>
           </div>
           <div class="acm-field" id="acm-rate-per-sqft-field" style="display:none">
             <span class="acm-lbl">Rate per Sq.Ft. (Rs.)</span>
@@ -110,7 +118,7 @@
           <div class="acm-field"><span class="acm-lbl">Charge Type</span><input type="text" id="acm-charge-type" maxlength="30" value="Other" placeholder="e.g. Parking, Restoration"></div>
           <div class="acm-field"><span class="acm-lbl">Apply date</span><select id="acm-apply-date"><option>Customer Wise Date</option><option>Possession</option></select></div>
           <div class="acm-field"><span class="acm-lbl">Per sqft on</span><select id="acm-calc-rate"><option>Carpet Area</option><option>Super Area</option><option>Balcony Area</option><option>Plot Area</option></select><span style="font-size:11px;color:var(--text3);margin-left:8px">Which area the per-sqft rate is multiplied by. Not used for a fixed amount.</span></div>
-          <div class="acm-field"><span class="acm-lbl">Quantity</span><input type="number" id="acm-quantity" min="0" step="1" placeholder="e.g. 2"></div>
+          <div class="acm-field"><span class="acm-lbl">Quantity (stock)</span><input type="number" id="acm-quantity" min="0" step="1" placeholder="e.g. 798"><span style="font-size:11px;color:var(--text3)">With Inventory base: how many exist. Each unit or customer that takes one uses one.</span></div>
           <div class="acm-field"><span class="acm-lbl">Effective date</span><input type="date" id="acm-effective-date"></div>
           <div class="acm-field" style="grid-column: span 2"><span class="acm-lbl">Description</span><input type="text" id="acm-description" maxlength="500"></div>
           <div class="acm-field" style="grid-column: span 4">
@@ -211,13 +219,15 @@
         : '<span class="acm-badge-inactive">Inactive</span>';
       const rateLabel = r.rate_type === 'per_sqft'
         ? 'Per Sq.Ft. @ Rs.' + _fmtNum(r.rate_per_sqft_inr) + '/sqft on ' + ({ 'Super Area': 'super', 'Balcony Area': 'balcony', 'Plot Area': 'plot' }[r.calculate_rate_type] || 'carpet') + ' area'
-        : 'Flat @ Rs.' + _fmtNum(r.default_amount);
+        : r.rate_type === 'percent'
+          ? _fmtNum(r.percent_value) + '% of basic price' + (r.percent_basis === 'after_discount' ? ' after discounts' : '')
+          : 'Flat @ Rs.' + _fmtNum(r.default_amount);
       html += '<tr>' +
         '<td>' + (i + 1) + '</td>' +
         '<td>' + _esc(r.charge_name) + '</td>' +
         '<td>' + _esc(r.charge_type) + '</td>' +
         '<td style="text-align:right">' + rateLabel + '</td>' +
-        '<td style="text-align:center">' + (r.quantity != null ? r.quantity : '—') + '</td>' +
+        '<td style="text-align:center">' + (r.stock_used != null ? r.stock_used + ' of ' + r.quantity + ' given' : r.quantity != null ? r.quantity : '—') + '</td>' +
         '<td>' + _FLAGS.filter(function(f) { return f[0] !== 'dues' && r[f[2]]; }).map(function(f) { return f[0]; }).concat(r.include_in_dues === false ? ['not in dues'] : []).join(', ') + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.cgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.sgst_pct).toFixed(2) + '</td>' +
@@ -239,12 +249,15 @@
     _setVal('acm-charge-name', row.charge_name);
     _setVal('acm-default-amount', row.default_amount);
     _setVal('acm-rate-per-sqft', row.rate_per_sqft_inr || 0);
-    const isPerSqft = row.rate_type === 'per_sqft';
+    _setVal('acm-percent', row.percent_value != null ? parseFloat(row.percent_value) : 0);
+    _setVal('acm-percent-basis', row.percent_basis || 'basic');
     const flatRadio = document.getElementById('acm-rate-type-flat');
     const sqftRadio = document.getElementById('acm-rate-type-persqft');
-    if (flatRadio) flatRadio.checked = !isPerSqft;
-    if (sqftRadio) sqftRadio.checked = isPerSqft;
-    _applyRateTypeVisibility(isPerSqft);
+    const pctRadio = document.getElementById('acm-rate-type-percent');
+    if (flatRadio) flatRadio.checked = row.rate_type !== 'per_sqft' && row.rate_type !== 'percent';
+    if (sqftRadio) sqftRadio.checked = row.rate_type === 'per_sqft';
+    if (pctRadio) pctRadio.checked = row.rate_type === 'percent';
+    _applyRateTypeVisibility(row.rate_type);
     _setVal('acm-cgst', parseFloat(row.cgst_pct));
     _setVal('acm-sgst', parseFloat(row.sgst_pct));
     _fillExtras(row);
@@ -264,16 +277,19 @@
     _resetForm();
   }
 
-  function _applyRateTypeVisibility(isPerSqft) {
-    const flatField = document.getElementById('acm-default-amount-field');
-    const sqftField = document.getElementById('acm-rate-per-sqft-field');
-    if (flatField) flatField.style.display = isPerSqft ? 'none' : '';
-    if (sqftField) sqftField.style.display = isPerSqft ? '' : 'none';
+  // kind: 'flat', 'per_sqft' or 'percent'; only the field that belongs to it is shown
+  function _applyRateTypeVisibility(kind) {
+    kind = kind === true ? 'per_sqft' : kind === false || !kind ? 'flat' : kind;
+    const show = function(id, on) { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+    show('acm-default-amount-field', kind === 'flat'); show('acm-rate-per-sqft-field', kind === 'per_sqft'); show('acm-percent-field', kind === 'percent');
+  }
+  function _kindChecked() {
+    return document.getElementById('acm-rate-type-percent') && document.getElementById('acm-rate-type-percent').checked ? 'percent'
+      : document.getElementById('acm-rate-type-persqft') && document.getElementById('acm-rate-type-persqft').checked ? 'per_sqft' : 'flat';
   }
 
   function onRateTypeChange() {
-    const sqftRadio = document.getElementById('acm-rate-type-persqft');
-    _applyRateTypeVisibility(!!(sqftRadio && sqftRadio.checked));
+    _applyRateTypeVisibility(_kindChecked());
   }
 
   async function _save() {
@@ -283,8 +299,9 @@
     const chargeName = (_gv('acm-charge-name') || '').trim();
     if (!chargeName) { _showMsg('Charge Name is required.', false); return; }
     // A charge that adds ₹0 does nothing, so ask for an amount (or a rate for per sqft)
-    const perSqftOn = !!(document.getElementById('acm-rate-type-persqft') && document.getElementById('acm-rate-type-persqft').checked);
-    if (!perSqftOn && !(parseFloat(_gv('acm-default-amount')) > 0)) { _showMsg('Enter an amount more than 0 (or choose Per Sq.Ft. and give a rate).', false); return; }
+    const kind = _kindChecked();
+    if (kind === 'flat' && !(parseFloat(_gv('acm-default-amount')) > 0)) { _showMsg('Enter an amount more than 0 (or choose Per Sq.Ft. or a percent).', false); return; }
+    if (kind === 'percent' && !(parseFloat(_gv('acm-percent')) > 0 && parseFloat(_gv('acm-percent')) <= 100)) { _showMsg('Enter a percent more than 0 and at most 100.', false); return; }
 
     if (_editingId) {
       const ok = window.confirm('This will update all existing consumer charges for this type and recalculate their payment schedules. Continue?');
@@ -297,12 +314,13 @@
 
     const token = localStorage.getItem('rof-jwt') || '';
     try {
-      const sqftRadio = document.getElementById('acm-rate-type-persqft');
-      const isPerSqft = !!(sqftRadio && sqftRadio.checked);
+      const kindNow = _kindChecked();
       const body = {
         projectId,
         chargeName,
-        rateType:       isPerSqft ? 'per_sqft' : 'flat',
+        rateType:       kindNow,
+        percentValue:   kindNow === 'percent' ? parseFloat(_gv('acm-percent')) : undefined,
+        percentBasis:   kindNow === 'percent' ? _gv('acm-percent-basis') : undefined,
         defaultAmount:  parseFloat(_gv('acm-default-amount') || '0'),
         ratePerSqftInr: parseFloat(_gv('acm-rate-per-sqft') || '0'),
         cgstPct:       parseFloat(_gv('acm-cgst') || '9'),
@@ -378,7 +396,9 @@
     const sqftRadio = document.getElementById('acm-rate-type-persqft');
     if (flatRadio) flatRadio.checked = true;
     if (sqftRadio) sqftRadio.checked = false;
-    _applyRateTypeVisibility(false);
+    if (document.getElementById('acm-rate-type-percent')) document.getElementById('acm-rate-type-percent').checked = false;
+    _setVal('acm-percent', '0'); _setVal('acm-percent-basis', 'basic');
+    _applyRateTypeVisibility('flat');
     _setVal('acm-cgst', '9');
     _setVal('acm-sgst', '9');
     _fillExtras(null);

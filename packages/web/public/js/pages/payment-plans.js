@@ -44,7 +44,7 @@ PLX.list = async (el) => {
     <div class="sm-panel-h"><div><div class="sm-panel-t">Plans</div><div class="sm-panel-s">${SM.plural(PLX.plans.length, 'plan')} in this project. Only a plan that adds up to 100% can be chosen while booking.</div></div>
       <div class="sm-tools">${PLX.projectPicker()}${PLX.can ? '<button class="sm-btn sm-btn--primary" data-act="new">New plan</button>' : ''}</div></div>
     ${PLX.plans.length ? `<div class="sm-scroll" style="max-height:none"><table class="sm-tbl"><thead><tr><th>Plan</th><th>Type</th><th class="num">Rows</th><th>Total</th><th class="num">Bookings</th><th></th></tr></thead><tbody>
-      ${PLX.plans.map((p) => `<tr data-row><td><a href="javascript:void 0" data-act="open" data-plan="${px(p.plan_name)}" style="font-weight:700;color:inherit;text-decoration:none">${px(p.plan_name)}</a>${p.description ? `<div class="sm-panel-s">${px(p.description)}</div>` : ''}</td><td>${px(p.plan_type || 'Time Linked')}</td><td class="num">${p.rows}</td><td>${PLX.badge(p)}</td><td class="num">${p.bookings}</td>
+      ${PLX.plans.map((p) => `<tr data-row><td><a href="javascript:void 0" data-act="open" data-plan="${px(p.plan_name)}" style="font-weight:700;color:inherit;text-decoration:none">${px(p.plan_name)}</a>${p.description ? `<div class="sm-panel-s">${px(p.description)}</div>` : ''}${p.timely_discount ? `<div class="sm-panel-s">${px(p.discount_pct)}% timely discount: off an installment paid in full by its due date</div>` : ''}</td><td>${px(p.plan_type || 'Time Linked')}</td><td class="num">${p.rows}</td><td>${PLX.badge(p)}</td><td class="num">${p.bookings}</td>
         <td class="act"><button class="sm-btn sm-btn--quiet" data-act="open" data-plan="${px(p.plan_name)}">${PLX.can && !p.bookings ? 'Open and edit' : 'Open'}</button>
         ${PLX.can ? `<button class="sm-btn sm-btn--quiet" data-act="details" data-plan="${px(p.plan_name)}">Type and note</button>` : ''}
         ${PLX.can ? `<button class="sm-btn sm-btn--quiet" data-act="copy" data-plan="${px(p.plan_name)}">Copy</button>` : ''}
@@ -69,16 +69,19 @@ PLX.newPlan = () => {
       { key: 'plan_name', label: 'Plan name', required: true, maxlength: 100, placeholder: 'e.g. CLP 30:70 or Standard AHP Plan' },
       { key: 'plan_type', label: 'Plan type', type: 'select', options: ['Time Linked', 'Construction Linked', 'Down Payment', 'Flexi'].map((x) => ({ value: x, label: x })), hint: 'Time Linked: dues by date. Construction Linked: dues by stage. Down Payment: most is paid up front. Flexi: mixed.' },
       { key: 'description', label: 'Note', maxlength: 500, placeholder: 'Optional, shown in the plan list' },
+      { key: 'timely', label: 'Timely discount', type: 'select', options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes: a discount for paying an installment on time' }], hint: 'The customer gets the discount % off an installment paid in full by its due date, as a credit note. A customer can have his own % in Set Projects, Timely discount.' },
+      { key: 'discount_pct', label: 'Discount %', placeholder: 'e.g. 2.5', hint: 'Needed when timely discount is Yes.' },
       { key: 'start', label: 'Start from', type: 'select', options: [{ value: 'empty', label: 'An empty plan (I add the rows)' }, { value: 'standard', label: 'The usual 9-row schedule (5 + 20 + 6 x 12.5 + possession)' }].concat(PLX.plans.filter((p) => p.rows).map((p) => ({ value: 'copy:' + p.plan_name, label: 'A copy of ' + p.plan_name }))), hint: 'You can change every row afterwards.' },
     ],
-    values: { start: PLX.plans.length ? 'empty' : 'standard', plan_type: 'Time Linked' },
+    values: { start: PLX.plans.length ? 'empty' : 'standard', plan_type: 'Time Linked', timely: 'no' },
     onSubmit: async (v) => {
       const start = v.start || 'empty';
       if (start === 'standard') await Api.post(`/projects/${PLX.projectId}/plans/standard`, { plan_name: v.plan_name });
       else if (start.startsWith('copy:')) await Api.post(`/projects/${PLX.projectId}/plans/copy`, { from: start.slice(5), to: v.plan_name });
       else if (PLX.plans.some((p) => p.plan_name.toLowerCase() === v.plan_name.toLowerCase())) throw new Error('A plan with this name already exists');
-      if (start === 'empty') { if (v.plan_type !== 'Time Linked' || v.description) PLX.pendingHeader = { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null }; }
-      else if (v.plan_type !== 'Time Linked' || v.description) await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null });
+      const timely = v.timely === 'yes', head = { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null, ...(timely ? { timely_discount: true, discount_pct: v.discount_pct } : {}) };
+      if (start === 'empty') { if (v.plan_type !== 'Time Linked' || v.description || timely) PLX.pendingHeader = head; }
+      else if (v.plan_type !== 'Time Linked' || v.description || timely) await Api.put(`/projects/${PLX.projectId}/plans/header`, head);
       PLX.go(v.plan_name);
     },
   });
@@ -88,9 +91,11 @@ PLX.planDetails = (name) => {
   const p = PLX.plans.find((x) => x.plan_name === name) || {};
   SM.openForm({
     title: `Type and note: "${name}"`, submit: 'Save',
-    fields: [{ key: 'plan_type', label: 'Plan type', type: 'select', options: ['Time Linked', 'Construction Linked', 'Down Payment', 'Flexi'].map((x) => ({ value: x, label: x })) }, { key: 'description', label: 'Note', maxlength: 500 }],
-    values: { plan_type: p.plan_type || 'Time Linked', description: p.description || '' },
-    onSubmit: async (v) => { await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: name, plan_type: v.plan_type, description: v.description || null }); Utils.success('Saved'); PLX.go(); },
+    fields: [{ key: 'plan_type', label: 'Plan type', type: 'select', options: ['Time Linked', 'Construction Linked', 'Down Payment', 'Flexi'].map((x) => ({ value: x, label: x })) }, { key: 'description', label: 'Note', maxlength: 500 },
+      { key: 'timely', label: 'Timely discount', type: 'select', options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes: a discount for paying an installment on time' }] },
+      { key: 'discount_pct', label: 'Discount %', placeholder: 'e.g. 2.5', hint: 'Off an installment paid in full by its due date. Needed when timely discount is Yes.' }],
+    values: { plan_type: p.plan_type || 'Time Linked', description: p.description || '', timely: p.timely_discount ? 'yes' : 'no', discount_pct: p.discount_pct ? String(p.discount_pct) : '' },
+    onSubmit: async (v) => { await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: name, plan_type: v.plan_type, description: v.description || null, timely_discount: v.timely === 'yes', discount_pct: v.timely === 'yes' ? v.discount_pct : (v.discount_pct || 0) }); Utils.success('Saved'); PLX.go(); },
   });
 };
 
