@@ -109,7 +109,7 @@
           </div>
           <div class="acm-field"><span class="acm-lbl">Charge Type</span><input type="text" id="acm-charge-type" maxlength="30" value="Other" placeholder="e.g. Parking, Restoration"></div>
           <div class="acm-field"><span class="acm-lbl">Apply date</span><select id="acm-apply-date"><option>Customer Wise Date</option><option>Possession</option></select></div>
-          <div class="acm-field"><span class="acm-lbl">Calculate rate on</span><input type="text" id="acm-calc-rate" maxlength="30" value="Old Area"></div>
+          <div class="acm-field"><span class="acm-lbl">Per sqft on</span><select id="acm-calc-rate"><option>Carpet Area</option><option>Super Area</option><option>Balcony Area</option><option>Plot Area</option></select><span style="font-size:11px;color:var(--text3);margin-left:8px">Which area the per-sqft rate is multiplied by. Not used for a fixed amount.</span></div>
           <div class="acm-field"><span class="acm-lbl">Quantity</span><input type="number" id="acm-quantity" min="0" step="1" placeholder="e.g. 2"></div>
           <div class="acm-field"><span class="acm-lbl">Effective date</span><input type="date" id="acm-effective-date"></div>
           <div class="acm-field" style="grid-column: span 2"><span class="acm-lbl">Description</span><input type="text" id="acm-description" maxlength="500"></div>
@@ -138,8 +138,11 @@
 </div>`;
   }
 
-  async function _init() {
+  async function _init(project) {
     await _loadProjects();
+    // opened from Set Projects: start on the project being set up
+    const sel = document.getElementById('acm-project');
+    if (project && sel && [...sel.options].some(function (o) { return o.value === project; })) { sel.value = project; await onProjectChange(); }
   }
 
   async function _loadProjects() {
@@ -207,7 +210,7 @@
         ? '<span class="acm-badge-active">Active</span>'
         : '<span class="acm-badge-inactive">Inactive</span>';
       const rateLabel = r.rate_type === 'per_sqft'
-        ? 'Per Sq.Ft. @ Rs.' + _fmtNum(r.rate_per_sqft_inr) + '/sqft'
+        ? 'Per Sq.Ft. @ Rs.' + _fmtNum(r.rate_per_sqft_inr) + '/sqft on ' + ({ 'Super Area': 'super', 'Balcony Area': 'balcony', 'Plot Area': 'plot' }[r.calculate_rate_type] || 'carpet') + ' area'
         : 'Flat @ Rs.' + _fmtNum(r.default_amount);
       html += '<tr>' +
         '<td>' + (i + 1) + '</td>' +
@@ -215,7 +218,7 @@
         '<td>' + _esc(r.charge_type) + '</td>' +
         '<td style="text-align:right">' + rateLabel + '</td>' +
         '<td style="text-align:center">' + (r.quantity != null ? r.quantity : '—') + '</td>' +
-        '<td>' + _FLAGS.filter(function(f) { return f[0] !== 'dues' && r[f[2]]; }).map(function(f) { return f[0]; }).join(', ') + '</td>' +
+        '<td>' + _FLAGS.filter(function(f) { return f[0] !== 'dues' && r[f[2]]; }).map(function(f) { return f[0]; }).concat(r.include_in_dues === false ? ['not in dues'] : []).join(', ') + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.cgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + parseFloat(r.sgst_pct).toFixed(2) + '</td>' +
         '<td style="text-align:center">' + statusBadge + '</td>' +
@@ -279,6 +282,9 @@
 
     const chargeName = (_gv('acm-charge-name') || '').trim();
     if (!chargeName) { _showMsg('Charge Name is required.', false); return; }
+    // A charge that adds ₹0 does nothing, so ask for an amount (or a rate for per sqft)
+    const perSqftOn = !!(document.getElementById('acm-rate-type-persqft') && document.getElementById('acm-rate-type-persqft').checked);
+    if (!perSqftOn && !(parseFloat(_gv('acm-default-amount')) > 0)) { _showMsg('Enter an amount more than 0 (or choose Per Sq.Ft. and give a rate).', false); return; }
 
     if (_editingId) {
       const ok = window.confirm('This will update all existing consumer charges for this type and recalculate their payment schedules. Continue?');
@@ -320,14 +326,11 @@
       }
       data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      if (_editingId && data.affectedConsumers > 0) {
-        _showMsg('Charge type updated — recalculated for ' + data.affectedConsumers + ' consumer(s).', true);
-      } else {
-        _showMsg(_editingId ? 'Charge type updated.' : 'Charge type saved.', true);
-      }
+      const doneMsg = _editingId && data.affectedConsumers > 0 ? 'Charge type updated — recalculated for ' + data.affectedConsumers + ' consumer(s).' : (_editingId ? 'Charge type updated.' : 'Charge type saved.');
       _editingId = null;
       _resetForm();
       await _loadCharges(projectId);
+      _showMsg(doneMsg, true);
     } catch (e) {
       _showMsg('Error: ' + e.message, false);
     } finally {
@@ -346,13 +349,9 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Deactivate failed');
-      if (data.affectedConsumers > 0) {
-        _showMsg('Charge type deactivated — cancelled for ' + data.affectedConsumers + ' consumer(s).', true);
-      } else {
-        _showMsg('Charge type deactivated.', true);
-      }
       const projectId = document.getElementById('acm-project') && document.getElementById('acm-project').value;
       if (projectId) await _loadCharges(projectId);
+      _showMsg(data.affectedConsumers > 0 ? 'Charge type deactivated — cancelled for ' + data.affectedConsumers + ' consumer(s).' : 'Charge type deactivated.', true);
     } catch (e) {
       _showMsg('Error: ' + e.message, false);
     }
@@ -366,7 +365,7 @@
     return o;
   }
   function _fillExtras(row) {
-    _setVal('acm-charge-type', row ? row.charge_type : 'Other'); _setVal('acm-apply-date', row ? row.apply_date_type : 'Customer Wise Date'); _setVal('acm-calc-rate', row ? row.calculate_rate_type : 'Old Area');
+    _setVal('acm-charge-type', row ? row.charge_type : 'Other'); _setVal('acm-apply-date', row ? row.apply_date_type : 'Customer Wise Date'); _setVal('acm-calc-rate', row && ['Super Area', 'Balcony Area', 'Plot Area'].includes(row.calculate_rate_type) ? row.calculate_rate_type : 'Carpet Area');
     _setVal('acm-quantity', row && row.quantity != null ? row.quantity : ''); _setVal('acm-effective-date', row && row.effective_date ? String(row.effective_date).slice(0, 10) : ''); _setVal('acm-description', row && row.description ? row.description : '');
     _FLAGS.forEach(function(f) { document.getElementById('acm-f-' + f[0]).checked = row ? !!row[f[2]] : f[0] === 'dues'; });
   }
@@ -437,7 +436,7 @@
   Pages.addonChargeMaster = function(params) {
     const container = document.getElementById('content') || document.body;
     container.innerHTML = _render();
-    _init();
+    _init(params && params.project);
   };
 
 })();

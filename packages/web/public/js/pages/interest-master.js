@@ -30,15 +30,15 @@
 .im-msg { padding:8px 12px; border-radius:8px; font-size:12px }
 .im-msg-ok { background:var(--teal-bg); color:var(--teal); border:1px solid var(--teal) }
 .im-msg-err { background:var(--red-bg); color:var(--red); border:1px solid var(--red) }
-.im-results { margin-top:16px; max-width:560px; margin-left:auto; margin-right:auto }
+.im-results { margin-top:16px; max-width:780px; margin-left:auto; margin-right:auto }
 .im-proj-hdr { display:flex; justify-content:space-between; align-items:center; padding:12px 18px; background:var(--teal-bg); border:1px solid var(--border2); border-radius:10px 10px 0 0 }
 .im-proj-title { font-size:12px; font-weight:600; color:var(--text); letter-spacing:.6px; text-transform:uppercase }
 .im-proj-icons { color:var(--text3); font-size:16px }
 .im-proj-icons span { margin-left:8px; cursor:pointer }
 .im-tbl-wrap { border:1px solid var(--border2); border-top:none; border-radius:0 0 10px 10px; background:var(--surface); overflow-x:auto }
 .im-tbl { width:100%; border-collapse:collapse; font-size:12.5px }
-.im-tbl th { background:var(--surface2); color:var(--text3); padding:10px 14px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
-.im-tbl td { padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text);  }
+.im-tbl th { background:var(--surface2); color:var(--text3); padding:10px 12px; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; text-align:left; border-bottom:1px solid var(--border2); white-space:nowrap }
+.im-tbl td { padding:10px 12px; border-bottom:1px solid var(--border); color:var(--text);  }
 .im-tbl tr:last-child td { border-bottom:none }
 .im-tbl tbody tr:hover td { background:var(--surface2) }
 .im-edit-link, .im-inline-link { color:var(--teal); cursor:pointer; text-decoration:none; font-size:12.5px; font-weight:500 }
@@ -78,6 +78,7 @@
         <span class="im-lbl"><span class="im-req">*</span>Interest Value(%):</span>
         <input type="text" id="im-rate" placeholder="Interest Value(%)">
       </div>
+      <div class="im-row"><span class="im-lbl"></span><span style="font-size:11.5px;color:var(--text3)">Yearly rate. Charged per day on the late amount, from its due date until it is paid.</span></div>
       <div class="im-row">
         <span class="im-lbl">Interest Type:</span>
         <select id="im-type" onchange="document.getElementById('im-freq-row').style.display = this.value === 'Compound' ? '' : 'none'"><option>Simple</option><option>Compound</option></select>
@@ -88,7 +89,7 @@
       </div>
       <div class="im-row">
         <span class="im-lbl">Calculated On:</span>
-        <input type="text" id="im-on" maxlength="30" value="Receipt Date Wise">
+        <input type="text" id="im-on" maxlength="30" value="Receipt Date Wise" readonly style="background:var(--surface2);cursor:default" title="Interest runs from the due date up to the date the money is received">
       </div>
       <div class="im-row">
         <span class="im-lbl">Effective Date:</span>
@@ -109,9 +110,12 @@
 </div>`;
     },
 
-    async init() {
+    async init(project) {
       document.getElementById('im-date').value = Utils.today();
       await this.loadProjects();
+      // Opened from Set Projects: start on the project being set up
+      const sel = document.getElementById('im-project');
+      if (project && [...sel.options].some(o => o.value === project)) { sel.value = project; this.view(); }
     },
 
     async loadProjects() {
@@ -133,7 +137,8 @@
     showMsg(text, isErr) {
       const el = document.getElementById('im-msg');
       el.innerHTML = `<div class="im-msg ${isErr ? 'im-msg-err' : 'im-msg-ok'}">${text}</div>`;
-      setTimeout(() => { el.innerHTML = ''; }, 4000);
+      clearTimeout(this._msgTimer);
+      this._msgTimer = setTimeout(() => { el.innerHTML = ''; }, 4000);
     },
 
     async save() {
@@ -157,6 +162,7 @@
         if (!res.ok) throw new Error(data.error || 'Save failed');
         this.showMsg('Interest rate saved successfully.', false);
         document.getElementById('im-rate').value = '';
+        await this.view();
       } catch (err) {
         this.showMsg('Error: ' + err.message, true);
       } finally {
@@ -209,8 +215,8 @@
 <div class="im-proj-hdr">
   <span class="im-proj-title">PROJECT: ${projectName}</span>
   <span class="im-proj-icons">
-    <span title="Print">&#128424;</span>
-    <span title="Download">&#11015;</span>
+    <span title="Print" style="cursor:pointer" onclick="InterestMaster.printHistory()">&#128424;</span>
+    <span title="Download as CSV" style="cursor:pointer" onclick="InterestMaster.downloadHistory()">&#11015;</span>
   </span>
 </div>
 <div class="im-tbl-wrap">
@@ -239,10 +245,40 @@
       lastTd.innerHTML = `<a class="im-inline-link" onclick="InterestMaster.saveEdit('${id}')">Save</a><a class="im-inline-cancel" onclick="InterestMaster.cancelEdit()">Cancel</a>`;
     },
 
+    // The rows as plain text columns, shared by Print and Download
+    // The server sends a DATE as local midnight in UTC form, so read it back in local time
+    _day(v) {
+      if (!v) return '';
+      const d = new Date(v);
+      return isNaN(d) ? String(v).slice(0, 10) : d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    },
+    _historyRows() {
+      return (this._history || []).map(r => [Number(r.rate_percent).toFixed(2), (r.interest_type || 'Simple') + (r.compound_frequency ? ' (' + r.compound_frequency + ')' : ''), r.calculated_on || 'Receipt Date Wise', this._day(r.effective_from)]);
+    },
+    downloadHistory() {
+      const rows = this._historyRows();
+      if (!rows.length) { this.showMsg('Nothing to download. Press VIEW first.', true); return; }
+      const q = (v) => '"' + String(v).replace(/"/g, '""') + '"';
+      const csv = [['Interest %', 'Type', 'Calculated on', 'Effective from']].concat(rows).map(r => r.map(q).join(',')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'interest-rates-' + document.getElementById('im-project').selectedOptions[0].textContent.replace(/[^\w]+/g, '-') + '.csv';
+      a.click(); URL.revokeObjectURL(a.href);
+    },
+    printHistory() {
+      const rows = this._historyRows();
+      if (!rows.length) { this.showMsg('Nothing to print. Press VIEW first.', true); return; }
+      const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const w = window.open('', '_blank');
+      if (!w) { this.showMsg('Allow pop-ups to print.', true); return; }
+      w.document.write('<title>Interest rates</title><style>body{font:14px sans-serif;padding:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:6px 10px;text-align:left}</style><h3>Project: ' + esc(document.getElementById('im-project').selectedOptions[0].textContent) + '</h3><table><tr><th>Interest %</th><th>Type</th><th>Calculated on</th><th>Effective from</th></tr>' + rows.map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') + '</table>');
+      w.document.close(); w.focus(); w.print();
+    },
+
     async saveEdit(id) {
       const input = document.getElementById('im-edit-rate-' + id);
       const newRate = parseFloat(input.value);
-      if (isNaN(newRate)) { alert('Enter a valid rate'); return; }
+      if (isNaN(newRate)) { this.showMsg('Enter a valid rate', true); return; }
       const token = localStorage.getItem('rof-jwt') || '';
       try {
         const res = await fetch('/api/payments/interest-master/' + id, {
@@ -256,7 +292,8 @@
         if (record) record.rate_percent = newRate;
         const projectName = document.getElementById('im-project').selectedOptions[0].textContent;
         this.renderHistory(projectName);
-      } catch (err) { alert('Error: ' + err.message); }
+        this.showMsg('Interest rate updated.', false);
+      } catch (err) { this.showMsg('Error: ' + err.message, true); }
     },
 
     cancelEdit() {
@@ -279,6 +316,6 @@
     const container = document.getElementById('content') || document.body;
     container.innerHTML = InterestMaster.render();
     InterestMaster._history = [];
-    InterestMaster.init();
+    InterestMaster.init(params.project);
   };
 }

@@ -62,7 +62,7 @@
 .sm-tbl .num, .sm-num { font-variant-numeric: tabular-nums; text-align: right; }
 .sm-tbl .mono, .sm-mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; }
 .sm-tbl .act { text-align: right; white-space: nowrap; width: 1%; }
-.sm-tbl .act .sm-btn { opacity: 0; }
+.sm-tbl .act .sm-btn { opacity: .6; } /* quiet but visible: a new user must see that a row can be edited or deleted */
 .sm-tbl tr:hover .act .sm-btn, .sm-tbl tr:focus-within .act .sm-btn { opacity: 1; }
 @media (hover: none) { .sm-tbl .act .sm-btn { opacity: 1; } }
 .sm-muted { color: var(--text3); }

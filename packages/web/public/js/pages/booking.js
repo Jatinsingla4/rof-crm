@@ -81,7 +81,6 @@ Pages.booking = async function(params = {}) {
             <select class="fc" name="bhk_type" required onchange="BookingPage.filterUnits()">
               <option value="">— Select —</option>
               <option value="any">Any</option>
-              ${ROF.BHK_TYPES.map(b=>`<option>${b}</option>`).join('')}
             </select>
           </div>
           <div class="fg">
@@ -1556,6 +1555,14 @@ const BookingPage = {
       // Load all units (available + locked/booked shown grayed out)
       const unitRes = await Api.get('/units', { params: { projectId, pageSize: 500 } });
       this._units = unitRes.data || [];
+      // Unit Type lists only what this project has (its units' types), not a fixed list that may not exist here
+      const bhkSel = document.querySelector('[name="bhk_type"]');
+      if (bhkSel) {
+        const keep = bhkSel.value;
+        const types = [...new Set(this._units.map(u => u.bhk_type).filter(Boolean))].sort();
+        bhkSel.innerHTML = '<option value="">— Select —</option><option value="any">Any</option>' + types.map(t => `<option value="${Utils.esc(t)}">${Utils.esc(t)}</option>`).join('');
+        if (keep && [...bhkSel.options].some(o => o.value === keep)) bhkSel.value = keep;
+      }
       this._renderUnitOptions();
 
       // Load payment plans

@@ -71,13 +71,14 @@ PLX.newPlan = () => {
       { key: 'description', label: 'Note', maxlength: 500, placeholder: 'Optional, shown in the plan list' },
       { key: 'start', label: 'Start from', type: 'select', options: [{ value: 'empty', label: 'An empty plan (I add the rows)' }, { value: 'standard', label: 'The usual 9-row schedule (5 + 20 + 6 x 12.5 + possession)' }].concat(PLX.plans.filter((p) => p.rows).map((p) => ({ value: 'copy:' + p.plan_name, label: 'A copy of ' + p.plan_name }))), hint: 'You can change every row afterwards.' },
     ],
-    values: { start: 'empty', plan_type: 'Time Linked' },
+    values: { start: PLX.plans.length ? 'empty' : 'standard', plan_type: 'Time Linked' },
     onSubmit: async (v) => {
       const start = v.start || 'empty';
       if (start === 'standard') await Api.post(`/projects/${PLX.projectId}/plans/standard`, { plan_name: v.plan_name });
       else if (start.startsWith('copy:')) await Api.post(`/projects/${PLX.projectId}/plans/copy`, { from: start.slice(5), to: v.plan_name });
       else if (PLX.plans.some((p) => p.plan_name.toLowerCase() === v.plan_name.toLowerCase())) throw new Error('A plan with this name already exists');
-      if (v.plan_type !== 'Time Linked' || v.description) await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null });
+      if (start === 'empty') { if (v.plan_type !== 'Time Linked' || v.description) PLX.pendingHeader = { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null }; }
+      else if (v.plan_type !== 'Time Linked' || v.description) await Api.put(`/projects/${PLX.projectId}/plans/header`, { plan_name: v.plan_name, plan_type: v.plan_type, description: v.description || null });
       PLX.go(v.plan_name);
     },
   });
@@ -153,7 +154,7 @@ PLX.paint = (el) => {
         const a = (PLX.pcts[r.id] || []).filter((x) => Number(x.pct) > 0);
         return `<tr><td class="num">${r.installment_index}</td><td><b>${px(r.installment_name)}</b></td><td>${px(TYPE_LABEL[r.installment_type] || r.installment_type)}</td>
         <td class="num">${r.installment_type === 'other_charge' ? inr(r.flat_amount_inr || 0) : pct(Number(r.percentage) || 0)}</td>
-        <td class="num">${Number(r.due_date_offset_days) ? r.due_date_offset_days + ' days' : 'On booking'}</td>
+        <td class="num">${Number(r.due_date_offset_days) ? r.due_date_offset_days + ' days' : r.installment_type === 'possession' ? 'On possession' : 'On booking'}</td>
         <td>${a.length ? a.map((x) => `${px(x.charge_name)} ${pct(Number(x.pct))}`).join('<br>') : '<span class="sm-muted">—</span>'}</td>
         <td class="sm-muted">${px(r.notes || '')}</td>
         <td class="act">${edit ? `<button class="sm-btn sm-btn--quiet" data-act="edit" data-id="${px(r.id)}">Edit</button>
@@ -196,6 +197,8 @@ PLX.rowForm = (r) => {
       for (const k of ['percentage', 'flat_amount_inr', 'due_date_offset_days', 'installment_index']) if (body[k] === '') body[k] = k === 'percentage' || k === 'flat_amount_inr' ? null : undefined;
       if (r) await Api.patch(`/projects/${PLX.projectId}/plan-templates/${r.id}`, body);
       else await Api.post(`/projects/${PLX.projectId}/plan-templates`, { ...body, plan_name: PLX.plan.plan_name });
+      // A plan made empty has no rows to hang its type and note on; they are saved with its first row
+      if (!r && PLX.pendingHeader && PLX.pendingHeader.plan_name.toLowerCase() === PLX.plan.plan_name.toLowerCase()) { await Api.put(`/projects/${PLX.projectId}/plans/header`, PLX.pendingHeader); PLX.pendingHeader = null; }
       Utils.success(r ? 'Row saved' : 'Row added');
       await PLX.reload();
     },
@@ -203,7 +206,7 @@ PLX.rowForm = (r) => {
 };
 
 PLX.deleteRow = async (r) => {
-  if (!(await SM.ask({ title: `Delete "${r.installment_name}"?`, text: 'The plan will then add up to less than 100% until you add another row.' }))) return;
+  if (!(await SM.ask({ title: `Delete "${r.installment_name}"?`, text: Number(r.percentage) > 0 || Number(r.flat_amount_inr) > 0 ? 'The plan will then add up to less than 100% until you add another row.' : 'This row takes no share of the price, so the plan total stays the same.' }))) return;
   if (await SM.run(() => Api.delete(`/projects/${PLX.projectId}/plan-templates/${r.id}`), 'Row deleted')) await PLX.reload();
 };
 

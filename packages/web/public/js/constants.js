@@ -72,7 +72,6 @@ const ROF = {
     Cancelled:           { cls:'ch-gray',   label:'Cancelled' },
   },
 
-  BHK_TYPES: ['Studio','1BHK','2BHK','3BHK'],
   TOWERS: ['A','B','C','D','E','F'],
   FACINGS: ['East','West','North','South','North-East','South-East','North-West','South-West'],
 };
