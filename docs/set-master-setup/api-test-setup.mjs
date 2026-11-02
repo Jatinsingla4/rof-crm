@@ -72,6 +72,7 @@ r = await A('GET','/companies/not-a-uuid'); t('company: bad id -> 400/404', r.s=
 r = await A('POST',`/companies/${coid}/bank-accounts`,{bankName:'HDFC',accountNumber:'123456789012',ifscCode:'HDFC0001234'}); t('bank acct: add (first is primary)', r.s===201||r.s===200, JSON.stringify(r.j).slice(0,200)); const b1=r.j?.data?.id;
 r = await A('POST',`/companies/${coid}/bank-accounts`,{bankName:'ICICI',accountNumber:'999988887777',ifscCode:'bad'}); t('bank acct: bad IFSC -> 400', r.s===400, r.s);
 r = await A('POST',`/companies/${coid}/bank-accounts`,{bankName:'',accountNumber:''}); t('bank acct: required fields -> 400', r.s===400, r.s);
+for (const [n, acc] of [['letters', 'ABC'], ['8 digits', '12345678'], ['19 digits', '1'.repeat(19)], ['with a dash', '1234-5678-9012']]) { r = await A('POST',`/companies/${coid}/bank-accounts`,{bankName:'HDFC',accountNumber:acc,ifscCode:'HDFC0001234'}); t(`bank acct: account number ${n} -> 400`, r.s === 400 && /9 to 18 digits/.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j)); }
 r = await PM('POST',`/companies/${coid}/bank-accounts`,{bankName:'X',accountNumber:'1'}); t('bank acct: project_manager blocked', r.s===403, r.s);
 r = await A('POST',`/companies/${coid}/bank-accounts`,{bankName:'ICICI',accountNumber:'999988887777',ifscCode:'ICIC0000001'}); const b2=r.j?.data?.id;
 r = await A('GET',`/companies/${coid}/bank-accounts`); t('bank acct: list has 2, exactly 1 primary', r.j?.data?.length===2 && r.j.data.filter(x=>x.is_primary).length===1, JSON.stringify(r.j).slice(0,250));

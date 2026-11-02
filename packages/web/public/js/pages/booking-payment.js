@@ -24,17 +24,20 @@ Pages.bookingPayment = async function(params = {}) {
   // Load banks, employees, real project GST rate in parallel
   let banks = [], employees = [], gstRate = null;
   try {
-    const gstDate = booking.booking_date || Utils.today();
-    const [banksRes, empsRes, gstRes] = await Promise.all([
+    // The booking date comes back as 2026-11-02T00:00:00.000Z; the GST lookup wants 2026-11-02. Sent as it was, it
+    // answered 400 and, in one Promise.all, left the bank and employee lists empty as well.
+    const gstDate = String(booking.booking_date || '').slice(0, 10) || Utils.today();
+    const [banksRes, empsRes, gstRes] = await Promise.allSettled([
       Api.get('/master/banks'),
       Api.get('/employees/directory'),
       Api.get(`/gst-configuration/resolve?projectId=${booking.project_id}&chargeType=BASIC&date=${gstDate}`),
     ]);
-    banks     = banksRes.data || [];
-    employees = empsRes.data || [];
-    gstRate   = gstRes.data || null;
+    banks     = banksRes.status === 'fulfilled' ? banksRes.value.data || [] : [];
+    employees = empsRes.status === 'fulfilled' ? empsRes.value.data || [] : [];
+    gstRate   = gstRes.status === 'fulfilled' ? gstRes.value.data || null : null;
+    if (gstRes.status === 'rejected') console.warn('GST rate fetch failed:', gstRes.reason?.message);
   } catch (e) {
-    console.warn('GST rate fetch failed:', e.message);
+    console.warn('Payment page lists failed:', e.message);
   }
 
   // Load company bank accounts for this booking's project (optional field)

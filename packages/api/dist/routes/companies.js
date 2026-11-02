@@ -47,6 +47,9 @@ function readBank(body) {
         return { error: 'Bank name is required.' };
     if ('account_number' in v && !v.account_number)
         return { error: 'Account number is required.' };
+    // an Indian bank account number is digits only, 9 to 18 of them; "ABC" used to be saved as one
+    if (v.account_number && !/^[0-9]{9,18}$/.test(v.account_number))
+        return { error: 'Account number must be 9 to 18 digits.' };
     const ip = body?.isPrimary;
     if (ip !== undefined && typeof ip !== 'boolean')
         return { error: 'isPrimary must be true or false.' };
