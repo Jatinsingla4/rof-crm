@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  * needs the documents "create" right (checked by the mount in index.ts).
  */
 const express_1 = require("express");
+const company_bank_js_1 = require("../utils/company-bank.js");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
@@ -316,7 +317,7 @@ router.post('/:id/generate', async (req, res, next) => {
              co.name AS company_name, co.address1 AS company_address, co.phone AS company_phone,
              co.gstin AS company_gstin, co.cin AS company_cin, co.email AS company_email,
              co.website AS company_website, co.reg_address AS company_reg_address,
-             co.bank_account_no, co.bank_ifsc, co.bank_name, co.bank_branch, co.bank_company_name,
+             ${(0, company_bank_js_1.companyBankCols)('co')},
              (SELECT COALESCE(SUM(r.amount_received_inr), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS total_paid
       FROM consumers c
       LEFT JOIN LATERAL (SELECT * FROM booking_records b WHERE b.consumer_id = c.id AND b.status <> 'cancelled'

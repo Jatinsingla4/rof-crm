@@ -288,6 +288,10 @@ const invs = [];
   await bad('buyerGstin short', { buyerGstin: '123' }); await bad('projectId "abc"', { projectId: 'abc' }); await bad('projectId unknown', { projectId: NIL }, 404); await bad('unitId "abc"', { unitId: 'abc' }); await bad('receiptId "abc"', { receiptId: 'abc' });
   await bad('receipt of another applicant', { receiptId: await receipt(S2, 700) });
   t('invoice: nothing saved by the refused calls', Number(psql(`select count(*) from gst_invoices where consumer_id='${c}'`)) === n0);
+  { const rid = await receipt(S1, 5000); const x = await inv(c, { receiptId: rid, baseAmount: 6000 });
+    t('invoice: taxable amount above the receipt amount (6000 on a 5000 receipt) -> 400', x.s === 400 && /receipt amount/.test(x.j?.error || ''), x.s + ' ' + JSON.stringify(x.j).slice(0, 120)); if (x.s === 201) invs.push(x.j.data.id);
+    const y = await inv(c, { receiptId: rid, baseAmount: 5000 }); if (y.s === 201) invs.push(y.j.data.id);
+    t('invoice: taxable amount equal to the receipt amount is fine', y.s === 201, y.s + ' ' + JSON.stringify(y.j).slice(0, 120)); }
   // the screen sends its own tax figures: they are ignored
   r = await inv(c, { gstAmount: 1, totalAmount: 2, cgstAmount: 999, baseAmount: 10000 }); invs.push(r.j.data?.id); const d1 = r.j.data;
   t('invoice: tax is worked out on the server (5%: 250 + 250, total 10500) and the screen\'s figures are ignored', r.s === 201 && Number(d1.cgst_amount) === 250 && Number(d1.sgst_amount) === 250 && Number(d1.igst_amount) === 0 && Number(d1.total_amount) === 10500 && Number(d1.gst_amount) === 500 && Number(d1.gst_rate) === 5, r.s + JSON.stringify(r.j));

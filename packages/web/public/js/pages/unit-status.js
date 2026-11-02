@@ -365,14 +365,7 @@ const UnitStatusPage = {
     } catch(e) { console.warn('onProjectChange:', e); }
   },
 
-  _ordinalFloor(n) {
-    const num = Number(n);
-    if (num === 0) return 'Ground Floor';
-    if (num < 0) return 'Basement ' + (-num);
-    const s = ['th','st','nd','rd'];
-    const v = num % 100;
-    return num + (s[(v-20)%10] || s[v] || s[0]) + ' Floor';
-  },
+  _ordinalFloor(n) { return Utils.floorLabel(n); },
 
   _getStatusDate(u) {
     const s = u.status || 'available';

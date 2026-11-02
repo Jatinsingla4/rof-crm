@@ -39,6 +39,7 @@ exports.buyerBuilderAgreementData = buyerBuilderAgreementData;
 exports.conveyanceDeedData = conveyanceDeedData;
 // Figures for the check list and the three legal letters (allotment, agreement for sale, conveyance deed).
 const index_js_1 = require("../../index.js");
+const company_bank_js_1 = require("../../utils/company-bank.js");
 const input_js_1 = require("../../utils/input.js");
 const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
@@ -55,8 +56,7 @@ async function checkListData(ctx) {
     const projCompanyResCL = await index_js_1.db.query(`
             SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
                    c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
-                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
-                   c.bank_name, c.bank_branch
+                   ${(0, company_bank_js_1.companyBankCols)('c')}
             FROM companies c
             JOIN projects p ON p.company_id = c.id
             JOIN units u ON u.project_id = p.id
@@ -470,8 +470,7 @@ async function allotmentLetterData(ctx) {
     const alCompanyRes = await index_js_1.db.query(`
             SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
                    c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
-                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
-                   c.bank_name, c.bank_branch
+                   ${(0, company_bank_js_1.companyBankCols)('c')}
             FROM companies c
             JOIN projects p ON p.company_id = c.id
             JOIN allocations al2 ON al2.unit_id IN (

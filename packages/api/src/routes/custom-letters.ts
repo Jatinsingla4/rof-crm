@@ -4,6 +4,7 @@
  * needs the documents "create" right (checked by the mount in index.ts).
  */
 import { Router, Response, NextFunction } from 'express';
+import { companyBankCols } from '../utils/company-bank.js';
 import { db, AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
@@ -271,7 +272,7 @@ router.post('/:id/generate', async (req: AuthRequest, res: Response, next: NextF
              co.name AS company_name, co.address1 AS company_address, co.phone AS company_phone,
              co.gstin AS company_gstin, co.cin AS company_cin, co.email AS company_email,
              co.website AS company_website, co.reg_address AS company_reg_address,
-             co.bank_account_no, co.bank_ifsc, co.bank_name, co.bank_branch, co.bank_company_name,
+             ${companyBankCols('co')},
              (SELECT COALESCE(SUM(r.amount_received_inr), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS total_paid
       FROM consumers c
       LEFT JOIN LATERAL (SELECT * FROM booking_records b WHERE b.consumer_id = c.id AND b.status <> 'cancelled'

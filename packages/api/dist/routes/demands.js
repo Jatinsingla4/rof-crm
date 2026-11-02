@@ -472,6 +472,7 @@ router.get('/demand-status', async (req, res, next) => {
         const data = await index_js_1.db.query(`
       SELECT c.id AS consumer_id, c.registration_no, c.name, c.mobile, c.present_city,
              br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.floor AS floor_number, u.bhk_type, p.name AS project_name,
+             (SELECT fl.floor_name FROM floors fl WHERE fl.tower_id = u.tower_id AND fl.floor_number = u.floor) AS floor_name,
              COUNT(d.id)::int AS total_demands,
              COUNT(CASE WHEN d.status = 'paid' THEN 1 END)::int AS paid_demands,
              COUNT(CASE WHEN d.status = 'demanded' THEN 1 END)::int AS active_demands,
@@ -481,7 +482,7 @@ router.get('/demand-status', async (req, res, next) => {
              COALESCE(SUM(CASE WHEN d.status != 'paid' THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) ELSE 0 END), 0)::bigint AS outstanding,
              MAX(d.delivery_status) AS delivery_status
       ${FROM}
-      GROUP BY c.id, c.registration_no, c.name, c.mobile, c.present_city, br.id, br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.floor, u.bhk_type, p.name
+      GROUP BY c.id, c.registration_no, c.name, c.mobile, c.present_city, br.id, br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.tower_id, u.floor, u.bhk_type, p.name
       ORDER BY c.name ASC, c.id ASC
       LIMIT $${dataParams.length + 1} OFFSET $${dataParams.length + 2}`, [...dataParams, limit, (page - 1) * limit]);
         const count = await index_js_1.db.query(`SELECT COUNT(DISTINCT br.id) AS total ${FROM}`, params);

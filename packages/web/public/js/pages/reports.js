@@ -4076,7 +4076,7 @@ const ReportsPage = {
       .map((v,i) => `<option value="${i===0?'':v}">${v}</option>`).join('');
 
     const floorOpts = ['— All —',...Array.from({length:20},(_,i)=>`${i+1}`)]
-      .map((v,i) => `<option value="${i===0?'':v}">${i===0?v:v+'th Floor'}</option>`).join('');
+      .map((v,i) => `<option value="${i===0?'':v}">${i===0?v:Utils.floorLabel(v)}</option>`).join('');
 
     const classOpts = ['— All —','General','NRI','Investor','Corporate']
       .map((v,i) => `<option value="${i===0?'':v}">${v}</option>`).join('');

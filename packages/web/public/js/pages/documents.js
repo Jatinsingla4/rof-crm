@@ -1151,7 +1151,7 @@ const DocsPage = {
           <td>${r.bhk_type||'—'}</td>
           <td class="td-bold">${r.unit_number||'—'}</td>
           <td>${r.tower_name||'—'}</td>
-          <td>${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
+          <td>${Utils.esc(Utils.floorLabel(r.floor_number, r.floor_name))}</td>
           <td>${r.mobile||'—'}</td>
           <td style="text-align:center"><button onclick="DocsPage.dprGenerateLetter('${r.consumer_id}')" class="dpr-btn-d">D</button></td>
         </tr>`;

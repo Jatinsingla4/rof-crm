@@ -228,11 +228,14 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
             if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
                 throw (0, input_js_1.bad)('Project not found', 404);
             if (receiptId) {
-                const rc = (await c.query(`SELECT consumer_id, status FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
+                const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
                 if (!rc || rc.consumer_id !== consumerId)
                     throw (0, input_js_1.bad)('That receipt does not belong to this applicant', 400);
                 if (['cancelled', 'bounced'].includes(rc.status))
                     throw (0, input_js_1.bad)(`That receipt is ${rc.status}`, 409);
+                // an invoice against a receipt cannot tax more than the money received (a 2.8 lakh receipt once got a 30 crore invoice)
+                if (base > Number(rc.amount_received_inr))
+                    throw (0, input_js_1.bad)(`The taxable amount cannot be more than the receipt amount (₹${Number(rc.amount_received_inr).toLocaleString('en-IN')})`, 400);
                 if ((await c.query(`SELECT 1 FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled'`, [receiptId])).rows.length)
                     throw (0, input_js_1.bad)('An invoice was already generated for this receipt', 409);
             }

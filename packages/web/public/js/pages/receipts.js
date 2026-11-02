@@ -984,7 +984,7 @@ const ReceiptsPage = {
       const res = await Api.get('/payments/receipts', { params });
       const list = res.data || res || [];
 
-      const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount||0), 0);
+      const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
 
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><div class="empty-icon">🧾</div><h3>No receipts found</h3></div>'
@@ -994,7 +994,7 @@ const ReceiptsPage = {
             </thead>
             <tbody>
               ${list.map(r => {
-                const amt = parseFloat(r.amount || 0);
+                const amt = parseFloat(r.amount_received_inr ?? r.amount ?? 0);
                 const cgst = parseFloat(r.cgst_amount || 0);
                 const sgst = parseFloat(r.sgst_amount || 0);
                 const total = amt;
@@ -1003,11 +1003,11 @@ const ReceiptsPage = {
                 <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                 <td style="font-weight:600;color:var(--teal)">
                   ${Utils.currency(amt)} <br>
-                  <span style="font-size:10px;color:var(--text3)">+ CGST: ${Utils.currency(cgst)} | SGST: ${Utils.currency(sgst)}</span>
+                  <span style="font-size:10px;color:var(--text3)">incl. CGST: ${Utils.currency(cgst)} | SGST: ${Utils.currency(sgst)}</span>
                 </td>
-                <td>${r.payment_mode||r.paymentMode||'—'}</td>
-                <td class="td-mono">${r.reference_number||r.referenceNumber||'—'}</td>
-                <td>${Utils.date(r.payment_date||r.paymentDate||r.created_at)}</td>
+                <td>${Utils.esc(Utils.toTitleCase(r.payment_method||r.payment_mode||r.paymentMode||'') || '—')}</td>
+                <td class="td-mono">${Utils.esc(r.transaction_ref||r.reference_number||r.referenceNumber||'—')}</td>
+                <td>${Utils.date(r.received_date||r.payment_date||r.paymentDate||r.created_at)}</td>
                 <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
                 <td style="display:flex;gap:4px">
                   <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print</button>
@@ -1042,8 +1042,8 @@ const ReceiptsPage = {
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
                 <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                 <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
-                <td>${r.payment_mode||r.paymentMode||'—'}</td>
-                <td class="td-mono">${r.reference_number||r.referenceNumber||'—'}</td>
+                <td>${Utils.esc(Utils.toTitleCase(r.payment_method||r.payment_mode||r.paymentMode||'') || '—')}</td>
+                <td class="td-mono">${Utils.esc(r.transaction_ref||r.reference_number||r.referenceNumber||'—')}</td>
                 <td>${r.bank_name||r.bankName||'—'}</td>
                 <td>${Utils.date(r.payment_date||r.created_at)}</td>
                 <td style="display:flex;gap:4px">
@@ -1102,7 +1102,7 @@ const ReceiptsPage = {
         byHead[head].receipts.push(r);
       });
 
-      const grandTotal = list.reduce((s,r) => s + parseFloat(r.amount||0), 0);
+      const grandTotal = list.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
       const approved = list.filter(r => (r.status||r.approval_status) === 'approved');
       const pending = list.filter(r => (r.status||r.approval_status) === 'pending');
 
@@ -1176,7 +1176,7 @@ const ReceiptsPage = {
                   <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
                   <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                   <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
-                  <td>${r.payment_mode||r.paymentMode||'—'}</td>
+                  <td>${Utils.esc(Utils.toTitleCase(r.payment_method||r.payment_mode||r.paymentMode||'') || '—')}</td>
                   <td>${Utils.date(r.payment_date||r.created_at)}</td>
                   <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
                   <td><button class="btn btn-teal btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print Duplicate</button></td>

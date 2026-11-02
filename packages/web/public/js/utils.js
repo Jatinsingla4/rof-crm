@@ -2,6 +2,17 @@
 // Formatting, UI helpers, modals, toasts, chips
 
 const Utils = {
+  // Floor text for screens: the name set in Set Projects, Floors when there is one, else Ground Floor / 1st Floor / 2nd Floor ...
+  floorLabel(n, name) {
+    if (name) return name;
+    if (n === null || n === undefined || n === '') return '—';
+    const num = Number(n);
+    if (num === 0) return 'Ground Floor';
+    if (num < 0) return 'Basement ' + (-num);
+    const s = ['th', 'st', 'nd', 'rd'], v = num % 100;
+    return num + (s[(v - 20) % 10] || s[v] || s[0]) + ' Floor';
+  },
+
   // ── FORMATTING ──────────────────────────────
 
   toTitleCase(str) {

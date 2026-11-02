@@ -253,7 +253,7 @@ const DS = {
           <td>${r.bhk_type||'—'}</td>
           <td style="font-weight:600">${r.unit_number||'—'}</td>
           <td>${r.tower_name||'—'}</td>
-          <td>${r.floor_number!=null?r.floor_number+'th Floor':'—'}</td>
+          <td>${Utils.esc(Utils.floorLabel(r.floor_number, r.floor_name))}</td>
           <td>${r.mobile||'—'}</td>
           <td style="text-align:center">
             <button onclick="DS.openLetter('${r.consumer_id}')" class="ds-btn-d">D</button>

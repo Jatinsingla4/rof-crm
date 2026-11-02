@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.demandLetterData = demandLetterData;
 // Demand letter figures: rows per installment, waterfall of receipts, penal interest, company and bank details.
 const index_js_1 = require("../../index.js");
+const company_bank_js_1 = require("../../utils/company-bank.js");
 const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
@@ -21,8 +22,7 @@ async function demandLetterData(ctx) {
     const projCompanyRes = await index_js_1.db.query(`
             SELECT c.name, c.cin, c.gstin, c.address1, c.reg_address,
                    c.phone, c.website, c.email, c.place_of_supply, c.logo_url,
-                   c.bank_company_name, c.bank_account_no, c.bank_ifsc,
-                   c.bank_name, c.bank_branch
+                   ${(0, company_bank_js_1.companyBankCols)('c')}
             FROM companies c
             JOIN projects p ON p.company_id = c.id
             JOIN units u ON u.project_id = p.id
