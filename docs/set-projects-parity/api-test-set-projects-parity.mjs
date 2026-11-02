@@ -375,6 +375,16 @@ t('inventory sheet: createTypes must be true or false (400); the sheet needs its
 t('inventory sheet: viewer and sales cannot import, no login is 401', (await impS(sheet(INV), { createTypes: true }, '/import', RO)).s === 403 && (await impS(sheet(INV), { createTypes: true }, '/import', SE)).s === 403 && (await impS(sheet(INV), {}, '/import', NO)).s === 401);
 r = await impS(sheet([`Q-901`]).replace('S.No.,Tower,Floor,Group,Unit Type,Area (Sq. Ft.),Balcony9Sq.Ft),Unit No.', 'Unit No.,Tower,Floor,Unit Type').replace('Q-901', `Q-901,Tower Q${U},3rd Floor,Type-A`), { createTypes: true });
 t('inventory sheet: only unit no., tower, floor and unit type are enough when the type already exists', r.s === 200 && r.j.data.created === 1, r);
+// ---------- an "In Fix" unit type: the rate is the price of the unit, not a rate per area ----------
+r = await ut({ name: `Villa Fix ${U}`, rate_type: 'In Fix', area_type: 'Non Salable', super_area_sqft: 3000, carpet_area_sqft: 2200, base_rate_sqft: 9500000 }); const VF = r.j?.data?.id;
+t('in fix: the type is saved as In Fix with its price in the rate', r.s === 201 && r.j.data.rate_type === 'In Fix' && Number(r.j.data.base_rate_sqft) === 9500000, r);
+r = await A('POST', '/projects/' + P + '/towers', { towerName: `Fix ${U}` }); const FXT = r.j?.data?.id;
+r = await A('POST', '/units/add-more', { projectId: P, towerId: FXT, unitTypeId: VF, count: 2 });
+t('in fix: more units of the type are priced 95,00,000 each, not rate x area', r.s === 201 && r.j.data.basePrice === 9500000 && psql(`select string_agg(base_price_inr::text || '/' || total_price_inr::text, ',') from units where tower_id = '${FXT}'`) === '9500000/9500000,9500000/9500000', r);
+r = await impS(sheet([`1,Fix ${U},1st Floor,Villa,Villa Fix ${U},3000,0,FX-9`]).replace('Balcony9Sq.Ft)', 'Balcony'), { createTypes: true });
+t('in fix: a CSV row of that type takes the fixed price too', r.s === 200 && r.j.data.created === 1 && psql(`select base_price_inr from units where tower_id = '${FXT}' and unit_number = 'FX-9'`) === '9500000', r);
+r = await A('PUT', `/master/unit-types/${VF}`, { base_rate_sqft: 10000000 }); r = await A('POST', `/master/unit-types/${VF}/apply-to-units`, {});
+t('in fix: "Update units" carries the new fixed price to the unbooked units', r.s === 200 && psql(`select string_agg(distinct base_price_inr::text, ',') from units where unit_type_id = '${VF}'`) === '10000000', r);
 psql(`delete from units where project_id in ('${P}','${P2}')`);
 for (const x of (await A('GET', '/master/unit-types')).j?.data || []) if (x.project_id === P) await A('DELETE', `/master/unit-types/${x.id}`);
 for (const x of (await A('GET', '/master/reminder-master')).j?.data || []) if ([P, P2].includes(x.project_id) || x.name.endsWith(U)) await A('DELETE', `/master/reminder-master/${x.id}`);
