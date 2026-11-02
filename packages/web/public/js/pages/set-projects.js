@@ -1099,6 +1099,7 @@ Object.assign(SPJPage, {
       else {
         // Several names at once ("Tower A, Tower B"): each gets the date, the next sort order and a prefix from its last word ("Tower B" gives B-)
         const names = towerName.split(/[,\n]/).map(x => x.trim()).filter(Boolean), many = names.length > 1, failed = [];
+        if (!names.length) { Utils.warn('Type at least one tower name'); return; }
         const have = Object.values(this._towerRows || {}).filter(t => t.project_id === projectId).length;
         const prefixOf = (n) => this.towerPrefix(n);
         for (const [i, n] of names.entries()) {
@@ -1491,6 +1492,7 @@ Object.assign(SPJPage, {
       }
       // "Corner Flat, Park Facing" adds both; the description goes to each
       const names = String(body.name || '').split(/[,\n]/).map(x => x.trim()).filter(Boolean), failed = [];
+      if (!names.length) { Utils.warn('Type at least one location name'); return; }
       for (const n of names) { try { await Api.post(`/projects/${projectId}/unit-locations`, { ...body, name: n }); } catch (err) { failed.push(`${n.slice(0, 40)}: ${err.message}`); } }
       if (failed.length) Utils.warn(`${names.length - failed.length} of ${names.length} added. Not added: ${failed.join('; ')}`);
       else Utils.success(names.length > 1 ? `${names.length} locations added` : 'Location added');

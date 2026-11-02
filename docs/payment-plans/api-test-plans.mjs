@@ -122,7 +122,7 @@ r = await A('PATCH', `/projects/${P1}/plan-templates/${r2}`, { due_date_offset_d
 r = await A('PATCH', `/projects/${P1}/plan-templates/${r2}`, { notes: 'still allowed' }); t('freeze: a note can still change', r.s === 200, r.s);
 r = await A('DELETE', `/projects/${P1}/plan-templates/${r3}`); t('freeze: deleting a row -> 409', r.s === 409, r.s);
 r = await A('DELETE', `/projects/${P1}/plans?planName=${encodeURIComponent(plan)}`); t('freeze: deleting the plan -> 409', r.s === 409, r.s);
-r = await A('POST', `/projects/${P1}/plan-templates`, row({ installment_name: 'Extra', installment_index: 9, percentage: 0 })); t('freeze: adding a row -> 409', r.s === 409, r.s);
+r = await A('POST', `/projects/${P1}/plan-templates`, row({ installment_name: 'Extra', installment_index: 9, percentage: 1 })); t('freeze: adding a row -> 409', r.s === 409, r.s);
 r = await ad(r2, { charge_master_id: ch, pct: 10 }); t('freeze: changing an add-on percentage -> 409', r.s === 409, r.s);
 psql(`UPDATE booking_records SET status = 'cancelled' WHERE id = '${bk}'`);
 r = await A('GET', `/projects/${P1}/plans`); t('freeze: a cancelled booking no longer counts', r.j?.data?.find(x => x.plan_name === plan)?.bookings === 0, JSON.stringify(r.j?.data));
@@ -183,7 +183,7 @@ const num = async (n, v, field = 'percentage') => { const x = await A('POST', `/
 for (const [n, v] of [['"1e2"', '1e2'], ['"0x10"', '0x10'], ['" 12 "', ' 12 '], ['"12,5"', '12,5'], ['"1.2.3"', '1.2.3'], ['"+5"', '+5'], ['"-0.5"', '-0.5'], ['an array [5]', [5]], ['an object', { a: 1 }], ['true', true], ['"Infinity"', 'Infinity'], ['"NaN"', 'NaN'], ['1e308', 1e308], ['-1e-9', -1e-9], ['Arabic digit', '٣'], ['full-width digits', '１２'], ['an empty array', []], ['"٣"', '٣']]) await num(n, v);
 await num('amount "1e3"', '1e3', 'flat_amount_inr'); await num('amount 1.5', 1.5, 'flat_amount_inr'); await num('amount 1e30', 1e30, 'flat_amount_inr'); await num('amount an array', [100], 'flat_amount_inr');
 r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, percentage: '0.001', installment_index: 1 })); t('number: "0.001" as a text is fine', r.s === 201, JSON.stringify(r.j));
-r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, percentage: -0, installment_index: 2 })); t('number: -0 is just 0', r.s === 201 && Number(r.j.data.percentage) === 0, JSON.stringify(r.j));
+r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, installment_type: 'possession', percentage: -0, installment_index: 2 })); t('number: -0 is just 0', r.s === 201 && Number(r.j.data.percentage) === 0, JSON.stringify(r.j));
 r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, percentage: 1, installment_index: '07' })); t('number: order "07" is the number 7', r.s === 201 && r.j.data.installment_index === 7, JSON.stringify(r.j));
 r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, percentage: 1, installment_index: 1000 })); t('number: order 1000 -> 400', r.s === 400, r.s);
 r = await A('POST', `/projects/${P1}/plan-templates`, wrow({ plan_name: 'Num ' + U, percentage: 1, installment_index: 99999999999999999999 })); t('number: order past any size -> 400', r.s === 400, r.s);
@@ -266,5 +266,15 @@ r = await PM('DELETE', `/projects/${P1}/plans?planName=${encodeURIComponent(plan
 r = await call('')('GET', `/projects/${P1}/plans`); t('roles: no token -> 401', r.s === 401, r.s);
 const bad401 = await fetch(B + `/projects/${P1}/plans`, { headers: { authorization: 'Bearer not.a.token' } }); t('roles: a made-up token -> 401', bad401.status === 401, bad401.status);
 
+// ---------- a 0% row would raise a demand of nothing; only the possession row may be 0% ----------
+{ const P0 = await proj('Z'), zp = 'Zero ' + U;
+  r = await A('POST', `/projects/${P0}/plan-templates`, row({ plan_name: zp, installment_name: 'Nil', installment_type: 'installment', percentage: 0, installment_index: 1 }));
+  t('0%: an installment row at 0% -> 400', r.s === 400 && /more than 0/.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j));
+  r = await A('POST', `/projects/${P0}/plan-templates`, row({ plan_name: zp, installment_name: 'Nil booking', installment_type: 'booking', percentage: 0, installment_index: 1 }));
+  t('0%: a booking row at 0% -> 400', r.s === 400, r.s);
+  r = await A('POST', `/projects/${P0}/plan-templates`, row({ plan_name: zp, installment_name: 'Possession', installment_type: 'possession', percentage: 0, installment_index: 2 }));
+  t('0%: the possession row may be 0%', r.s === 201, r.s + ' ' + JSON.stringify(r.j));
+  r = await A('POST', `/projects/${P0}/plans/standard`, { plan_name: 'Std ' + U });
+  t('0%: the usual 9-row schedule still builds (its possession row is 0%)', r.s === 201, r.s + ' ' + JSON.stringify(r.j)); }
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

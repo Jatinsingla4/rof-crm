@@ -214,6 +214,8 @@ function readPlanRow(body: any, cur?: any) {
   } else {
     flat = null;
     if (pct === null) throw bad('Percentage is required');
+    // only the possession row may be 0% (it takes what is left); any other row at 0% would raise a demand of nothing
+    if (pct === 0 && type !== 'possession') throw bad('Percentage must be more than 0 for this type of row');
   }
   const days = body.due_date_offset_days !== undefined ? wholeNumber(body.due_date_offset_days, 'Due days', 0, 3650) : null;
   const index = body.installment_index !== undefined ? wholeNumber(body.installment_index, 'Order number', 1, 999) : null;

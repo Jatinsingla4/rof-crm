@@ -23,7 +23,9 @@ exports.has = has;
 const num = (v, label, max, decimals) => {
     const n = typeof v === 'number' ? v : typeof v === 'string' && new RegExp(decimals ? `^[0-9]+(\\.[0-9]{1,${decimals}})?$` : '^[0-9]+$').test(v) ? Number(v) : NaN;
     if (!Number.isFinite(n) || n < 0 || n > max || Math.abs(n * 10 ** decimals - Math.round(n * 10 ** decimals)) > 1e-6) {
-        throw (0, exports.bad)(`${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`);
+        throw (0, exports.bad)(decimals
+            ? `${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`
+            : `${label} must be a whole number from 0 to ${max.toLocaleString('en-IN')}`);
     }
     return n;
 };

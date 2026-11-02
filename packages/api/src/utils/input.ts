@@ -16,7 +16,9 @@ export const has = (v: any) => v !== undefined && v !== null && v !== '';
 export const num = (v: any, label: string, max: number, decimals: number): number => {
   const n = typeof v === 'number' ? v : typeof v === 'string' && new RegExp(decimals ? `^[0-9]+(\\.[0-9]{1,${decimals}})?$` : '^[0-9]+$').test(v) ? Number(v) : NaN;
   if (!Number.isFinite(n) || n < 0 || n > max || Math.abs(n * 10 ** decimals - Math.round(n * 10 ** decimals)) > 1e-6) {
-    throw bad(`${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`);
+    throw bad(decimals
+      ? `${label} must be a number from 0 to ${max.toLocaleString('en-IN')} with up to ${decimals} decimals`
+      : `${label} must be a whole number from 0 to ${max.toLocaleString('en-IN')}`);
   }
   return n;
 };
