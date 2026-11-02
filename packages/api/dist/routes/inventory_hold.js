@@ -70,7 +70,9 @@ router.post('/', async (req, res, next) => {
             const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
             if (!brk)
                 throw (0, input_js_1.bad)('Broker not found', 404);
-            if (brk.status !== 'active')
+            // Broker authentication of the project: Automatic lets a broker nobody has approved yet hold units here; Manual (the default) needs an active broker
+            const brokerMode = (await c.query(`SELECT broker_auth_mode FROM project_settings WHERE project_id = $1`, [unit.project_id])).rows[0]?.broker_auth_mode ?? 'Manual';
+            if (brk.status !== 'active' && !(brokerMode === 'Automatic' && brk.status === 'pending'))
                 throw (0, input_js_1.bad)(`This broker is ${brk.status}, only an active broker can hold a unit`);
             await (0, broker_js_1.mappedOk)(c, brokerId, unit.project_id);
             if (unit.status !== 'available')

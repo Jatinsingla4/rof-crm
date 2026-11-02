@@ -443,7 +443,7 @@ const raiseNote = async (req, b) => {
     const type = (0, input_js_1.oneOf)(b.note_type, 'note_type', ['credit', 'debit']), amount = (0, input_js_1.pos)(b.adjustment_amount, 'adjustment_amount'), reason = (0, input_js_1.text)(b.reason, 'reason', 500, true);
     const gstRate = (0, input_js_1.has)(b.gst_rate) ? (0, input_js_1.num)(b.gst_rate, 'gst_rate', 28, 2) : 5, noteDate = (0, input_js_1.day)(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
     return (0, input_js_1.inTx)(async (c) => {
-        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
+        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
         if (!inv)
             throw (0, input_js_1.bad)('Invoice not found', 404);
         if (inv.status === 'cancelled')
@@ -457,8 +457,10 @@ const raiseNote = async (req, b) => {
         }
         const gst = (0, input_js_1.r2)(amount * gstRate / 100);
         const no = await (0, penal_interest_js_1.nextNumber)(c, 'credit_debit_notes', 'note_number', 'CDN', 4);
-        return (await c.query(`INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,'pending',$12) RETURNING *`, [inv.consumer_id, inv.id, no, type, inv.invoice_no, amount, gstRate, gst, (0, input_js_1.r2)(amount + gst), noteDate, reason, req.userId])).rows[0];
+        // Journal authentication of the invoice's project: Automatic issues the note at once (no checker); Manual (the default) leaves it pending for a checker
+        const auto = ((await c.query(`SELECT journal_auth_mode FROM project_settings WHERE project_id = $1`, [inv.project_id])).rows[0]?.journal_auth_mode ?? 'Manual') === 'Automatic';
+        return (await c.query(`INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id, approved_by, approved_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,$12::varchar,$13,$14, CASE WHEN $12::text = 'issued' THEN NOW() END) RETURNING *`, [inv.consumer_id, inv.id, no, type, inv.invoice_no, amount, gstRate, gst, (0, input_js_1.r2)(amount + gst), noteDate, reason, auto ? 'issued' : 'pending', req.userId, auto ? req.userId : null])).rows[0];
     });
 };
 exports.raiseNote = raiseNote;

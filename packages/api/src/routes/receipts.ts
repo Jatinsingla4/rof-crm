@@ -10,6 +10,7 @@ import { cascadeOverpaymentExcess, checkAndAutoRaiseInstallment1 } from '../util
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
 import { projectSettings } from '../utils/project-settings.js';
+import { runTimelyDiscounts } from '../utils/timely-discount.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
@@ -388,6 +389,13 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
       await auditChange(c, req, res, 'update', 'receipt', id, { status: cur.status }, { status: o.to });
       return r.rows[0];
     });
+    // A cheque that clears may complete an installment paid in time: raise its timely-discount credit note (never allowed to fail the clearing itself)
+    if (o.to === 'cleared') {
+      try {
+        const who = (await db.query('SELECT r.consumer_id, pp.project_id FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE r.id = $1', [id])).rows[0];
+        if (who?.project_id) await runTimelyDiscounts(db, req, who.project_id, who.consumer_id);
+      } catch (e) { console.error('timely discount after clearing failed:', (e as any)?.message); }
+    }
     res.json({ success: true, message: o.message, data });
   } catch (err) { fail(err, res, next); }
 };

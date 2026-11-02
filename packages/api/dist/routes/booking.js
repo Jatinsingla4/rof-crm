@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildApplicantFileHtml = buildApplicantFileHtml;
 const project_settings_js_1 = require("../utils/project-settings.js");
 const charge_area_js_1 = require("../utils/charge-area.js");
+const charge_stock_js_1 = require("../utils/charge-stock.js");
 /**
  * Booking Routes
  * Handles booking form submission, list, view, and edit booking records
@@ -1013,8 +1014,12 @@ router.patch('/:id', async (req, res, next) => {
                acm.default_amount,
                acm.rate_type,
                acm.rate_per_sqft_inr,
+               acm.percent_value,
+               acm.percent_basis,
+               acm.inventory_base,
                acm.cgst_pct,
                acm.sgst_pct,
+               u.base_price_inr AS unit_base_price,
                ${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')} AS charge_area_sqft
              FROM plan_addon_charge_pct pac
              JOIN plan_schedule_templates pst
@@ -1032,7 +1037,7 @@ router.patch('/:id', async (req, res, next) => {
               WHERE acm.project_id = $1 AND acm.is_active AND (acm.is_mandatory OR uac.unit_id IS NOT NULL)`, [booking.project_id, booking.unit_id])).rows.map((r) => r.id));
                     addonPctRows.rows = addonPctRows.rows.filter((r) => wanted.has(r.charge_master_id));
                     const have = new Set(addonPctRows.rows.map((r) => r.charge_master_id));
-                    const extra = await client.query(`SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, ${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')} AS charge_area_sqft,
+                    const extra = await client.query(`SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.percent_value, acm.percent_basis, acm.inventory_base, acm.cgst_pct, acm.sgst_pct, u.base_price_inr AS unit_base_price, ${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')} AS charge_area_sqft,
                     COALESCE(uac.quantity, 1) AS quantity
                FROM addon_charge_master acm CROSS JOIN units u
                LEFT JOIN unit_addon_charges uac ON uac.unit_id = u.id AND uac.charge_master_id = acm.id
@@ -1042,6 +1047,9 @@ router.patch('/:id', async (req, res, next) => {
                             addonPctRows.rows.push(r);
                     const qtyMap = new Map((await client.query('SELECT charge_master_id, quantity FROM unit_addon_charges WHERE unit_id = $1', [booking.unit_id])).rows.map((r) => [r.charge_master_id, Number(r.quantity)]));
                     const qtyOf = (r) => qtyMap.get(r.charge_master_id) ?? 1;
+                    // A "% of basic" charge is a share of the unit's basic price, less this booking's discounts when the charge says so
+                    const discRow = (await client.query(`SELECT company_inaugural_disc, dealer_adjustment_amount FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1`, [booking.consumer_id, booking.unit_id])).rows[0] || {};
+                    const bookingDisc = { inaugural: discRow.company_inaugural_disc, dealer: discRow.dealer_adjustment_amount };
                     for (const row of addonPctRows.rows) {
                         // Skip if already exists (idempotency guard)
                         const existing = await client.query(`SELECT id FROM consumer_addon_charges
@@ -1050,10 +1058,17 @@ router.patch('/:id', async (req, res, next) => {
                  AND charge_master_id = $3`, [booking.consumer_id, booking.project_id, row.charge_master_id]);
                         if (existing.rows.length > 0)
                             continue;
+                        // A charge with a stock (parking): a piece the unit already carries was counted when it was attached; any other one needs a piece to be left
+                        if (row.inventory_base && !qtyMap.has(row.charge_master_id)) {
+                            await (0, charge_stock_js_1.lockCharges)(client, [row.charge_master_id]);
+                            await (0, charge_stock_js_1.requireStock)(client, row.charge_master_id, 1);
+                        }
                         // Compute GST amounts from master
                         const amt = (row.rate_type === 'per_sqft'
                             ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.charge_area_sqft || 0) * 100) / 100
-                            : parseFloat(row.default_amount)) * qtyOf(row);
+                            : row.rate_type === 'percent'
+                                ? Math.round(parseFloat(row.percent_value) * (0, charge_area_js_1.percentChargeBase)(row.unit_base_price, bookingDisc.inaugural, bookingDisc.dealer, row.percent_basis)) / 100
+                                : parseFloat(row.default_amount)) * qtyOf(row);
                         const cPct = parseFloat(row.cgst_pct);
                         const sPct = parseFloat(row.sgst_pct);
                         const cgstAmt = Math.round(amt * cPct / 100 * 100) / 100;

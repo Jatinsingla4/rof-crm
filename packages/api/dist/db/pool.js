@@ -8,6 +8,9 @@ const pg_1 = require("pg");
 const node_async_hooks_1 = require("node:async_hooks");
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
+// A DATE column comes back as a Date at local midnight, so on a server that is not on UTC (a developer machine) its ISO text is the day before.
+// Production and CI already run on UTC; forcing it here makes every environment behave the same.
+process.env.TZ = 'UTC';
 const pool = new pg_1.Pool(process.env.DATABASE_URL
     ? {
         connectionString: process.env.DATABASE_URL,

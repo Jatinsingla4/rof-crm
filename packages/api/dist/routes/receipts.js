@@ -13,6 +13,7 @@ const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const receipt_number_js_1 = require("../utils/receipt-number.js");
 const project_settings_js_1 = require("../utils/project-settings.js");
+const timely_discount_js_1 = require("../utils/timely-discount.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
@@ -440,6 +441,17 @@ const move = async (req, res, next, o) => {
             await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'receipt', id, { status: cur.status }, { status: o.to });
             return r.rows[0];
         });
+        // A cheque that clears may complete an installment paid in time: raise its timely-discount credit note (never allowed to fail the clearing itself)
+        if (o.to === 'cleared') {
+            try {
+                const who = (await index_js_1.db.query('SELECT r.consumer_id, pp.project_id FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE r.id = $1', [id])).rows[0];
+                if (who?.project_id)
+                    await (0, timely_discount_js_1.runTimelyDiscounts)(index_js_1.db, req, who.project_id, who.consumer_id);
+            }
+            catch (e) {
+                console.error('timely discount after clearing failed:', e?.message);
+            }
+        }
         res.json({ success: true, message: o.message, data });
     }
     catch (err) {

@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const charge_stock_js_1 = require("../utils/charge-stock.js");
 const input_js_1 = require("../utils/input.js");
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
@@ -75,7 +76,10 @@ const chargeList = (v) => {
     });
 };
 const saveUnitCharges = async (c, unitId, projectId, list, userId) => {
-    const masters = (await c.query('SELECT id, charge_name, is_mandatory, multiple_booking FROM addon_charge_master WHERE project_id = $1 AND is_active AND id = ANY($2::uuid[])', [projectId, list.map(x => x.id)])).rows;
+    const masters = (await c.query('SELECT id, charge_name, is_mandatory, multiple_booking, inventory_base FROM addon_charge_master WHERE project_id = $1 AND is_active AND id = ANY($2::uuid[])', [projectId, list.map(x => x.id)])).rows;
+    // a charge with a stock is locked first, so two units cannot take the last piece together
+    const stocked = masters.filter((m) => m.inventory_base && !m.is_mandatory).map((m) => m.id);
+    await (0, charge_stock_js_1.lockCharges)(c, stocked);
     await c.query('DELETE FROM unit_addon_charges WHERE unit_id = $1', [unitId]);
     for (const x of list) {
         const m = masters.find((r) => r.id === x.id);
@@ -87,6 +91,8 @@ const saveUnitCharges = async (c, unitId, projectId, list, userId) => {
             throw (0, input_js_1.bad)(`"${m.charge_name}" is not set for multiple booking, so its quantity must be 1`);
         await c.query('INSERT INTO unit_addon_charges (unit_id, charge_master_id, project_id, quantity, created_by) VALUES ($1,$2,$3,$4,$5)', [unitId, x.id, projectId, x.q, userId || null]);
     }
+    for (const id of stocked)
+        await (0, charge_stock_js_1.requireStock)(c, id);
 };
 // GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
 router.get('/:id/charges', async (req, res, next) => {
@@ -238,7 +244,7 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
       SELECT DISTINCT ON (u.id)
         u.id, u.project_id, p.name as project_name,
         u.tower_id, t.tower_name, t.tower_name AS tower,
-        u.floor, u.unit_number, u.bhk_type,
+        u.floor, u.unit_number, u.bhk_type, u.unit_type_id,
         u.carpet_area_sqft, u.super_area_sqft, u.total_price_inr,
         u.base_price_inr, u.facing, u.status, u.created_at,
         u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
@@ -259,8 +265,10 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
          WHERE uh.unit_id = u.id AND uh.status = 'active' LIMIT 1) AS hold_client,
         (SELECT uh.expires_at FROM unit_holds uh
          WHERE uh.unit_id = u.id AND uh.status = 'active' LIMIT 1) AS hold_expires_at,
-        (SELECT ut.name FROM unit_types ut
-         WHERE ut.id = u.unit_type_id LIMIT 1) AS unit_group
+        (SELECT COALESCE(NULLIF(ut.group_name, ''), ut.name) FROM unit_types ut
+         WHERE ut.id = u.unit_type_id LIMIT 1) AS unit_group,
+        (SELECT ul.name FROM unit_locations ul WHERE ul.id = u.unit_location_id) AS location_name,
+        (SELECT f.floor_name FROM floors f WHERE f.tower_id = u.tower_id AND f.floor_number = u.floor) AS floor_name
       FROM units u
       JOIN towers t ON u.tower_id = t.id
       JOIN projects p ON u.project_id = p.id
@@ -746,6 +754,169 @@ router.post('/bulk-import', async (req, res, next) => {
         }
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'unit_bulk_import', projectId, undefined, { totalRows: b.rows.length, created, skipped });
         res.json({ success: true, data: { totalRows: b.rows.length, created, skipped, errors } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// ── Unit Wise Area: the 12 area fields of the client, with a history that says what changed and from which date ──
+// Super area, carpet area and balcony 1 live on the unit (billing reads them, so a sold unit keeps them); the other areas are records and can be corrected any time.
+const AREA_FIELDS = [
+    ['superAreaSqft', 'super_area_sqft', 'Super area', 'unit'], ['carpetAreaSqft', 'carpet_area_sqft', 'Carpet area', 'unit'], ['balcony1AreaSqft', 'balcony_area_sqft', 'Balcony 1 area', 'unit'],
+    ['builtUpAreaSqft', 'built_up_area_sqft', 'Built-up area', 'ext'], ['udslAreaSqft', 'udsl_area_sqft', 'UDSL area', 'ext'], ['plotArea', 'plot_area', 'Plot area', 'ext'],
+    ['balcony2AreaSqft', 'balcony_2_area_sqft', 'Balcony 2 area', 'ext'], ['balcony3AreaSqft', 'balcony_3_area_sqft', 'Balcony 3 area', 'ext'],
+    ['basementAreaSqft', 'basement_area_sqft', 'Basement area', 'ext'], ['stiltAreaSqft', 'stilt_area_sqft', 'Stilt area', 'ext'], ['commonAreaSqft', 'common_area_sqft', 'Common area', 'ext'],
+];
+const areaSelect = `SELECT u.id AS unit_id, u.project_id, u.tower_id, u.unit_number, u.floor, u.status, t.tower_name, u.super_area_sqft, u.carpet_area_sqft, u.balcony_area_sqft,
+  a.area_measurement, a.built_up_area_sqft, a.udsl_area_sqft, a.plot_area, a.balcony_2_area_sqft, a.balcony_3_area_sqft, a.basement_area_sqft, a.stilt_area_sqft, a.common_area_sqft
+  FROM units u JOIN towers t ON t.id = u.tower_id LEFT JOIN unit_areas a ON a.unit_id = u.id`;
+const areaOut = (r) => ({
+    unit_id: r.unit_id, project_id: r.project_id, tower_name: r.tower_name, unit_number: r.unit_number, floor: r.floor, status: r.status, areaMeasurement: r.area_measurement ?? null,
+    ...Object.fromEntries(AREA_FIELDS.map(([k, col]) => [k, r[col] == null ? null : Number(r[col])])),
+});
+const unitIsSold = async (c, id, status) => (status !== 'available' && status !== 'locked' && status !== 'held') || (await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length > 0;
+// GET /api/units/areas/report?projectId=&towerId=   one row per unit with all 12 areas (the client's Unit Wise Area report)
+router.get('/areas/report', async (req, res, next) => {
+    try {
+        const projectId = (0, input_js_1.uuid)(req.query.projectId, 'projectId'), towerId = (0, input_js_1.has)(req.query.towerId) ? (0, input_js_1.uuid)(req.query.towerId, 'towerId') : null;
+        if (!(await index_js_1.db.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length)
+            return res.status(404).json({ error: 'Project not found' });
+        const rows = (await index_js_1.db.query(`${areaSelect} WHERE u.project_id = $1 AND ($2::uuid IS NULL OR u.tower_id = $2) ORDER BY t.tower_name, u.floor, u.unit_number`, [projectId, towerId])).rows;
+        res.json({ success: true, data: rows.map(areaOut) });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/units/:id/areas
+router.get('/:id/areas', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
+        const r = (await index_js_1.db.query(`${areaSelect} WHERE u.id = $1`, [id])).rows[0];
+        if (!r)
+            return res.status(404).json({ error: 'Unit not found' });
+        res.json({ success: true, data: { ...areaOut(r), sold: await unitIsSold(index_js_1.db, id, r.status) } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/units/:id/areas/history
+router.get('/:id/areas/history', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
+        if (!(await index_js_1.db.query('SELECT 1 FROM units WHERE id = $1', [id])).rows.length)
+            return res.status(404).json({ error: 'Unit not found' });
+        const rows = (await index_js_1.db.query(`SELECT h.id, h.effective_date::text AS effective_date, h.before, h.after, h.note, h.changed_at, u.name AS changed_by_name
+        FROM unit_area_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.unit_id = $1 ORDER BY h.changed_at DESC LIMIT 100`, [id])).rows;
+        res.json({ success: true, data: rows });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// PUT /api/units/:id/areas  { effectiveDate?, note?, areaMeasurement?, <any of the 11 areas> }   a field left out stays; null or blank clears it
+router.put('/:id/areas', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id'), b = (0, input_js_1.body)(req);
+        const effective = (0, input_js_1.has)(b.effectiveDate) ? (0, input_js_1.day)(b.effectiveDate, 'Effective date') : new Date().toISOString().slice(0, 10);
+        const note = (0, input_js_1.has)(b.note) ? (0, input_js_1.text)(b.note, 'Note', 500, false) : null;
+        const given = {};
+        for (const [k, , label] of AREA_FIELDS)
+            if (k in b)
+                given[k] = (0, input_js_1.has)(b[k]) ? (0, input_js_1.num)(b[k], label, AREA_MAX, 4) : null;
+        let measure;
+        if ('areaMeasurement' in b) {
+            measure = (0, input_js_1.has)(b.areaMeasurement) ? (0, input_js_1.text)(b.areaMeasurement, 'Area measurement', 50, true) : null;
+            if (measure && !(await index_js_1.db.query('SELECT 1 FROM area_types WHERE lower(name) = lower($1)', [measure])).rows.length)
+                throw (0, input_js_1.bad)('Area measurement must be one of the Area Types in Set Master');
+        }
+        if (!Object.keys(given).length && measure === undefined)
+            throw (0, input_js_1.bad)('Nothing to update');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const cur = (await c.query(`${areaSelect} WHERE u.id = $1 FOR UPDATE OF u`, [id])).rows[0];
+            if (!cur)
+                throw Object.assign((0, input_js_1.bad)('Unit not found'), { http: 404 });
+            const before = areaOut(cur), after = { ...before };
+            for (const k of Object.keys(given))
+                after[k] = given[k];
+            if (measure !== undefined)
+                after.areaMeasurement = measure;
+            if (after.superAreaSqft !== null && after.carpetAreaSqft !== null && after.superAreaSqft < after.carpetAreaSqft)
+                throw (0, input_js_1.bad)('Super area cannot be less than the carpet area');
+            const changed = [...AREA_FIELDS.map(([k]) => k), 'areaMeasurement'].filter((k) => before[k] !== after[k]);
+            if (!changed.length)
+                return { before, after, changed };
+            if (changed.some((k) => ['superAreaSqft', 'carpetAreaSqft', 'balcony1AreaSqft'].includes(k)) && (await unitIsSold(c, id, cur.status)))
+                throw Object.assign((0, input_js_1.bad)('This unit already has a booking, so its super, carpet and balcony 1 areas can no longer be changed. The other areas can.'), { http: 409 });
+            await c.query('UPDATE units SET super_area_sqft = $2, carpet_area_sqft = $3, balcony_area_sqft = $4, updated_at = now() WHERE id = $1', [id, after.superAreaSqft, after.carpetAreaSqft, after.balcony1AreaSqft]);
+            await c.query(`INSERT INTO unit_areas (unit_id, area_measurement, built_up_area_sqft, udsl_area_sqft, plot_area, balcony_2_area_sqft, balcony_3_area_sqft, basement_area_sqft, stilt_area_sqft, common_area_sqft, updated_by, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, now())
+         ON CONFLICT (unit_id) DO UPDATE SET area_measurement = EXCLUDED.area_measurement, built_up_area_sqft = EXCLUDED.built_up_area_sqft, udsl_area_sqft = EXCLUDED.udsl_area_sqft, plot_area = EXCLUDED.plot_area,
+           balcony_2_area_sqft = EXCLUDED.balcony_2_area_sqft, balcony_3_area_sqft = EXCLUDED.balcony_3_area_sqft, basement_area_sqft = EXCLUDED.basement_area_sqft, stilt_area_sqft = EXCLUDED.stilt_area_sqft,
+           common_area_sqft = EXCLUDED.common_area_sqft, updated_by = EXCLUDED.updated_by, updated_at = now()`, [id, after.areaMeasurement, after.builtUpAreaSqft, after.udslAreaSqft, after.plotArea, after.balcony2AreaSqft, after.balcony3AreaSqft, after.basementAreaSqft, after.stiltAreaSqft, after.commonAreaSqft, req.userId]);
+            const pick = (o) => Object.fromEntries([...AREA_FIELDS.map(([k]) => k), 'areaMeasurement'].map((k) => [k, o[k]]));
+            await c.query('INSERT INTO unit_area_history (unit_id, effective_date, before, after, note, changed_by) VALUES ($1,$2,$3,$4,$5,$6)', [id, effective, JSON.stringify(pick(before)), JSON.stringify(pick(after)), note, req.userId]);
+            return { before, after, changed };
+        });
+        if (out.changed.length)
+            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit_area', id, out.before, out.after);
+        res.json({ success: true, data: { ...out.after, changed: out.changed } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// POST /api/units/add-more  { projectId, towerId, unitTypeId, count, preview? }
+// The client's "Change No. of Plot / Villa": more units of one type in one tower (a plot block has no floors, so they go on floor 0). Areas and price come from the type,
+// the numbers continue the tower's own pattern (A-101, A-102 ... gives A-103 ...), and the count can be looked at first with preview.
+router.post('/add-more', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req), projectId = (0, input_js_1.uuid)(b.projectId, 'projectId'), towerId = (0, input_js_1.uuid)(b.towerId, 'towerId'), typeId = (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId');
+        const count = (0, input_js_1.num)(b.count, 'Number of units', 2000, 0);
+        if (!Number.isInteger(count) || count < 1)
+            throw (0, input_js_1.bad)('Number of units must be a whole number from 1 to 2000');
+        if (b.preview !== undefined && typeof b.preview !== 'boolean')
+            throw (0, input_js_1.bad)('preview must be true or false');
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const tower = (await c.query('SELECT id, tower_name, address_prefix FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL FOR UPDATE', [towerId, projectId])).rows[0];
+            if (!tower)
+                throw Object.assign((0, input_js_1.bad)('This tower does not belong to the project'), { http: 404 });
+            const ty = (await c.query('SELECT * FROM unit_types WHERE id = $1 AND project_id = $2', [typeId, projectId])).rows[0];
+            if (!ty)
+                throw Object.assign((0, input_js_1.bad)('This unit type does not belong to the project'), { http: 404 });
+            const have = (await c.query('SELECT unit_number FROM units WHERE tower_id = $1', [towerId])).rows.map((r) => String(r.unit_number));
+            const taken = new Set(have.map((x) => x.toLowerCase()));
+            let pre = tower.address_prefix || '', next = 1, width = 3, post = '';
+            const last = have.map((x) => x.match(/^(.*?)(\d+)(\D*)$/)).filter(Boolean).sort((a, z) => Number(z[2]) - Number(a[2]))[0];
+            if (last) {
+                pre = last[1];
+                next = Number(last[2]) + 1;
+                width = last[2].length;
+                post = last[3];
+            }
+            const numbers = [];
+            while (numbers.length < count) {
+                const no = `${pre}${String(next++).padStart(width, '0')}${post}`;
+                if (!taken.has(no.toLowerCase()))
+                    numbers.push(no);
+                if (next > 10000000)
+                    throw (0, input_js_1.bad)('Could not find free unit numbers');
+            }
+            if (numbers.some((x) => x.length > 50))
+                throw (0, input_js_1.bad)('A unit number would be longer than 50 characters');
+            const area = { 'Super Area': ty.super_area_sqft, 'Carpet Area': ty.carpet_area_sqft, 'Built Up Area': ty.built_up_area_sqft, 'Plot Area': ty.plot_area }[ty.rate_basis];
+            const base = ty.base_rate_sqft && area ? Math.round(Number(ty.base_rate_sqft) * Number(area)) : null;
+            const sample = { first: numbers[0], last: numbers[numbers.length - 1], count, basePrice: base };
+            if (b.preview === true)
+                return { ...sample, created: 0 };
+            await c.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, status, created_by_user_id, unit_type_id)
+         SELECT $1, $2, 0, x.no, $3, $4, $5, $6, $7, $7, 'available', $8, $9 FROM unnest($10::text[]) AS x(no)`, [projectId, towerId, ty.name, ty.carpet_area_sqft || null, ty.super_area_sqft || null, ty.balcony_area_sqft || null, base, req.userId, typeId, numbers]);
+            return { ...sample, created: count };
+        });
+        if (b.preview !== true)
+            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'unit_add_more', projectId, undefined, { towerId, unitTypeId: typeId, count });
+        res.status(b.preview === true ? 200 : 201).json({ success: true, data: out });
     }
     catch (error) {
         fail(error, res, next);

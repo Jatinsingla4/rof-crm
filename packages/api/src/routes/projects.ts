@@ -10,6 +10,8 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { cleanBody } from './master.js';
 import { projectSettings } from '../utils/project-settings.js';
 import { isScoped } from '../db/pool.js';
+import { requireProcess } from '../middleware/processPermission.js';
+import { runTimelyDiscounts } from '../utils/timely-discount.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas, oneOf as inOneOf, failWith } from '../utils/input.js';
 
@@ -295,9 +297,9 @@ router.get('/:id/plans', async (req: AuthRequest, res: Response, next: NextFunct
               COALESCE(SUM(t.flat_amount_inr), 0)::bigint AS flat_total, MAX(t.updated_at) AS updated_at,
               (SELECT COUNT(*)::int FROM booking_records b WHERE b.project_id = t.project_id AND b.selected_plan_name = t.plan_name
                  AND COALESCE(b.status, '') NOT IN ('cancelled', 'canceled')) AS bookings,
-              COALESCE(h.plan_type, 'Time Linked') AS plan_type, h.description
+              COALESCE(h.plan_type, 'Time Linked') AS plan_type, h.description, COALESCE(h.timely_discount, false) AS timely_discount, COALESCE(h.discount_pct, 0)::float AS discount_pct
          FROM plan_schedule_templates t LEFT JOIN plan_headers h ON h.project_id = t.project_id AND lower(h.plan_name) = lower(t.plan_name)
-         WHERE t.project_id = $1 GROUP BY t.project_id, t.plan_name, h.plan_type, h.description ORDER BY t.plan_name`,
+         WHERE t.project_id = $1 GROUP BY t.project_id, t.plan_name, h.plan_type, h.description, h.timely_discount, h.discount_pct ORDER BY t.plan_name`,
       [req.params.id]
     );
     res.json({ success: true, data: r.rows.map((x: any) => ({ ...x, complete: Math.abs(x.total_pct - 100) < 0.001 })) });
@@ -314,10 +316,16 @@ router.put('/:id/plans/header', async (req: AuthRequest, res: Response, next: Ne
     const type = inOneOf(b.plan_type ?? 'Time Linked', 'Plan type', PLAN_KINDS);
     const descr = b.description == null || b.description === '' ? null : inText(b.description, 'Description', 500, false);
     if (!(await db.query('SELECT 1 FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 LIMIT 1', [req.params.id, name])).rows.length) return res.status(404).json({ error: 'Plan not found' });
+    // Timely discount: a field left out keeps what the plan has
+    if ('timely_discount' in b && typeof b.timely_discount !== 'boolean') throw bad('timely_discount must be true or false');
+    const curH = (await db.query('SELECT timely_discount, discount_pct FROM plan_headers WHERE project_id = $1 AND lower(plan_name) = lower($2)', [req.params.id, name])).rows[0];
+    const timely = 'timely_discount' in b ? b.timely_discount : curH?.timely_discount ?? false;
+    const discPct = 'discount_pct' in b ? (inHas(b.discount_pct) ? inNum(b.discount_pct, 'Discount %', 100, 4) : 0) : curH ? Number(curH.discount_pct) : 0;
+    if (timely && !(discPct > 0)) throw bad('Discount % must be more than 0 when timely discount is on');
     const r = (await db.query(
-      `INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by) VALUES ($1,$2,$3,$4,$5)
-       ON CONFLICT (project_id, lower(plan_name)) DO UPDATE SET plan_type = EXCLUDED.plan_type, description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, updated_at = now() RETURNING plan_name, plan_type, description`,
-      [req.params.id, name, type, descr, req.userId])).rows[0];
+      `INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by, timely_discount, discount_pct) VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (project_id, lower(plan_name)) DO UPDATE SET plan_type = EXCLUDED.plan_type, description = EXCLUDED.description, updated_by = EXCLUDED.updated_by, timely_discount = EXCLUDED.timely_discount, discount_pct = EXCLUDED.discount_pct, updated_at = now() RETURNING plan_name, plan_type, description, timely_discount, discount_pct::float AS discount_pct`,
+      [req.params.id, name, type, descr, req.userId, timely, discPct])).rows[0];
     await auditChange(db, req, res, 'update', 'payment_plan', req.params.id, undefined, r);
     res.json({ success: true, data: r });
   } catch (err) { planFail(err, res, next); }
@@ -436,7 +444,7 @@ router.post('/:id/plans/copy', async (req: AuthRequest, res: Response, next: Nex
         [target, to, req.params.id, fromName, req.userId]
       );
       if (!made.rowCount) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Plan to copy not found' }); }
-      await client.query(`INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by) SELECT $1, $2, plan_type, description, $5 FROM plan_headers WHERE project_id = $3 AND lower(plan_name) = lower($4)`, [target, to, req.params.id, fromName, req.userId]);
+      await client.query(`INSERT INTO plan_headers (project_id, plan_name, plan_type, description, updated_by, timely_discount, discount_pct) SELECT $1, $2, plan_type, description, $5, timely_discount, discount_pct FROM plan_headers WHERE project_id = $3 AND lower(plan_name) = lower($4)`, [target, to, req.params.id, fromName, req.userId]);
       if (target === req.params.id) {
         await client.query(
           `INSERT INTO plan_addon_charge_pct (plan_schedule_template_id, charge_master_id, pct, created_by)
@@ -982,6 +990,8 @@ router.put('/:id/settings', async (req: AuthRequest, res: Response, next: NextFu
       registration_prefix: 'registration_prefix' in b ? prefixOf(b.registration_prefix, 'Registration prefix') : cur.registration_prefix,
       registration_number_mode: 'registration_number_mode' in b ? inOneOf(b.registration_number_mode, 'Registration number mode', ['Automatic', 'Manual'] as const)! : cur.registration_number_mode,
       registration_number_size: 'registration_number_size' in b ? inNum(b.registration_number_size, 'Registration number size', 8, 0) : cur.registration_number_size,
+      broker_auth_mode: 'broker_auth_mode' in b ? inOneOf(b.broker_auth_mode, 'Broker authentication', ['Automatic', 'Manual'] as const)! : cur.broker_auth_mode,
+      journal_auth_mode: 'journal_auth_mode' in b ? inOneOf(b.journal_auth_mode, 'Journal / credit and debit note authentication', ['Automatic', 'Manual'] as const)! : cur.journal_auth_mode,
       // blank = no project rule; a number must be more than 0
       balcony_max_charge_inr: 'balcony_max_charge_inr' in b ? (inHas(b.balcony_max_charge_inr) ? inNum(b.balcony_max_charge_inr, 'Largest balcony charge', 1_000_000_000, 2) : null) : cur.balcony_max_charge_inr,
       balcony_max_area_sqft: 'balcony_max_area_sqft' in b ? (inHas(b.balcony_max_area_sqft) ? inNum(b.balcony_max_area_sqft, 'Balcony area charged', 100000, 3) : null) : cur.balcony_max_area_sqft,
@@ -989,12 +999,12 @@ router.put('/:id/settings', async (req: AuthRequest, res: Response, next: NextFu
     for (const [k, label] of [['balcony_max_charge_inr', 'Largest balcony charge'], ['balcony_max_area_sqft', 'Balcony area charged']] as const) if (next_[k] === 0) throw bad(`${label} must be more than 0, or left blank for no limit`);
     if (!Number.isInteger(next_.registration_number_size) || next_.registration_number_size < 3) throw bad('Registration number size must be a whole number from 3 to 8');
     const r = (await db.query(
-      `INSERT INTO project_settings (project_id, receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, balcony_max_charge_inr, balcony_max_area_sqft, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      `INSERT INTO project_settings (project_id, receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, balcony_max_charge_inr, balcony_max_area_sqft, updated_by, broker_auth_mode, journal_auth_mode)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (project_id) DO UPDATE SET receipt_prefix = EXCLUDED.receipt_prefix, receipt_number_mode = EXCLUDED.receipt_number_mode, registration_prefix = EXCLUDED.registration_prefix,
-         registration_number_mode = EXCLUDED.registration_number_mode, registration_number_size = EXCLUDED.registration_number_size, balcony_max_charge_inr = EXCLUDED.balcony_max_charge_inr, balcony_max_area_sqft = EXCLUDED.balcony_max_area_sqft, updated_by = EXCLUDED.updated_by, updated_at = now()
-       RETURNING receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, balcony_max_charge_inr::float8, balcony_max_area_sqft::float8`,
-      [id, next_.receipt_prefix, next_.receipt_number_mode, next_.registration_prefix, next_.registration_number_mode, next_.registration_number_size, next_.balcony_max_charge_inr, next_.balcony_max_area_sqft, req.userId])).rows[0];
+         registration_number_mode = EXCLUDED.registration_number_mode, registration_number_size = EXCLUDED.registration_number_size, balcony_max_charge_inr = EXCLUDED.balcony_max_charge_inr, balcony_max_area_sqft = EXCLUDED.balcony_max_area_sqft, broker_auth_mode = EXCLUDED.broker_auth_mode, journal_auth_mode = EXCLUDED.journal_auth_mode, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, broker_auth_mode, journal_auth_mode, balcony_max_charge_inr::float8, balcony_max_area_sqft::float8`,
+      [id, next_.receipt_prefix, next_.receipt_number_mode, next_.registration_prefix, next_.registration_number_mode, next_.registration_number_size, next_.balcony_max_charge_inr, next_.balcony_max_area_sqft, req.userId, next_.broker_auth_mode, next_.journal_auth_mode])).rows[0];
     await auditChange(db, req, res, 'update', 'project_settings', id, cur, r);
     res.json({ success: true, data: r });
   } catch (error) { failWith(error, res, next); }
@@ -1048,6 +1058,160 @@ router.patch('/:id/towers/:towerId', async (req: AuthRequest, res: Response, nex
     await auditChange(db, req, res, 'update', 'tower', tid, cur, r.rows[0]);
     res.json({ success: true, data: r.rows[0] });
   } catch (error) { failWith(error, res, next); }
+});
+
+// ── Floors: a tower's floors with the name each one shows (Ground Floor, 1st Floor, First Floor ...) ──
+// A unit stores its floor as a number; the name of a floor is kept in `floors` per tower and used where a floor is printed.
+const ordinalNo = (n: number) => { const v = n % 100, sfx = ['th', 'st', 'nd', 'rd']; return n + (sfx[(v - 20) % 10] || sfx[v] || sfx[0]); };
+const ONES = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth', 'Eleventh', 'Twelfth', 'Thirteenth', 'Fourteenth', 'Fifteenth', 'Sixteenth', 'Seventeenth', 'Eighteenth', 'Nineteenth'];
+const TENS_TH = ['', '', 'Twentieth', 'Thirtieth', 'Fortieth', 'Fiftieth', 'Sixtieth', 'Seventieth', 'Eightieth', 'Ninetieth'];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+const ordinalWords = (n: number) => n === 100 ? 'Hundredth' : n < 20 ? ONES[n] : n % 10 === 0 ? TENS_TH[n / 10] : `${TENS[Math.floor(n / 10)]}-${ONES[n % 10]}`;
+const defaultFloorLabel = (n: number) => n === 0 ? 'Ground Floor' : n < 0 ? `Basement ${-n}` : `${ordinalNo(n)} Floor`;
+const FLOOR_STYLES = ['number', 'ordinal', 'words'] as const;
+const floorPart = (style: string, n: number) => n === 0 ? 'Ground' : n < 0 ? `Basement ${-n}` : style === 'number' ? String(n) : style === 'ordinal' ? ordinalNo(n) : ordinalWords(n);
+const floorNo = (v: any, label: string) => { const n = typeof v === 'number' ? v : typeof v === 'string' && /^-?\d{1,3}$/.test(v) ? Number(v) : NaN; if (!Number.isInteger(n) || n < -5 || n > 300) throw bad(`${label} must be a whole number from -5 to 300`); return n; };
+const towerOf = async (projectId: string, towerId: string) => {
+  const t = (await db.query('SELECT id, tower_name FROM towers WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL', [towerId, projectId])).rows[0];
+  if (!t) throw Object.assign(bad('Tower not found in this project'), { http: 404 });
+  return t;
+};
+
+// GET /api/projects/:id/towers/:towerId/floors  (every floor that has a unit or a name, with its unit count)
+router.get('/:id/towers/:towerId/floors', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), tid = inUuid(req.params.towerId, 'Tower id');
+    await towerOf(id, tid);
+    const rows = (await db.query(
+      `SELECT n.floor_number, f.floor_name, COALESCE(u.units, 0)::int AS units
+         FROM (SELECT floor_number FROM floors WHERE tower_id = $1 UNION SELECT floor FROM units WHERE tower_id = $1 AND floor IS NOT NULL) n
+         LEFT JOIN floors f ON f.tower_id = $1 AND f.floor_number = n.floor_number
+         LEFT JOIN (SELECT floor, count(*) AS units FROM units WHERE tower_id = $1 GROUP BY floor) u ON u.floor = n.floor_number
+        ORDER BY n.floor_number`, [tid])).rows;
+    res.json({ success: true, data: rows.map((r: any) => ({ ...r, default_label: defaultFloorLabel(r.floor_number), label: r.floor_name || defaultFloorLabel(r.floor_number) })) });
+  } catch (error) { planFail(error, res, next); }
+});
+
+// PUT /api/projects/:id/towers/:towerId/floors/:floorNumber  { floorName }  (a blank name goes back to the default label)
+router.put('/:id/towers/:towerId/floors/:floorNumber', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), tid = inUuid(req.params.towerId, 'Tower id');
+    const fn = floorNo(req.params.floorNumber, 'Floor');
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    if (!('floorName' in b)) throw bad('floorName is required (blank clears the name)');
+    const name = inHas(b.floorName) ? inText(b.floorName, 'Floor name', 50, true) : null;
+    await towerOf(id, tid);
+    const before = (await db.query('SELECT floor_name FROM floors WHERE tower_id = $1 AND floor_number = $2', [tid, fn])).rows[0];
+    if (name && (await db.query('SELECT 1 FROM floors WHERE tower_id = $1 AND lower(floor_name) = lower($2) AND floor_number <> $3', [tid, name, fn])).rows.length) throw Object.assign(bad('Another floor of this tower already has this name'), { http: 409 });
+    if (!name) await db.query('DELETE FROM floors WHERE tower_id = $1 AND floor_number = $2', [tid, fn]);
+    else await db.query('INSERT INTO floors (tower_id, floor_number, floor_name) VALUES ($1, $2, $3) ON CONFLICT (tower_id, floor_number) DO UPDATE SET floor_name = EXCLUDED.floor_name', [tid, fn, name]);
+    await auditChange(db, req, res, 'update', 'floor', tid, before || {}, { floor_number: fn, floor_name: name });
+    res.json({ success: true, data: { floor_number: fn, floor_name: name, label: name || defaultFloorLabel(fn) } });
+  } catch (error) { planFail(error, res, next); }
+});
+
+// POST /api/projects/:id/towers/:towerId/floors/pattern  { from, to, style: number | ordinal | words, prefix, suffix, preview }
+// Names every floor from..to in one go: "1, 2, 3", "1st, 2nd, 3rd" or "First, Second, Third", with an optional prefix and suffix. Floor 0 is Ground, below 0 is Basement 1, 2 ...
+router.post('/:id/towers/:towerId/floors/pattern', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), tid = inUuid(req.params.towerId, 'Tower id');
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const from = floorNo(b.from, 'From floor'), to = floorNo(b.to, 'To floor');
+    if (from > to) throw bad('From floor cannot be above To floor');
+    const style = inOneOf(b.style ?? 'ordinal', 'Style', FLOOR_STYLES);
+    if (style === 'words' && to > 100) throw bad('First, Second ... names go up to the 100th floor');
+    // spaces matter here ("1st" + " Floor"), so these are checked as they are instead of being trimmed
+    const affix = (v: any, label: string) => { if (v === undefined || v === null || v === '') return ''; if (typeof v !== 'string' || !/^[A-Za-z0-9 .\-_()#&/]{1,20}$/.test(v)) throw bad(`${label} can be up to 20 letters, digits, spaces or . - _ ( ) # & /`); return v; };
+    const prefix = affix(b.prefix, 'Prefix'), suffix = affix(b.suffix, 'Suffix');
+    if (b.preview !== undefined && typeof b.preview !== 'boolean') throw bad('preview must be true or false');
+    await towerOf(id, tid);
+    const nums: number[] = []; for (let n = from; n <= to; n++) nums.push(n);
+    const names = nums.map((n) => `${prefix}${floorPart(style, n)}${suffix}`.trim());
+    if (names.some((x) => x.length > 50)) throw bad('A floor name would be longer than 50 characters');
+    const clash = (await db.query('SELECT floor_number, floor_name FROM floors WHERE tower_id = $1 AND NOT (floor_number = ANY($2::int[])) AND lower(floor_name) = ANY($3::text[])', [tid, nums, names.map((x) => x.toLowerCase())])).rows[0];
+    if (clash) throw Object.assign(bad(`Floor ${clash.floor_number} of this tower is already named "${clash.floor_name}"`), { http: 409 });
+    const out = nums.map((n, i) => ({ floor_number: n, floor_name: names[i] }));
+    if (b.preview === true) return res.json({ success: true, data: { preview: true, floors: out } });
+    await db.query('INSERT INTO floors (tower_id, floor_number, floor_name) SELECT $1::uuid, x.n, x.nm FROM unnest($2::int[], $3::text[]) AS x(n, nm) ON CONFLICT (tower_id, floor_number) DO UPDATE SET floor_name = EXCLUDED.floor_name', [tid, nums, names]);
+    await auditChange(db, req, res, 'update', 'floor', tid, {}, { pattern: { from, to, style, prefix, suffix } });
+    res.json({ success: true, data: { preview: false, floors: out } });
+  } catch (error) { planFail(error, res, next); }
+});
+
+// ── Customer Wise Timely Discount ──
+// A plan with timely discount on gives its % on every installment paid in full by its due date; a customer can have his own % instead (0 = none for him).
+// The earned discount is raised as a credit note on the installment's invoice (see utils/timely-discount.ts).
+const timelyCustomer = async (projectId: string, consumerId: string) => {
+  const r = (await db.query(
+    `SELECT br.consumer_id, h.discount_pct FROM booking_records br JOIN plan_headers h ON h.project_id = br.project_id AND lower(h.plan_name) = lower(br.selected_plan_name) AND h.timely_discount
+      WHERE br.project_id = $1 AND br.consumer_id = $2 AND COALESCE(br.status, '') NOT IN ('cancelled', 'canceled') LIMIT 1`, [projectId, consumerId])).rows[0];
+  if (!r) throw Object.assign(bad('This customer has no active booking in this project on a plan with timely discount'), { http: 409 });
+  return r;
+};
+// GET /api/projects/:id/timely-discount  the plans with timely discount and the customers on them
+router.get('/:id/timely-discount', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id');
+    await projectOk(id);
+    const plans = (await db.query(`SELECT plan_name, discount_pct::float AS discount_pct FROM plan_headers WHERE project_id = $1 AND timely_discount ORDER BY plan_name`, [id])).rows;
+    const customers = (await db.query(
+      `SELECT DISTINCT ON (br.consumer_id) br.consumer_id, c.name AS consumer_name, c.registration_no, u.unit_number, br.selected_plan_name AS plan_name, h.discount_pct::float AS plan_pct, ct.discount_pct::float AS own_pct, ct.note,
+              (SELECT COALESCE(SUM(a.discount_amount), 0)::float FROM timely_discount_awards a WHERE a.consumer_id = br.consumer_id AND a.project_id = br.project_id AND a.status = 'issued') AS earned,
+              (SELECT COUNT(*)::int FROM timely_discount_awards a WHERE a.consumer_id = br.consumer_id AND a.project_id = br.project_id AND a.status = 'waiting') AS waiting
+         FROM booking_records br JOIN plan_headers h ON h.project_id = br.project_id AND lower(h.plan_name) = lower(br.selected_plan_name) AND h.timely_discount
+         JOIN consumers c ON c.id = br.consumer_id LEFT JOIN units u ON u.id = br.unit_id LEFT JOIN customer_timely_discount ct ON ct.consumer_id = br.consumer_id AND ct.project_id = br.project_id
+        WHERE br.project_id = $1 AND COALESCE(br.status, '') NOT IN ('cancelled', 'canceled') ORDER BY br.consumer_id, br.created_at DESC`, [id])).rows;
+    res.json({ success: true, data: { plans, customers: customers.map((x: any) => ({ ...x, effective_pct: x.own_pct ?? x.plan_pct })).sort((a: any, z: any) => String(a.consumer_name).localeCompare(String(z.consumer_name))) } });
+  } catch (error) { planFail(error, res, next); }
+});
+// PUT /api/projects/:id/timely-discount/customers/:consumerId  { discountPct, note }
+router.put('/:id/timely-discount/customers/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), cid = inUuid(req.params.consumerId, 'Customer id'), b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const pct = inNum(b.discountPct, 'Discount %', 100, 4), note = inHas(b.note) ? inText(b.note, 'Note', 300, false) : null;
+    await projectOk(id); await timelyCustomer(id, cid);
+    const before = (await db.query('SELECT discount_pct FROM customer_timely_discount WHERE consumer_id = $1 AND project_id = $2', [cid, id])).rows[0];
+    const r = (await db.query(
+      `INSERT INTO customer_timely_discount (consumer_id, project_id, discount_pct, note, set_by) VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (consumer_id, project_id) DO UPDATE SET discount_pct = EXCLUDED.discount_pct, note = EXCLUDED.note, set_by = EXCLUDED.set_by, set_at = now() RETURNING discount_pct::float AS discount_pct, note`, [cid, id, pct, note, req.userId])).rows[0];
+    await auditChange(db, req, res, 'update', 'customer_timely_discount', cid, before || {}, r);
+    res.json({ success: true, data: r });
+  } catch (error) { planFail(error, res, next); }
+});
+// DELETE /api/projects/:id/timely-discount/customers/:consumerId   back to the plan's %
+router.delete('/:id/timely-discount/customers/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), cid = inUuid(req.params.consumerId, 'Customer id');
+    await projectOk(id);
+    const r = await db.query('DELETE FROM customer_timely_discount WHERE consumer_id = $1 AND project_id = $2 RETURNING discount_pct::float AS discount_pct', [cid, id]);
+    if (!r.rowCount) return res.status(404).json({ error: 'This customer has no own discount to remove' });
+    await auditChange(db, req, res, 'delete', 'customer_timely_discount', cid, r.rows[0], {});
+    res.json({ success: true });
+  } catch (error) { planFail(error, res, next); }
+});
+// POST /api/projects/:id/timely-discount/run  { consumerId? }   raise the credit notes of the installments paid in time (a checker's note step still follows unless the project's journal authentication is Automatic)
+router.post('/:id/timely-discount/run', requireProcess('jv_refund_drcr', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const cid = inHas(b.consumerId) ? inUuid(b.consumerId, 'Customer id') : undefined;
+    await projectOk(id);
+    const out = await runTimelyDiscounts(db, req, id, cid);
+    await auditChange(db, req, res, 'create', 'timely_discount_run', id, undefined, { issued: out.issued, waiting: out.waiting, checked: out.checked });
+    res.json({ success: true, data: out });
+  } catch (error) { planFail(error, res, next); }
+});
+// GET /api/projects/:id/timely-discount/awards?consumerId=
+router.get('/:id/timely-discount/awards', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const id = inUuid(req.params.id, 'Project id'), cid = inHas(req.query.consumerId) ? inUuid(req.query.consumerId, 'Customer id') : null;
+    await projectOk(id);
+    const rows = (await db.query(
+      `SELECT a.id, a.consumer_id, c.name AS consumer_name, a.installment_name, a.base_amount::float AS base_amount, a.discount_pct::float AS discount_pct, a.discount_amount::float AS discount_amount, a.due_date::text AS due_date, a.paid_on::text AS paid_on,
+              a.status, a.note, n.note_number, n.status AS note_status
+         FROM timely_discount_awards a JOIN consumers c ON c.id = a.consumer_id LEFT JOIN credit_debit_notes n ON n.id = a.credit_note_id
+        WHERE a.project_id = $1 AND ($2::uuid IS NULL OR a.consumer_id = $2) ORDER BY a.created_at DESC LIMIT 500`, [id, cid])).rows;
+    res.json({ success: true, data: rows });
+  } catch (error) { planFail(error, res, next); }
 });
 
 export default router;

@@ -17,12 +17,42 @@ const MAX_ROWS = 5000, MAX_CSV = 2_000_000;
 // A unit needs its number, tower and floor; the type comes from a unitType column (the project's own unit type, which also gives areas and price) or from bhkType and totalPriceInr
 const REQUIRED = ['unitNumber', 'tower', 'floor'];
 
-type Clean = { line: number; unit: string; tower: string; floor: number; bhk: string; facing: string | null; f: ReturnType<typeof unitFields>; typeId: string | null; locationId: string | null };
+type Clean = { newType: string | null; line: number; unit: string; tower: string; floor: number; bhk: string; facing: string | null; f: ReturnType<typeof unitFields>; typeId: string | null; locationId: string | null };
 type Lookups = { types: Map<string, any>; locations: Map<string, string> } | null;
 
 const onlyUnits = (v: any) => {
   const t = has(v) ? oneOf(v, 'importType', ['units'] as const) : 'units';
   return t;
+};
+
+// The client's own inventory sheet (S.No., Tower, Floor "1st Floor", Group, Unit Type, Area (Sq. Ft.), Balcony (Sq.Ft), Unit No.) is read as it is:
+// its headers are matched to ours by name (case, spaces and punctuation do not matter), blank lines of the sheet are dropped and a floor can be written "Ground Floor" or "2nd Floor".
+const aliasOf = (h: string): string | null => {
+  const k = h.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (['unitno', 'unitnumber', 'unitaddress', 'unit', 'unitnos'].includes(k)) return 'unitNumber';
+  if (['tower', 'towername', 'block', 'blockname'].includes(k)) return 'tower';
+  if (['floor', 'floorno', 'floorname', 'floornumber'].includes(k)) return 'floor';
+  if (['unittype', 'unittypename', 'typename'].includes(k)) return 'unitType';
+  if (['group', 'groupname', 'unitgroup', 'typegroup'].includes(k)) return 'group';
+  if (['area', 'areasqft', 'carpetarea', 'carpetareasqft', 'carpet'].includes(k)) return 'carpetAreaSqft';
+  if (['superarea', 'superareasqft', 'super'].includes(k)) return 'superAreaSqft';
+  if (k.startsWith('balcony')) return 'balconyAreaSqft';
+  if (['sno', 'srno', 'slno', 'serialno', 'sr', 'no'].includes(k)) return '';   // the running number of the sheet: not needed
+  return null;
+};
+const normalize = (rows: any[]) => {
+  const map = new Map<string, string | null>(), taken = new Set(Object.keys(rows[0] || {}));
+  for (const h of Object.keys(rows[0] || {})) { const a = aliasOf(h); if (a === '' || (a && !taken.has(a))) { map.set(h, a); if (a) taken.add(a); } }
+  return rows.map((r) => { const o: any = {}; for (const [k, v] of Object.entries(r)) { if (map.has(k)) { const a = map.get(k); if (a) o[a] = v; } else o[k] = v; } return o; })
+    .filter((r) => Object.values(r).some((v) => String(v ?? '').trim() !== ''));
+};
+const floorText = (v: any) => {
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (/^ground(\s+floor)?$/i.test(t)) return 0;
+  const bs = t.match(/^basement\s*(\d+)$/i); if (bs) return -Number(bs[1]);
+  const o = t.match(/^(\d{1,3})\s*(?:st|nd|rd|th)?\s*(?:floor)?$/i); if (o) return Number(o[1]);
+  return v;
 };
 
 // The CSV text to rows, or a clear 400
@@ -34,6 +64,8 @@ const readCsv = (v: any) => {
   catch (e: any) { throw bad('The file is not a valid CSV: ' + String(e.message).split('\n')[0]); }
   if (!rows.length) throw bad('The file has no rows');
   if (rows.length > MAX_ROWS) throw bad(`The file has ${rows.length} rows; ${MAX_ROWS} at most in one import`);
+  rows = normalize(rows);
+  if (!rows.length) throw bad('The file has no rows');
   const headers = Object.keys(rows[0]);
   const missing = REQUIRED.filter((c) => !headers.includes(c));
   if (!headers.includes('unitType') && !(headers.includes('bhkType') && headers.includes('totalPriceInr'))) missing.push('unitType (or bhkType and totalPriceInr)');
@@ -48,34 +80,46 @@ const lookupsOf = async (c: { query: (sql: string, p?: any[]) => Promise<any> },
 });
 
 // Every row checked with the same rules as the Unit screen; the second copy of a unit inside the file is a problem too
-const checkRows = (rows: any[], look: Lookups = null) => {
+const checkRows = (rows: any[], look: Lookups = null, createTypes = false) => {
   const ok: Clean[] = [], errors: { row: number; unit: string; reason: string }[] = [], seen = new Set<string>();
+  const newTypes = new Map<string, { name: string; group: string | null; carpet: number | null; sup: number | null; balcony: number | null; line: number; units: number }>();
   rows.forEach((r, i) => {
     const line = i + 2;   // line 1 is the header
     try {
       const unit = text(r.unitNumber, 'Unit number', 50, true)!, tower = text(r.tower, 'Tower', 100, true)!;
       if (!has(r.floor)) throw bad('Floor number is required for each unit');
-      const floor = floorNo(r.floor), facing = text(r.facing, 'Facing', 30, false);
+      const floor = floorNo(floorText(r.floor)), facing = text(r.facing, 'Facing', 30, false);
       // unit type and location are names of the project's own masters
       const typeName = text(r.unitType, 'Unit type', 200, false), locName = text(r.location, 'Location', 200, false);
       const type = typeName && look ? look.types.get(typeName.toLowerCase()) : null;
-      if (typeName && look && !type) throw bad(`Unit type "${typeName}" is not in this project`);
+      // a unit type the project does not have yet: with "create the missing unit types" it is made from the group and areas in the file (all rows of one type must agree)
+      let newType: string | null = null;
+      if (typeName && look && !type) {
+        if (!createTypes) throw bad(`Unit type "${typeName}" is not in this project`);
+        const g = text(r.group, 'Group', 100, false), spec = unitFields({ carpetAreaSqft: r.carpetAreaSqft === '' ? undefined : r.carpetAreaSqft, superAreaSqft: r.superAreaSqft === '' ? undefined : r.superAreaSqft, balconyAreaSqft: r.balconyAreaSqft === '' ? undefined : r.balconyAreaSqft });
+        const key = typeName.toLowerCase(), seenType = newTypes.get(key);
+        if (seenType && (seenType.carpet !== spec.carpet || seenType.sup !== spec.sup || seenType.balcony !== spec.balcony || seenType.group !== g)) throw bad(`Unit type "${typeName}" has other areas or another group than in row ${seenType.line}`);
+        if (!seenType) newTypes.set(key, { name: typeName.slice(0, 100), group: g, carpet: spec.carpet, sup: spec.sup, balcony: spec.balcony, line, units: 0 });
+        newTypes.get(key)!.units++;
+        newType = key;
+      }
       const locationId = locName && look ? look.locations.get(locName.toLowerCase()) ?? null : null;
       if (locName && look && !locationId) throw bad(`Location "${locName}" is not in this project`);
-      const bhk = has(r.bhkType) ? text(r.bhkType, 'BHK type', 50, true)! : type ? type.name : text(r.bhkType, 'BHK type', 50, true)!;
+      const bhk = has(r.bhkType) ? text(r.bhkType, 'BHK type', 50, true)! : type ? type.name : newType ? typeName!.slice(0, 50) : text(r.bhkType, 'BHK type', 50, true)!;
       const area = type ? ({ 'Super Area': type.super_area_sqft, 'Carpet Area': type.carpet_area_sqft, 'Built Up Area': type.built_up_area_sqft, 'Plot Area': type.plot_area } as any)[type.rate_basis] : null;
       const typePrice = type && type.base_rate_sqft != null && area ? Math.round(Number(type.base_rate_sqft) * Number(area)) : undefined;
       const f = unitFields({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typePrice, totalPriceInr: typePrice,
         ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) });
-      if (f.total === null) throw bad('Total price is required');
-      if (!(f.total > 0)) throw bad('Total price must be more than 0');
+      // a unit type made from the file has no rate yet, so its units come in without a price (set the rate of the type, then "Update units")
+      if (f.total === null && !(createTypes && typeName)) throw bad('Total price is required');
+      if (f.total !== null && !(f.total > 0)) throw bad('Total price must be more than 0');
       const key = `${tower.toLowerCase()}|${unit.toLowerCase()}`;
       if (seen.has(key)) throw bad('This unit is in the file more than once');
       seen.add(key);
-      ok.push({ line, unit, tower, floor, bhk, facing, f, typeId: type?.id ?? null, locationId });
+      ok.push({ newType, line, unit, tower, floor, bhk, facing, f, typeId: type?.id ?? null, locationId });
     } catch (e: any) { errors.push({ row: line, unit: String(r.unitNumber ?? '').slice(0, 50), reason: e.http ? e.message : 'This row cannot be read' }); }
   });
-  return { ok, errors };
+  return { ok, errors, newTypes };
 };
 
 const say = (errors: { row: number; unit: string; reason: string }[]) =>
@@ -88,7 +132,8 @@ router.post('/preview', async (req: AuthRequest, res: Response, next: NextFuncti
     onlyUnits(b.importType);
     const projectId = has(b.projectId) ? uuid(b.projectId, 'projectId') : null;
     const { rows, headers } = readCsv(b.csvText);
-    const { ok, errors } = checkRows(rows, projectId ? await lookupsOf(db, projectId) : null);
+    if (b.createTypes !== undefined && typeof b.createTypes !== 'boolean') throw bad('createTypes must be true or false');
+    const { ok, errors, newTypes } = checkRows(rows, projectId ? await lookupsOf(db, projectId) : null, b.createTypes === true);
     let existing: number | null = null;
     if (projectId) {
       if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
@@ -99,7 +144,7 @@ router.post('/preview', async (req: AuthRequest, res: Response, next: NextFuncti
     }
     res.json({
       success: true,
-      data: { importType: 'units', totalRows: rows.length, validRows: ok.length, errorRows: errors.length, alreadyInProject: existing, columns: headers, preview: rows.slice(0, 10), errors: errors.slice(0, 50) },
+      data: { importType: 'units', totalRows: rows.length, validRows: ok.length, errorRows: errors.length, alreadyInProject: existing, columns: headers, preview: rows.slice(0, 10), errors: errors.slice(0, 50), newUnitTypes: [...newTypes.values()].map((x) => ({ name: x.name, group: x.group, carpet_area_sqft: x.carpet, balcony_area_sqft: x.balcony, units: x.units })) },
     });
   } catch (error) { failWith(error, res, next); }
 });
@@ -113,7 +158,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const fileName = text(b.fileName, 'File name', 255, false) || 'import.csv';
     const { rows } = readCsv(b.csvText);
     if (!(await db.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
-    const { ok, errors } = checkRows(rows, await lookupsOf(db, projectId));
+    if (b.createTypes !== undefined && typeof b.createTypes !== 'boolean') throw bad('createTypes must be true or false');
+    const { ok, errors, newTypes } = checkRows(rows, await lookupsOf(db, projectId), b.createTypes === true);
     if (errors.length) {
       await db.query(
         `INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,0,0,$3,'failed',$4,$5)`,
@@ -124,6 +170,16 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const out = await inTx(async (c) => {
       if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
       await lock(c, `import-units:${projectId}`);   // a double click or two files at once: one after the other, duplicates are skipped
+      // the unit types the file brings (only with "create the missing unit types"); one that appeared meanwhile is used as it is
+      const typeIds = new Map<string, string>();
+      for (const [key, t] of newTypes) {
+        const basis = t.carpet ? 'Carpet Area' : 'Super Area', shown = [t.carpet ? 'Carpet Area' : null, t.sup && t.carpet ? 'Super Area' : t.sup ? 'Super Area' : null, t.balcony ? 'Balcony Area' : null].filter(Boolean);
+        const made = (await c.query(
+          `INSERT INTO unit_types (project_id, name, group_name, carpet_area_sqft, super_area_sqft, balcony_area_sqft, rate_basis, show_on_payment_file) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (project_id, lower(name::text)) DO NOTHING RETURNING id`, [projectId, t.name, t.group, t.carpet, t.sup, t.balcony, basis, shown])).rows[0];
+        typeIds.set(key, made ? made.id : (await c.query('SELECT id FROM unit_types WHERE project_id = $1 AND lower(name) = $2', [projectId, key])).rows[0].id);
+      }
+      for (const r of ok) if (r.newType) r.typeId = typeIds.get(r.newType) ?? null;
       const towers = new Map<string, string>();
       let created = 0;
       const skipped: { row: number; unit: string; reason: string }[] = [];
@@ -145,7 +201,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       await c.query(
         `INSERT INTO import_history (file_name, import_type, total_rows, created_rows, skipped_rows, error_rows, status, errors, imported_by) VALUES ($1,'units',$2,$3,$4,0,'completed',$5,$6)`,
         [fileName, rows.length, created, skipped.length, JSON.stringify(skipped.slice(0, 200)), req.userId]);
-      return { totalRows: rows.length, created, skipped: skipped.length, skippedRows: skipped.slice(0, 50) };
+      return { totalRows: rows.length, created, skipped: skipped.length, skippedRows: skipped.slice(0, 50), createdUnitTypes: newTypes.size };
     });
     res.json({ success: true, data: out });
   } catch (error) { failWith(error, res, next); }
