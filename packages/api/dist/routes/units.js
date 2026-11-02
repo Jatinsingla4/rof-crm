@@ -400,6 +400,19 @@ router.get('/projects', async (req, res, next) => {
         next(error);
     }
 });
+// GET /api/units/towers?projectId= - Tower list for the tower filters on reports and charge pages (must be before /:id).
+// Gives the name under both keys because the pages read either one.
+router.get('/towers', async (req, res, next) => {
+    try {
+        const projectId = (0, input_js_1.has)(req.query.projectId) ? (0, input_js_1.uuid)(req.query.projectId, 'projectId') : null;
+        const result = await index_js_1.db.query(`SELECT id, tower_name, tower_name AS name, project_id FROM towers
+       WHERE deleted_at IS NULL ${projectId ? 'AND project_id = $1' : ''} ORDER BY sort_order, tower_name`, projectId ? [projectId] : []);
+        res.json({ success: true, data: result.rows });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
 // GET /api/units/status-counts - Count per status (must be before /:id)
 router.get('/status-counts', async (req, res, next) => {
     try {

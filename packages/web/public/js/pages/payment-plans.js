@@ -30,7 +30,12 @@ Pages.paymentPlans = async function (params = {}) {
 
 PLX.projectPicker = () => `<select class="sm-input" id="plx-project" style="max-width:320px">${PLX.projects.map((p) =>
   `<option value="${px(p.id)}"${p.id === PLX.projectId ? ' selected' : ''}>${px(p.name)}</option>`).join('')}</select>`;
-PLX.go = (plan) => Router.navigate('/payment-plans', plan ? { project: PLX.projectId, plan } : { project: PLX.projectId });
+PLX.go = (plan) => {
+  const params = plan ? { project: PLX.projectId, plan } : { project: PLX.projectId };
+  // Setting the same hash fires no event, so a save on the page we are already on used to leave the old data showing
+  if (window.location.hash === '#/payment-plans?' + new URLSearchParams(params).toString()) Router.dispatch();
+  else Router.navigate('/payment-plans', params);
+};
 PLX.badge = (p) => (p.complete
   ? '<span class="sm-tag sm-tag--ok">Complete · 100%</span>'
   : `<span class="sm-tag sm-tag--warn">${pct(p.total_pct)} · ${p.rows ? 'cannot be booked yet' : 'empty'}</span>`);

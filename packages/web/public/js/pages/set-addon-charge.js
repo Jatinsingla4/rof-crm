@@ -100,13 +100,6 @@
           <span class="sac-lbl">Unit Type:</span>
           <select id="sac-unit-type">
             <option value="">&lt;--All--&gt;</option>
-            <option>Type-A</option>
-            <option>Type-B</option>
-            <option>Type-C</option>
-            <option>Type-D</option>
-            <option>Type-1A</option>
-            <option>Shop</option>
-            <option>Plot</option>
           </select>
         </div>
         <div class="sac-field">
@@ -226,6 +219,8 @@
     const towerSel = document.getElementById('sac-tower');
     const planSel = document.getElementById('sac-plan');
     if (towerSel) towerSel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
+    const typeSel0 = document.getElementById('sac-unit-type');
+    if (typeSel0) typeSel0.innerHTML = '<option value="">&lt;--All--&gt;</option>';
     if (planSel) planSel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
     _hideResults();
     _hideForm();
@@ -245,6 +240,29 @@
       });
     } catch (e) {
       console.error('SetAddonCharge: failed to load towers', e);
+    }
+    // the unit types are the ones of this project, not a fixed list
+    const typeSel = document.getElementById('sac-unit-type');
+    if (typeSel) typeSel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
+    try {
+      const tr = await fetch('/api/master/unit-types?project_id=' + encodeURIComponent(projectId), { headers: { Authorization: 'Bearer ' + token } });
+      ((await tr.json()).data || []).forEach(function(t) {
+        const o = document.createElement('option');
+        o.textContent = t.name;
+        if (typeSel) typeSel.appendChild(o);
+      });
+    } catch (e) {
+      console.error('SetAddonCharge: failed to load unit types', e);
+    }
+    try {
+      const pr = await fetch('/api/projects/' + encodeURIComponent(projectId) + '/plans', { headers: { Authorization: 'Bearer ' + token } });
+      ((await pr.json()).data || []).forEach(function(p) {
+        const o = document.createElement('option');
+        o.textContent = p.plan_name;
+        planSel.appendChild(o);
+      });
+    } catch (e) {
+      console.error('SetAddonCharge: failed to load plans', e);
     }
   }
 

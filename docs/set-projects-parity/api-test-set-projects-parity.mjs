@@ -385,6 +385,13 @@ r = await impS(sheet([`1,Fix ${U},1st Floor,Villa,Villa Fix ${U},3000,0,FX-9`]).
 t('in fix: a CSV row of that type takes the fixed price too', r.s === 200 && r.j.data.created === 1 && psql(`select base_price_inr from units where tower_id = '${FXT}' and unit_number = 'FX-9'`) === '9500000', r);
 r = await A('PUT', `/master/unit-types/${VF}`, { base_rate_sqft: 10000000 }); r = await A('POST', `/master/unit-types/${VF}/apply-to-units`, {});
 t('in fix: "Update units" carries the new fixed price to the unbooked units', r.s === 200 && psql(`select string_agg(distinct base_price_inr::text, ',') from units where unit_type_id = '${VF}'`) === '10000000', r);
+// ---------- tower list used by the report and charge page filters ----------
+r = await A('GET', `/units/towers?projectId=${P}`);
+t('towers list: gives this project\'s towers under both name keys', r.s === 200 && r.j.data.length >= 1 && r.j.data.every((x) => x.project_id === P && x.name === x.tower_name) && r.j.data.some((x) => x.id === FXT), r);
+t('towers list: another project\'s towers do not appear', (await A('GET', `/units/towers?projectId=${P2}`)).j.data.every((x) => x.project_id === P2));
+t('towers list: no project given still answers', (await A('GET', '/units/towers')).s === 200);
+t('towers list: a bad project id is a 400, not a server error', (await A('GET', '/units/towers?projectId=abc')).s === 400);
+t('towers list: a sales executive can read it', (await SE('GET', `/units/towers?projectId=${P}`)).s === 200);
 psql(`delete from units where project_id in ('${P}','${P2}')`);
 for (const x of (await A('GET', '/master/unit-types')).j?.data || []) if (x.project_id === P) await A('DELETE', `/master/unit-types/${x.id}`);
 for (const x of (await A('GET', '/master/reminder-master')).j?.data || []) if ([P, P2].includes(x.project_id) || x.name.endsWith(U)) await A('DELETE', `/master/reminder-master/${x.id}`);

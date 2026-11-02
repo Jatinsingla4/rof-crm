@@ -76,13 +76,6 @@
           <span class="bac-lbl">Unit Type:</span>
           <select id="bac-unit-type">
             <option value="">&lt;--All--&gt;</option>
-            <option>Type-A</option>
-            <option>Type-B</option>
-            <option>Type-C</option>
-            <option>Type-D</option>
-            <option>Type-1A</option>
-            <option>Shop</option>
-            <option>Plot</option>
           </select>
         </div>
         <div class="bac-field">
@@ -179,6 +172,8 @@
     const projectId = _gv('bac-project');
     const towerSel = document.getElementById('bac-tower');
     if (towerSel) towerSel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
+    const typeSel0 = document.getElementById('bac-unit-type');
+    if (typeSel0) typeSel0.innerHTML = '<option value="">&lt;--All--&gt;</option>';
     _hideResults();
     _hideForm();
     if (!projectId) return;
@@ -196,6 +191,19 @@
       });
     } catch (e) {
       console.error('BulkAddonCharge: failed to load towers', e);
+    }
+    // the unit types are the ones of this project, not a fixed list
+    const typeSel = document.getElementById('bac-unit-type');
+    if (typeSel) typeSel.innerHTML = '<option value="">&lt;--All--&gt;</option>';
+    try {
+      const tr = await fetch('/api/master/unit-types?project_id=' + encodeURIComponent(projectId), { headers: { Authorization: 'Bearer ' + token } });
+      ((await tr.json()).data || []).forEach(function(t) {
+        const o = document.createElement('option');
+        o.textContent = t.name;
+        if (typeSel) typeSel.appendChild(o);
+      });
+    } catch (e) {
+      console.error('BulkAddonCharge: failed to load unit types', e);
     }
   }
 

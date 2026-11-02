@@ -1670,11 +1670,14 @@ Object.assign(SPJPage, {
   async floorsProject() {
     const pid = document.getElementById('spj-fl-project')?.value, tw = document.getElementById('spj-fl-tower');
     if (!tw) return;
-    tw.innerHTML = '<option value="">Select tower</option>';
+    const empty = '<option value="">Select tower</option>';
+    tw.innerHTML = empty;
     if (!pid) { this.loadFloors(); return; }
+    const seq = this._flSeq = (this._flSeq || 0) + 1;
     try {
       const t = (await Api.get(`/projects/${pid}/towers`)).data || [];
-      tw.innerHTML += t.map(x => `<option value="${x.id}">${Utils.esc(x.tower_name)}</option>`).join('');
+      if (seq !== this._flSeq) return; // a newer call owns the list; two calls used to append the towers twice
+      tw.innerHTML = empty + t.map(x => `<option value="${x.id}">${Utils.esc(x.tower_name)}</option>`).join('');
       if (t.length === 1) tw.value = t[0].id;
     } catch (err) { Utils.error(err.message); }
     await this.loadFloors();
@@ -2055,6 +2058,7 @@ Object.assign(SPJPage, {
       const rows = res.data || [];
       this._utRows = Object.fromEntries(rows.map(r => [r.id, r]));
       el.innerHTML = `
+        <div id="spj-ut-hist"></div>
         <div class="spjn-list">
           <div class="spjn-list-h"><div class="spjn-list-t">Existing Unit Types</div><span class="chip chip-blue">${rows.length} types</span></div>
           <div class="spjn-tscroll">
@@ -2123,7 +2127,11 @@ Object.assign(SPJPage, {
   async rateHistory(id) {
     try {
       const rows = (await Api.get(`/master/unit-types/${id}/rate-history`)).data || [], t = this._utRows?.[id]?.name || '';
-      alert(`Rate history of ${t}\n\n` + (rows.length ? rows.map(x => `${String(x.changed_at).slice(0, 10)}  Rs. ${Number(x.base_rate).toLocaleString('en-IN')} on ${x.rate_basis || '-'}${x.rate_date ? '  (rate date ' + x.rate_date + ')' : ''}${x.changed_by_name ? '  by ' + x.changed_by_name : ''}`).join('\n') : 'No rate has been set yet'));
+      const box = document.getElementById('spj-ut-hist');
+      if (!box) return;
+      box.innerHTML = `<div class="spjn-list" style="margin-bottom:12px"><div class="spjn-list-h"><div class="spjn-list-t">Rate history of ${Utils.esc(t)}</div><a href="javascript:void 0" onclick="document.getElementById('spj-ut-hist').innerHTML=''">Close</a></div>
+        ${rows.length ? `<table class="dash-tbl spjn-tbl"><thead><tr><th>Changed on</th><th>Rate</th><th>On</th><th>Rate date</th><th>By</th></tr></thead><tbody>${rows.map(x => `<tr><td>${Utils.esc(String(x.changed_at).slice(0, 10))}</td><td>₹${Number(x.base_rate).toLocaleString('en-IN')}</td><td>${Utils.esc(x.rate_basis || '—')}</td><td>${Utils.esc(x.rate_date || '—')}</td><td>${Utils.esc(x.changed_by_name || '—')}</td></tr>`).join('')}</tbody></table>` : '<div class="spjn-hint" style="padding:10px">No rate has been set yet</div>'}</div>`;
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } catch (err) { Utils.error(err.message); }
   },
 
