@@ -219,6 +219,10 @@ test('Project Set Up: project, tower, unit type, unit, CSV upload, location, rem
   };
   await createProject();
   await expect(toast(`Project "${names.project}" created`)).toBeVisible();
+  // the next step opens by itself: the Towers tab, with this project chosen in the guide and in the tower form
+  await expect(page.locator('#spj-tower-form')).toBeVisible();
+  await expect(page.locator('#spj-tower-project').locator('option:checked')).toHaveText(names.project);
+  await page.getByRole('button', { name: 'New Project', exact: true }).click();
   await createProject();
   await expect(toast('A project with this name already exists')).toBeVisible();
 

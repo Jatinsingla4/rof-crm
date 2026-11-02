@@ -52,3 +52,16 @@ Sources: [Sell.Do projects, towers, units](https://www.sell.do/real-estate-crm/i
 4. Change the type's rate, save; answer yes to "Update units"; open Unit Status and see the new price.
 5. Add Units, One unit: pick the type, note the areas fill, attach a charge with quantity 2, save, see the next number suggested.
 6. Numbering: set Manual for receipts; open Receipts and see the Receipt No. box for that project only.
+
+## 6. Later changes (2026-11-02), found by filling every tab and every dropdown by hand
+- Project: Edit Project saves RERA, TCP, land area (4 decimals), possession date, income category; duplicate RERA is 409 on create and edit; a blank name is 400. Per-project balcony limits (largest area, largest amount) in the Balcony charge tab.
+- Units: Delete unit (only an available unit nothing uses); CSV and the many-at-once tool carry unit type and balcony area; facing is one of the eight directions (short codes such as SE are stored in full); the next unit number is suggested when a tower is picked; Total price follows Base price unless typed on purpose; bulk price skips units with no price and names the unit that would go to zero.
+- Unit types: unit type rename reaches its units; a plot type picks "Plot Area" as the rate basis by itself.
+- Locations and Reminders can now be edited (PATCH routes); the project stays chosen after adding a reminder.
+- Charges: any named charge can be made from the unit screen (fixed or per sqft on carpet, super, balcony or plot area); a "when is it billed" choice (booking, possession, equal, or custom split) writes the plan shares for every plan nobody has booked; a flat charge of 0 is refused on the Other Charges screen.
+- Payment plans: an empty plan keeps its type and note until its first row is added (was "Plan not found").
+- Interest: Print and Download work (they were pictures); messages no longer vanish early, native alert boxes replaced; error text names "Interest rate" and "Effective date".
+- Tests: set-projects-parity 211, unit-charges 28, plus the earlier suites; flows and parking-import specs 39/39.
+
+## 7. What is still not built
+Floor naming pattern and Edit Floor, plot / villa count, the 12-field unit area, authentications, customer-wise timely discount, "% of basic" charge type, parking stock, the Unit Status "Group" column (shows the unit type name, not the type's group), and a global fix for DATE columns that shift a day. Client answers still needed: which documents print UDSL and areas, whether the client's super area includes the balcony, and the default "when billed" for new charges.

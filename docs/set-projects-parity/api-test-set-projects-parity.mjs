@@ -75,7 +75,7 @@ r = await am({ chargeName: `Restoration ${U}`, rateType: 'per_sqft', ratePerSqft
 t('add-on: charge type, apply date, calculate rate type and include in dues are kept', r.s === 201 && r.j.data.charge_type === 'Restoration' && r.j.data.apply_date_type === 'Possession' && r.j.data.include_in_dues === false, r);
 const AM1 = r.j?.data?.id;
 r = await am({ chargeName: `Plain ${U}`, defaultAmount: 1000 });
-t('add-on: old body defaults to Customer Wise Date, Old Area, in dues', r.s === 201 && r.j.data.apply_date_type === 'Customer Wise Date' && r.j.data.calculate_rate_type === 'Old Area' && r.j.data.include_in_dues === true, r);
+t('add-on: old body defaults to Customer Wise Date, Carpet Area, in dues', r.s === 201 && r.j.data.apply_date_type === 'Customer Wise Date' && r.j.data.calculate_rate_type === 'Carpet Area' && r.j.data.include_in_dues === true, r);
 for (const [n, b] of [['apply date unknown', { applyDateType: 'Tomorrow' }], ['include in dues text', { includeInDues: 'yes' }], ['charge type markup', { chargeType: '<b>' }], ['charge type 31 chars', { chargeType: 'c'.repeat(31) }]]) t(`add-on: ${n} is 400`, (await am({ chargeName: `Bad ${n} ${U}`.slice(0, 60), defaultAmount: 5, ...b })).s === 400, n);
 r = await A('PATCH', `/addon-charges/master/${AM1}`, { applyDateType: 'Customer Wise Date' }); t('add-on: edit one option keeps the rest', r.s === 200 && r.j.data.apply_date_type === 'Customer Wise Date' && r.j.data.charge_type === 'Restoration' && r.j.data.include_in_dues === false, r);
 t('add-on: edit with a bad option is 400', (await A('PATCH', `/addon-charges/master/${AM1}`, { applyDateType: 'x' })).s === 400);
@@ -228,7 +228,83 @@ for (const [n, b] of [['value zero', { mode: 'percent', value: 0 }], ['minus 100
 t('bulk price: unknown project is 404, viewer 403, no login 401', (await A('POST', '/units/bulk-price', { projectId: NIL, mode: 'amount', value: 5 })).s === 404 && (await RO('POST', '/units/bulk-price', { projectId: P, mode: 'amount', value: 5 })).s === 403 && (await NO('POST', '/units/bulk-price', {})).s === 401);
 psql(`update units set status = 'available' where id = '${bu[2]}'`);
 
+// ---------- edit project: the five fields that only the new-project form had ----------
+const PE = (b) => A('PATCH', `/projects/${P}`, b);
+r = await PE({ reraNumber: `RERA-E-${U}`, tcpLicence: `TCP-E-${U}`, landAreaSqft: 4.5, possessionDate: '2028-12-31', incomeCategory: 'MIG' });
+const pg = (await A('GET', `/projects/${P}`)).j?.data || {};
+t('edit project: RERA, licence, land area, possession date and category are saved and read back', r.s === 200 && pg.rera_number === `RERA-E-${U}` && pg.tcp_licence === `TCP-E-${U}` && Number(pg.land_area_sqft) === 4.5 && pg.possession_date === '2028-12-31' && pg.group_name === 'MIG', pg);
+t('edit project: a blank RERA or licence is 400 and the stored value stays', (await PE({ reraNumber: '  ' })).s === 400 && (await PE({ tcpLicence: '' })).s === 400 && (await A('GET', `/projects/${P}`)).j?.data?.rera_number === `RERA-E-${U}`);
+t('edit project: another project\'s RERA number is 409', (await A('PATCH', `/projects/${P2}`, { reraNumber: `rera-e-${U}` })).s === 409);
+t('edit project: land area minus or text is 400, bad date is 400', (await PE({ landAreaSqft: -1 })).s === 400 && (await PE({ landAreaSqft: 'big' })).s === 400 && (await PE({ possessionDate: 'tomorrow' })).s === 400);
+t('edit project: a field left out keeps its value', (await PE({ location: 'Somewhere' })).s === 200 && (await A('GET', `/projects/${P}`)).j?.data?.possession_date === '2028-12-31');
+
+// ---------- the floors-x-units tool (bulk-import) ties each unit to its type ----------
+r = await A('POST', '/units/bulk-import', { projectId: P, rows: [{ towerId: UTW, floor: 4, unitNumber: `GN1-${U}`, unitTypeId: BT, carpetAreaSqft: 100, balconyAreaSqft: 12.5, basePriceInr: 5000, totalPriceInr: 5000 }] });
+t('bulk-import: a row with unitTypeId is tied to the type, takes its name and keeps the balcony area', r.s === 200 && r.j.data.created === 1 && psql(`select unit_type_id || '/' || bhk_type || '/' || balcony_area_sqft::float8 from units where unit_number = 'GN1-${U}'`) === `${BT}/Bulk ${U}/12.5`, psql(`select unit_type_id || '/' || bhk_type || '/' || balcony_area_sqft::float8 from units where unit_number = 'GN1-${U}'`));
+r = await A('POST', '/units/bulk-import', { projectId: P, rows: [{ towerId: UTW, floor: 4, unitNumber: `GN2-${U}`, unitTypeId: NIL, carpetAreaSqft: 100, totalPriceInr: 5000 }] });
+t('bulk-import: a unit type of another project or a missing one is skipped with a reason', r.s === 200 && r.j.data.created === 0 && /unit type/.test(r.j.data.errors[0]?.reason || ''), r);
+
+// ---------- balcony charge limits per project ----------
+const BS = (b) => A('PUT', `/projects/${P}/settings`, b);
+r = await BS({ balcony_max_area_sqft: 100, balcony_max_charge_inr: 40000.5 });
+t('balcony limits: area and amount are saved with the project and read back', r.s === 200 && r.j.data.balcony_max_area_sqft === 100 && r.j.data.balcony_max_charge_inr === 40000.5 && (await A('GET', `/projects/${P}/settings`)).j?.data?.balcony_max_area_sqft === 100, r);
+t('balcony limits: saving numbering alone keeps them', (await BS({ receipt_prefix: 'ZZ' })).j?.data?.balcony_max_charge_inr === 40000.5);
+for (const [n, b] of [['zero area', { balcony_max_area_sqft: 0 }], ['zero amount', { balcony_max_charge_inr: 0 }], ['minus area', { balcony_max_area_sqft: -5 }], ['text amount', { balcony_max_charge_inr: 'lots' }], ['four decimals of area', { balcony_max_area_sqft: 1.2345 }]]) t(`balcony limits: ${n} is 400 and nothing changes`, (await BS(b)).s === 400 && (await A('GET', `/projects/${P}/settings`)).j?.data?.balcony_max_area_sqft === 100, n);
+t('balcony limits: viewer cannot save, other project is not touched', (await RO('PUT', `/projects/${P}/settings`, { balcony_max_area_sqft: 5 })).s === 403 && (await A('GET', `/projects/${P2}/settings`)).j?.data?.balcony_max_area_sqft === null);
+const { computeBalconyCharge } = await import('../../packages/api/dist/utils/balcony-charge.js');
+const bc = (area, cap, maxA, g = 0) => computeBalconyCharge(area, 500, cap, g, g, maxA).balconyChargeAmount;
+t('balcony charge: whole area when the project has no area limit, first N sqft when it has', bc(120, null, null) === 60000 && bc(120, null, 100) === 50000 && bc(80, null, 100) === 40000);
+t('balcony charge: the amount cap applies after the area limit, whichever is smaller', bc(120, 40000, 100) === 40000 && bc(120, 70000, 100) === 50000 && bc(120, 40000, null) === 40000);
+t('balcony charge: GST goes on top of the limited amount', computeBalconyCharge(120, 500, 40000, 0.025, 0.025, 100).balconyCgstAmount === 1000);
+r = await BS({ balcony_max_area_sqft: null, balcony_max_charge_inr: '' });
+t('balcony limits: blank clears both (no project rule)', r.s === 200 && r.j.data.balcony_max_area_sqft === null && r.j.data.balcony_max_charge_inr === null, r);
+
+// ---------- delete a unit made by mistake ----------
+r = await A('POST', '/units', { projectId: P, towerId: UTW, floor: 7, unitNumber: `DEL1-${U}`, bhkType: '2BHK', carpetAreaSqft: 100, basePriceInr: 1000, totalPriceInr: 1000 }); const DU = r.j?.data?.id;
+t('unit delete: viewer is refused, bad id 400, unknown id 404, no login 401', (await RO('DELETE', `/units/${DU}`)).s === 403 && (await A('DELETE', '/units/not-an-id')).s === 400 && (await A('DELETE', `/units/${NIL}`)).s === 404 && (await NO('DELETE', `/units/${DU}`)).s === 401);
+psql(`update units set status = 'allotted' where id = '${DU}'`);
+r = await A('DELETE', `/units/${DU}`);
+t('unit delete: a unit that is not available (sold, allotted) is 409 and stays', r.s === 409 && /available/.test(r.j?.error || '') && psql(`select count(*) from units where id = '${DU}'`) === '1', r);
+psql(`update units set status = 'available' where id = '${DU}'`);
+r = await A('DELETE', `/units/${DU}`);
+t('unit delete: an available unit nothing uses is deleted (its charges go with it)', r.s === 200 && psql(`select count(*) from units where id = '${DU}'`) === '0', r);
+t('unit delete: deleting it again is 404', (await A('DELETE', `/units/${DU}`)).s === 404);
+
+// ---------- renaming a unit type renames its units ----------
+r = await A('POST', '/master/unit-types', { project_id: P, name: `Ren ${U}`, carpet_area_sqft: 100, base_rate_sqft: 100 }); const RT = r.j?.data?.id;
+await A('POST', '/units', { projectId: P, towerId: UTW, floor: 8, unitNumber: `REN1-${U}`, unitTypeId: RT });
+r = await A('PUT', `/master/unit-types/${RT}`, { project_id: P, name: `Renamed ${U}`, carpet_area_sqft: 100, base_rate_sqft: 100 });
+t('unit type rename: its units take the new name (booking form and Rate Report read it)', r.s === 200 && psql(`select bhk_type from units where unit_number = 'REN1-${U}'`) === `Renamed ${U}`, psql(`select bhk_type from units where unit_number = 'REN1-${U}'`));
+
+// ---------- a per-sqft charge says which area it is multiplied by ----------
+r = await am({ chargeName: `Club ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, calculateRateType: 'Super Area' });
+t('per-sqft charge: the area it is calculated on (Super Area) is kept', r.s === 201 && r.j.data.calculate_rate_type === 'Super Area', r);
+t('per-sqft charge: an unknown area is 400', (await am({ chargeName: `Bad ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, calculateRateType: 'Gaj' })).s === 400);
+r = await am({ chargeName: `NoArea ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10 });
+t('per-sqft charge: a charge with no area chosen counts on the carpet area', r.s === 201 && r.j?.data?.calculate_rate_type === 'Carpet Area', r);
+
 // ---------- clean up ----------
+// ---------- later fixes: facing list, location rename, reminder edit, charge on plot area ----------
+const FU = (await mkUnit({ unitNumber: `F1-${U}`, unitTypeId: T1 })).j?.data?.id;
+const face = async (v) => { const x = await A('PATCH', `/units/${FU}`, { facing: v }); return { s: x.s, f: x.s === 200 ? (await A('GET', `/units/${FU}`)).j.data.facing : null }; };
+t('facing: a direction, a short code and a spaced name are stored in full', (await face('East')).f === 'East' && (await face('sw')).f === 'South-West' && (await face('north east')).f === 'North-East');
+t('facing: a made-up direction is 400 and the old value stays', (await face('Up')).s === 400 && (await face('x'.repeat(31))).s === 400 && (await face('<b>')).s === 400 && (await A('GET', `/units/${FU}`)).j.data.facing === 'North-East');
+t('facing: blank clears it', (await face('')).f === null);
+r = await mkUnit({ unitNumber: `F2-${U}`, facing: 'Up' }); t('facing: a new unit with a made-up direction is 400', r.s === 400, r.s);
+r = await A('POST', `/projects/${P}/unit-locations`, { name: `Rename ${U}` }); const RL = r.j?.data?.id;
+t('location: rename and describe', (await A('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: `Renamed ${U}`, description: 'd' })).s === 200 && psql(`select name from unit_locations where id = '${RL}'`) === `Renamed ${U}`);
+t('location: a name taken in the project is 409, blank 400, unknown 404, bad id 400, other project 404', (await A('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: `Corner ${U}` })).s === 409 && (await A('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: ' ' })).s === 400 && (await A('PATCH', `/projects/${P}/unit-locations/${NIL}`, { name: 'q' })).s === 404 && (await A('PATCH', `/projects/${P}/unit-locations/zzz`, { name: 'q' })).s === 400 && (await A('PATCH', `/projects/${P2}/unit-locations/${RL}`, { name: `Z ${U}` })).s === 404);
+t('location: viewer and sales cannot rename, no login is 401', (await RO('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: 'x' })).s === 403 && (await SE('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: 'x' })).s === 403 && (await NO('PATCH', `/projects/${P}/unit-locations/${RL}`, { name: 'x' })).s === 401);
+r = await A('POST', '/master/reminder-master', { name: `Rem ${U}`, days_before: 5, project_id: P, rank: 71 }); const RM = r.j?.data?.id;
+r = await A('POST', '/master/reminder-master', { name: `Rem2 ${U}`, days_before: 6, project_id: P, rank: 72 }); const RM2 = r.j?.data?.id;
+r = await A('PATCH', `/master/reminder-master/${RM}`, { name: `Rem ${U}b`, days_before: 9, prefix_name: 'RB', rank: 73 });
+t('reminder: edit name, days, prefix and rank', r.s === 200 && r.j.data.days_before === 9 && r.j.data.prefix_name === 'RB' && r.j.data.rank === 73 && r.j.data.project_id === P, r);
+t('reminder: a rank used in the project is 409, the same name and days is 409, days 99999 and blank name are 400', (await A('PATCH', `/master/reminder-master/${RM}`, { rank: 72 })).s === 409 && (await A('PATCH', `/master/reminder-master/${RM2}`, { name: `Rem ${U}b`, days_before: 9 })).s === 409 && (await A('PATCH', `/master/reminder-master/${RM}`, { days_before: 99999 })).s === 400 && (await A('PATCH', `/master/reminder-master/${RM}`, { name: ' ' })).s === 400);
+t('reminder: saving itself unchanged is fine, unknown 404, bad id 400, viewer 403, no login 401', (await A('PATCH', `/master/reminder-master/${RM}`, { rank: 73 })).s === 200 && (await A('PATCH', `/master/reminder-master/${NIL}`, { name: 'q' })).s === 404 && (await A('PATCH', `/master/reminder-master/zzz`, { name: 'q' })).s === 400 && (await RO('PATCH', `/master/reminder-master/${RM}`, { name: 'q' })).s === 403 && (await NO('PATCH', `/master/reminder-master/${RM}`, { name: 'q' })).s === 401);
+r = await ut({ name: `Plot ${U}`, plot_area: 200, base_rate_sqft: 1000, rate_basis: 'Plot Area' }); const PT = r.j?.data?.id;
+r = await A('POST', '/addon-charges/master', { projectId: P, chargeName: `PlotRate ${U}`, rateType: 'per_sqft', ratePerSqftInr: 7, calculateRateType: 'Plot Area', cgstPct: 9, sgstPct: 9 });
+t('charge: a per-sqft charge can be on the plot area', r.s === 201 && r.j.data.calculate_rate_type === 'Plot Area', r);
+r = await A('POST', '/addon-charges/master', { projectId: P, chargeName: `Bad ${U}`, rateType: 'per_sqft', ratePerSqftInr: 7, calculateRateType: 'Garden Area' }); t('charge: a made-up area is 400', r.s === 400, r.s);
 psql(`delete from units where project_id in ('${P}','${P2}')`);
 for (const x of (await A('GET', '/master/unit-types')).j?.data || []) if (x.project_id === P) await A('DELETE', `/master/unit-types/${x.id}`);
 for (const x of (await A('GET', '/master/reminder-master')).j?.data || []) if ([P, P2].includes(x.project_id) || x.name.endsWith(U)) await A('DELETE', `/master/reminder-master/${x.id}`);

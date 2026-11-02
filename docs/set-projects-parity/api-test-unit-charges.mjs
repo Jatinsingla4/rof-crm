@@ -66,5 +66,45 @@ t('booking: the installment that bills them carries both (205000 before GST)', p
 const u2 = await unit(X); const k2 = await bookAndFinish(u2);
 t('booking: a unit with nothing attached still gets the Mandatory charge', k2.f?.s === 200 && psql(`select string_agg(charge_name || '=' || amount, ',') from consumer_addon_charges where consumer_id = '${k2.c}' and status = 'active'`) === `Club ${U}=5000.00`, k2);
 t('unit charges: a booked unit refuses a change (409)', (await put(u1, [])).s === 409);
+// a per-sqft charge multiplies the area it names, and it is billed only once a payment plan row carries its share
+const SQC = await master(X, { chargeName: `SuperRate ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, calculateRateType: 'Super Area', cgstPct: 9, sgstPct: 9 });
+const CQC = await master(X, { chargeName: `CarpetRate ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, cgstPct: 9, sgstPct: 9 });
+const u3 = await unit(X); await put(u3, [{ chargeMasterId: SQC, quantity: 1 }, { chargeMasterId: CQC, quantity: 1 }]);
+const k3 = await bookAndFinish(u3);
+const got3 = psql(`select charge_name || '=' || amount from consumer_addon_charges where consumer_id = '${k3.c}' and status = 'active' order by charge_name`).split('\n');
+t('per-sqft charge: the customer carries rate x the area it names (super 1200 x 10 = 12000, carpet 1000 x 10 = 10000)', got3.includes(`SuperRate ${U}=12000.00`) && got3.includes(`CarpetRate ${U}=10000.00`), got3);
+const billed = (c) => Number(psql(`select coalesce(sum(d.addon_charge_amount),0) from demands d join payment_plans pp on pp.id = d.payment_plan_id where pp.consumer_id = '${c}'`));
+t('per-sqft charge: in no plan row it is on the customer but not on any demand (only the Mandatory 5000 is billed)', billed(k3.c) === 5000, billed(k3.c));
+// a plan that already has bookings is frozen, so the share is put on a plan before anyone books it
+const t409 = await A('POST', `/projects/${X.P}/plan-templates/${X.r2}/addon-charges`, { charge_master_id: SQC, pct: 100 });
+t('per-sqft charge: a plan that already has bookings refuses a new add-on share (409)', t409.s === 409, t409);
+const Z = await mkProject('C');
+const SQZ = await master(Z, { chargeName: `SuperRate ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, calculateRateType: 'Super Area', cgstPct: 9, sgstPct: 9 });
+await A('POST', `/projects/${Z.P}/plan-templates/${Z.r2}/addon-charges`, { charge_master_id: SQZ, pct: 100 });
+const u4 = (await A('POST', '/units', { projectId: Z.P, towerId: Z.T, unitNumber: `Z1-${U}`, floor: 1, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, basePriceInr: 9000000, totalPriceInr: 9500000 })).j.data.id;
+await put(u4, [{ chargeMasterId: SQZ, quantity: 1 }]);
+const c4 = await person(Z.P), b4 = await A('POST', '/booking', { consumer_id: c4, project_id: Z.P, unit_id: u4, selected_plan_name: 'Plan ' + U, booking_date: today });
+const f4 = await A('PATCH', `/booking/${b4.j?.data?.id}`, { booking_amount: 10000, payment_mode: 'cash' });
+t('per-sqft charge: once a plan row carries it, the demand bills it (12000)', f4.s === 200 && billed(c4) === 12000, { f4: f4.s, billed: billed(c4) });
+// when is a charge billed: one call sets it in every plan of the project (plans that bookings use are skipped)
+const W = await mkProject('D'), WC = await master(W, { chargeName: `Billing ${U}`, defaultAmount: 1000, cgstPct: 9, sgstPct: 9 });
+const bill = (when, project = W.P, charge = WC, who = A) => who('POST', `/projects/${project}/addon-charge-billing`, { charge_master_id: charge, when });
+const shares = () => psql(`select string_agg(p.installment_name || '=' || a.pct, ',' order by p.installment_index) from plan_addon_charge_pct a join plan_schedule_templates p on p.id = a.plan_schedule_template_id where a.charge_master_id = '${WC}'`);
+r = await bill('possession'); t('billing: "possession" puts 100% on the last row only', r.s === 200 && r.j.data.applied.length === 1 && shares() === 'Balance=100.000', { r: r.s, shares: shares() });
+r = await bill('booking'); t('billing: "booking" moves it to the first row (the old share is replaced, never doubled)', r.s === 200 && shares() === 'Booking=100.000', shares());
+r = await bill('equal'); t('billing: "equal" splits it over the installments and totals 100%', r.s === 200 && shares() === 'Booking=50.000,Balance=50.000', shares());
+r = await bill('possession', X.P, PARK); t('billing: a plan that bookings use is skipped and named, nothing changes there', r.s === 200 && r.j.data.applied.length === 0 && r.j.data.skipped.length === 1 && psql(`select count(*) from plan_addon_charge_pct where charge_master_id = '${PARK}'`) === '1', r);
+t('billing: unknown "when", blank, a charge of another project, a bad id are 400', (await bill('someday')).s === 400 && (await bill('')).s === 400 && (await bill('booking', W.P, PARK)).s === 400 && (await bill('booking', W.P, 'zzz')).s === 400);
+t('billing: unknown project 404, viewer and sales refused, no login 401', (await bill('booking', NIL)).s === 404 && (await bill('booking', W.P, WC, RO)).s === 403 && (await bill('booking', W.P, WC, SE)).s === 403 && (await bill('booking', W.P, WC, NO)).s === 401);
+// a per-sqft charge on the plot area multiplies the plot area of the unit's type
+const E = await mkProject('E');
+const PUT = (await A('POST', '/master/unit-types', { project_id: E.P, name: `PlotType ${U}`, plot_area: 200, base_rate_sqft: 1000, rate_basis: 'Plot Area' })).j?.data?.id;
+const PQ = await master(E, { chargeName: `PlotRate ${U}`, rateType: 'per_sqft', ratePerSqftInr: 7, calculateRateType: 'Plot Area', cgstPct: 9, sgstPct: 9 });
+await A('POST', `/projects/${E.P}/plan-templates/${E.r2}/addon-charges`, { charge_master_id: PQ, pct: 100 });
+const u5 = (await A('POST', '/units', { projectId: E.P, towerId: E.T, unitNumber: `E1-${U}`, floor: 1, bhkType: 'Plot', unitTypeId: PUT, basePriceInr: 200000, totalPriceInr: 200000 })).j.data.id;
+await put(u5, [{ chargeMasterId: PQ, quantity: 1 }]);
+const c5 = await person(E.P), b5 = await A('POST', '/booking', { consumer_id: c5, project_id: E.P, unit_id: u5, selected_plan_name: 'Plan ' + U, booking_date: today });
+const f5 = await A('PATCH', `/booking/${b5.j?.data?.id}`, { booking_amount: 10000, payment_mode: 'cash' });
+t('per-sqft charge on the plot area: rate x the type\'s plot area (7 x 200 = 1400), billed by the plan row', f5.s === 200 && billed(c5) === 1400, { f5: f5.s, billed: billed(c5) });
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -103,7 +103,7 @@ r = await A('PATCH', `/units/${first.u.id}`, { basePriceInr: first.u.base + 1000
 r = await A('PATCH', `/projects/${proj}/plan-templates/${rowIds[0]}`, { percentage: parts[0] + 1 }); t('the plan the booking used is frozen', r.s === 409, r.s);
 r = await A('DELETE', `/projects/${proj}/plans?planName=${encodeURIComponent(planName)}`); t('a plan with bookings cannot be deleted', r.s === 409, r.s);
 r = await A('PATCH', `/gst-configuration/gst-tax-setup/${taxId}`, { cgstPct: gstPct / 2 + 1, sgstPct: gstPct / 2 + 1 }); t('the GST rate that priced the booking is locked', r.s === 409, r.s + JSON.stringify(r.j));
-r = await A('DELETE', `/units/${first.u.id}`); t('a unit cannot be deleted through the API (no such route)', r.s === 404 || r.s === 405, r.s);
+r = await A('DELETE', `/units/${first.u.id}`); t('a unit that is booked cannot be deleted (409), and it is still there', r.s === 409, r.s);
 const unbooked = units.find(u => !booked.some(b => b.u.id === u.id));
 if (unbooked) { r = await A('PATCH', `/units/${unbooked.id}`, { basePriceInr: unbooked.base + 100000, totalPriceInr: unbooked.base + 800000 }); t('an unbooked unit can still be re-priced', r.s === 200, r.s); }
 const roll = (await A('GET', `/projects/reports/rates?projectId=${proj}`)).j.data;
