@@ -570,6 +570,24 @@ r = await A('PATCH', '/users/employee-login/' + seId, { assignedProjectIds: [] }
 // ---------- audit ----------
 t('audit: brokers, holds, commissions and tax setups are logged', Number(psql(`select count(distinct resource_type) from audit_logs where resource_type in ('broker','unit_hold','broker_commission','broker_tax_config')`)) === 4);
 
+// ---------- broker authentication of a project (Automatic lets a broker nobody approved yet hold units) ----------
+{
+  const setMode = (v, P = P1, who = A) => who('PUT', `/projects/${P}/settings`, { broker_auth_mode: v });
+  r = await A('GET', `/projects/${P1}/settings`); t('broker authentication: a project starts on Manual', r.s === 200 && r.j.data.broker_auth_mode === 'Manual' && r.j.data.journal_auth_mode === 'Manual', r.j);
+  const nb = await newBroker({ pan: pan() }); const pending = nb.j.data.id; const ua = await newUnit();
+  r = await hold(ua, pending); t('broker authentication: on Manual a broker still waiting for approval cannot hold (400)', r.s === 400 && /only an active broker/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
+  r = await setMode('Automatic'); t('broker authentication: switch the project to Automatic', r.s === 200 && r.j.data.broker_auth_mode === 'Automatic', r.s + JSON.stringify(r.j));
+  r = await hold(ua, pending); t('broker authentication: on Automatic the pending broker can hold a unit of this project', r.s === 201, r.s + JSON.stringify(r.j));
+  const ub = await newUnit(P2, T2); r = await hold(ub, pending); t('broker authentication: another project is still on Manual and refuses (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  const sb = await activeBroker(); await A('PATCH', `/brokers/${sb}/status`, { status: 'suspended' }); const uc = await newUnit();
+  r = await hold(uc, sb); t('broker authentication: Automatic does not let a suspended broker hold (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  const rb = await newBroker({ pan: pan() }); await A('PATCH', `/brokers/${rb.j.data.id}/reject`, { notes: 'no' }); r = await hold(uc, rb.j.data.id); t('broker authentication: nor a rejected broker (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  t('broker authentication: a mode that is not Automatic or Manual is 400', (await setMode('Sometimes')).s === 400 && (await setMode('')).s === 400 && (await setMode(5)).s === 400 && (await setMode(null)).s === 400);
+  t('broker authentication: unknown project 404, viewer and sales cannot switch, no login 401', (await setMode('Manual', '00000000-0000-0000-0000-000000000000')).s === 404 && (await setMode('Manual', P1, RO)).s === 403 && (await setMode('Manual', P1, SE)).s === 403 && (await setMode('Manual', P1, NO)).s === 401);
+  r = await setMode('Manual'); t('broker authentication: back to Manual, and the other project settings are kept', r.s === 200 && r.j.data.broker_auth_mode === 'Manual' && r.j.data.receipt_number_mode === 'Automatic', JSON.stringify(r.j));
+  const ud = await newUnit(); r = await hold(ud, pending); t('broker authentication: on Manual again the pending broker cannot hold a new unit', r.s === 400, r.s);
+}
+
 // ---------- clean up ----------
 for (const u of [afId, pmId, seId, roId]) noRows(u);
 await A('PATCH', '/users/employee-login/' + afId, { assignedProjectIds: [] }); await A('PATCH', '/users/employee-login/' + seId, { assignedProjectIds: [] });

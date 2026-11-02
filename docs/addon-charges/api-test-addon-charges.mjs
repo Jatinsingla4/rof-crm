@@ -83,7 +83,7 @@ r = await SE('POST', '/addon-charges/consumer', ch()); t('roles: sales_executive
 r = await RO('POST', '/addon-charges/consumer', ch()); t('roles: read_only_viewer cannot -> 403', r.s === 403, r.s);
 r = await RO('GET', `/addon-charges/consumer?consumerId=${C1.cons}`); t('roles: read_only_viewer can read', r.s === 200, r.s);
 const bc = async (n, o, re) => { r = await A('POST', '/addon-charges/consumer', ch(o)); t('customer charge: ' + n + ' -> 400', r.s === 400 && (!re || re.test(r.j?.error || '')), r.s + ' ' + JSON.stringify(r.j)); };
-await bc('zero amount', { amount: 0 }, /more than 0/); await bc('negative', { amount: -5 }, /Amount/); await bc('text', { amount: 'abc' }, /Amount/); await bc('missing amount', { amount: undefined }, /Amount/);
+await bc('zero amount', { amount: 0 }, /more than 0/); await bc('negative', { amount: -5 }, /Amount/); await bc('text', { amount: 'abc' }, /Amount/); await bc('missing amount (no charge type picked, so none to take it from)', { amount: undefined, chargeMasterId: undefined, chargeName: 'Free text' }, /Amount/);
 await bc('exponent', { amount: '1e3' }, /Amount/); await bc('3 decimals', { amount: '1.005' }, /Amount/); await bc('huge', { amount: 1e10 }, /Amount/); await bc('array amount', { amount: [5] }, /Amount/);
 await bc('bad consumer id', { consumerId: 'x' }, /consumerId/); await bc('bad project id', { projectId: 'x' }, /projectId/); await bc('bad master id', { chargeMasterId: 'x' }, /chargeMasterId/);
 await bc('customer not in this project', { consumerId: C3.cons }, /no active booking/); await bc('unknown customer', { consumerId: NIL }, /no active booking/);
