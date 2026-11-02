@@ -9,6 +9,7 @@ import { AuthRequest } from '../index.js';
 import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
+import { typePrice } from '../utils/unit-type-price.js';
 import { lockCharges, requireStock } from '../utils/charge-stock.js';
 import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce } from '../utils/input.js';
 
@@ -826,8 +827,7 @@ router.post('/add-more', async (req: AuthRequest, res: Response, next: NextFunct
       const numbers: string[] = [];
       while (numbers.length < count) { const no = `${pre}${String(next++).padStart(width, '0')}${post}`; if (!taken.has(no.toLowerCase())) numbers.push(no); if (next > 10_000_000) throw bad('Could not find free unit numbers'); }
       if (numbers.some((x) => x.length > 50)) throw bad('A unit number would be longer than 50 characters');
-      const area = ({ 'Super Area': ty.super_area_sqft, 'Carpet Area': ty.carpet_area_sqft, 'Built Up Area': ty.built_up_area_sqft, 'Plot Area': ty.plot_area } as any)[ty.rate_basis];
-      const base = ty.base_rate_sqft && area ? Math.round(Number(ty.base_rate_sqft) * Number(area)) : null;
+      const base = typePrice(ty);
       const sample = { first: numbers[0], last: numbers[numbers.length - 1], count, basePrice: base };
       if (b.preview === true) return { ...sample, created: 0 };
       await c.query(

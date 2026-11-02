@@ -11,6 +11,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { bad, failWith, uuid, has, text, body, paging, oneOf, inTx, lock } from '../utils/input.js';
 import { floorNo, unitFields } from './units.js';
+import { typePrice } from '../utils/unit-type-price.js';
 
 const router = Router();
 const MAX_ROWS = 5000, MAX_CSV = 2_000_000;
@@ -106,9 +107,8 @@ const checkRows = (rows: any[], look: Lookups = null, createTypes = false) => {
       const locationId = locName && look ? look.locations.get(locName.toLowerCase()) ?? null : null;
       if (locName && look && !locationId) throw bad(`Location "${locName}" is not in this project`);
       const bhk = has(r.bhkType) ? text(r.bhkType, 'BHK type', 50, true)! : type ? type.name : newType ? typeName!.slice(0, 50) : text(r.bhkType, 'BHK type', 50, true)!;
-      const area = type ? ({ 'Super Area': type.super_area_sqft, 'Carpet Area': type.carpet_area_sqft, 'Built Up Area': type.built_up_area_sqft, 'Plot Area': type.plot_area } as any)[type.rate_basis] : null;
-      const typePrice = type && type.base_rate_sqft != null && area ? Math.round(Number(type.base_rate_sqft) * Number(area)) : undefined;
-      const f = unitFields({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typePrice, totalPriceInr: typePrice,
+      const typeCost = type ? typePrice(type) ?? undefined : undefined;
+      const f = unitFields({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typeCost, totalPriceInr: typeCost,
         ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) });
       // a unit type made from the file has no rate yet, so its units come in without a price (set the rate of the type, then "Update units")
       if (f.total === null && !(createTypes && typeName)) throw bad('Total price is required');

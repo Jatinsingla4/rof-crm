@@ -9,6 +9,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.fieldLabel = void 0;
 exports.badNumber = badNumber;
 exports.cleanBody = cleanBody;
+const unit_type_price_js_1 = require("../utils/unit-type-price.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
@@ -983,8 +984,7 @@ router.post('/unit-types/:id/apply-to-units', async (req, res, next) => {
                 throw Object.assign((0, input_js_1.bad)('Not found'), { http: 404 });
             const units = (await c.query(`SELECT u.id, u.status, EXISTS (SELECT 1 FROM booking_records b WHERE b.unit_id = u.id AND COALESCE(b.status, '') <> 'cancelled') AS booked FROM units u WHERE u.unit_type_id = $1 FOR UPDATE OF u`, [id])).rows;
             const free = units.filter((u) => !u.booked && ['available', 'locked', 'held'].includes(u.status));
-            const areaOf = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area };
-            const area = areaOf[t.rate_basis], price = t.base_rate_sqft != null && area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : null;
+            const price = (0, unit_type_price_js_1.typePrice)(t);
             let updated = 0;
             if (!preview && free.length) {
                 updated = (await c.query(`UPDATE units SET bhk_type = $2, carpet_area_sqft = $3, super_area_sqft = $4, balcony_area_sqft = $5, base_price_inr = COALESCE($6::bigint, base_price_inr), total_price_inr = COALESCE($6::bigint, total_price_inr), updated_at = now() WHERE id = ANY($1::uuid[])`, [free.map((u) => u.id), t.name, t.carpet_area_sqft, t.super_area_sqft, t.balcony_area_sqft, price])).rowCount ?? 0;

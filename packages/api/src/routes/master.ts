@@ -5,6 +5,7 @@
  *           Document Types, Document Dispatch
  */
 
+import { typePrice } from '../utils/unit-type-price.js';
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
@@ -792,8 +793,7 @@ router.post('/unit-types/:id/apply-to-units', async (req: AuthRequest, res: Resp
       if (!t) throw Object.assign(bad('Not found'), { http: 404 });
       const units = (await c.query(`SELECT u.id, u.status, EXISTS (SELECT 1 FROM booking_records b WHERE b.unit_id = u.id AND COALESCE(b.status, '') <> 'cancelled') AS booked FROM units u WHERE u.unit_type_id = $1 FOR UPDATE OF u`, [id])).rows;
       const free = units.filter((u: any) => !u.booked && ['available', 'locked', 'held'].includes(u.status));
-      const areaOf: Record<string, any> = { 'Super Area': t.super_area_sqft, 'Carpet Area': t.carpet_area_sqft, 'Built Up Area': t.built_up_area_sqft, 'Plot Area': t.plot_area };
-      const area = areaOf[t.rate_basis], price = t.base_rate_sqft != null && area ? Math.round(Number(t.base_rate_sqft) * Number(area)) : null;
+      const price = typePrice(t);
       let updated = 0;
       if (!preview && free.length) {
         updated = (await c.query(

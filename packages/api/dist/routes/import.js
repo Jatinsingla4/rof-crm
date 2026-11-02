@@ -11,6 +11,7 @@ const sync_1 = require("csv-parse/sync");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
 const units_js_1 = require("./units.js");
+const unit_type_price_js_1 = require("../utils/unit-type-price.js");
 const router = (0, express_1.Router)();
 const MAX_ROWS = 5000, MAX_CSV = 2000000;
 // A unit needs its number, tower and floor; the type comes from a unitType column (the project's own unit type, which also gives areas and price) or from bhkType and totalPriceInr
@@ -143,9 +144,8 @@ const checkRows = (rows, look = null, createTypes = false) => {
             if (locName && look && !locationId)
                 throw (0, input_js_1.bad)(`Location "${locName}" is not in this project`);
             const bhk = (0, input_js_1.has)(r.bhkType) ? (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true) : type ? type.name : newType ? typeName.slice(0, 50) : (0, input_js_1.text)(r.bhkType, 'BHK type', 50, true);
-            const area = type ? { 'Super Area': type.super_area_sqft, 'Carpet Area': type.carpet_area_sqft, 'Built Up Area': type.built_up_area_sqft, 'Plot Area': type.plot_area }[type.rate_basis] : null;
-            const typePrice = type && type.base_rate_sqft != null && area ? Math.round(Number(type.base_rate_sqft) * Number(area)) : undefined;
-            const f = (0, units_js_1.unitFields)({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typePrice, totalPriceInr: typePrice,
+            const typeCost = type ? (0, unit_type_price_js_1.typePrice)(type) ?? undefined : undefined;
+            const f = (0, units_js_1.unitFields)({ carpetAreaSqft: type?.carpet_area_sqft, superAreaSqft: type?.super_area_sqft, balconyAreaSqft: type?.balcony_area_sqft, basePriceInr: typeCost, totalPriceInr: typeCost,
                 ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '' && v != null)) });
             // a unit type made from the file has no rate yet, so its units come in without a price (set the rate of the type, then "Update units")
             if (f.total === null && !(createTypes && typeName))

@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const unit_type_price_js_1 = require("../utils/unit-type-price.js");
 const charge_stock_js_1 = require("../utils/charge-stock.js");
 const input_js_1 = require("../utils/input.js");
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
@@ -905,8 +906,7 @@ router.post('/add-more', async (req, res, next) => {
             }
             if (numbers.some((x) => x.length > 50))
                 throw (0, input_js_1.bad)('A unit number would be longer than 50 characters');
-            const area = { 'Super Area': ty.super_area_sqft, 'Carpet Area': ty.carpet_area_sqft, 'Built Up Area': ty.built_up_area_sqft, 'Plot Area': ty.plot_area }[ty.rate_basis];
-            const base = ty.base_rate_sqft && area ? Math.round(Number(ty.base_rate_sqft) * Number(area)) : null;
+            const base = (0, unit_type_price_js_1.typePrice)(ty);
             const sample = { first: numbers[0], last: numbers[numbers.length - 1], count, basePrice: base };
             if (b.preview === true)
                 return { ...sample, created: 0 };
