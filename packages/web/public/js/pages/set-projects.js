@@ -1870,7 +1870,7 @@ Object.assign(SPJPage, {
                 <td class="txt-right">${money(r.min_price)}</td>
                 <td class="txt-right">${money(r.max_price)}</td>
                 <td class="txt-right" style="font-weight:600;color:var(--teal)">${money(r.avg_price)}</td>
-                <td class="txt-right">${money(r.avg_rate_per_sqft)}${r.avg_rate_per_sqft != null && r.rate_basis ? `<div style="font-size:10.5px;color:var(--text3)">on ${r.rate_basis} area</div>` : ''}</td>
+                <td class="txt-right">${money(r.avg_rate_per_sqft)}${r.avg_rate_per_sqft != null && r.rate_basis ? `<div style="font-size:10.5px;color:var(--text3)">${r.fixed_price ? 'fixed price, per sqft for comparison' : 'on ' + r.rate_basis + ' area'}</div>` : ''}</td>
                 <td class="txt-right" style="white-space:nowrap">${Number(r.min_carpet) === Number(r.max_carpet) ? `${Number(r.min_carpet || 0)}` : `${Number(r.min_carpet || 0)} – ${Number(r.max_carpet || 0)}`} sqft</td>
               </tr>`).join('')}
             </tbody>

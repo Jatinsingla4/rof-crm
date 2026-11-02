@@ -103,6 +103,7 @@ router.get('/reports/rates', async (req, res, next) => {
         -- the rate is per the area the unit's type charges on (super, built-up, plot); a unit without a type, or without that area, uses its carpet area
         ROUND(AVG(u.base_price_inr / ra.area) FILTER (WHERE u.base_price_inr > 0 AND ra.area > 0)) AS avg_rate_per_sqft,
         MIN(ra.basis) AS rate_basis,
+        COALESCE(bool_or(ut.rate_type = 'In Fix'), false) AS fixed_price,
         MIN(u.carpet_area_sqft) AS min_carpet,
         MAX(u.carpet_area_sqft) AS max_carpet
       FROM projects p
