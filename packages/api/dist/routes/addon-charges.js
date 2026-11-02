@@ -6,6 +6,7 @@ const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const charge_area_js_1 = require("../utils/charge-area.js");
 const router = (0, express_1.Router)();
 // ── Access, input rules ──────────────────────────────────────────────────────
 // Reading is open to every signed-in user. Changing the charge master needs master_data; giving, editing,
@@ -158,7 +159,7 @@ router.get('/master', async (req, res, next) => {
 // The client's add-on master options: charge type, when it applies (Possession or a date set per customer), which area it is calculated on, and whether it counts in the dues
 const addonOptions = (b, cur) => {
     const applyDate = (0, input_js_1.has)(b.applyDateType) ? (0, input_js_1.oneOf)(b.applyDateType, 'Apply date type', ['Possession', 'Customer Wise Date']) : cur?.apply_date_type ?? 'Customer Wise Date';
-    const calc = (0, input_js_1.has)(b.calculateRateType) ? (0, input_js_1.text)(b.calculateRateType, 'Calculate rate type', 30, true) : cur?.calculate_rate_type ?? 'Old Area';
+    const calc = (0, input_js_1.has)(b.calculateRateType) ? (0, input_js_1.oneOf)(b.calculateRateType, 'Calculate rate on', [...charge_area_js_1.CHARGE_AREAS, 'Old Area']) : cur?.calculate_rate_type ?? 'Carpet Area';
     const chargeType = (0, input_js_1.has)(b.chargeType) ? (0, input_js_1.text)(b.chargeType, 'Charge type', 30, true) : cur?.charge_type ?? 'Other';
     if (b.includeInDues !== undefined && typeof b.includeInDues !== 'boolean')
         throw (0, input_js_1.bad)('includeInDues must be true or false');
@@ -264,8 +265,9 @@ router.patch('/master/:id', async (req, res, next) => {
                     + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2)
                     + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
                   updated_at = NOW()
-             FROM (SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id, ROUND($4::numeric * u.carpet_area_sqft, 2) AS new_amount
+             FROM (SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id, ROUND($4::numeric * COALESCE(NULLIF(${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')}, 0), 0), 2) AS new_amount
                      FROM consumer_addon_charges cac2
+                     JOIN addon_charge_master acm ON acm.id = cac2.charge_master_id
                      JOIN booking_records br ON br.consumer_id = cac2.consumer_id AND br.project_id = cac2.project_id AND br.status != 'cancelled'
                      JOIN units u ON u.id = br.unit_id
                     WHERE cac2.charge_master_id = $1 AND cac2.status = 'active'

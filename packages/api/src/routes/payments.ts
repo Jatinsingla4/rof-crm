@@ -2506,7 +2506,7 @@ const rateInput = (b: any, cur?: any) => {
   if (type === 'Compound' && !freq) throw bad('compound_frequency is required for compound interest');
   if (type === 'Simple' && has(b.compound_frequency)) throw bad('compound_frequency is only for compound interest');
   const on = has(b.calculated_on) ? text(b.calculated_on, 'calculated_on', 30, true)! : cur?.calculated_on ?? 'Receipt Date Wise';
-  return { rate: num(b.rate_percent, 'rate_percent', 100, 2), from: day(b.effective_from, 'effective_from'), type, freq, on };
+  return { rate: num(b.rate_percent, 'Interest rate', 100, 2), from: day(b.effective_from, 'Effective date'), type, freq, on };
 };
 
 // POST /api/payments/interest-master — create new project interest rate (accounts and finance only)

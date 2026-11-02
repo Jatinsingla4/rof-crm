@@ -11,6 +11,19 @@ const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+// Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
+const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
+const FACING_CODES = { e: 'East', w: 'West', n: 'North', s: 'South', ne: 'North-East', se: 'South-East', nw: 'North-West', sw: 'South-West' };
+const facingOf = (v) => {
+    const t = (0, input_js_1.text)(v, 'Facing', 30, false);
+    if (!t)
+        return null;
+    const k = t.toLowerCase().replace(/[\s_]+/g, '-');
+    const hit = FACINGS.find((f) => f.toLowerCase() === k) || FACING_CODES[k.replace('-', '')];
+    if (!hit)
+        throw (0, input_js_1.bad)(`Facing must be one of: ${FACINGS.join(', ')}`);
+    return hit;
+};
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => (err?.http ? res.status(err.http).json({ error: err.message }) : next(err));
 const PRICE_MAX = 100000000000; // ₹ 10,000 crore, the column is a whole-rupee bigint
@@ -121,7 +134,7 @@ router.post('/', async (req, res, next) => {
         if (!(0, input_js_1.has)(b.floor))
             throw (0, input_js_1.bad)('Floor number is required for each unit');
         const floor = (0, exports.floorNo)(b.floor);
-        const facing = (0, input_js_1.text)(b.facing, 'Facing', 30, false), floorPlanUrl = planUrl(b.floorPlanUrl);
+        const facing = facingOf(b.facing), floorPlanUrl = planUrl(b.floorPlanUrl);
         const unitTypeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
         const locationId = (0, input_js_1.has)(b.unitLocationId) ? (0, input_js_1.uuid)(b.unitLocationId, 'unitLocationId') : null;
         const charges = chargeList(b.charges);
@@ -530,6 +543,46 @@ router.get('/:id', async (req, res, next) => {
         next(error);
     }
 });
+// DELETE /api/units/:id - remove a unit made by mistake. Only an available unit that nothing else uses can go; the database refuses the rest
+router.delete('/:id', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
+        const client = await index_js_1.db.connect();
+        try {
+            await client.query('BEGIN');
+            const cur = (await client.query('SELECT * FROM units WHERE id = $1 FOR UPDATE', [id])).rows[0];
+            if (!cur) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ error: 'Unit not found' });
+            }
+            if (cur.status !== 'available')
+                throw Object.assign((0, input_js_1.bad)(`Only an available unit can be deleted; this one is ${cur.status}.`), { http: 409 });
+            if ((await client.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND COALESCE(status, '') <> 'cancelled' LIMIT 1`, [id])).rows.length)
+                throw Object.assign((0, input_js_1.bad)('This unit has a booking, so it cannot be deleted.'), { http: 409 });
+            try {
+                await client.query('DELETE FROM units WHERE id = $1', [id]);
+            }
+            catch (e) {
+                if (e?.code === '23503')
+                    throw Object.assign((0, input_js_1.bad)('This unit is used in other records (a cancelled booking, parking, a shift or a document), so it cannot be deleted.'), { http: 409 });
+                throw e;
+            }
+            await (0, auditLogger_js_1.auditChange)(client, req, res, 'delete', 'unit', id, cur, undefined);
+            await client.query('COMMIT');
+            res.json({ success: true });
+        }
+        catch (e) {
+            await client.query('ROLLBACK').catch(() => { });
+            throw e;
+        }
+        finally {
+            client.release();
+        }
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
 // PATCH /api/units/:id - Update unit details
 router.patch('/:id', async (req, res, next) => {
     try {
@@ -545,7 +598,7 @@ router.patch('/:id', async (req, res, next) => {
                 return res.status(404).json({ error: 'Unit not found' });
             }
             const floor = (0, input_js_1.has)(b.floor) ? (0, exports.floorNo)(b.floor) : cur.floor;
-            const facing = (0, input_js_1.has)(b.facing) ? (0, input_js_1.text)(b.facing, 'Facing', 30, false) : cur.facing;
+            const facing = 'facing' in b ? facingOf(b.facing) : cur.facing;
             const floorPlanUrl = (0, input_js_1.has)(b.floorPlanUrl) ? planUrl(b.floorPlanUrl) : cur.floor_plan_url;
             const unitNumber = (0, input_js_1.has)(b.unitNumber) ? (0, input_js_1.text)(b.unitNumber, 'Unit number', 50, true) : cur.unit_number;
             if (unitNumber.toLowerCase() !== cur.unit_number.toLowerCase()) {
@@ -597,8 +650,10 @@ router.post('/bulk-price', async (req, res, next) => {
         const towerId = (0, input_js_1.has)(b.towerId) ? (0, input_js_1.uuid)(b.towerId, 'towerId') : null, typeId = (0, input_js_1.has)(b.unitTypeId) ? (0, input_js_1.uuid)(b.unitTypeId, 'unitTypeId') : null;
         const mode = b.mode === 'percent' || b.mode === 'amount' ? b.mode : (() => { throw (0, input_js_1.bad)("mode must be 'percent' or 'amount'"); })();
         const value = typeof b.value === 'number' ? b.value : typeof b.value === 'string' && /^-?\d+(\.\d{1,2})?$/.test(b.value.trim()) ? Number(b.value) : NaN;
-        if (!Number.isFinite(value) || Math.abs(value) > (mode === 'percent' ? 100 : 1000000000) || Math.round(value * 100) !== value * 100 && Math.abs(Math.round(value * 100) - value * 100) > 1e-6)
+        if (!Number.isFinite(value) || Math.round(value * 100) !== value * 100 && Math.abs(Math.round(value * 100) - value * 100) > 1e-6)
             throw (0, input_js_1.bad)('Value must be a number (minus lowers the price) with up to 2 decimals');
+        if (Math.abs(value) > (mode === 'percent' ? 100 : 1000000000))
+            throw (0, input_js_1.bad)(mode === 'percent' ? 'Percent cannot be more than 100' : 'Amount cannot be more than 100 crore');
         if (!value)
             throw (0, input_js_1.bad)('Value cannot be zero');
         if (mode === 'percent' && value <= -100)
@@ -606,14 +661,14 @@ router.post('/bulk-price', async (req, res, next) => {
         const out = await (0, input_js_1.inTx)(async (c) => {
             if (!(await c.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length)
                 throw Object.assign((0, input_js_1.bad)('Project not found'), { http: 404 });
-            const rows = (await c.query(`SELECT u.id, u.base_price_inr, u.total_price_inr FROM units u
+            const rows = (await c.query(`SELECT u.id, u.unit_number, u.base_price_inr, u.total_price_inr FROM units u
           WHERE u.project_id = $1 AND ($2::uuid IS NULL OR u.tower_id = $2) AND ($3::uuid IS NULL OR u.unit_type_id = $3)
-            AND u.status IN ('available', 'locked', 'held') AND u.base_price_inr IS NOT NULL
+            AND u.status IN ('available', 'locked', 'held') AND u.base_price_inr > 0
             AND NOT EXISTS (SELECT 1 FROM booking_records b WHERE b.unit_id = u.id AND COALESCE(b.status, '') <> 'cancelled') FOR UPDATE OF u`, [projectId, towerId, typeId])).rows;
             const delta = (x) => mode === 'percent' ? Math.round(x * value / 100) : Math.round(value);
             const bad1 = rows.find((r) => Number(r.base_price_inr) + delta(Number(r.base_price_inr)) <= 0);
             if (bad1)
-                throw (0, input_js_1.bad)('This change would take a unit price to zero or below');
+                throw (0, input_js_1.bad)(`This change would take the price of unit ${bad1.unit_number} to zero or below`);
             if (!preview)
                 for (const r of rows) {
                     const d = delta(Number(r.base_price_inr));
@@ -650,11 +705,16 @@ router.post('/bulk-import', async (req, res, next) => {
             try {
                 if (!row || typeof row !== 'object' || Array.isArray(row))
                     throw (0, input_js_1.bad)('Row is not valid');
-                const unitNumber = (0, input_js_1.text)(row.unitNumber, 'Unit number', 50, true), bhkType = (0, input_js_1.text)(row.bhkType, 'BHK type', 50, true);
+                // A row may name the unit type (its id); the unit is then tied to it, so a later change of that type reaches this unit
+                const typeId = (0, input_js_1.has)(row.unitTypeId) ? (0, input_js_1.uuid)(row.unitTypeId, 'unitTypeId') : null;
+                const typeRow = typeId ? (await index_js_1.db.query('SELECT name FROM unit_types WHERE id = $1 AND project_id = $2', [typeId, projectId])).rows[0] : null;
+                if (typeId && !typeRow)
+                    throw (0, input_js_1.bad)('This unit type does not belong to the project');
+                const unitNumber = (0, input_js_1.text)(row.unitNumber, 'Unit number', 50, true), bhkType = (0, input_js_1.has)(row.bhkType) || !typeRow ? (0, input_js_1.text)(row.bhkType, 'BHK type', 50, true) : typeRow.name;
                 if (!(0, input_js_1.has)(row.floor))
                     throw (0, input_js_1.bad)('Floor number is required for each unit');
-                const floor = (0, exports.floorNo)(row.floor), facing = (0, input_js_1.text)(row.facing, 'Facing', 30, false);
-                const f = (0, exports.unitFields)({ carpetAreaSqft: row.carpetAreaSqft ?? row.carpetAreaSqm, superAreaSqft: row.superAreaSqft ?? row.superAreaSqm, basePriceInr: row.basePriceInr, totalPriceInr: row.totalPriceInr });
+                const floor = (0, exports.floorNo)(row.floor), facing = facingOf(row.facing);
+                const f = (0, exports.unitFields)({ carpetAreaSqft: row.carpetAreaSqft ?? row.carpetAreaSqm, superAreaSqft: row.superAreaSqft ?? row.superAreaSqm, balconyAreaSqft: row.balconyAreaSqft, basePriceInr: row.basePriceInr, totalPriceInr: row.totalPriceInr });
                 let towerId = null;
                 if ((0, input_js_1.has)(row.towerId)) {
                     towerId = (0, input_js_1.uuid)(row.towerId, 'towerId');
@@ -669,8 +729,8 @@ router.post('/bulk-import', async (req, res, next) => {
                 const dup = await index_js_1.db.query('SELECT 1 FROM units WHERE tower_id = $1 AND lower(unit_number) = lower($2)', [towerId, unitNumber]);
                 if (dup.rows.length)
                     throw (0, input_js_1.bad)('A unit with this number already exists in this tower');
-                const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'available',$11) ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.base, f.total, facing, req.userId]);
+                const inserted = await index_js_1.db.query(`INSERT INTO units (project_id, tower_id, floor, unit_number, bhk_type, carpet_area_sqft, super_area_sqft, balcony_area_sqft, base_price_inr, total_price_inr, facing, status, created_by_user_id, unit_type_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'available',$12,$13) ON CONFLICT (tower_id, unit_number) DO NOTHING`, [projectId, towerId, floor, unitNumber, bhkType, f.carpet, f.sup, f.balcony || null, f.base, f.total, facing, req.userId, typeId]);
                 if (inserted.rowCount)
                     created++;
                 else {

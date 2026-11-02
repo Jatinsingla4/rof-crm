@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildApplicantFileHtml = buildApplicantFileHtml;
 const project_settings_js_1 = require("../utils/project-settings.js");
+const charge_area_js_1 = require("../utils/charge-area.js");
 /**
  * Booking Routes
  * Handles booking form submission, list, view, and edit booking records
@@ -850,15 +851,11 @@ router.patch('/:id', async (req, res, next) => {
                         ? Math.round(bookingRate * trueCarpetArea)
                         : unitBasePriceInr;
                     // Balcony Charge (Phase 2): MIN(true balcony area x configured rate, cap)
-                    const balconyConfigRow = await client.query(`SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`);
-                    const balconyRateApplied = parseFloat(balconyConfigRow.rows[0]?.rate_value || 0);
-                    const balconyCapValue = balconyConfigRow.rows[0]?.cap_value != null
-                        ? parseFloat(balconyConfigRow.rows[0].cap_value)
-                        : null;
+                    const { rate: balconyRateApplied, cap: balconyCapValue, maxArea: balconyMaxArea } = await (0, project_settings_js_1.balconyTerms)(client, booking.project_id);
                     // Same BASIC GST rate already resolved above for booking_payment_taxes
                     // (gstRateForBpt) -- reuse rather than re-querying gst_tax_charge_mapping.
                     // gstRateForBpt is already zeroed for NRI/OCI/PIO (isNriForGst, above).
-                    const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(trueBalconyArea, balconyRateApplied, balconyCapValue, gstRateForBpt.cgstPct, gstRateForBpt.sgstPct);
+                    const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(trueBalconyArea, balconyRateApplied, balconyCapValue, gstRateForBpt.cgstPct, gstRateForBpt.sgstPct, balconyMaxArea);
                     await client.query(`UPDATE booking_records
                SET balcony_charge_amount = $1,
                    balcony_cgst_amount = $2,
@@ -1018,7 +1015,7 @@ router.patch('/:id', async (req, res, next) => {
                acm.rate_per_sqft_inr,
                acm.cgst_pct,
                acm.sgst_pct,
-               u.carpet_area_sqft
+               ${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')} AS charge_area_sqft
              FROM plan_addon_charge_pct pac
              JOIN plan_schedule_templates pst
                ON pst.id = pac.plan_schedule_template_id
@@ -1035,7 +1032,7 @@ router.patch('/:id', async (req, res, next) => {
               WHERE acm.project_id = $1 AND acm.is_active AND (acm.is_mandatory OR uac.unit_id IS NOT NULL)`, [booking.project_id, booking.unit_id])).rows.map((r) => r.id));
                     addonPctRows.rows = addonPctRows.rows.filter((r) => wanted.has(r.charge_master_id));
                     const have = new Set(addonPctRows.rows.map((r) => r.charge_master_id));
-                    const extra = await client.query(`SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, u.carpet_area_sqft,
+                    const extra = await client.query(`SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, ${(0, charge_area_js_1.chargeAreaSql)('acm', 'u')} AS charge_area_sqft,
                     COALESCE(uac.quantity, 1) AS quantity
                FROM addon_charge_master acm CROSS JOIN units u
                LEFT JOIN unit_addon_charges uac ON uac.unit_id = u.id AND uac.charge_master_id = acm.id
@@ -1055,7 +1052,7 @@ router.patch('/:id', async (req, res, next) => {
                             continue;
                         // Compute GST amounts from master
                         const amt = (row.rate_type === 'per_sqft'
-                            ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.carpet_area_sqft) * 100) / 100
+                            ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.charge_area_sqft || 0) * 100) / 100
                             : parseFloat(row.default_amount)) * qtyOf(row);
                         const cPct = parseFloat(row.cgst_pct);
                         const sPct = parseFloat(row.sgst_pct);

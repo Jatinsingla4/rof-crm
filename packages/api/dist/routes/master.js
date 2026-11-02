@@ -777,7 +777,7 @@ router.post('/reminder-master', async (req, res, next) => {
         const name = (0, input_js_1.text)(rb.name, 'Name', 200, true);
         if (!(0, input_js_1.has)(rb.days_before))
             throw (0, input_js_1.bad)('name and days_before are required');
-        const days = (0, input_js_1.num)(rb.days_before, 'Days before', 3650, 0);
+        const days = (0, input_js_1.num)(rb.days_before, 'Days after due date', 3650, 0);
         const channel = (0, input_js_1.text)(rb.prefix_name ?? rb.channel, 'Prefix', 100, false);
         const rank = (0, input_js_1.has)(rb.rank) ? (0, input_js_1.num)(rb.rank, 'Rank', 100, 0) : null;
         if (rank !== null && !Number.isInteger(rank))
@@ -798,6 +798,30 @@ router.post('/reminder-master', async (req, res, next) => {
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'master.reminder_master', result.rows[0].id, undefined, result.rows[0]);
         res.status(201).json({ success: true, data: result.rows[0] });
+    }
+    catch (err) {
+        err?.http ? res.status(err.http).json({ error: err.message }) : next(err);
+    }
+});
+router.patch('/reminder-master/:id', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Reminder id'), rb = (0, input_js_1.body)(req);
+        const cur = (await index_js_1.db.query('SELECT * FROM reminder_master WHERE id = $1', [id])).rows[0];
+        if (!cur)
+            return res.status(404).json({ error: 'Reminder not found' });
+        const name = (0, input_js_1.has)(rb.name) ? (0, input_js_1.text)(rb.name, 'Name', 200, true) : cur.reminder_name;
+        const days = (0, input_js_1.has)(rb.days_before) ? (0, input_js_1.num)(rb.days_before, 'Days after due date', 3650, 0) : cur.days;
+        const prefix = 'prefix_name' in rb ? (0, input_js_1.text)(rb.prefix_name, 'Prefix', 100, false) : cur.prefix_name;
+        const rank = 'rank' in rb ? ((0, input_js_1.has)(rb.rank) ? (0, input_js_1.num)(rb.rank, 'Rank', 100, 0) : null) : cur.rank;
+        if (rank !== null && !Number.isInteger(rank))
+            throw (0, input_js_1.bad)('Rank must be a whole number');
+        if ((await index_js_1.db.query('SELECT 1 FROM reminder_master WHERE lower(reminder_name) = lower($1) AND days = $2 AND project_id IS NOT DISTINCT FROM $3 AND id <> $4', [name, days, cur.project_id, id])).rows.length)
+            throw Object.assign((0, input_js_1.bad)('A reminder with this name and days already exists for this project'), { http: 409 });
+        if (rank !== null && (await index_js_1.db.query('SELECT 1 FROM reminder_master WHERE rank = $1 AND project_id IS NOT DISTINCT FROM $2 AND id <> $3', [rank, cur.project_id, id])).rows.length)
+            throw Object.assign((0, input_js_1.bad)('This project already has a reminder with this rank'), { http: 409 });
+        const r = (await index_js_1.db.query(`UPDATE reminder_master SET reminder_name = $1, days = $2, prefix_name = $3, rank = $4 WHERE id = $5 RETURNING id, reminder_name AS name, days AS days_before, prefix_name, rank, project_id`, [name, days, prefix, rank, id])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'master.reminder_master', id, cur, r);
+        res.json({ success: true, data: r });
     }
     catch (err) {
         err?.http ? res.status(err.http).json({ error: err.message }) : next(err);
@@ -928,6 +952,9 @@ router.put('/unit-types/:id', async (req, res, next) => {
             const upd = (await c.query(`UPDATE unit_types SET project_id = $2, name = $3, description = $4, carpet_area_sqft = $5, balcony_area_sqft = $6, base_rate_sqft = $7, ${UT_EXTRA_KEYS.map((k, i) => `${k} = $${i + 8}`).join(', ')}, updated_at = now() WHERE id = $1 RETURNING *`, [uid, projectId, f.name, f.description, f.carpet, f.balcony, f.rate, ...UT_EXTRA_KEYS.map(k => ex[k])])).rows[0];
             if (Number(cur.base_rate_sqft ?? -1) !== Number(upd.base_rate_sqft ?? -1) || cur.rate_basis !== upd.rate_basis || String(cur.rate_date ?? '') !== String(upd.rate_date ?? ''))
                 await rateNote(c, upd, req.userId);
+            // Units, the booking form and the Rate Report show the type by its name, so a renamed type renames them too
+            if (cur.name !== upd.name)
+                await c.query('UPDATE units SET bhk_type = $1 WHERE unit_type_id = $2', [upd.name, uid]);
             return { cur, upd };
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'master.unit_types', uid, out.cur, out.upd);

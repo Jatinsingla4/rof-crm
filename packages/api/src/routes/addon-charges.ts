@@ -4,6 +4,7 @@ import { AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, r2, inTx, oneOf } from '../utils/input.js';
+import { CHARGE_AREAS, chargeAreaSql } from '../utils/charge-area.js';
 
 const router = Router();
 
@@ -164,7 +165,7 @@ router.get('/master', async (req: AuthRequest, res: Response, next: NextFunction
 // The client's add-on master options: charge type, when it applies (Possession or a date set per customer), which area it is calculated on, and whether it counts in the dues
 const addonOptions = (b: any, cur?: any) => {
   const applyDate = has(b.applyDateType) ? oneOf(b.applyDateType, 'Apply date type', ['Possession', 'Customer Wise Date'] as const)! : cur?.apply_date_type ?? 'Customer Wise Date';
-  const calc = has(b.calculateRateType) ? text(b.calculateRateType, 'Calculate rate type', 30, true)! : cur?.calculate_rate_type ?? 'Old Area';
+  const calc = has(b.calculateRateType) ? oneOf(b.calculateRateType, 'Calculate rate on', [...CHARGE_AREAS, 'Old Area'] as const)! : cur?.calculate_rate_type ?? 'Carpet Area';
   const chargeType = has(b.chargeType) ? text(b.chargeType, 'Charge type', 30, true)! : cur?.charge_type ?? 'Other';
   if (b.includeInDues !== undefined && typeof b.includeInDues !== 'boolean') throw bad('includeInDues must be true or false');
   const flag = (k: string, col: string) => { if (b[k] !== undefined && typeof b[k] !== 'boolean') throw bad(`${k} must be true or false`); return b[k] ?? cur?.[col] ?? false; };
@@ -257,8 +258,9 @@ router.patch('/master/:id', async (req: AuthRequest, res: Response, next: NextFu
                     + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $2 / 100, 2)
                     + ROUND((computed.new_amount + COALESCE(cac.increase_amount,0)) * $3 / 100, 2),
                   updated_at = NOW()
-             FROM (SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id, ROUND($4::numeric * u.carpet_area_sqft, 2) AS new_amount
+             FROM (SELECT DISTINCT ON (cac2.id) cac2.id AS charge_id, ROUND($4::numeric * COALESCE(NULLIF(${chargeAreaSql('acm', 'u')}, 0), 0), 2) AS new_amount
                      FROM consumer_addon_charges cac2
+                     JOIN addon_charge_master acm ON acm.id = cac2.charge_master_id
                      JOIN booking_records br ON br.consumer_id = cac2.consumer_id AND br.project_id = cac2.project_id AND br.status != 'cancelled'
                      JOIN units u ON u.id = br.unit_id
                     WHERE cac2.charge_master_id = $1 AND cac2.status = 'active'

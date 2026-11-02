@@ -2409,7 +2409,7 @@ const rateInput = (b, cur) => {
     if (type === 'Simple' && (0, input_js_1.has)(b.compound_frequency))
         throw (0, input_js_1.bad)('compound_frequency is only for compound interest');
     const on = (0, input_js_1.has)(b.calculated_on) ? (0, input_js_1.text)(b.calculated_on, 'calculated_on', 30, true) : cur?.calculated_on ?? 'Receipt Date Wise';
-    return { rate: (0, input_js_1.num)(b.rate_percent, 'rate_percent', 100, 2), from: (0, input_js_1.day)(b.effective_from, 'effective_from'), type, freq, on };
+    return { rate: (0, input_js_1.num)(b.rate_percent, 'Interest rate', 100, 2), from: (0, input_js_1.day)(b.effective_from, 'Effective date'), type, freq, on };
 };
 // POST /api/payments/interest-master — create new project interest rate (accounts and finance only)
 router.post('/interest-master', input_js_1.financeOnly, async (req, res, next) => {

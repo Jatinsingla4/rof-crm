@@ -4,6 +4,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const project_settings_js_1 = require("../utils/project-settings.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
@@ -114,9 +115,7 @@ router.get('/balcony-preview', async (req, res, next) => {
         if (!projRes.rows.length)
             return res.status(404).json({ success: false, error: 'Project not found' });
         const projectName = projRes.rows[0].name;
-        const configRow = await index_js_1.db.query(`SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`);
-        const rate = parseFloat(configRow.rows[0]?.rate_value || 0);
-        const cap = configRow.rows[0]?.cap_value != null ? parseFloat(configRow.rows[0].cap_value) : null;
+        const { rate, cap, maxArea } = await (0, project_settings_js_1.balconyTerms)(index_js_1.db, projectId);
         let cgstPct, sgstPct;
         try {
             ({ cgstPct, sgstPct } = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, projectName, 'BASIC', resolveDate));
@@ -127,7 +126,7 @@ router.get('/balcony-preview', async (req, res, next) => {
                 return res.status(422).json({ success: false, error: e.message });
             throw e;
         }
-        const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(area, rate, cap, cgstPct, sgstPct);
+        const { balconyChargeAmount, balconyCgstAmount, balconySgstAmount } = (0, balcony_charge_js_1.computeBalconyCharge)(area, rate, cap, cgstPct, sgstPct, maxArea);
         res.json({
             success: true,
             data: { balconyChargeAmount, balconyCgstAmount, balconySgstAmount },

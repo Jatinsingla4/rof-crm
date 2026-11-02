@@ -1,4 +1,5 @@
-import { projectSettings } from '../utils/project-settings.js';
+import { projectSettings, balconyTerms } from '../utils/project-settings.js';
+import { chargeAreaSql } from '../utils/charge-area.js';
 /**
  * Booking Routes
  * Handles booking form submission, list, view, and edit booking records
@@ -863,13 +864,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             : unitBasePriceInr;
 
           // Balcony Charge (Phase 2): MIN(true balcony area x configured rate, cap)
-          const balconyConfigRow = await client.query(
-            `SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`
-          );
-          const balconyRateApplied = parseFloat(balconyConfigRow.rows[0]?.rate_value || 0);
-          const balconyCapValue    = balconyConfigRow.rows[0]?.cap_value != null
-            ? parseFloat(balconyConfigRow.rows[0].cap_value)
-            : null;
+          const { rate: balconyRateApplied, cap: balconyCapValue, maxArea: balconyMaxArea } = await balconyTerms(client, booking.project_id);
           // Same BASIC GST rate already resolved above for booking_payment_taxes
           // (gstRateForBpt) -- reuse rather than re-querying gst_tax_charge_mapping.
           // gstRateForBpt is already zeroed for NRI/OCI/PIO (isNriForGst, above).
@@ -878,7 +873,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             balconyRateApplied,
             balconyCapValue,
             gstRateForBpt.cgstPct,
-            gstRateForBpt.sgstPct
+            gstRateForBpt.sgstPct,
+            balconyMaxArea
           );
 
           await client.query(
@@ -1103,7 +1099,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
                acm.rate_per_sqft_inr,
                acm.cgst_pct,
                acm.sgst_pct,
-               u.carpet_area_sqft
+               ${chargeAreaSql('acm', 'u')} AS charge_area_sqft
              FROM plan_addon_charge_pct pac
              JOIN plan_schedule_templates pst
                ON pst.id = pac.plan_schedule_template_id
@@ -1124,7 +1120,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
           addonPctRows.rows = addonPctRows.rows.filter((r: any) => wanted.has(r.charge_master_id));
           const have = new Set(addonPctRows.rows.map((r: any) => r.charge_master_id));
           const extra = await client.query(
-            `SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, u.carpet_area_sqft,
+            `SELECT acm.id AS charge_master_id, acm.charge_name, acm.default_amount, acm.rate_type, acm.rate_per_sqft_inr, acm.cgst_pct, acm.sgst_pct, ${chargeAreaSql('acm', 'u')} AS charge_area_sqft,
                     COALESCE(uac.quantity, 1) AS quantity
                FROM addon_charge_master acm CROSS JOIN units u
                LEFT JOIN unit_addon_charges uac ON uac.unit_id = u.id AND uac.charge_master_id = acm.id
@@ -1147,7 +1143,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
 
             // Compute GST amounts from master
             const amt = (row.rate_type === 'per_sqft'
-              ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.carpet_area_sqft) * 100) / 100
+              ? Math.round(parseFloat(row.rate_per_sqft_inr) * parseFloat(row.charge_area_sqft || 0) * 100) / 100
               : parseFloat(row.default_amount)) * qtyOf(row);
             const cPct = parseFloat(row.cgst_pct);
             const sPct = parseFloat(row.sgst_pct);

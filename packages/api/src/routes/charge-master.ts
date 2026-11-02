@@ -3,6 +3,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { resolveRate } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
+import { balconyTerms } from '../utils/project-settings.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { day, failWith } from '../utils/input.js';
@@ -103,11 +104,7 @@ router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: Nex
     if (!projRes.rows.length) return res.status(404).json({ success: false, error: 'Project not found' });
     const projectName = projRes.rows[0].name;
 
-    const configRow = await db.query(
-      `SELECT rate_value, cap_value FROM charge_master_config WHERE charge_key = 'balcony_charge'`
-    );
-    const rate = parseFloat(configRow.rows[0]?.rate_value || 0);
-    const cap  = configRow.rows[0]?.cap_value != null ? parseFloat(configRow.rows[0].cap_value) : null;
+    const { rate, cap, maxArea } = await balconyTerms(db, projectId);
 
     let cgstPct: number, sgstPct: number;
     try { ({ cgstPct, sgstPct } = await resolveRate(db, projectId, projectName, 'BASIC', resolveDate)); }
@@ -122,7 +119,8 @@ router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: Nex
       rate,
       cap,
       cgstPct,
-      sgstPct
+      sgstPct,
+      maxArea
     );
 
     res.json({

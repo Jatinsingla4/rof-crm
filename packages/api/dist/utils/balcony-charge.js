@@ -14,8 +14,10 @@ exports.computeBalconyCharge = computeBalconyCharge;
  * resolveRate, pre-zeroed by the caller for GST-exempt consumers) before
  * calling this.
  */
-function computeBalconyCharge(area, rate, cap, cgstPct, sgstPct) {
-    const balconyChargeRawExact = rate > 0 && area > 0 ? area * rate : 0;
+function computeBalconyCharge(area, rate, cap, cgstPct, sgstPct, maxArea = null) {
+    // a project may charge only the first `maxArea` sqft of the balcony
+    const chargeArea = maxArea != null ? Math.min(area, maxArea) : area;
+    const balconyChargeRawExact = rate > 0 && chargeArea > 0 ? chargeArea * rate : 0;
     const balconyBasePaise = Math.round((cap != null ? Math.min(balconyChargeRawExact, cap) : balconyChargeRawExact) * 100);
     const gstPct = cgstPct + sgstPct;
     let basePaise;

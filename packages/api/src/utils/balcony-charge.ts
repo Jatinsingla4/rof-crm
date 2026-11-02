@@ -16,9 +16,12 @@ export function computeBalconyCharge(
   rate: number,
   cap: number | null,
   cgstPct: number,
-  sgstPct: number
+  sgstPct: number,
+  maxArea: number | null = null
 ): { balconyChargeAmount: number; balconyCgstAmount: number; balconySgstAmount: number } {
-  const balconyChargeRawExact = rate > 0 && area > 0 ? area * rate : 0;
+  // a project may charge only the first `maxArea` sqft of the balcony
+  const chargeArea = maxArea != null ? Math.min(area, maxArea) : area;
+  const balconyChargeRawExact = rate > 0 && chargeArea > 0 ? chargeArea * rate : 0;
   const balconyBasePaise = Math.round(
     (cap != null ? Math.min(balconyChargeRawExact, cap) : balconyChargeRawExact) * 100
   );

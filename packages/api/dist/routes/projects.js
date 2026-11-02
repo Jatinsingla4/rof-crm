@@ -42,7 +42,7 @@ router.post('/', async (req, res, next) => {
         return res.status(403).json({ error: 'Your login is limited to assigned projects. Ask an admin to create a new project.' });
     try {
         const pb = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
-        const landAreaSqft = (0, input_js_1.has)(pb.landAreaSqft) ? (0, input_js_1.num)(pb.landAreaSqft, 'Land area', 10000000000, 0) : null;
+        const landAreaSqft = (0, input_js_1.has)(pb.landAreaSqft) ? (0, input_js_1.num)(pb.landAreaSqft, 'Land area', 10000000000, 4) : null;
         const totalUnits = (0, input_js_1.has)(pb.totalUnits) ? (0, input_js_1.num)(pb.totalUnits, 'Total units', 100000, 0) : null;
         const possessionDate = (0, input_js_1.day)(pb.possessionDate, 'Possession date');
         const incomeCategory = (0, input_js_1.text)(pb.incomeCategory, 'Category', 100, false);
@@ -63,6 +63,8 @@ router.post('/', async (req, res, next) => {
         const sameName = await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1)', [name]);
         if (sameName.rows.length)
             return res.status(409).json({ error: 'A project with this name already exists' });
+        if ((await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(rera_number) = lower($1)', [reraNumber])).rows.length)
+            return res.status(409).json({ error: 'Another project already has this RERA number' });
         const result = await index_js_1.db.query(`INSERT INTO projects (name, rera_number, tcp_licence, location, land_area_sqft, total_units,
                              group_name, possession_date, company_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -96,12 +98,23 @@ router.get('/reports/rates', async (req, res, next) => {
         MIN(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0) AS min_price,
         MAX(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0) AS max_price,
         ROUND(AVG(u.base_price_inr) FILTER (WHERE u.base_price_inr > 0)) AS avg_price,
-        ROUND(AVG(u.base_price_inr / u.carpet_area_sqft) FILTER (WHERE u.base_price_inr > 0 AND u.carpet_area_sqft > 0)) AS avg_rate_per_sqft,
+        -- the rate is per the area the unit's type charges on (super, built-up, plot); a unit without a type, or without that area, uses its carpet area
+        ROUND(AVG(u.base_price_inr / ra.area) FILTER (WHERE u.base_price_inr > 0 AND ra.area > 0)) AS avg_rate_per_sqft,
+        MIN(ra.basis) AS rate_basis,
         MIN(u.carpet_area_sqft) AS min_carpet,
         MAX(u.carpet_area_sqft) AS max_carpet
       FROM projects p
       JOIN units u ON u.project_id = p.id
       LEFT JOIN towers t ON u.tower_id = t.id
+      LEFT JOIN unit_types ut ON ut.id = u.unit_type_id
+      CROSS JOIN LATERAL (SELECT CASE WHEN ut.rate_basis = 'Super Area' AND u.super_area_sqft > 0 THEN u.super_area_sqft
+                                      WHEN ut.rate_basis = 'Built Up Area' AND ut.built_up_area_sqft > 0 THEN ut.built_up_area_sqft
+                                      WHEN ut.rate_basis = 'Plot Area' AND ut.plot_area > 0 THEN ut.plot_area
+                                      ELSE u.carpet_area_sqft END AS area,
+                                 CASE WHEN ut.rate_basis = 'Super Area' AND u.super_area_sqft > 0 THEN 'Super'
+                                      WHEN ut.rate_basis = 'Built Up Area' AND ut.built_up_area_sqft > 0 THEN 'Built-up'
+                                      WHEN ut.rate_basis = 'Plot Area' AND ut.plot_area > 0 THEN 'Plot'
+                                      ELSE 'Carpet' END AS basis) ra
       WHERE ($1::uuid IS NULL OR p.id = $1)
       GROUP BY p.id, p.name, u.bhk_type, t.id, t.tower_name
       ORDER BY p.name, u.bhk_type, t.tower_name
@@ -202,7 +215,7 @@ function readPlanRow(body, cur) {
         else {
             pct = plainNumber(body.percentage, 3);
             if (typeof body.percentage === 'string' && !Number.isNaN(Number(body.percentage)) && Number.isNaN(pct))
-                throw bad('Percentage can have at most 3 decimals');
+                throw bad('Percentage must be a number from 0 to 100 with at most 3 decimals');
             if (!Number.isFinite(pct) || pct < 0 || pct > 100)
                 throw bad('Percentage must be a number from 0 to 100');
             if (Math.round(pct * 1000) / 1000 !== pct)
@@ -543,6 +556,47 @@ router.get('/:id/plan-templates/:templateId/addon-charges', async (req, res, nex
         planFail(err, res, next);
     }
 });
+// POST /api/projects/:id/addon-charge-billing   { charge_master_id, when: 'booking' | 'possession' | 'equal' }
+// Says when a charge is billed, in every plan of the project at once: with the booking row, with the last row, or in equal shares over all the installments.
+// A plan that already has bookings is fixed, so it is skipped and listed; the answer says which plans were set and which were not.
+router.post('/:id/addon-charge-billing', async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        await projectOk(id);
+        const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+        if (!idOk(b.charge_master_id))
+            throw bad('Choose an add-on charge');
+        const when = (0, input_js_1.oneOf)(b.when, 'When', ['booking', 'possession', 'equal']);
+        if (!when)
+            throw bad('Say when the charge is billed: booking, possession or equal');
+        if (!(await index_js_1.db.query(`SELECT 1 FROM addon_charge_master WHERE id = $1 AND project_id = $2`, [b.charge_master_id, id])).rows.length)
+            throw bad('That add-on charge does not belong to this project');
+        const plans = (await index_js_1.db.query(`SELECT DISTINCT plan_name FROM plan_schedule_templates WHERE project_id = $1 ORDER BY plan_name`, [id])).rows.map((r) => r.plan_name);
+        const applied = [], skipped = [];
+        for (const name of plans) {
+            const done = await inPlanTx(id, name, async (c) => {
+                if (await planUse(c, id, name))
+                    return false;
+                const rows = (await c.query(`SELECT id, installment_type FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 ORDER BY installment_index, created_at`, [id, name])).rows;
+                if (!rows.length)
+                    return false;
+                const first = rows.find((r) => r.installment_type === 'booking') ?? rows[0], last = [...rows].reverse().find((r) => r.installment_type === 'possession') ?? rows[rows.length - 1];
+                const parts = when === 'booking' ? [{ row: first, pct: 100 }] : when === 'possession' ? [{ row: last, pct: 100 }]
+                    : (() => { const rs = rows.filter((r) => r.installment_type === 'booking' || r.installment_type === 'installment'), each = Math.floor(100000 / rs.length) / 1000; return rs.map((row, i) => ({ row, pct: i === rs.length - 1 ? Math.round((100 - each * (rs.length - 1)) * 1000) / 1000 : each })); })();
+                await c.query(`DELETE FROM plan_addon_charge_pct WHERE charge_master_id = $1 AND plan_schedule_template_id = ANY($2::uuid[])`, [b.charge_master_id, rows.map((r) => r.id)]);
+                for (const x of parts)
+                    await c.query(`INSERT INTO plan_addon_charge_pct (plan_schedule_template_id, charge_master_id, pct, created_by) VALUES ($1, $2, $3, $4)`, [x.row.id, b.charge_master_id, x.pct, req.userId || null]);
+                return true;
+            });
+            (done ? applied : skipped).push(name);
+        }
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'payment_plan_addon_pct', id, undefined, { charge_master_id: b.charge_master_id, when, applied, skipped });
+        res.json({ success: true, data: { when, applied, skipped } });
+    }
+    catch (err) {
+        planFail(err, res, next);
+    }
+});
 // POST /api/projects/:id/plan-templates/:templateId/addon-charges   { charge_master_id, pct }
 // Over all rows of the plan, one charge can total 100% at most.
 router.post('/:id/plan-templates/:templateId/addon-charges', async (req, res, next) => {
@@ -649,6 +703,8 @@ router.patch('/:id', async (req, res, next) => {
         if ('error' in cleanedNames)
             return res.status(400).json({ error: cleanedNames.error });
         const { name, location } = cleanedNames.values;
+        if (req.body && 'name' in req.body && !name)
+            return res.status(400).json({ error: 'Project name is required' });
         if (name) {
             const sameName = await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(name) = lower($1) AND id::text <> $2', [name, id]);
             if (sameName.rows.length)
@@ -682,13 +738,26 @@ router.patch('/:id', async (req, res, next) => {
             if (!(await index_js_1.db.query('SELECT 1 FROM companies WHERE id = $1', [vb.companyId])).rows.length)
                 throw bad('This company does not exist');
         }
+        // RERA and licence are required on a new project, so a blank edit is refused (a field left out keeps its value); RERA stays unique
+        for (const [k, label] of [['reraNumber', 'RERA number'], ['tcpLicence', 'TCP licence']])
+            if (k in rb) {
+                vb[k] = (0, input_js_1.text)(rb[k], label, 100, true);
+            }
+        if (vb.reraNumber && (await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(rera_number) = lower($1) AND id::text <> $2', [vb.reraNumber, id])).rows.length)
+            return res.status(409).json({ error: 'Another project already has this RERA number' });
+        if ((0, input_js_1.has)(rb.landAreaSqft))
+            vb.landAreaSqft = (0, input_js_1.num)(rb.landAreaSqft, 'Land area', 10000000000, 4);
+        if ((0, input_js_1.has)(rb.possessionDate))
+            vb.possessionDate = (0, input_js_1.day)(rb.possessionDate, 'Possession date');
+        if ((0, input_js_1.has)(rb.incomeCategory))
+            vb.incomeCategory = (0, input_js_1.text)(rb.incomeCategory, 'Category', 100, false);
         if ((0, input_js_1.has)(rb.totalUnits)) {
             vb.totalUnits = (0, input_js_1.num)(rb.totalUnits, 'Total units', 100000, 0);
             const have = Number((await index_js_1.db.query('SELECT count(*) AS n FROM units WHERE project_id = $1', [id])).rows[0].n);
             if (vb.totalUnits < have)
                 throw bad(`The project already has ${have} units, so Total units cannot be less than that`);
         }
-        const { totalUnits, licenseDate, envClearanceNo, envClearanceDate, buildingPlanMemoNo, buildingPlanDate, collaborationAgreementDate, landOwnerName, landOwnerLlpin, landOwnerPan, landOwnerAddress, landOwnerGpaVasikaNo, landOwnerGpaDate, saleDeedNo, saleDeedDate, occupationCertMemoNo, occupationCertDate, deedOfDeclarationVasikaNo, deedOfDeclarationDate, khasraDetails, villageName, sectorName, subRegistrarOffice, authorisedSignatoryName, authorisedSignatoryAadhaar, boardResolutionDate, companyId, } = vb;
+        const { totalUnits, licenseDate, envClearanceNo, envClearanceDate, buildingPlanMemoNo, buildingPlanDate, collaborationAgreementDate, landOwnerName, landOwnerLlpin, landOwnerPan, landOwnerAddress, landOwnerGpaVasikaNo, landOwnerGpaDate, saleDeedNo, saleDeedDate, occupationCertMemoNo, occupationCertDate, deedOfDeclarationVasikaNo, deedOfDeclarationDate, khasraDetails, villageName, sectorName, subRegistrarOffice, authorisedSignatoryName, authorisedSignatoryAadhaar, boardResolutionDate, companyId, reraNumber, tcpLicence, landAreaSqft, possessionDate, incomeCategory, } = vb;
         const result = await index_js_1.db.query(`UPDATE projects SET
          name = COALESCE($1, name),
          location = COALESCE($2, location),
@@ -719,6 +788,11 @@ router.patch('/:id', async (req, res, next) => {
          authorised_signatory_aadhaar = COALESCE($27, authorised_signatory_aadhaar),
          board_resolution_date = COALESCE($28::date, board_resolution_date),
          company_id = COALESCE($29::uuid, company_id),
+         rera_number = COALESCE($31, rera_number),
+         tcp_licence = COALESCE($32, tcp_licence),
+         land_area_sqft = COALESCE($33, land_area_sqft),
+         possession_date = COALESCE($34::date, possession_date),
+         group_name = COALESCE($35, group_name),
          updated_at = NOW()
        WHERE id = $30
        RETURNING *`, [
@@ -751,7 +825,9 @@ router.patch('/:id', async (req, res, next) => {
             authorisedSignatoryAadhaar || null,
             boardResolutionDate || null,
             companyId || null,
-            id
+            id,
+            reraNumber || null, tcpLicence || null,
+            (0, input_js_1.has)(landAreaSqft) ? Number(landAreaSqft) : null, possessionDate || null, incomeCategory || null,
         ]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Project not found' });
@@ -897,6 +973,29 @@ router.post('/:id/unit-locations', async (req, res, next) => {
         next(err);
     }
 });
+// PATCH /api/projects/:id/unit-locations/:locId (rename or change the description)
+router.patch('/:id/unit-locations/:locId', async (req, res, next) => {
+    try {
+        const cleaned = (0, master_js_1.cleanBody)(req.body, ['name', 'description']);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const { name, description } = cleaned.values;
+        if (!name)
+            return res.status(400).json({ error: 'name is required' });
+        const dup = await index_js_1.db.query(`SELECT 1 FROM unit_locations WHERE project_id = $1 AND lower(name) = lower($2) AND id::text <> $3`, [req.params.id, name, req.params.locId]);
+        if (dup.rows.length)
+            return res.status(409).json({ error: 'A unit location with this name already exists in this project' });
+        const before = (await index_js_1.db.query('SELECT * FROM unit_locations WHERE id = $1 AND project_id = $2', [req.params.locId, req.params.id])).rows[0];
+        if (!before)
+            return res.status(404).json({ error: 'Unit location not found' });
+        const result = await index_js_1.db.query(`UPDATE unit_locations SET name = $1, description = $2 WHERE id = $3 RETURNING *`, [name, description || null, req.params.locId]);
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'unit_location', req.params.locId, before, result.rows[0]);
+        res.json({ success: true, data: result.rows[0] });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // DELETE /api/projects/:id/unit-locations/:locId
 router.delete('/:id/unit-locations/:locId', async (req, res, next) => {
     try {
@@ -945,14 +1044,20 @@ router.put('/:id/settings', async (req, res, next) => {
             registration_prefix: 'registration_prefix' in b ? prefixOf(b.registration_prefix, 'Registration prefix') : cur.registration_prefix,
             registration_number_mode: 'registration_number_mode' in b ? (0, input_js_1.oneOf)(b.registration_number_mode, 'Registration number mode', ['Automatic', 'Manual']) : cur.registration_number_mode,
             registration_number_size: 'registration_number_size' in b ? (0, input_js_1.num)(b.registration_number_size, 'Registration number size', 8, 0) : cur.registration_number_size,
+            // blank = no project rule; a number must be more than 0
+            balcony_max_charge_inr: 'balcony_max_charge_inr' in b ? ((0, input_js_1.has)(b.balcony_max_charge_inr) ? (0, input_js_1.num)(b.balcony_max_charge_inr, 'Largest balcony charge', 1000000000, 2) : null) : cur.balcony_max_charge_inr,
+            balcony_max_area_sqft: 'balcony_max_area_sqft' in b ? ((0, input_js_1.has)(b.balcony_max_area_sqft) ? (0, input_js_1.num)(b.balcony_max_area_sqft, 'Balcony area charged', 100000, 3) : null) : cur.balcony_max_area_sqft,
         };
+        for (const [k, label] of [['balcony_max_charge_inr', 'Largest balcony charge'], ['balcony_max_area_sqft', 'Balcony area charged']])
+            if (next_[k] === 0)
+                throw bad(`${label} must be more than 0, or left blank for no limit`);
         if (!Number.isInteger(next_.registration_number_size) || next_.registration_number_size < 3)
             throw bad('Registration number size must be a whole number from 3 to 8');
-        const r = (await index_js_1.db.query(`INSERT INTO project_settings (project_id, receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, updated_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+        const r = (await index_js_1.db.query(`INSERT INTO project_settings (project_id, receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, balcony_max_charge_inr, balcony_max_area_sqft, updated_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        ON CONFLICT (project_id) DO UPDATE SET receipt_prefix = EXCLUDED.receipt_prefix, receipt_number_mode = EXCLUDED.receipt_number_mode, registration_prefix = EXCLUDED.registration_prefix,
-         registration_number_mode = EXCLUDED.registration_number_mode, registration_number_size = EXCLUDED.registration_number_size, updated_by = EXCLUDED.updated_by, updated_at = now()
-       RETURNING receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size`, [id, next_.receipt_prefix, next_.receipt_number_mode, next_.registration_prefix, next_.registration_number_mode, next_.registration_number_size, req.userId])).rows[0];
+         registration_number_mode = EXCLUDED.registration_number_mode, registration_number_size = EXCLUDED.registration_number_size, balcony_max_charge_inr = EXCLUDED.balcony_max_charge_inr, balcony_max_area_sqft = EXCLUDED.balcony_max_area_sqft, updated_by = EXCLUDED.updated_by, updated_at = now()
+       RETURNING receipt_prefix, receipt_number_mode, registration_prefix, registration_number_mode, registration_number_size, balcony_max_charge_inr::float8, balcony_max_area_sqft::float8`, [id, next_.receipt_prefix, next_.receipt_number_mode, next_.registration_prefix, next_.registration_number_mode, next_.registration_number_size, next_.balcony_max_charge_inr, next_.balcony_max_area_sqft, req.userId])).rows[0];
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'project_settings', id, cur, r);
         res.json({ success: true, data: r });
     }
