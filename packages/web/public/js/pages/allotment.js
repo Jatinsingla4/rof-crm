@@ -432,14 +432,20 @@ const AllotmentPage = {
   },
 
   async loadAvailableUnits(projectId) {
+    const mine = this._unitSeq = (this._unitSeq || 0) + 1;   // only the latest answer fills the list: a slow older one must not wipe the unit already picked
     try {
       const params = { status: 'booked', pageSize: 300 };
       if (projectId) params.projectId = projectId;
       const res = await Api.get('/units', { params });
+      if (mine !== this._unitSeq) return;
       const list = res.data || res || [];
       const sel = document.getElementById('allot-unit-sel');
-      if (sel) sel.innerHTML = '<option value="">— Select Unit —</option>' +
-        list.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber} · Tower ${u.tower||'—'} · ${u.bhk_type||u.bhkType||'—'}</option>`).join('');
+      if (sel) {
+        const keep = sel.value;
+        sel.innerHTML = '<option value="">— Select Unit —</option>' +
+          list.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber} · Tower ${u.tower||'—'} · ${u.bhk_type||u.bhkType||'—'}</option>`).join('');
+        if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+      }
 
     } catch {}
   },
