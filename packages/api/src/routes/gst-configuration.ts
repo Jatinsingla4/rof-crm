@@ -294,6 +294,8 @@ const taxRates = (b: any, cur?: any) => {
 };
 const taxRules = (type: string, r: { cgst: number; sgst: number; utgst: number; igst: number }) => {
   const eq = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+  // the whole tax on a charge (CGST + SGST, or IGST, or UTGST) cannot pass 100%; 75% + 75% used to be saved as a rate
+  if (r.cgst + r.sgst + r.utgst + r.igst > 100 + 1e-9) throw bad('The total GST rate cannot be more than 100%');
   if (type === 'INTRA' && !(eq(r.cgst, r.sgst) && r.igst === 0 && r.utgst === 0)) throw bad('An INTRA rate has equal CGST and SGST, and no IGST or UTGST');
   if (type === 'INTER' && !(r.igst >= 0 && r.cgst === 0 && r.sgst === 0 && r.utgst === 0)) throw bad('An INTER rate has IGST only');
   if (type === 'UT' && !(r.cgst === 0 && r.sgst === 0 && r.igst === 0)) throw bad('A UT rate has UTGST only');

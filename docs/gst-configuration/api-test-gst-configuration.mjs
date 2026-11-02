@@ -256,6 +256,14 @@ t('audit: a rate edit keeps old and new values', psql(`select (previous_values->
 for (const id of made.fy) psql(`delete from financial_years where id='${id}'`);
 for (const id of made.hsn.filter(Boolean)) psql(`delete from hsn_sac_code_assign where hsn_sac_id='${id}'`), psql(`delete from hsn_sac_codes where id='${id}'`);
 psql(`delete from hsn_sac_codes where code in ('${hsA}','${hsG}','997777')`);
+// ---------- one charge cannot carry more than 100% tax in all ----------
+{ const sx = await S(d(Y + 40, 1, 1), d(Y + 40, 12, 31)); if (sx.j?.data?.id) made.slab.push(sx.j.data.id); const slabId = sx.j?.data?.id;
+  const r1 = await T({ slabId, gstCode: 'Hi ' + U, cgstPct: 75, sgstPct: 75 });
+  t('tax total: INTRA 75% + 75% (150% in all) -> 400', r1.s === 400 && /100%/.test(r1.j?.error || ''), r1.s + ' ' + JSON.stringify(r1.j));
+  const r2 = await T({ slabId, gstCode: 'Ok ' + U, cgstPct: 50, sgstPct: 50 }); if (r2.j?.data?.id) made.tax.push(r2.j.data.id);
+  t('tax total: INTRA 50% + 50% (100% in all) is still allowed', r2.s === 201, r2.s + ' ' + JSON.stringify(r2.j));
+  const r3 = await T({ slabId, gstCode: 'Int ' + U, type: 'INTER', cgstPct: 0, sgstPct: 0, igstPct: 100 }); if (r3.j?.data?.id) made.tax.push(r3.j.data.id);
+  t('tax total: INTER 100% is allowed', r3.s === 201, r3.s + ' ' + JSON.stringify(r3.j)); }
 for (const id of made.tax.filter(Boolean)) psql(`delete from gst_tax_charge_mapping where gst_tax_id='${id}'`), psql(`delete from gst_tax_setup where id='${id}'`);
 for (const id of made.slab.filter(Boolean)) psql(`delete from gst_slabs where id='${id}'`);
 t('tidy: no slab of this run is left', psql(`select count(*) from gst_slabs where from_date >= '${d(Y - 1, 1, 1)}' and from_date <= '${d(Y + 21, 1, 1)}'`) === '0');

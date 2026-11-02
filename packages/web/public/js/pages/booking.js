@@ -3,6 +3,7 @@
 Pages.booking = async function(params = {}) {
   const content = document.getElementById('content');
   content.innerHTML = `<div class="page-loading"><div class="spinner"></div> Loading form data…</div>`;
+  if (typeof BookingPage !== 'undefined') BookingPage._bookingData = null; // a new form never starts from the last booking's snapshot
 
   // Load all master data in parallel
   const [projectsRes, salutsRes, profsRes, natsRes, brokersRes, usersRes] = await Promise.allSettled([
@@ -130,7 +131,7 @@ Pages.booking = async function(params = {}) {
           </div>
           <div class="fg">
             <label class="fl">Basic Price (₹/sqft)</label>
-            <input type="number" class="fc" name="basic_price" placeholder="0">
+            <input type="number" step="any" class="fc" name="basic_price" placeholder="0">
           </div>
           <div class="fg">
             <label class="fl">Carpet Area (sqft)</label>
@@ -1671,9 +1672,12 @@ const BookingPage = {
       const carpet    = parseFloat(opt?.dataset?.carpet || 0);
       const superArea = parseFloat(opt?.dataset?.super  || 0);
       const price     = parseFloat(opt?.dataset?.price  || 0);
-      const displayArea = superArea > 0 ? superArea : carpet;
+      // The area and the rate per sqft must be on the same basis, or the total is not the unit's price
+      // (it used to show the super area but divide the price by the carpet area: 7857 x 1000 for a 55 lakh unit).
+      // The field is the carpet area; a unit with no carpet area (a shop priced on super area) falls back to the super area.
+      const displayArea = carpet > 0 ? carpet : superArea;
       document.querySelector('[name="carpet_area_sqft"]').value = displayArea ? displayArea.toFixed(3) : '';
-      if (price)  document.querySelector('[name="basic_price"]').value = Math.round(price / (carpet||1));
+      if (price && displayArea) document.querySelector('[name="basic_price"]').value = Math.round(price * 100 / displayArea) / 100;
       // In "Any" mode, promote BHK dropdown only when the unit has a recognisable BHK type
       const actualBhk = opt?.dataset?.bhk;
       const extracted = actualBhk ? extractBhk(actualBhk) : '';
@@ -2851,8 +2855,9 @@ const BookingPage = {
       if (unit?.bhk_type) body.bhk_type = unit.bhk_type;
       else delete body.bhk_type;
     }
-    // Merge any state tracked outside the form
-    if (this._bookingData) Object.assign(body, this._bookingData);
+    // The form just read is the truth. The snapshot taken at Preview used to be laid over it, so a field changed after
+    // Preview (or a whole new booking in the same session) was saved with the OLD applicant's details.
+    this._bookingData = body;
 
     const btn = document.getElementById('bk-proceed-btn');
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
