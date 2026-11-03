@@ -49,6 +49,18 @@ const brk = (id) => psql(`select status from booking_records where id='${id}'`);
   t('no GST: nothing was left behind (no booking, unit still available)', psql(`select count(*) from booking_records where unit_id='${u3}'`) === '0' && psql(`select status from units where id='${u3}'`) === 'available');
 }
 
+// ---------- a unit shift keeps the deal: the file and the demands stay on the booked area and price ----------
+{
+  const x = await startBooking({ basic_price: 4000, carpet_area_sqft: 640 }); const xc = x.c.id ?? x.c; r = await finish(x.id, { booking_amount: 40000 }); t('shift price: booking confirmed', r.s === 200, r.s + JSON.stringify(r.j));
+  const big = await unit(P1, T1, 800, 3200000);
+  r = await A('POST', '/allocations/shift', { consumerId: xc, newUnitId: big, reason: 'bigger unit' }); t('shift price: the shift is accepted', r.s === 200, r.s + JSON.stringify(r.j));
+  const lt = await A('POST', '/auth/link-token', { path: `/api/consumers/${xc}/applicant-file` });
+  const html = await (await fetch(B + `/consumers/${xc}/applicant-file?token=${lt.j.token || lt.j.data?.token}`)).text();
+  const txt = html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  t('shift price: the file still shows the booked carpet area 640 (not the new unit 800)', /Carpet Area \(Sq\. Ft\.\) 640\.000/.test(txt), (txt.match(/Carpet Area \(Sq\. Ft\.\) \S+/) || [''])[0]);
+  t('shift price: the Agreement Value is still 25,60,000 (the demands are on that price)', /Agreement Value Rs\. 25,60,000\.00/.test(txt), (txt.match(/Agreement Value Rs\. \S+/) || [''])[0]);
+}
+
 // ---------- roles ----------
 {
   const c = await person(), u = await unit();
@@ -409,16 +421,5 @@ if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_
   ]) { try { psql(sql); } catch (e) { /* leftovers are harmless, names carry the run id */ } }
 }
 
-// ---------- a unit shift keeps the deal: the file and the demands stay on the booked area and price ----------
-{
-  const x = await startBooking({ basic_price: 4000, carpet_area_sqft: 640 }); const xc = x.c.id ?? x.c; r = await finish(x.id, { booking_amount: 40000 }); t('shift price: booking confirmed', r.s === 200, r.s + JSON.stringify(r.j));
-  const big = await unit(P1, T1, 800, 3200000);
-  r = await A('POST', '/allocations/shift', { consumerId: xc, newUnitId: big, reason: 'bigger unit' }); t('shift price: the shift is accepted', r.s === 200, r.s + JSON.stringify(r.j));
-  const lt = await A('POST', '/auth/link-token', { path: `/api/consumers/${xc}/applicant-file` });
-  const html = await (await fetch(B + `/consumers/${xc}/applicant-file?token=${lt.j.token || lt.j.data?.token}`)).text();
-  const txt = html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  t('shift price: the file still shows the booked carpet area 640 (not the new unit 800)', /Carpet Area \(Sq\. Ft\.\) 640\.000/.test(txt), (txt.match(/Carpet Area \(Sq\. Ft\.\) \S+/) || [''])[0]);
-  t('shift price: the Agreement Value is still 25,60,000 (the demands are on that price)', /Agreement Value Rs\. 25,60,000\.00/.test(txt), (txt.match(/Agreement Value Rs\. \S+/) || [''])[0]);
-}
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
