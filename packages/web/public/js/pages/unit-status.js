@@ -510,7 +510,7 @@ const UnitStatusPage = {
         ${projectCell}
         <td>${i + 1}</td>
         <td>${regNo}</td>
-        <td class="td-name"><a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${name}</a></td>
+        <td class="td-name"><a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:#0a4a41;text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${name}</a></td>
         <td>${tower}</td>
         <td>${floorLabel}</td>
         <td>${group}</td>
@@ -866,7 +866,7 @@ const UnitStatusPage = {
           </tr>`;
         } else {
           rowsHtml += `<tr style="background:${bg}">
-            ${td(i + 1)} ${td(u.registration_no,'left')} ${td(u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name||'—'), 'left')}
+            ${td(i + 1)} ${td(u.registration_no,'left')} ${td(u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:#0a4a41;text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${u.consumer_name||'—'}</a>` : (u.consumer_name||'—'), 'left')}
             ${td(fmtDate(u.booking_date))} ${td(u.broker_name || 'Direct')}
             ${td(fmtLoan(u.loan_type))} ${td(u.payment_plan || 'Payment Plan')}
             ${td(u.unit_number)} ${td(u.unit_type)} ${td(parseFloat(u.area||0).toFixed(4),'right')}
