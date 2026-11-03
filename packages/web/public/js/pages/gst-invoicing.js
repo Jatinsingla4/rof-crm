@@ -841,11 +841,12 @@ const GSTPage = {
       const res  = await Api.get('/payments/gst-invoices', { params });
       const list = res.data || res || [];
 
-      const totalBase = list.reduce((s,i) => s + parseFloat(i.base_amount||i.amount||0), 0);
-      const totalGst  = list.reduce((s,i) => s + parseFloat(i.gst_amount||0), 0);
-      const cgst      = list.reduce((s,i) => s + parseFloat(i.cgst_amount||i.cgstAmount||0), 0) || totalGst/2;
-      const sgst      = list.reduce((s,i) => s + parseFloat(i.sgst_amount||i.sgstAmount||0), 0) || totalGst/2;
-      const igst      = list.reduce((s,i) => s + parseFloat(i.igst_amount||i.igstAmount||0), 0);
+      const live = list.filter(i => i.status !== 'cancelled'); // a cancelled invoice is not reported
+      const totalBase = live.reduce((s,i) => s + parseFloat(i.base_amount||i.amount||0), 0);
+      const totalGst  = live.reduce((s,i) => s + parseFloat(i.gst_amount||0), 0);
+      const cgst      = live.reduce((s,i) => s + parseFloat(i.cgst_amount||i.cgstAmount||0), 0) || totalGst/2;
+      const sgst      = live.reduce((s,i) => s + parseFloat(i.sgst_amount||i.sgstAmount||0), 0) || totalGst/2;
+      const igst      = live.reduce((s,i) => s + parseFloat(i.igst_amount||i.igstAmount||0), 0);
 
       if (kpiEl) kpiEl.innerHTML = `
         <div class="kpi c-accent"><div class="kpi-lbl">Invoices</div><div class="kpi-val">${list.length}</div></div>
