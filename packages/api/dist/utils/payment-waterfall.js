@@ -315,7 +315,7 @@ async function checkAndAutoRaiseInstallment1(client, paymentPlanId, receiptId, r
     if (otherValid.rows.length > 0)
         return;
     const demandRes = await client.query(`SELECT id, consumer_id, status, due_date FROM demands
-     WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type = 'installment'
+     WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking')
      ORDER BY created_at ASC LIMIT 1`, [paymentPlanId]);
     if (demandRes.rows.length === 0)
         return;
@@ -398,7 +398,7 @@ async function reverseInstallment1IfNoValidReceipt(client, paymentPlanId) {
      SET status = 'pending', due_date = NULL, raised_at = NULL,
          delivery_status = 'pending', updated_at = NOW()
      WHERE payment_plan_id = $1 AND installment_index = 1
-       AND demand_type = 'installment'
+       AND demand_type IN ('installment', 'booking')
        AND (due_date IS NOT NULL OR status <> 'pending')`, [paymentPlanId]);
 }
 // ── overpayment cascade (shared by POST /payments/receipts and booking.ts's Step-G) ──

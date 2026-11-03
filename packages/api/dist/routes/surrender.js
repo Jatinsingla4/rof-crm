@@ -92,7 +92,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
            br.booking_date, br.booking_amount,
            br.selected_plan_name,
            br.basic_rate_inr_sqft,
-           br.plc_amount, br.other_charge_amount,
+           br.plc_amount, br.other_charge_amount, br.balcony_charge_amount,
            br.other_charge_desc,
            br.booking_type,
            br.status AS booking_status,
@@ -131,7 +131,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
                 r.amount_received_inr, r.cheque_no, r.bank_name,
                 r.clearing_date, r.status, r.interest_amount
          FROM receipts r
-         WHERE r.consumer_id = $1 AND r.status = 'cleared'
+         WHERE r.consumer_id = $1 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
          ORDER BY r.received_date ASC`, [consumerId]),
             index_js_1.db.query(`SELECT d.installment_index, d.due_date, d.amount_due_inr,
                 d.cgst_amount, d.sgst_amount, d.status
@@ -179,10 +179,13 @@ router.get('/detail/:consumerId', async (req, res, next) => {
         const plcAmount = parseFloat(row.plc_amount || 0);
         const otherCharge = parseFloat(row.other_charge_amount || 0);
         const addonTotal = addonRes.rows.reduce((s, c) => s + parseFloat(c.total_amount || 0), 0);
-        const agreementValue = netBasicPrice + plcAmount + otherCharge + addonTotal;
-        const cgst = parseFloat(row.cgst_amount || 0);
-        const sgst = parseFloat(row.sgst_amount || 0);
-        const totalConsideration = agreementValue + cgst + sgst;
+        const balconyCharge = parseFloat(row.balcony_charge_amount || 0);
+        const agreementValue = netBasicPrice + plcAmount + otherCharge + balconyCharge;
+        // tax as billed on the live demands (the same figure the Applicant File shows); the booking-time tax row only when nothing is billed yet
+        const live = demandsRes.rows.filter((d) => d.status !== 'cancelled');
+        const cgst = live.length ? live.reduce((s, d) => s + parseFloat(d.cgst_amount || 0), 0) : parseFloat(row.cgst_amount || 0);
+        const sgst = live.length ? live.reduce((s, d) => s + parseFloat(d.sgst_amount || 0), 0) : parseFloat(row.sgst_amount || 0);
+        const totalConsideration = agreementValue + addonTotal + cgst + sgst; // add-on charges already include their own GST
         const totalInterest = parseFloat(penalRes.rows[0]?.total_interest || 0);
         const totalWaived = parseFloat(waiverRes.rows[0]?.total_waived || 0);
         const totalReceivables = totalConsideration + totalInterest - totalWaived;

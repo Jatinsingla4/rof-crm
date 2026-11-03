@@ -86,7 +86,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
                 SELECT SUM(r.amount_received_inr)
                 FROM receipts r
                 WHERE r.consumer_id = c.id
-                AND r.status = 'cleared'
+                AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
               ), 0) AS total_received_inr
             FROM consumers c
             LEFT JOIN LATERAL (

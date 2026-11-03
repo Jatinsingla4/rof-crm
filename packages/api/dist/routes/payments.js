@@ -1863,7 +1863,7 @@ router.get('/receipt-form/:consumerId', async (req, res, next) => {
         FROM demands WHERE consumer_id = c.id AND status <> 'cancelled') dl ON TRUE
       LEFT JOIN LATERAL (
         SELECT SUM(amount_received_inr) AS paid FROM receipts
-        WHERE consumer_id = c.id AND status NOT IN ('cancelled', 'bounced')) rc ON TRUE
+        WHERE consumer_id = c.id AND status NOT IN ('cancelled', 'bounced') AND NOT COALESCE(is_advance, false)) rc ON TRUE
       WHERE c.id = $1
         AND u.id IS NOT NULL
       ORDER BY COALESCE(br.created_at, pp.created_at) DESC

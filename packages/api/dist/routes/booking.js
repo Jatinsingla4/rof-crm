@@ -989,7 +989,7 @@ router.patch('/:id', async (req, res, next) => {
                         // the excess forward the same way a manual receipt's overpayment
                         // already does.
                         const inst1Res = await client.query(`SELECT id, amount_due_inr, cgst_amount, sgst_amount FROM demands
-               WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type = 'installment'
+               WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking')
                ORDER BY created_at ASC LIMIT 1`, [paymentPlanId]);
                         if (inst1Res.rows.length > 0) {
                             const inst1 = inst1Res.rows[0];
