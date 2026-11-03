@@ -463,6 +463,9 @@ test('Unit Status (project wise and tower wise): the counts on screen are the un
   await page.locator('#us-project').selectOption({ label: S.pn }); await page.locator('.us-fetch').click(); await settle();
   await expect(page.locator('#us-stats')).toContainText(new RegExp(`Total Unit : ${total}\\b`));
   await expect(page.locator('#us-stats')).toContainText(new RegExp(`Available Unit : ${avail}\\b`));
+  // "Sold" is the units that are neither available, on hold nor temporarily surrendered (it used to count held units as sold)
+  const sold = num(`select count(*) from units where project_id='${S.p1}' and status not in ('available','locked','held','temp_surrender')`);
+  await expect(page.locator('#us-total-sold')).toHaveText(`Total Sold Unit : ${sold}`);
   for (const key of ['available', 'booked', 'hold', 'allotted', 'temp_surrender', 'all']) { await page.locator(`#us-status-btns [data-key="${key}"]`).click(); await settle(); }
   await go('/unit-status?view=tower'); await settle();
   const sel = page.locator('#tw-project'); await expect(sel).toBeVisible();

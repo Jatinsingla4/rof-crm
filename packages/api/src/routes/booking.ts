@@ -118,8 +118,9 @@ const parseNew = (b: any) => {
   o.invoice_date_by = T(b.invoice_date_by, 'invoice_date_by', 50) || 'receipt_date'; o.interest_type = T(b.interest_type, 'interest_type', 50) || 'exclusive';
   o.extra_add_on_type = T(b.extra_add_on_type, 'extra_add_on_type', 50) || 'exclusive'; o.tds_type = T(b.tds_type, 'tds_type', 50) || 'not_calculate'; o.self_or_loan = T(b.self_or_loan, 'self_or_loan', 50) || 'self';
   o.tds_challan_id = uuidOrNull(b.tds_challan_id, 'tds_challan_id');
-  o.basic_price = has(b.basic_price) ? num(b.basic_price, 'Basic rate', 1e6, 2) : 0;
+  o.basic_price = has(b.basic_price) ? num(b.basic_price, 'Basic rate', 1e6, 4) : 0;
   o.carpet_area_sqft = has(b.carpet_area_sqft) ? num(b.carpet_area_sqft, 'Carpet area', 1e6, 3) : 0;
+  if (has(b.carpet_area_sqft) && o.carpet_area_sqft <= 0) throw bad('Carpet area must be more than 0');
   return o;
 };
 
@@ -339,6 +340,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // Money sanity: the discount cannot exceed the basic price and the amount paid cannot be many times the price
       const estimate = priceEstimate(basic_price, carpet_area_sqft, unit, plc_amount, other_charge_amount, company_inaugural_disc);
       const basicEstimate = priceEstimate(basic_price, carpet_area_sqft, unit, 0, 0, 0);
+      if (basicEstimate <= 0) throw bad('This unit has no price. Set its Base Price in Set Projects, or enter a rate and make sure the unit has a carpet area, before booking it.');
       if (company_inaugural_disc > basicEstimate && basicEstimate > 0) throw bad('The inaugural discount is more than the basic price of the unit');
       if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM) throw bad(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
       if (booking_type === 'broker' && broker_id && broker_commission_type === 'flat' && basicEstimate > 0 && broker_commission > basicEstimate) throw bad('The broker commission is more than the basic price of the unit');
@@ -578,7 +580,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
     const b = body(req);
     // ---- booking fields (a blank number is ignored, a blank link or note clears it) ----
     const bk: Record<string, any> = {};
-    const numeric: [string, number, number][] = [['basic_rate_inr_sqft', 1e6, 2], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
+    const numeric: [string, number, number][] = [['basic_rate_inr_sqft', 1e6, 4], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
     for (const [k, max, dec] of numeric) if (has(b[k])) bk[k] = num(b[k], k.replace(/_/g, ' '), max, dec);
     if (has(b.booking_date)) bk.booking_date = bookingDay(b.booking_date, 'booking_date');
     if (has(b.form_no)) bk.form_no = T(b.form_no, 'form_no', 100);
@@ -1479,8 +1481,8 @@ function buildApplicantPage1(
 
   const netBasicPrice      = basePrice;
   const addonTotal         = addonCharges.reduce((sum: number, c: any) => sum + parseFloat(c.total_amount || 0), 0);
-  const agreementValue     = netBasicPrice + plcAmount + otherCharge + addonTotal + balconyChargeAmount;
-  const totalConsideration = agreementValue;
+  const agreementValue     = netBasicPrice + plcAmount + otherCharge + balconyChargeAmount;
+  const totalConsideration = agreementValue + addonTotal;
   // Split GST: basic+PLC at booking rate, other charges at their own GST rate
   const basicPlusPLC  = basePrice + plcAmount;
   const activeDemands = demands.filter((d: any) => d.status !== 'cancelled');
@@ -1668,6 +1670,10 @@ function buildApplicantPage1(
       `<span data-field-key="taxBreakupBalconyCgst" data-field-label="Balcony CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyCgstAmount)}</span>`)}
     ${taxSubRow(`SGST @ ${sgstPct}%`,
       `<span data-field-key="taxBreakupBalconySgst" data-field-label="Balcony SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconySgstAmount)}</span>`)}` : ''}
+    ${(cgst !== basicPlusPlcCgst + otherChargeCgstAmt + balconyCgstAmount || sgst !== basicPlusPlcSgst + otherChargeSgstAmt + balconySgstAmount) ? `
+    ${taxSubHeaderRow('Rounding (tax billed on each instalment is rounded separately)')}
+    ${taxSubRow('CGST', fmtIndianCurrency(cgst - (basicPlusPlcCgst + otherChargeCgstAmt + balconyCgstAmount)))}
+    ${taxSubRow('SGST', fmtIndianCurrency(sgst - (basicPlusPlcSgst + otherChargeSgstAmt + balconySgstAmount)))}` : ''}
     ${addonTotal > 0 ? `
     ${taxSubHeaderRow(`Add on Charges — GST already included in Rs. ${fmtIndianNumber(addonTotal)}`)}
     ${taxSubHeaderRow(`(see Other/Addon Charges table below for full breakdown)`)}` : ''}

@@ -455,6 +455,14 @@ const alloc2 = async (P, T, name) => {   // an applicant with a unit and an allo
     for (const q of ['project_id=abc', ...(p === 'customer-wise-consumers' ? [`project_id=${P1}&tower_id=abc`] : []), `project_id=${P1}&first_name[a]=b`, `project_id=${P1}&registration_no=${'r'.repeat(101)}`, `project_id=${P1}&unit_address=<b>`, `project_id=${P1}&type=zz`]) { if (p === 'customer-wise-consumers' && q.includes('type=')) continue; r = await A('GET', `/payments/${p}?${q}`); t(`${n}: ?${q.replace(P1, ':p').slice(0, 40)} -> 400`, r.s === 400, r.s); }
   }
   r = await A('GET', `/payments/customer-wise-consumers?project_id=${P1}&tower_id=${T1}&first_name=Pay%20Buyer&registration_no=&unit_address=R`); t('customer wise: filters by tower, name and unit', r.s === 200 && r.j.data.length >= 3 && r.j.data.every(x => /Pay Buyer/.test(x.name)), r.s + ' ' + r.j.data?.length);
+  { // a cancelled or transferred allotment is not a customer to set grace days, interest or waivers for
+    const one = (await A('GET', `/payments/customer-wise-consumers?project_id=${P1}&tower_id=${T1}&first_name=Pay%20Buyer`)).j.data[0];
+    psql(`update allocations set status='cancelled' where consumer_id='${one.consumer_id}'`);
+    const gone = (await A('GET', `/payments/customer-wise-consumers?project_id=${P1}&first_name=Pay%20Buyer`)).j.data.every(x => x.consumer_id !== one.consumer_id);
+    const goneW = (await A('GET', `/payments/interest-waiver-list?project_id=${P1}`)).j.data.every(x => x.consumer_id !== one.consumer_id);
+    psql(`update allocations set status='allotted' where consumer_id='${one.consumer_id}'`);
+    t('customer wise and waiver list: an applicant whose allotment is cancelled is not listed', gone && goneW, gone + ' ' + goneW);
+  }
   r = await A('GET', `/payments/customer-wise-consumers?project_id=${P1}&first_name=zzzz-none`); t('customer wise: a name that matches nobody gives an empty list', r.s === 200 && r.j.data.length === 0, r.s);
   r = await A('GET', `/payments/customer-wise-consumers?project_id=${P2}&tower_id=${T1}`); t('customer wise: a tower of another project gives an empty list', r.s === 200 && r.j.data.length === 0, r.s);
   for (const ty of ['All', 'Self', 'Pending', 'Loan Sanctioned']) { r = await A('GET', `/payments/interest-waiver-list?project_id=${P1}&type=${encodeURIComponent(ty)}`); t(`waiver list: type=${ty}`, r.s === 200 && (ty === 'All' || r.j.data.every(x => x.type === ty)), r.s); }
@@ -603,6 +611,9 @@ const alloc2 = async (P, T, name) => {   // an applicant with a unit and an allo
   r = await ln(); t('loan: the same loan again -> 409', r.s === 409, r.s);
   const rr = await par(5, () => ln({ bankName: 'SBI', loanAmount: 100000 })); t('loan race: 5 parallel identical -> exactly one, no 5xx', cnt(rr, 201) === 1 && cnt(rr, 409) === 4 && no5(rr), rr.map(x => x.s).join());
   await bad('tpa before the sanction date', { sanctionLetterDate: '2026-05-10', tpaSignedDate: '2026-05-09' });
+  await bad('sanction letter dated in the future', { sanctionLetterDate: '2099-01-01', tpaSignedDate: undefined, bankName: 'Future Bank' });
+  await bad('tpa dated in the future', { sanctionLetterDate: undefined, tpaSignedDate: '2099-01-01', bankName: 'Future Bank 2' });
+  await bad('a loan far more than the price of the applicant unit', { loanAmount: 900000000, bankName: 'Big Bank' });
   r = await ln({ sanctionLetterDate: '2026-05-10', tpaSignedDate: '2026-05-10', bankName: 'Tpa Same Day Bank' }); t('loan: tpa on the sanction day is fine', r.s === 201, r.s + JSON.stringify(r.j));
   r = await ln({ loanAmount: undefined, bankName: 'Axis', branchName: undefined, sanctionLetterDate: undefined, tpaSignedDate: undefined, remarks: undefined }); t('loan: only a bank is needed', r.s === 201, r.s + JSON.stringify(r.j));
   r = await SE('GET', `/loans/${c}`); t('loan: listed for the applicant', r.s === 200 && r.j.data.length === 4, r.s); r = await SE('GET', '/loans/abc'); t('loan: list id "abc" -> 400', r.s === 400, r.s);

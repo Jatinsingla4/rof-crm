@@ -20,10 +20,20 @@ router.post('/', async (req, res, next) => {
         const sanction = (0, input_js_1.day)(b.sanctionLetterDate, 'sanctionLetterDate'), tpa = (0, input_js_1.day)(b.tpaSignedDate, 'tpaSignedDate'), remarks = (0, input_js_1.text)(b.remarks, 'remarks', 500, false);
         if (sanction && tpa && tpa < sanction)
             throw (0, input_js_1.bad)('The TPA cannot be signed before the sanction letter date');
+        // a letter or agreement that is dated tomorrow or later has not happened yet (one day of room for the time zone)
+        const soon = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+        if (sanction && sanction > soon)
+            throw (0, input_js_1.bad)('The sanction letter date cannot be in the future');
+        if (tpa && tpa > soon)
+            throw (0, input_js_1.bad)('The TPA signed date cannot be in the future');
         const row = await (0, input_js_1.inTx)(async (c) => {
             if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
             await (0, input_js_1.lock)(c, 'loan:' + consumerId);
+            // a loan many times the price of the applicant's unit is a typing mistake (GST and add-ons ride on top, so 20% room)
+            const price = (await c.query(`SELECT GREATEST(COALESCE(u.total_price_inr, 0), COALESCE(u.base_price_inr, 0)) AS p FROM allocations a JOIN units u ON u.id = a.unit_id WHERE a.consumer_id = $1 AND a.status NOT IN ('cancelled', 'transferred') ORDER BY a.created_at DESC LIMIT 1`, [consumerId])).rows[0];
+            if (loanAmount && price && Number(price.p) > 0 && loanAmount > Number(price.p) * 1.2)
+                throw (0, input_js_1.bad)(`The loan is far more than the price of the unit (about Rs ${Number(price.p).toLocaleString('en-IN')}). Please check it.`);
             if ((await c.query(`SELECT 1 FROM loan_details WHERE consumer_id = $1 AND bank_name = $2 AND loan_amount IS NOT DISTINCT FROM $3 AND sanction_letter_date IS NOT DISTINCT FROM $4::date`, [consumerId, bankName, loanAmount, sanction])).rows.length)
                 throw (0, input_js_1.bad)('This loan is already recorded', 409);
             return (await c.query(`INSERT INTO loan_details (consumer_id, bank_name, branch_name, loan_amount, sanction_letter_date, tpa_signed_date, remarks, loan_status)

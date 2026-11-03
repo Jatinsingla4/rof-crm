@@ -292,17 +292,18 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await expect(page.locator(`#gst-gen-receipt option[value="${S.receipt}"]`)).toBeAttached({ timeout: 15000 });
   await page.locator('button', { hasText: /generate invoice/i }).first().click(); await expect(toast(/taxable amount/i)).toBeVisible();
   await page.locator('#gst-gen-receipt').selectOption(S.receipt);
-  await expect(page.locator('#gst-gen-amount')).toHaveValue('5000');
-  await expect(page.locator('#gst-gen-calc')).toContainText('5,250');                                                // 5000 + 5 %
+  // the receipt of 5,000 already holds its 5% GST, so the taxable part is 4,761.90 and the invoice comes back to the 5,000 that was paid
+  await expect(page.locator('#gst-gen-amount')).toHaveValue('4761.9');
+  await expect(page.locator('#gst-gen-calc')).toContainText(/5,000|4,999\.9/);
   await page.locator('#gst-gen-supply').selectOption('interstate'); await expect(page.locator('#gst-gen-calc')).toContainText(/IGST/);
   await page.locator('#gst-gen-supply').selectOption('intrastate'); await expect(page.locator('#gst-gen-calc')).toContainText(/CGST/);
-  await page.locator('#gst-gen-rate').selectOption('12'); await expect(page.locator('#gst-gen-calc')).toContainText('5,600'); await page.locator('#gst-gen-rate').selectOption('5');
+  await page.locator('#gst-gen-rate').selectOption('12'); await expect(page.locator('#gst-gen-calc')).toContainText('5,333'); await page.locator('#gst-gen-rate').selectOption('5');
   await page.locator('#gst-gen-desc').fill('Payment towards unit');
   await page.locator('button', { hasText: /generate invoice/i }).first().click();
   await expect(page.locator('#gst-gen-result')).toContainText(/INV\/\d{4}\/\d{5}/);
   S.inv1 = sql(`select invoice_no from gst_invoices where consumer_id = '${b.c}' and receipt_id = '${S.receipt}'`);
   expect(S.inv1).toMatch(/^INV\//);
-  expect(sql(`select total_amount_inr from gst_invoices where invoice_no = '${S.inv1}'`)).toBe('5250.00');
+  expect(sql(`select total_amount_inr from gst_invoices where invoice_no = '${S.inv1}'`)).toBe('5000.00');
   await page.locator('button', { hasText: /generate invoice/i }).first().click();
   await expect(page.locator('#gst-gen-result')).toContainText(/already/i);                                           // the same receipt twice
   // the same receipt is no longer offered

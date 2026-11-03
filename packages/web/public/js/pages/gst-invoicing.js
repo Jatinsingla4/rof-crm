@@ -571,11 +571,23 @@ const GSTPage = {
     } catch {}
   },
 
-  // Picking a receipt fills the taxable amount with what the receipt brought in (it can still be changed)
+  // Picking a receipt fills the taxable amount and the rate from it (both can still be changed). A receipt already holds its GST
+  // (Rs 2,82,800 = 2,80,000 + 1% GST), so the taxable part is the amount less that GST and the rate is what was collected;
+  // taking the whole receipt at 5% made an invoice for more GST than the customer paid.
   onReceiptChange() {
     const r = (this._genReceipts || {})[document.getElementById('gst-gen-receipt')?.value];
-    const amt = document.getElementById('gst-gen-amount');
-    if (amt) amt.value = r ? Number(r.amount_received_inr) : '';
+    const amt = document.getElementById('gst-gen-amount'), rateSel = document.getElementById('gst-gen-rate');
+    if (amt) {
+      const gst = r ? (Number(r.cgst_amount) || 0) + (Number(r.sgst_amount) || 0) : 0;
+      const taxable = r ? Math.round((Number(r.amount_received_inr) - gst) * 100) / 100 : '';
+      amt.value = taxable;
+      if (r && gst > 0 && taxable > 0 && rateSel) {
+        const pct = Math.round(gst / taxable * 10000) / 100;
+        let o = [...rateSel.options].find(x => Number(x.value) === pct);
+        if (!o) { o = new Option(`${pct}% (as collected)`, String(pct)); rateSel.add(o); }
+        rateSel.value = o.value;
+      }
+    }
     this.calcInvoice('gen');
   },
 

@@ -304,7 +304,7 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
         <div class="eb-fg">
           <label class="eb-fl">Basic Price Rs./SqFt</label>
           <input type="number" id="eb-basic-rate" class="eb-fc"
-                 value="${_val(b.basic_rate_inr_sqft)}" min="0" step="0.01"
+                 value="${_val(b.basic_rate_inr_sqft)}" min="0" step="0.0001"
                  readonly style="background:var(--surface2);color:var(--text2);">
           <small style="color:var(--text3);font-size:10px">Locked after booking. Contact admin for revision.</small>
         </div>

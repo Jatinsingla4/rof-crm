@@ -1903,29 +1903,12 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
         COALESCE(br.self_or_loan, 'self') AS self_or_loan,
         COALESCE(br.plc_amount, 0) AS plc_amount,
         COALESCE(br.other_charge_amount, 0) AS other_charge_amount,
-        COALESCE(bpt.cgst_amount, 0) AS cgst_amount,
-        COALESCE(bpt.sgst_amount, 0) AS sgst_amount,
-        COALESCE(bpt.cgst_amount, 0) + COALESCE(bpt.sgst_amount, 0) AS total_gst,
-        u.base_price_inr
-          + COALESCE(br.plc_amount, 0)
-          + COALESCE(br.other_charge_amount, 0)
-          + COALESCE(bpt.cgst_amount, 0)
-          + COALESCE(bpt.sgst_amount, 0) AS total_cost,
-        COALESCE((
-          SELECT SUM(r.amount_received_inr)
-          FROM receipts r
-          WHERE r.consumer_id = c.id AND r.status != 'cancelled'
-        ), 0) AS total_paid,
-        u.base_price_inr
-          + COALESCE(br.plc_amount, 0)
-          + COALESCE(br.other_charge_amount, 0)
-          + COALESCE(bpt.cgst_amount, 0)
-          + COALESCE(bpt.sgst_amount, 0)
-          - COALESCE((
-            SELECT SUM(r.amount_received_inr)
-            FROM receipts r
-            WHERE r.consumer_id = c.id AND r.status != 'cancelled'
-          ), 0) AS balance,
+        COALESCE(dl.cgst, 0) AS cgst_amount,
+        COALESCE(dl.sgst, 0) AS sgst_amount,
+        COALESCE(dl.cgst, 0) + COALESCE(dl.sgst, 0) AS total_gst,
+        COALESCE(dl.total, 0) AS total_cost,
+        COALESCE(rc.paid, 0) AS total_paid,
+        COALESCE(dl.total, 0) - COALESCE(rc.paid, 0) AS balance,
         COALESCE((
           SELECT SUM(r.interest_amount)
           FROM receipts r
@@ -1939,7 +1922,14 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
       LEFT JOIN projects p ON p.id = u.project_id
       LEFT JOIN companies pco ON pco.id = p.company_id
       LEFT JOIN towers t ON t.id = u.tower_id
-      LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id
+      LEFT JOIN LATERAL (
+        SELECT SUM(COALESCE(cgst_amount,0) + COALESCE(addon_cgst_amount,0)) AS cgst,
+               SUM(COALESCE(sgst_amount,0) + COALESCE(addon_sgst_amount,0)) AS sgst,
+               SUM(amount_due_inr + COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(addon_charge_amount,0) + COALESCE(addon_cgst_amount,0) + COALESCE(addon_sgst_amount,0)) AS total
+        FROM demands WHERE consumer_id = c.id AND status <> 'cancelled') dl ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT SUM(amount_received_inr) AS paid FROM receipts
+        WHERE consumer_id = c.id AND status NOT IN ('cancelled', 'bounced')) rc ON TRUE
       WHERE c.id = $1
         AND u.id IS NOT NULL
       ORDER BY COALESCE(br.created_at, pp.created_at) DESC
@@ -2638,7 +2628,7 @@ router.get('/customer-wise-consumers', async (req: AuthRequest, res: Response, n
              0
            ) AS total_penal_interest_inr
          FROM consumers c
-         JOIN allocations a ON a.consumer_id = c.id
+         JOIN allocations a ON a.consumer_id = c.id AND a.status NOT IN ('cancelled', 'transferred')
          JOIN units u ON u.id = a.unit_id
          JOIN towers t ON t.id = u.tower_id
          LEFT JOIN payment_plans pp ON pp.consumer_id = c.id
@@ -2713,7 +2703,7 @@ router.get('/interest-waiver-list', async (req: AuthRequest, res: Response, next
            c.loan_amount,
            c.loan_sanction_date
          FROM consumers c
-         JOIN allocations a ON a.consumer_id = c.id
+         JOIN allocations a ON a.consumer_id = c.id AND a.status NOT IN ('cancelled', 'transferred')
          JOIN units u       ON u.id = a.unit_id
          JOIN towers t      ON t.id = u.tower_id
          WHERE t.project_id = $1

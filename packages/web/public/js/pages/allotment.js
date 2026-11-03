@@ -213,7 +213,7 @@ Pages.allotment = async function(params = {}) {
     <!-- CANCEL ALLOTMENT TAB -->
     <div data-panel-group="allot" data-panel="cancel" style="display:none">
       <div class="alert alert-warn" style="margin-bottom:12px">
-        ⚠ Cancellation will deduct ₹29,500 forfeiture amount (₹25,000 + 18% GST). This action cannot be undone.
+        ⚠ Cancellation will deduct a forfeiture of up to ₹29,500 (₹25,000 + 18% GST), never more than the amount received. This action cannot be undone.
       </div>
       <div class="sp" style="margin-bottom:12px">
         <div class="sp-hdr"><div class="sp-title">Cancel Allotment</div></div>
@@ -537,8 +537,8 @@ const AllotmentPage = {
                        <td>${a.broker_company||'Direct'}</td>
                        <td>${a.bhk_type||'N/A'}</td>
                        <td style="text-align:right">${fmtDec(a.carpet_area_sqft||a.super_area_sqft)}</td>
-                       <td style="text-align:right">${fmtDec(a.base_price_inr)}</td>
-                       <td style="text-align:right">${fmt(a.total_price_inr)}</td>
+                       <td style="text-align:right">${a.base_price_inr != null && (a.carpet_area_sqft || a.super_area_sqft) ? fmtDec(a.base_price_inr / (a.carpet_area_sqft || a.super_area_sqft)) : 'N/A'}</td>
+                       <td style="text-align:right">${fmt(a.base_price_inr)}</td>
                        <td style="white-space:nowrap">${fmtDate(a.allotment_date||a.allocated_date)}</td>
                        <td>
                          <a class="aln-link" href="javascript:void(0)"
@@ -715,7 +715,7 @@ const AllotmentPage = {
     if (!allotId) { Utils.warn('Please select an allotment to cancel'); return; }
 
     if (this._busy.cancel) return;
-    Utils.confirm('Cancel this allotment? ₹29,500 forfeiture will be deducted. This cannot be undone.', async () => {
+    Utils.confirm('Cancel this allotment? A forfeiture of up to ₹29,500 (never more than the amount received) will be deducted. This cannot be undone.', async () => {
       if (this._busy.cancel) return;
       this._busy.cancel = true;
       try {
@@ -785,6 +785,7 @@ const AllotmentPage = {
   async saveAddress() {
     const consumerId = document.getElementById('addr-consumer')?.value;
     if (!consumerId) { Utils.warn('Please select a consumer'); return; }
+    if (!document.getElementById('addr-present-line1')?.value.trim()) { Utils.warn('Present Address is required'); return; }
 
     const body = {
       present_address_line1: document.getElementById('addr-present-line1')?.value,

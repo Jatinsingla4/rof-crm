@@ -427,7 +427,7 @@ const UnitStatusPage = {
     const rera    = units.filter(u => u.status === 'agreement_signed').length;
     const reg     = units.filter(u => u.status === 'possession_handed_over').length;
     const tempSur = units.filter(u => u.status === 'temp_surrender').length;
-    const sold    = total - av;
+    const sold    = total - av - hold - tempSur;   // a unit on hold or temporarily surrendered is not sold
     const totalArea = units.reduce((s,u) => s + parseFloat(u.carpet_area_sqft||0), 0);
 
     // Tower label prefix

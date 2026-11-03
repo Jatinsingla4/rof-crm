@@ -850,21 +850,22 @@ const ReceiptsPage = {
         const wrap = document.getElementById('rec-no-wrap'); if (wrap) wrap.style.display = st?.receipt_number_mode === 'Manual' ? '' : 'none';
       } catch {}
 
-      const totalPaid = receipts.filter(r => (r.status||r.approval_status)==='approved')
-        .reduce((s,r) => s + parseFloat(r.amount||0), 0);
-      const totalAmount = parseFloat(c.total_amount || c.totalAmount || 0);
-      const balance = Math.max(0, totalAmount - totalPaid);
+      // Receipts carry amount_received_inr and a status (pending / cleared / bounced / cancelled); this used to read r.amount and 'approved', so Paid was always 0
+      const sumOf = (st) => receipts.filter(r => r.status === st).reduce((s,r) => s + (parseFloat(r.amount_received_inr) || 0), 0);
+      const totalPaid = sumOf('cleared');
+      const awaiting = sumOf('pending');
+      // The unit's own price, from its allotment: the consumer record carries no price (this panel used to show Rs 0 and a made-up 5% GST)
+      let unitCost = null;
+      try { const al = (await Api.get('/allocations', { params: { consumerId: id, status: 'all', pageSize: 5 } })).data || []; const a = al.find(x => x.status === 'allotted') || al[0]; if (a && a.base_price_inr != null) unitCost = parseFloat(a.base_price_inr); } catch {}
 
       const name = c.name || `${c.first_name||''} ${c.last_name||''}`.trim() || '—';
       document.getElementById('rec-consumer-title').textContent =
         `${name} · ${c.unit_no||c.unit_number||'TBD'} · ${c.project_name||c.projectName||'—'}`;
 
       document.getElementById('rec-fin-grid').innerHTML = `
-        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Unit Cost</div><div style="font-size:14px;font-weight:700">${Utils.currency(totalAmount)}</div></div>
-        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">GST (5%)</div><div style="font-size:14px;font-weight:700">${Utils.currency(totalAmount * 0.05)}</div></div>
-        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Total Cost</div><div style="font-size:14px;font-weight:700">${Utils.currency(totalAmount * 1.05)}</div></div>
-        <div style="text-align:center"><div style="font-size:10px;color:var(--teal);margin-bottom:2px">Paid</div><div style="font-size:14px;font-weight:700;color:var(--teal)">${Utils.currency(totalPaid)}</div></div>
-        <div style="text-align:center"><div style="font-size:10px;color:var(--warn);margin-bottom:2px">Balance</div><div style="font-size:14px;font-weight:700;color:var(--warn)">${Utils.currency(balance)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Unit Cost</div><div style="font-size:14px;font-weight:700">${unitCost == null ? '—' : Utils.currency(unitCost)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--teal);margin-bottom:2px">Paid (cleared)</div><div style="font-size:14px;font-weight:700;color:var(--teal)">${Utils.currency(totalPaid)}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--warn);margin-bottom:2px">Awaiting clearance</div><div style="font-size:14px;font-weight:700;color:var(--warn)">${Utils.currency(awaiting)}</div></div>
         <div style="text-align:center"><div style="font-size:10px;color:var(--red);margin-bottom:2px">No. of Receipts</div><div style="font-size:14px;font-weight:700;color:var(--red)">${receipts.length}</div></div>
       `;
 

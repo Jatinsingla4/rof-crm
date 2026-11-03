@@ -157,6 +157,8 @@ test('Receipts: Receipt Generation records a NEFT receipt for the applicant', as
   await page.locator('#rec-consumer-sel').selectOption(S.consumer);
   await page.getByRole('button', { name: 'FETCH CONSUMER' }).click();
   await expect(page.locator('#receipt-form')).toBeVisible();
+  await expect(page.locator('#rec-fin-grid')).toContainText('Unit Cost');
+  await expect(page.locator('#rec-fin-grid')).not.toContainText('GST (5%)');   // the panel used to invent a 5% GST and show Rs 0
   await page.locator('#rec-type-btg').getByText('NEFT/RTGS').click();
   await page.locator('#rec-txn').fill(`LCN${U}A`);
   await page.locator('#rec-amount').fill('12000');
@@ -1049,6 +1051,10 @@ test('Search Allotment: every filter, wrong values, the date range', async () =>
   await fetchBtn.click(); await settle();
   const set = async (id: string, v: string) => { await page.locator(`#${id}`).fill(v); await fetchBtn.click(); await settle(); };
   await set('searchUnitAddress', `L2-${U}`); await expect(body).toContainText(ALT_A);
+  // the applicant-file link must not show the login token (right-click, Copy link address) and must still open the file
+  await expect(body.locator('a[href*="token="]')).toHaveCount(0);
+  const rate = await body.locator('tbody tr').first().locator('td').nth(8).innerText();   // RATE is per sq.ft, not the unit price
+  expect(Number(rate.replace(/,/g, '')) < 100000 || rate === 'N/A', `RATE column shows ${rate}`).toBe(true);
   await set('searchUnitAddress', `L4-${U}`); await expect(body).toContainText(/No allotments found/); await set('searchUnitAddress', "x' or '1'='1"); await expect(body).toContainText(/No allotments found/);
   await set('searchUnitAddress', ''); await set('searchFirstName', `Alt${'A'}${U}`); await expect(body).toContainText(ALT_A);
   await set('searchFirstName', 'zzzz'); await expect(body).toContainText(/No allotments found/); await set('searchFirstName', '');

@@ -626,12 +626,14 @@ export async function cascadeOverpaymentExcess(
   // overpayment triggered the cascade (same money, same account); null if
   // the source receipt has none set.
   let inheritedBankAccountId: string | null = null;
+  let sourceDate: string | null = null;   // an advance part carries the date of the payment it came from, not today
   if (sourceReceiptId) {
     const sourceReceiptRes = await client.query(
-      `SELECT company_bank_account_id FROM receipts WHERE id = $1`,
+      `SELECT company_bank_account_id, received_date::text AS received_date FROM receipts WHERE id = $1`,
       [sourceReceiptId]
     );
     inheritedBankAccountId = sourceReceiptRes.rows[0]?.company_bank_account_id || null;
+    sourceDate = sourceReceiptRes.rows[0]?.received_date || null;
   }
 
   let excess = excessAmount;
@@ -659,10 +661,10 @@ export async function cascadeOverpaymentExcess(
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
           is_advance, advance_from_demand_id, company_bank_account_id)
-       VALUES ($1,$2,$3,$4,$5,$6,CURRENT_DATE,$7,$8,0,'pending','pending','not_printed',true,$9,$10)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, CURRENT_DATE),$7,$8,0,'pending','pending','not_printed',true,$9,$10)
        RETURNING id`,
       [consumerId, paymentPlanId, nextId, nextIdx, excess,
-       method, userId, advanceNum, sourceId, inheritedBankAccountId]
+       method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate]
     );
     const advanceReceiptId = advanceReceiptRes.rows[0].id;
     await client.query(
@@ -675,7 +677,7 @@ export async function cascadeOverpaymentExcess(
       [paymentPlanId]
     );
     const advanceProjectId: string | null = planProjectRes.rows[0]?.project_id || null;
-    const advanceReceivedDate = new Date().toISOString().split('T')[0];
+    const advanceReceivedDate = sourceDate || new Date().toISOString().split('T')[0];
     const advanceGstSplit = await computeReceiptGstSplit(client, excess, advanceProjectId, advanceReceivedDate);
     await client.query(
       `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,

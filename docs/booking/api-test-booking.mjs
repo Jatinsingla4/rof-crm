@@ -94,6 +94,8 @@ const brk = (id) => psql(`select status from booking_records where id='${id}'`);
   await bad400('basic rate negative', { basic_price: -1 });
   await bad400('basic rate 10 lakh a sq ft x 10', { basic_price: 1e7 });
   await bad400('carpet area "x"', { carpet_area_sqft: 'x' });
+  await bad400('carpet area 0', { carpet_area_sqft: 0 });
+  await bad400('basic rate with 5 decimals', { basic_price: 7857.14286 });
   await bad400('booking_type "weird"', { booking_type: 'weird' });
   await bad400('commission type "x"', { broker_commission_type: 'x' });
   await bad400('percentage commission 150', { broker_commission_type: 'percent', broker_commission: 150 });
@@ -211,6 +213,18 @@ let done1;
   t('complete: plan total = rate x carpet + PLC + other charge - discount (5,000 x 1,000 + 100,000 + 50,000 - 25,000)', Number(pp) === 5125000, pp);
   const dem = psql(`select count(*)||'|'||sum(d.amount_due_inr) from demands d join payment_plans p on p.id=d.payment_plan_id where p.consumer_id='${fin.c}'`).split('|');
   t('complete: one demand per plan row and they add up to the plan total', Number(dem[0]) === 3 && Math.abs(Number(dem[1]) - 5125000) <= 3, dem.join('|'));
+  { // the form sends price / carpet area as the rate; the plan must come to the unit's price to the rupee (55,00,000 / 700 = 7857.142857...)
+    const c7 = await person(), u7 = await unit(P1, T1, 700, 5500000);
+    const x7 = await book(c7, u7, { basic_price: Math.round(5500000 * 10000 / 700) / 10000 });
+    const f7 = await finish(x7.j.data.id, { booking_amount: 100000, payment_mode: 'cash' });
+    const p7 = psql(`select total_amount_inr from payment_plans where consumer_id='${c7}'`);
+    t('complete: a rate of price / area (4 decimals) gives a plan total equal to the unit price', f7.s === 200 && Number(p7) === 5500000, f7.s + ' ' + p7);
+  }
+  { // a unit whose price is not set yet must not be booked: the plan, GST and demands would all be 0
+    const c8 = await person(), mk = await A('POST', '/units', { projectId: P1, towerId: T1, unitNumber: `NP${++un}-${U}`, floor: 1, bhkType: '2BHK', carpetAreaSqft: 700, superAreaSqft: 900 });
+    const x8 = await book(c8, mk.j.data.id, {});
+    t('create: a unit with no price cannot be booked -> 400', mk.s === 201 && x8.s === 400 && /no price/.test(x8.j.error || ''), mk.s + ' ' + x8.s + ' ' + JSON.stringify(x8.j).slice(0, 120));
+  }
   t('complete: allocation booked, applicant linked to the unit, unit booked', psql(`select status from allocations where consumer_id='${fin.c}'`) === 'booked' && psql(`select allocated_unit_id from consumers where id='${fin.c}'`) === fin.u && psql(`select status from units where id='${fin.u}'`) === 'booked');
   t('complete: a cheque booking makes a cheque receipt for the amount', psql(`select method||'|'||amt from (select payment_method::text as method, amount_received_inr as amt from receipts where consumer_id='${fin.c}') x`) === 'cheque|100000');
   r = await finish(fin.id); t('complete: confirming again -> 409, nothing doubled', r.s === 409 && psql(`select count(*) from receipts where consumer_id='${fin.c}'`) === '1' && psql(`select count(*) from payment_plans where consumer_id='${fin.c}'`) === '1', r.s + JSON.stringify(r.j));
@@ -270,11 +284,15 @@ let done1;
   await bad('applicant annual income -5', { annual_income: -5 });
   await bad('applicant name as object', { first_name: { a: 1 } });
   await bad('applicant mobile of another applicant in the project', { mobile: (await A('GET', `/consumers/${other}`)).j.data.mobile }, 409);
+  r = await A('PATCH', `/consumers/${e.c}`, { present_address_line1: '' }); t('applicant: the present address cannot be cleared while a booking exists -> 400', r.s === 400 && /present address/.test(r.j.error || ''), r.s + JSON.stringify(r.j).slice(0, 120));
   r = await A('PATCH', `/booking/${NIL}/edit`, { remarks: 'x' }); t('edit: unknown booking -> 404', r.s === 404, r.s);
   r = await A('PATCH', '/booking/not-an-id/edit', { remarks: 'x' }); t('edit: id that is not an id -> 400', r.s === 400, r.s);
-  t('edit: nothing from the refused tries was saved', psql(`select basic_rate_inr_sqft from booking_records where id='${e.id}'`) === '4000.00' && psql(`select coalesce(remarks,'') from booking_records where id='${e.id}'`) === '');
+  t('edit: nothing from the refused tries was saved', psql(`select basic_rate_inr_sqft from booking_records where id='${e.id}'`) === '4000.0000' && psql(`select coalesce(remarks,'') from booking_records where id='${e.id}'`) === '');
   r = await ed({ basic_rate_inr_sqft: 4500, remarks: 'edited', first_name: 'newfirst', last_name: 'newlast', email: 'NEW@Mail.com', pan_no: 'abcde1234f', present_city: 'Rohtak' });
-  t('edit: a pending booking takes a new rate, note and applicant details', r.s === 200 && r.j.data.booking.basic_rate_inr_sqft === '4500.00' && r.j.data.consumer.name === 'Newfirst Newlast' && r.j.data.consumer.email === 'new@mail.com' && r.j.data.consumer.pan_no === 'ABCDE1234F' && r.j.data.consumer.present_city === 'Rohtak', r.s + JSON.stringify(r.j).slice(0, 200));
+  t('edit: a pending booking takes a new rate, note and applicant details', r.s === 200 && r.j.data.booking.basic_rate_inr_sqft === '4500.0000' && r.j.data.consumer.name === 'Newfirst Newlast' && r.j.data.consumer.email === 'new@mail.com' && r.j.data.consumer.pan_no === 'ABCDE1234F' && r.j.data.consumer.present_city === 'Rohtak', r.s + JSON.stringify(r.j).slice(0, 200));
+  await bad('rate with 5 decimals', { basic_rate_inr_sqft: 7857.14286 });
+  r = await ed({ basic_rate_inr_sqft: 7857.1429 }); t('edit: a rate keeps 4 decimals, so rate x area stays within 50 paise of the unit price', r.s === 200 && psql(`select basic_rate_inr_sqft from booking_records where id='${e.id}'`) === '7857.1429', r.s + JSON.stringify(r.j).slice(0, 120));
+  await ed({ basic_rate_inr_sqft: 4500 }); // back to the rate the later tests expect
   r = await ed({ email: '', present_city: '', remarks: 'edited' }); t('edit: blank boxes from the form leave the applicant values as they are', r.s === 200 && r.j.data.consumer.email === 'new@mail.com' && r.j.data.consumer.present_city === 'Rohtak', JSON.stringify(r.j.data?.consumer).slice(0, 120));
   r = await ed({}); t('edit: nothing to change -> 200, changed is empty', r.s === 200 && r.j.changed.length === 0, JSON.stringify(r.j.changed));
   r = await ed({ form_no: 'FORM-' + U }); t('edit: a form number used by another booking -> 409', r.s === 409, r.s);

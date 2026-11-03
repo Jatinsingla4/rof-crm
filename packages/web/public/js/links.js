@@ -25,11 +25,16 @@
     linkUrl(url).then((u) => { if (w) w.location.href = u; }).catch((e) => { if (w) w.close(); if (window.Utils && Utils.error) Utils.error(e.message); });
     return w;
   };
+  // A link must not carry the login token where "Copy link address" or the status bar can show it: the address is kept aside until the click
+  const hideOne = (a) => { const h = a.getAttribute('href'); if (isLink(h)) { a.dataset.href = h; a.setAttribute('href', 'javascript:void(0)'); } };
+  const hide = (n) => { if (n.nodeType !== 1) return; if (n.matches('a[href]')) hideOne(n); n.querySelectorAll('a[href*="token="]').forEach(hideOne); };
+  new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach(hide))).observe(document.documentElement, { childList: true, subtree: true });
   const route = (e) => {
     const a = e.target.closest && e.target.closest('a[href]');
-    if (!a || !isLink(a.getAttribute('href'))) return;
+    const h = a && (a.dataset.href || a.getAttribute('href'));
+    if (!a || !isLink(h)) return;
     e.preventDefault();
-    window.open(a.getAttribute('href'), '_blank');
+    window.open(h, '_blank');
   };
   document.addEventListener('click', route, true);
   document.addEventListener('auxclick', route, true);

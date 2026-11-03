@@ -404,6 +404,9 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             const cur = (await c.query(`SELECT * FROM consumers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Applicant not found', 404);
+            // The present address is asked for on every booking, so it cannot be wiped while the applicant holds one
+            if (upd.present_address === null && (await c.query("SELECT 1 FROM booking_records WHERE consumer_id = $1 AND status <> 'cancelled' LIMIT 1", [id])).rows.length)
+                throw (0, input_js_1.bad)('The present address cannot be cleared while the applicant has a booking');
             // Old records may hold values that today's rules refuse; sending such a value back unchanged is fine, a new bad value is not
             for (const [col, { e, raw }] of Object.entries(errs))
                 if ((0, applicant_fields_js_1.asText)(typeof raw === 'string' ? raw.trim() : raw) !== (0, applicant_fields_js_1.asText)(cur[col]))

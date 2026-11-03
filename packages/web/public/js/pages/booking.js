@@ -1677,7 +1677,7 @@ const BookingPage = {
       // The field is the carpet area; a unit with no carpet area (a shop priced on super area) falls back to the super area.
       const displayArea = carpet > 0 ? carpet : superArea;
       document.querySelector('[name="carpet_area_sqft"]').value = displayArea ? displayArea.toFixed(3) : '';
-      if (price && displayArea) document.querySelector('[name="basic_price"]').value = Math.round(price * 100 / displayArea) / 100;
+      if (price && displayArea) document.querySelector('[name="basic_price"]').value = Math.round(price * 10000 / displayArea) / 10000;
       // In "Any" mode, promote BHK dropdown only when the unit has a recognisable BHK type
       const actualBhk = opt?.dataset?.bhk;
       const extracted = actualBhk ? extractBhk(actualBhk) : '';
