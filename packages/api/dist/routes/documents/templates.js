@@ -20,12 +20,14 @@ const letterBody = (v, required) => {
         throw (0, input_js_1.bad)('The template body must be text');
     if (v.length > 500000)
         throw (0, input_js_1.bad)('The template body is too large (500,000 characters at most)');
+    if (v.includes('\u0000'))
+        throw (0, input_js_1.bad)('The template body contains a character that cannot be saved');
     return v;
 };
 const fieldList = (v) => {
     if (!(0, input_js_1.has)(v))
         return null;
-    if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || !x.trim() || x.length > 100))
+    if (!Array.isArray(v) || v.length > 100 || v.some((x) => typeof x !== 'string' || !x.trim() || x.length > 100 || x.includes('\u0000')))
         throw (0, input_js_1.bad)('mergeFields must be a list of up to 100 names');
     return v;
 };
