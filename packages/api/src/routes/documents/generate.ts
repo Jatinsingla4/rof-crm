@@ -167,7 +167,7 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
 
     if (!template) {
       console.error(`[GENERATE] ❌ Template not found for documentType=${documentType}`);
-      return res.status(404).json({ error: 'Document template not found' });
+      return res.status(404).json({ error: `No ${String(documentType).replace(/_/g, ' ')} template is set up yet. Add one under Documents → Templates.` });
     }
     console.log(`[GENERATE] ✓ Template resolved successfully`);
 
