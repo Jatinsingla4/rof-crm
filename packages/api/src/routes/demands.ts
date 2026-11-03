@@ -442,7 +442,7 @@ router.get('/demand-status', async (req: AuthRequest, res: Response, next: NextF
       ${where}`;
     const dataParams = [...params];
     const data = await db.query(`
-      SELECT c.id AS consumer_id, c.registration_no, c.name, c.mobile, c.present_city,
+      SELECT c.id AS consumer_id, u.id AS unit_id, c.registration_no, c.name, c.mobile, c.present_city,
              br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.floor AS floor_number, u.bhk_type, p.name AS project_name,
              (SELECT fl.floor_name FROM floors fl WHERE fl.tower_id = u.tower_id AND fl.floor_number = u.floor) AS floor_name,
              COUNT(d.id)::int AS total_demands,
@@ -454,10 +454,26 @@ router.get('/demand-status', async (req: AuthRequest, res: Response, next: NextF
              COALESCE(SUM(CASE WHEN d.status != 'paid' THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) ELSE 0 END), 0)::bigint AS outstanding,
              MAX(d.delivery_status) AS delivery_status
       ${FROM}
-      GROUP BY c.id, c.registration_no, c.name, c.mobile, c.present_city, br.id, br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.tower_id, u.floor, u.bhk_type, p.name
+      GROUP BY c.id, u.id, c.registration_no, c.name, c.mobile, c.present_city, br.id, br.booking_date, br.booking_amount, u.unit_number, t.tower_name, u.tower_id, u.floor, u.bhk_type, p.name
       ORDER BY c.name ASC, c.id ASC
       LIMIT $${dataParams.length + 1} OFFSET $${dataParams.length + 2}`, [...dataParams, limit, (page - 1) * limit]);
     const count = await db.query(`SELECT COUNT(DISTINCT br.id) AS total ${FROM}`, params);
+
+    // paid and balance as the money really lands: cleared receipts fill the instalments in order (an overpayment runs into the next one)
+    await Promise.all(data.rows.map(async (r: any) => {
+      const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
+      const [rc, dm] = await Promise.all([
+        db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at FROM receipts
+                   WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
+        db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
+                    FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan} AND status <> 'cancelled'`, [r.consumer_id, r.unit_id]),
+      ]);
+      const due = (dm.rows as any[]).reduce((t, d) => t + ['amount_due_inr', 'cgst_amount', 'sgst_amount', 'addon_charge_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((x, k) => x + Number(d[k] || 0), 0), 0);
+      const paid = applyWaterfall(rc.rows as WaterfallReceipt[], dm.rows as WaterfallDemand[]).reduce((t, w) => t + w.paid, 0);
+      r.paid_amount = Math.round(paid * 100) / 100;
+      r.balance_amount = Math.max(0, Math.round((due - paid) * 100) / 100);
+      r.unadjusted_credit = Math.max(0, Math.round(((rc.rows as any[]).reduce((t, x) => t + Number(x.amount_received_inr), 0) - paid) * 100) / 100);
+    }));
 
     res.json({ success: true, data: data.rows, total: parseInt(count.rows[0]?.total || '0'), page, limit });
   } catch (err) { fail(err, res, next); }

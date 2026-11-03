@@ -249,6 +249,18 @@ t('set-up: demand amounts follow the plan (20/30/50 of the total)', psql(`select
   const me = r.j.data?.find(x => x.consumer_id === b.c.id);
   const tot = Number(psql(`select sum(amount_due_inr + cgst_amount + sgst_amount) from demands where consumer_id='${b.c.id}'`));
   t('status page: the customer shows 3 demands, 1 raised, 2 pending, with the right total', me && me.total_demands === 3 && me.active_demands === 1 && me.pending_demands === 2 && Number(me.total_due) === tot, JSON.stringify(me));
+  t('status page: nothing paid yet shows paid 0 and the whole plan as balance', Number(me.paid_amount) === 0 && Math.abs(Number(me.balance_amount) - tot) < 1 && Number(me.unadjusted_credit) === 0, JSON.stringify(me));
+  {
+    // an advance of one and a half installments: the first is full, the half runs into the second (waterfall), the balance falls by the whole advance
+    const ppid = psql(`select id from payment_plans where consumer_id='${b.c.id}' order by created_at desc limit 1`);
+    const d0 = Number(psql(`select amount_due_inr + cgst_amount + sgst_amount from demands where id='${b.d[0]}'`)), adv = Math.round(d0 * 1.5);
+    psql(`insert into receipts (consumer_id, payment_plan_id, amount_received_inr, payment_method, status, received_date) values ('${b.c.id}','${ppid}',${adv},'cash','cleared',current_date) returning id`);
+    r = await A('GET', `/payments/demand-status?project_id=${P1}&name=${encodeURIComponent(b.c.name)}`); const me3 = r.j.data.find(x => x.consumer_id === b.c.id);
+    t('status page: an advance of 1.5 installments shows paid = the advance and the balance down by the same', Math.abs(Number(me3.paid_amount) - adv) < 0.01 && Math.abs(Number(me3.balance_amount) - (tot - adv)) < 1 && Number(me3.unadjusted_credit) === 0, JSON.stringify(me3));
+    const dl = await A('GET', `/payments/demands?consumerId=${b.c.id}`); const paidOf = (i) => Number(dl.j.data?.find(x => x.installment_index === i)?.total_paid);
+    t('demands list: the first installment is paid in full and the second carries the overflow', Math.abs(paidOf(1) - d0) < 0.01 && Math.abs(paidOf(2) - (adv - d0)) < 0.01, JSON.stringify(dl.j.data?.map(x => [x.installment_index, x.total_paid])));
+    psql(`delete from receipts where consumer_id='${b.c.id}' and amount_received_inr=${adv}`);
+  }
   psql(`update demands set status='cancelled' where id='${b.d[2]}'`);
   r = await A('GET', `/payments/demand-status?project_id=${P1}&name=${encodeURIComponent(b.c.name)}`); const me2 = r.j.data.find(x => x.consumer_id === b.c.id);
   t('status page: a cancelled demand leaves the totals', me2.total_demands === 2 && Number(me2.total_due) < tot, JSON.stringify(me2));

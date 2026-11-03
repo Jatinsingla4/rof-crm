@@ -175,17 +175,8 @@ Pages.consumerDetail = async function(params = {}) {
       <!-- SCHEDULE GENERATOR TAB -->
       <div data-panel-group="prof" data-panel="schedule" style="display:none">
         <div class="card" style="margin-bottom:14px">
-          <div class="card-hdr"><div class="card-title">Payment Schedule Generator</div></div>
-          <div style="display:flex;gap:12px;align-items:end;margin-bottom:16px">
-            <div class="fg" style="flex:1">
-              <label class="fl">Allotment Date (Anchor)</label>
-              <input type="date" id="anchor-date" class="fc" value="${Utils.today()}">
-            </div>
-            <button class="btn btn-teal" onclick="ConsumerDetailPage.generateSchedule('${id}')">Generate Schedule</button>
-          </div>
-          <div id="schedule-grid-${id}">
-            <div class="empty-state">Select anchor date to generate installment schedule</div>
-          </div>
+          <div class="card-hdr"><div class="card-title">Payment Schedule</div></div>
+          <div id="schedule-grid-${id}"><div class="page-loading"><div class="spinner"></div></div></div>
         </div>
       </div>
 
@@ -302,57 +293,6 @@ const ConsumerDetailPage = {
     } catch(err) { Utils.error('Failed to update base rate: ' + err.message); }
   },
 
-  async generateSchedule(consumerId) {
-    const anchorDate = document.getElementById('anchor-date').value;
-    if (!anchorDate) { Utils.warn('Select an anchor date'); return; }
-    
-    // Simulate generator logic for the UI (real one is on backend)
-    const d = new Date(anchorDate);
-    const m = (days) => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd.toISOString().split('T')[0]; };
-    
-    const schedule = [
-      { sn:1, name:'At the time of Application', pct:5, due: m(0) },
-      { sn:2, name:'Within 15 days of Allotment', pct:20, due: m(15) },
-      { sn:3, name:'Within 6 months from Allotment', pct:12.5, due: m(180) },
-      { sn:4, name:'Within 12 months from Allotment', pct:12.5, due: m(360) },
-      { sn:5, name:'Within 18 months from Allotment', pct:12.5, due: m(540) },
-      { sn:6, name:'Within 24 months from Allotment', pct:12.5, due: m(720) },
-      { sn:7, name:'Within 30 months from Allotment', pct:12.5, due: m(900) },
-      { sn:8, name:'Within 36 months from Allotment', pct:12.5, due: m(1080) },
-    ];
-
-    const baseVal = parseFloat(document.getElementById('total-cons-val')?.textContent.replace(/[^0-9.]/g,'') || 2500000);
-
-    const rows = schedule.map(s => {
-      const amt = baseVal * (s.pct / 100);
-      return `<tr>
-        <td>${s.sn}</td><td>${s.name}</td><td><input type="date" class="fc" style="padding:4px;font-size:11px" value="${s.due}"></td>
-        <td>${s.pct}%</td><td style="font-weight:600">${Utils.currency(amt)}</td>
-      </tr>`;
-    }).join('');
-
-    document.getElementById(`schedule-grid-${consumerId}`).innerHTML = `
-      <table style="width:100%;font-size:11px">
-        <thead>
-          <tr><th>S.No</th><th>Installment Name</th><th>Due Date</th><th>%</th><th>Total Due</th></tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-ghost btn-sm" onclick="Utils.info('Draft Saved')">Save Draft</button>
-        <button class="btn btn-teal btn-sm" onclick="ConsumerDetailPage.proceedSchedule('${consumerId}')">Proceed & Raise Demand</button>
-      </div>
-    `;
-  },
-
-  async proceedSchedule(consumerId) {
-    // Collect the updated dates from the grid and call backend to lock the schedule
-    try {
-      Utils.success('Payment Schedule generated and demands queued');
-      switchTab('prof','payments');
-    } catch (err) { Utils.error(err.message); }
-  },
-
   async loadPaymentData(id) {
     try {
       const [receiptRes, demandRes] = await Promise.allSettled([
@@ -428,30 +368,45 @@ const ConsumerDetailPage = {
           </tbody>
         </table>`;
 
+      // paid per installment is its share of the cleared receipts: an overpayment runs into the next installment
+      const rows = demands.map(d => {
+        const principal = parseFloat(d.amount_due_inr || 0);
+        const total = ['amount_due_inr', 'cgst_amount', 'sgst_amount', 'addon_charge_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((t, k) => t + parseFloat(d[k] || 0), 0);
+        const paid = Math.min(parseFloat(d.installment_paid ?? d.total_paid ?? 0), total);
+        const balance = Math.max(0, total - paid);
+        const state = total > 0 && balance < 0.005 ? ['Paid', 'ch-green'] : paid > 0 ? ['Part paid', 'ch-warn'] : d.status === 'demanded' ? ['Raised', 'ch-blue'] : ['Not raised', 'ch-gray'];
+        return { d, principal, total, paid, balance, state };
+      });
+
       const dTbl = document.getElementById(`demands-tbl-${id}`);
       if (dTbl) dTbl.innerHTML = `
         <table>
-          <thead><tr><th>Demand ID</th><th>Principal</th><th>Interest</th><th>Net Due</th><th>Due Date</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
+          <thead><tr><th>Installment</th><th>Principal</th><th>Total with GST</th><th>Paid</th><th>Balance</th><th>Due Date</th><th>Status</th><th>Action</th></tr></thead>
           <tbody>
-            ${demands.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">No demands raised</td></tr>'
-              : demands.map(d => {
-                  const sent = d.sent_at || d.sentAt;
-                  const dtype = d.demand_type || d.demandType || 'main';
-                  const principal = parseFloat(d.amount_due_inr || d.amount || 0);
-                  const interest = parseFloat(d.penalInterestInr || d.penal_interest_inr || 0);
-                  const netDue = principal + interest;
-                  const chipCls = dtype.includes('1') ? 'ch-warn' : dtype.includes('2') ? 'ch-red' : 'ch-blue';
-                  return `<tr>
-                    <td class="td-mono">${(d.id||'').slice(0,8)}</td>
+            ${rows.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:var(--text3);padding:20px">No demands raised</td></tr>'
+              : rows.map(({ d, principal, total, paid, balance, state }) => `<tr>
+                    <td>${Utils.esc(d.installment_name || '—')}</td>
                     <td style="font-weight:600">${Utils.currency(principal)}</td>
-                    <td style="color:var(--red)">${Utils.currency(interest)}</td>
-                    <td style="font-weight:700">${Utils.currency(netDue)}</td>
-                    <td style="color:var(--warn)">${Utils.date(d.due_date||d.dueDate)}</td>
-                    <td><span class="chip ${chipCls}">${dtype}</span></td>
-                    <td><span class="chip ${sent?'ch-green':'ch-gray'}">${sent?'Sent':'Unsent'}</span></td>
-                    <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this,'${d.due_date||d.dueDate||''}')">Print</button></td>
-                  </tr>`;}).join('')}
+                    <td style="font-weight:700">${Utils.currency(total)}</td>
+                    <td style="color:var(--green)">${Utils.currency(paid)}</td>
+                    <td style="font-weight:600">${Utils.currency(balance)}</td>
+                    <td style="color:var(--warn)">${d.status === 'demanded' || d.status === 'paid' ? Utils.date(d.due_date) : '—'}</td>
+                    <td><span class="chip ${state[1]}">${state[0]}</span></td>
+                    <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this,'${d.due_date || ''}')">Print</button></td>
+                  </tr>`).join('')}
           </tbody>
+        </table>`;
+
+      const sGrid = document.getElementById(`schedule-grid-${id}`);
+      if (sGrid) sGrid.innerHTML = rows.length === 0 ? '<div class="empty-state">No payment plan on this booking yet</div>' : `
+        <table style="width:100%;font-size:12px">
+          <thead><tr><th>S.No</th><th>Installment</th><th>Due Date</th><th>Total with GST</th><th>Paid</th><th>Balance</th></tr></thead>
+          <tbody>${rows.map(({ d, total, paid, balance }, i) => `<tr>
+            <td>${i + 1}</td><td>${Utils.esc(d.installment_name || '—')}</td>
+            <td>${d.status === 'demanded' || d.status === 'paid' ? Utils.date(d.due_date) : 'Not raised'}</td>
+            <td style="font-weight:600">${Utils.currency(total)}</td><td style="color:var(--green)">${Utils.currency(paid)}</td><td>${Utils.currency(balance)}</td></tr>`).join('')}
+          </tbody>
+          <tfoot><tr style="font-weight:700"><td colspan="3">Total</td><td>${Utils.currency(rows.reduce((t, r) => t + r.total, 0))}</td><td>${Utils.currency(rows.reduce((t, r) => t + r.paid, 0))}</td><td>${Utils.currency(rows.reduce((t, r) => t + r.balance, 0))}</td></tr></tfoot>
         </table>`;
     } catch (err) { console.error('Payment data error:', err); }
   },

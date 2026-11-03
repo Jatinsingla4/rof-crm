@@ -139,6 +139,8 @@ const DS = {
                   <th>TOWER NAME</th>
                   <th>FLOOR NAME</th>
                   <th>MOBILE NO.</th>
+                  <th style="text-align:right;">PAID</th>
+                  <th style="text-align:right;">BALANCE</th>
                   <th style="text-align:center;width:40px;">D</th>
                 </tr></thead>
                 <tbody id="ds-tbody"></tbody>
@@ -223,7 +225,7 @@ const DS = {
     if (this._type !== 'all') params.set('demand_status', this._type);
 
     const tbody = document.getElementById('ds-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text3);">Loading…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;color:var(--text3);">Loading…</td></tr>';
 
     try {
       const token = Auth?.getToken?.() || localStorage.getItem('rof-jwt') || '';
@@ -238,7 +240,7 @@ const DS = {
       if (results) results.style.display = 'block';
 
       if (!rows.length) {
-        if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text3);">No records found</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:30px;color:var(--text3);">No records found</td></tr>';
         return;
       }
 
@@ -255,6 +257,8 @@ const DS = {
           <td>${r.tower_name||'—'}</td>
           <td>${Utils.esc(Utils.floorLabel(r.floor_number, r.floor_name))}</td>
           <td>${r.mobile||'—'}</td>
+          <td style="text-align:right">${Utils.currency(r.paid_amount||0)}${r.unadjusted_credit>0?`<div style="font-size:10px;color:var(--teal)">+ ${Utils.currency(r.unadjusted_credit)} paid beyond the plan</div>`:''}</td>
+          <td style="text-align:right;font-weight:600">${Utils.currency(r.balance_amount||0)}</td>
           <td style="text-align:center">
             <button onclick="DS.openLetter('${r.consumer_id}')" class="ds-btn-d">D</button>
           </td>
@@ -276,7 +280,7 @@ const DS = {
           <button onclick="DS._page=${totalPages};DS._loadData()" >&#8677;</button>
         </span>`;
     } catch (err) {
-      if (tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--red);">Failed to load — ${err.message}</td></tr>`;
+      if (tbody) tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:30px;color:var(--red);">Failed to load — ${err.message}</td></tr>`;
     }
   },
 
