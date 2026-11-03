@@ -98,7 +98,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
            u.unit_number, u.floor,
            u.bhk_type,
            u.super_area_sqft,
-           u.carpet_area_sqft,
+           COALESCE(NULLIF(br.carpet_area_sqft, 0), u.carpet_area_sqft) AS carpet_area_sqft,
            t.tower_name,
            p.id AS project_id,
            p.name AS project_name,

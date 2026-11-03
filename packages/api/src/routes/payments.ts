@@ -1893,7 +1893,7 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
         c.loan_amount,
         u.unit_number,
         u.floor,
-        u.base_price_inr,
+        COALESCE(NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price, not the price of a unit the customer was shifted to
         u.total_price_inr,
         t.tower_name,
         p.name AS project_name,

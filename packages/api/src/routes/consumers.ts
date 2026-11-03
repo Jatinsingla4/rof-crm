@@ -582,7 +582,8 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
           c.income_category, c.lead_stage, c.annual_income,
           c.grace_period_days, c.interest_start_date,
           u.unit_number, u.floor, u.bhk_type,
-          u.carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
+          -- the deal was priced on the booking's own area: a unit shift must not change it
+          COALESCE(NULLIF(br.carpet_area_sqft, 0), u.carpet_area_sqft) AS carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
           u.base_price_inr, u.total_price_inr, u.facing,
           t.tower_name,
           p.name AS project_name, p.location AS project_location,
