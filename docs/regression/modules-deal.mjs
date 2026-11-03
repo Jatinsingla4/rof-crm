@@ -149,4 +149,42 @@ truth('loan: TPA before sanction is refused', (await api('POST', '/loans', { con
   truth('tds: challan date in the future is refused', (await api('POST', '/payments/tds/challans', { challanNumber: 'F-' + RUN, challanDate: '2999-01-01', amount: 5 })).s === 400);
   truth('tds: zero amount and a 6 digit BSR are refused', (await api('POST', '/payments/tds/challans', { challanNumber: 'Z-' + RUN, challanDate: today, amount: 0 })).s === 400 && (await api('POST', '/payments/tds/challans', { challanNumber: 'B-' + RUN, challanDate: today, amount: 5, bsrCode: '123456' })).s === 400);
 }
+
+// ---------------- GST invoice lifecycle: credit note, cancel, reverse ----------------
+{
+  const C = buyer; const mk = async (base, rate) => ok(await api('POST', '/payments/gst-invoices', { consumerId: C, baseAmount: base, gstRate: rate, invoiceDate: today }), 'invoice');
+  const inv1 = await mk(100000, 18);
+  const c1 = await api('POST', '/payments/gst-invoices/cancel', { invoiceNumber: inv1.invoice_no, reason: 'audit cancel' });
+  truth('invoice cancel: accepted', c1.s === 200, c1.t); const n1 = c1.j?.data?.creditNote;
+  if (n1) { check('cancel: credit note taxable = invoice taxable 100000', n1.adjustment_amount, 100000); check('cancel: credit note GST = 18000', n1.gst_amount, 18000); check('cancel: credit note total = 118000', n1.total_amount, 118000); }
+  truth('invoice cancel: a second cancel is refused', (await api('POST', '/payments/gst-invoices/cancel', { invoiceNumber: inv1.invoice_no })).s === 409);
+  truth('invoice cancel: unknown invoice number is 404', (await api('POST', '/payments/gst-invoices/cancel', { invoiceNumber: 'INV-NOPE' })).s === 404);
+  // a partial credit note first, then cancel: the cancel credits only what is left
+  const inv2 = await mk(50000, 12);
+  const cn = await api('POST', '/payments/gst-invoices/credit-debit-note', { noteType: 'credit', originalInvoiceNumber: inv2.invoice_no, adjustmentAmount: 10000, gstRate: 12, reason: 'audit partial credit' });
+  truth('credit note: raised', cn.s === 201, cn.t); const nid = cn.j?.data?.id;
+  if (nid) { check('credit note: GST on 10,000 at 12%', cn.j.data.gst_amount, 1200); check('credit note: total 11,200', cn.j.data.total_amount, 11200); truth('credit note: approved by a checker', (await api('PATCH', '/payments/credit-debit-notes/' + nid + '/approve', {})).s === 200); }
+  truth('credit note: more than the invoice is refused', (await api('POST', '/payments/gst-invoices/credit-debit-note', { noteType: 'credit', originalInvoiceNumber: inv2.invoice_no, adjustmentAmount: 45000, gstRate: 12, reason: 'too much' })).s === 409);
+  const c2 = await api('POST', '/payments/gst-invoices/cancel', { invoiceNumber: inv2.invoice_no, reason: 'cancel after partial credit' }); const n2 = c2.j?.data?.creditNote;
+  if (n2) { check('cancel after a partial credit: credits only the remaining 40,000', n2.adjustment_amount, 40000); check('  its GST at 12% = 4,800', n2.gst_amount, 4800); check('  its total = 44,800', n2.total_amount, 44800); } else truth('cancel after partial credit gave a note', false, c2.t);
+  const inv3 = await mk(20000, 5); const rv = await api('POST', '/payments/gst-invoices/reverse', { invoiceNumber: inv3.invoice_no, reversalDate: today, reason: 'audit reverse' });
+  truth('invoice reverse: accepted with a credit note of the full invoice', rv.s === 200 && Number(rv.j?.data?.creditNote?.total_amount) === 21000, rv.t.slice(0, 160));
+  truth('invoice reverse: a reversal date in the future is refused', (await api('POST', '/payments/gst-invoices/reverse', { invoiceNumber: (await mk(1000, 5)).invoice_no, reversalDate: '2999-01-01' })).s === 400);
+  const dn = await mk(10000, 18); const d1 = await api('POST', '/payments/gst-invoices/credit-debit-note', { noteType: 'debit', originalInvoiceNumber: dn.invoice_no, adjustmentAmount: 2500, gstRate: 18, reason: 'audit debit' });
+  truth('debit note: raised', d1.s === 201, d1.t); if (d1.s === 201) { check('debit note: GST on 2,500 at 18% = 450', d1.j.data.gst_amount, 450); check('debit note: total 2,950', d1.j.data.total_amount, 2950); }
+}
+
+// ---------------- journal entry ----------------
+{
+  const C = buyer; const form = async () => { const h = await (await fetch(B + '/payments/receipt-form/' + C, { headers: { authorization: 'Bearer ' + tok } })).text(); return (h.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').match(/Balance: (-?[\d,.]+)/) || [])[1]; };
+  const j = (b) => api('POST', '/payments/journals', { consumerId: C, ledgerHead: 'Audit head', entryDate: today, ...b });
+  const before = await form();
+  const d1 = await j({ debitAmount: 5000, remarks: 'audit debit' }); truth('journal: a debit entry is saved as pending', d1.s === 201 && d1.j?.data?.status === 'pending', d1.t);
+  truth('journal: both debit and credit together is refused', (await j({ debitAmount: 1, creditAmount: 1 })).s === 400);
+  truth('journal: neither debit nor credit is refused', (await j({})).s === 400);
+  truth('journal: a negative amount is refused', (await j({ debitAmount: -5 })).s === 400);
+  truth('journal: an unknown applicant is 404', (await api('POST', '/payments/journals', { consumerId: '00000000-0000-0000-0000-000000000000', ledgerHead: 'x', debitAmount: 5 })).s === 404);
+  if (d1.s === 201) { const ap = await api('PATCH', '/payments/journals/' + d1.j.data.id + '/approve', {}); truth('journal: a checker approves it', ap.s === 200, ap.t); truth('journal: approving again is refused', (await api('PATCH', '/payments/journals/' + d1.j.data.id + '/approve', {})).s === 404); }
+  const after = await form(); console.log(`note  Receipt Form balance before ${before} and after an approved debit journal of 5,000: ${after}`);
+}
 console.log(`\nRESULT: ${pass} ok, ${fail} failed`); process.exit(fail ? 1 : 0);
