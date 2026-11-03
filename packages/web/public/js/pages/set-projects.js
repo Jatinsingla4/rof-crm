@@ -83,20 +83,34 @@ Pages.setProjects = async function(params = {}) {
 
     <div id="spj-guide" class="sp spjn" style="max-width:none;margin-bottom:12px"></div>
 
-    <div style="display:flex;flex-wrap:wrap;gap:8px 22px;border-bottom:1px solid var(--border);margin-bottom:14px;padding-bottom:6px">
+    <style>
+      .spj-nav { max-width:1100px; margin:0 auto 16px; background:var(--surface); border:1px solid var(--border2); border-radius:12px; overflow:hidden }
+      .spj-nav-row { display:grid; grid-template-columns:200px minmax(0,1fr); align-items:center; gap:10px 16px; padding:10px 16px; border-bottom:1px solid var(--border) }
+      .spj-nav-row:last-child { border-bottom:none }
+      .spj-nav-cap { display:flex; align-items:center; gap:10px; font-size:12px; font-weight:600; color:var(--text); letter-spacing:.2px }
+      .spj-nav-num { width:24px; height:24px; border-radius:50%; background:var(--teal-bg); color:var(--teal); font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none }
+      .spj-nav-cap small { display:block; font-size:10.5px; font-weight:400; color:var(--text3); margin-top:1px }
+      .spj-nav-items { display:flex; flex-wrap:wrap; gap:6px }
+      .spj-nav .tab-line { padding:6px 14px; min-height:32px; border:1px solid var(--border2); border-radius:999px; background:var(--surface2); color:var(--text2); font-size:12.5px; font-weight:500; cursor:pointer; margin:0; transition:background .15s,color .15s,border-color .15s }
+      .spj-nav .tab-line::after { display:none }
+      .spj-nav .tab-line:hover { background:var(--teal-bg); border-color:var(--teal); color:var(--teal) }
+      .spj-nav .tab-line.active { background:var(--teal); border-color:var(--teal); color:#fff; font-weight:600 }
+      @media (max-width:760px) { .spj-nav-row { grid-template-columns:minmax(0,1fr) } }
+    </style>
+    <div class="spj-nav">
       ${[
-        ['1 · Project', [['new-project', 'New Project'], ['edit-project', 'Project Details']]],
-        ['2 · Structure', [['add-tower', 'Towers'], ['floors', 'Floors'], ['unit-address', 'Unit Types'], ['unit-location', 'Locations (optional)']]],
-        ['3 · Units', [['add-unit', 'Add Units'], ['more-units', 'Plot / Villa count'], ['edit-unit', 'Edit Unit'], ['unit-area', 'Unit Wise Area'], ['rate-report', 'Rate Report']]],
-      ].map(([cap, items]) => `<div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">${cap}</div><div class="tabs-line" style="border:0;margin:0;padding:0">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
-      <div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">4 · Money (opens its own page)</div>
-        <div class="tabs-line" style="border:0;margin:0;padding:0">
+        ['1', 'Project', '', [['new-project', 'New Project'], ['edit-project', 'Project Details']]],
+        ['2', 'Structure', '', [['add-tower', 'Towers'], ['floors', 'Floors'], ['unit-address', 'Unit Types'], ['unit-location', 'Locations (optional)']]],
+        ['3', 'Units', '', [['add-unit', 'Add Units'], ['more-units', 'Plot / Villa count'], ['edit-unit', 'Edit Unit'], ['unit-area', 'Unit Wise Area'], ['rate-report', 'Rate Report']]],
+      ].map(([n, cap, sub, items]) => `<div class="spj-nav-row"><div class="spj-nav-cap"><span class="spj-nav-num">${n}</span><div>${cap}${sub ? '<small>' + sub + '</small>' : ''}</div></div><div class="spj-nav-items">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
+      <div class="spj-nav-row"><div class="spj-nav-cap"><span class="spj-nav-num">4</span><div>Money<small>opens its own page</small></div></div>
+        <div class="spj-nav-items">
           <button class="tab-line" onclick="Router.navigate('/payment-plans', { project: SPJPage._guideProject })">Payment Plans ↗</button>
           <button class="tab-line" onclick="Router.navigate('/addon-charge-master', { project: SPJPage._guideProject })">Other Charges ↗</button>
           <button class="tab-line" onclick="Router.navigate('/interest-master')">Interest ↗</button></div></div>
       ${[
-        ['5 · Rules', [['numbering', 'Numbering'], ['authentication', 'Authentications'], ['timely', 'Timely discount'], ['balcony', 'Balcony charge'], ['customer-class', 'Classification'], ['reminder-master', 'Reminders']]],
-      ].map(([cap, items]) => `<div><div style="font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:2px">${cap}</div><div class="tabs-line" style="border:0;margin:0;padding:0">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
+        ['5', 'Rules', '', [['numbering', 'Numbering'], ['authentication', 'Authentications'], ['timely', 'Timely discount'], ['balcony', 'Balcony charge'], ['customer-class', 'Classification'], ['reminder-master', 'Reminders']]],
+      ].map(([n, cap, sub, items]) => `<div class="spj-nav-row"><div class="spj-nav-cap"><span class="spj-nav-num">${n}</span><div>${cap}</div></div><div class="spj-nav-items">${items.map(([k, l]) => tabBtn(k, l, tab === k)).join('')}</div></div>`).join('')}
     </div>
 
     <!-- NEW PROJECT -->
