@@ -199,6 +199,8 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
         if ((0, input_js_1.has)(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase())))
             throw (0, input_js_1.bad)('buyerGstin must be 15 letters and digits');
         const gstin = (0, input_js_1.has)(b.buyerGstin) ? b.buyerGstin.trim().toUpperCase() : null;
+        if (invoiceDate > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+            throw (0, input_js_1.bad)('The invoice date cannot be in the future');
         const rate = (v, label) => (0, input_js_1.num)(v, label, 28, 2);
         let cgstRate, sgstRate, igstRate;
         if ((0, input_js_1.has)(b.cgstRate) || (0, input_js_1.has)(b.sgstRate) || (0, input_js_1.has)(b.igstRate)) {

@@ -473,8 +473,9 @@ const GSTPage = {
     try {
       const res = await Api.get('/payments/gst-invoices', { params: { pageSize: 500 } });
       const list = res.data || res || [];
-      const totalBase = list.reduce((s,i) => s + parseFloat(i.base_amount||i.baseAmount||i.amount||0), 0);
-      const totalGst  = list.reduce((s,i) => s + parseFloat(i.gst_amount||i.gstAmount||0), 0);
+      const live = list.filter(i => i.status !== 'cancelled'); // a cancelled invoice is not turnover
+      const totalBase = live.reduce((s,i) => s + parseFloat(i.base_amount||i.baseAmount||i.amount||0), 0);
+      const totalGst  = live.reduce((s,i) => s + parseFloat(i.gst_amount||i.gstAmount||0), 0);
       const active    = list.filter(i => (i.status||'active') === 'active').length;
       const cancelled = list.filter(i => i.status === 'cancelled').length;
 

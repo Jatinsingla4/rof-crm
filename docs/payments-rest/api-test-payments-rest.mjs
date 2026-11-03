@@ -284,7 +284,7 @@ const invs = [];
   for (const v of [undefined, 0, -1, '-5', 'abc', '1e3', 0.001, 1e12, true, [5], null, '']) await bad(`baseAmount ${JSON.stringify(v)}`, { baseAmount: v });
   for (const v of [-1, 29, 'abc', '1e1', 5.555]) await bad(`gstRate ${JSON.stringify(v)}`, { gstRate: v });
   await bad('cgstRate with igstRate', { gstRate: undefined, cgstRate: 9, igstRate: 18 });
-  await bad('supplyType "mars"', { supplyType: 'mars' }); await bad('invoiceType "x"', { invoiceType: 'x' }); await bad('invoiceDate 2020-02-30', { invoiceDate: '2020-02-30' }); await bad('description 101 chars', { description: 'd'.repeat(101) }); await bad('description with tags', { description: '<b>' });
+  await bad('supplyType "mars"', { supplyType: 'mars' }); await bad('invoiceType "x"', { invoiceType: 'x' }); await bad('invoiceDate 2020-02-30', { invoiceDate: '2020-02-30' }); await bad('invoiceDate 2099-01-01 (future)', { invoiceDate: '2099-01-01' }); await bad('description 101 chars', { description: 'd'.repeat(101) }); await bad('description with tags', { description: '<b>' });
   await bad('buyerGstin short', { buyerGstin: '123' }); await bad('projectId "abc"', { projectId: 'abc' }); await bad('projectId unknown', { projectId: NIL }, 404); await bad('unitId "abc"', { unitId: 'abc' }); await bad('receiptId "abc"', { receiptId: 'abc' });
   await bad('receipt of another applicant', { receiptId: await receipt(S2, 700) });
   t('invoice: nothing saved by the refused calls', Number(psql(`select count(*) from gst_invoices where consumer_id='${c}'`)) === n0);

@@ -203,6 +203,7 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
     const desc = text(b.installmentName ?? b.description, 'description', 100, false), hsn = text(b.hsnCode, 'hsnCode', 20, false) || '9972';
     if (has(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase()))) throw bad('buyerGstin must be 15 letters and digits');
     const gstin = has(b.buyerGstin) ? b.buyerGstin.trim().toUpperCase() : null;
+    if (invoiceDate > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad('The invoice date cannot be in the future');
     const rate = (v: any, label: string) => num(v, label, 28, 2);
     let cgstRate: number, sgstRate: number, igstRate: number;
     if (has(b.cgstRate) || has(b.sgstRate) || has(b.igstRate)) {
