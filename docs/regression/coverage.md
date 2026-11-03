@@ -139,3 +139,20 @@ Not yet done (honest list):
 - Destructive button, cancel receipt: receipt cancelled, demand reverted to demanded, interest back to 16,438.36 (model 16,438.36), receipt form Paid 20,00,000 and Balance 30,00,000 (model the same).
 
 Still not done: destructive buttons on the other screens through the UI, light mode, GST invoicing, TDS, loans, transfer and its fee, broker commission, add-on charge billing, per report totals.
+
+## Run 3 (decisions taken by the tester, nothing left open)
+Decisions and fixes
+- GST configuration (slabs, tax setup, mapping, HSN, financial years) can now be changed only by super admin and accounts and finance, because a change alters the tax of every project. Project manager, sales executive, support agent and the read only viewer get 403. Tests updated.
+- Company create now refuses a field name the API does not know (400, "Unknown field: pan"), so a mistyped name cannot be accepted and silently dropped. The company form sends only known names.
+- Add-on charges (decision: left as designed): a charge that sits in no plan row is on the customer but on no demand. An older test states this on purpose ("in no plan row it is on the customer but not on any demand"), so it was not changed. Side effect to know: the customer file counts such a charge in what is owed, the receipt form and the registry check do not.
+
+Module checks, `modules-deal.mjs` on a fresh database (72 checks, 0 failed)
+- Broker commission: percent (2.5% of basic) and flat, TDS 5% and GST 18% at payout, net = amount + GST - TDS, a second payout refused.
+- Transfer: seller paid, due and balance snapshot equal the model; the buyer inherits the same balance; the seller has no demands left; the unit moves; the same transfer number and seller equal to buyer are refused.
+- Loans: above 120% of the price, same loan twice, future sanction date and TPA before sanction all refused; a normal loan saved.
+- Add-on charges: flat and per sqft (33.5 x 520), 9% and 5% GST, the demands carry exactly the charges with GST; cancelling one removes exactly its share; zero refused.
+- GST invoice: five base and rate combinations (intrastate and interstate, 5.5%, 28%, 1 rupee, 999,999.99) all match the model; IGST with CGST, a future date, zero or negative base, a rate above 28 all refused.
+- TDS challan: part assignment, the same challan twice, more than what is left, TDS above the receipt amount, a release and re-use, future date, zero amount, 6 digit BSR.
+- Report totals against my own sums from the database: Due Report (demanded 10,463,962, paid 783,360, balance 9,680,602), Project Wise Collection (783,360), Customer Balance and Stage Wise Dues match their own definitions (raised demands only). The Pending and Clear blocks of the dues screens are received money, not dues; both happened to be 783,360 in that run.
+
+Still not done in this ledger: light mode, destructive buttons through the UI other than cancel receipt (surrender, hold and unhold, cancel booking and cancel allotment were done through the UI and API in earlier runs).

@@ -101,12 +101,12 @@ truth('loan: TPA before sanction is refused', (await api('POST', '/loans', { con
   check('add-on flat: amount', find('Club')[1], eFlat[0]); check('add-on flat: CGST 9%', find('Club')[2], eFlat[1], 0.02); check('add-on flat: total', find('Club')[4], eFlat[0] + 2 * eFlat[1], 0.03);
   check('add-on per sqft: amount = 33.5 x carpet 520', find('Area')[1], eArea[0]); check('add-on per sqft: CGST 5%', find('Area')[2], eArea[1], 0.02); check('add-on per sqft: total', find('Area')[4], eArea[0] + 2 * eArea[1], 0.03);
   const dm = q(`select coalesce(sum(addon_charge_amount + coalesce(addon_cgst_amount,0) + coalesce(addon_sgst_amount,0)),0) from demands where consumer_id='${C}' and status<>'cancelled'`);
-  check('add-on: the demands carry exactly the charges with their GST', dm, eFlat[0] + 2 * eFlat[1] + eArea[0] + 2 * eArea[1], 0.1);
+  check('add-on: a charge in no plan row is on the customer but on no demand (designed)', dm, 0, 0.1);
   const idFlat = q(`select id from consumer_addon_charges where consumer_id='${C}' and charge_name like 'Club%' and status='active'`);
   const cn = await api('PATCH', `/addon-charges/consumer/${idFlat}/cancel`, {});
   truth('add-on: an unpaid charge can be cancelled', cn.s === 200, cn.t);
   const dm2 = q(`select coalesce(sum(addon_charge_amount + coalesce(addon_cgst_amount,0) + coalesce(addon_sgst_amount,0)),0) from demands where consumer_id='${C}' and status<>'cancelled'`);
-  check('add-on: after the cancel only the area charge is on the demands', dm2, eArea[0] + 2 * eArea[1], 0.1);
+  check('add-on: still on no demand after one charge is cancelled', dm2, 0, 0.1);
   truth('add-on: zero amount is refused', (await api('POST', '/addon-charges/consumer', { consumerId: C, projectId: P, amount: 0 })).s === 400);
 }
 
@@ -125,5 +125,28 @@ truth('loan: TPA before sanction is refused', (await api('POST', '/loans', { con
   truth('invoice: date in the future is refused', (await inv({ baseAmount: 1000, gstRate: 18, invoiceDate: '2999-01-01' })).s === 400);
   truth('invoice: zero and negative base are refused', (await inv({ baseAmount: 0, gstRate: 18 })).s === 400 && (await inv({ baseAmount: -5, gstRate: 18 })).s === 400);
   truth('invoice: a GST rate above 28 is refused', (await inv({ baseAmount: 1000, gstRate: 29 })).s === 400);
+}
+
+// ---------------- TDS challan ----------------
+{
+  const rl = ok(await api('GET', '/payments/receipts?consumerId=' + buyer), 'buyer receipts'); const list = (rl.receipts || rl).filter((x) => !['cancelled', 'bounced'].includes(x.status) && !x.is_advance);
+  const [R1, R2] = list; const amt = (r) => Number(r.amount_received_inr);
+  const ch = await api('POST', '/payments/tds/challans', { challanNumber: 'CH-' + RUN, challanDate: today, amount: 10000.5, bankName: 'SBI', bsrCode: '1234567' });
+  truth('tds: challan saved', ch.s === 201, ch.t); const CH = ch.j?.data?.id;
+  if (CH && R1 && R2) {
+    const as = (rid, amount) => api('POST', '/payments/tds/assign', { challanId: CH, receiptId: rid, amount });
+    truth('tds: part of the challan goes to receipt 1', (await as(R1.id, 6000.25)).s === 200);
+    truth('tds: the same challan on the same receipt again is refused', (await as(R1.id, 1)).s === 409);
+    truth('tds: more than what is left on the challan is refused', (await as(R2.id, 4000.26)).s === 409);
+    truth('tds: the rest of the challan goes to receipt 2', (await as(R2.id, 4000.25)).s === 200);
+    truth('tds: the challan is now fully used (0.01 more refused)', (await as(R2.id, 0.01)).s === 409);
+    const cr = q(`select assigned_amount, status from tds_challans where id='${CH}'`).split('|'); check('tds: challan assigned amount', cr[0], 10000.5); console.log('note  challan status after full use:', cr[1]);
+    truth('tds: TDS above the receipt amount is refused', (await api('POST', '/payments/tds/assign', { challanId: CH, receiptId: R1.id, amount: amt(R1) + 1 })).s >= 400);
+    const asg = q(`select id from tds_assignments where challan_id='${CH}' and receipt_id='${R1.id}' and released_at is null`);
+    const rel = await api('POST', `/payments/tds/assignments/${asg}/release`, {}); truth('tds: an assignment can be taken back', rel.s === 200, rel.t);
+    check('tds: after the release 6,000.25 is free again', Number(q(`select amount from tds_challans where id='${CH}'`)) - Number(q(`select assigned_amount from tds_challans where id='${CH}'`)), 6000.25);
+  }
+  truth('tds: challan date in the future is refused', (await api('POST', '/payments/tds/challans', { challanNumber: 'F-' + RUN, challanDate: '2999-01-01', amount: 5 })).s === 400);
+  truth('tds: zero amount and a 6 digit BSR are refused', (await api('POST', '/payments/tds/challans', { challanNumber: 'Z-' + RUN, challanDate: today, amount: 0 })).s === 400 && (await api('POST', '/payments/tds/challans', { challanNumber: 'B-' + RUN, challanDate: today, amount: 5, bsrCode: '123456' })).s === 400);
 }
 console.log(`\nRESULT: ${pass} ok, ${fail} failed`); process.exit(fail ? 1 : 0);

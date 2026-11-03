@@ -82,10 +82,7 @@ export async function recomputeAddonDemands(
          FROM plan_addon_charge_pct pacp JOIN plan_schedule_templates pst ON pst.id = pacp.plan_schedule_template_id
         WHERE pst.project_id = $3 AND lower(pst.plan_name) = lower($1) AND pacp.charge_master_id = $2
         GROUP BY pst.installment_index`, [planName, charge.charge_master_id, projectId]);
-    // A charge the plan does not spread over any instalment would be owed but billed on no demand (the customer file counts it, the
-    // registry check and the receipt form would not). It goes on the first instalment that has no payment yet, in full.
-    const rowsToBill = pctRes.rows.length ? pctRes.rows : (() => { const d = demands.find((x: any) => !x.locked) || demands[demands.length - 1]; return d ? [{ installment_index: d.idx, total_pct: 100 }] : []; })();
-    for (const row of rowsToBill) {
+    for (const row of pctRes.rows) {
       const a = r2(parseFloat(charge.effective_amount) * parseFloat(row.total_pct) / 100);
       if (a === 0) continue;
       const w = want.get(Number(row.installment_index)) || { a: 0, c: 0, s: 0 };
