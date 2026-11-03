@@ -142,6 +142,10 @@ router.post('/', async (req, res, next) => {
         return res.status(403).json({ error: 'Only super_admin can create companies' });
     try {
         const body = req.body || {};
+        // a field name this endpoint does not know is refused, so a mistyped name is not accepted and silently dropped
+        const unknown = Object.keys(body).filter((k) => !COMPANY_COLUMNS.includes(k) && k !== 'is_active');
+        if (unknown.length)
+            return res.status(400).json({ error: `Unknown field${unknown.length > 1 ? 's' : ''}: ${unknown.slice(0, 5).join(', ')}` });
         if (typeof body.name !== 'string' || !body.name.trim())
             return res.status(400).json({ error: 'Company name required' });
         const v = {};

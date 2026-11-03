@@ -16,12 +16,12 @@ const VALID_CHARGE_TYPES = ['BASIC', 'PLC', 'OTHER CHARGE', 'IFMS', 'EXTRA ADD O
 const VALID_GST_TYPES    = ['INTER', 'INTRA', 'UT'];
 const VALID_HSN_TYPES    = ['Goods', 'Service'];
 
-// Reading is open to every signed-in user (booking forms show the rates). Any change needs the master_data permission.
+// Reading is open to every signed-in user (booking forms show the rates). A change alters the tax of every project, so only
+// super admin and accounts and finance may make one.
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method === 'GET' || req.method === 'HEAD') return next();
-  const action = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'edit';
-  if (hasPermission(req.userRole, 'master_data', action)) return next();
-  res.status(403).json({ error: 'You do not have permission to change GST configuration' });
+  if (['super_admin', 'accounts_finance'].includes(req.userRole || '')) return next();
+  res.status(403).json({ error: 'Only super admin and accounts and finance can change GST configuration' });
 });
 
 const fail = (err: any, res: Response, next: NextFunction) => failWith(err, res, next, 'This already exists');

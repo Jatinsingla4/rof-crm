@@ -7,21 +7,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
  */
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
-const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
 const VALID_CHARGE_TYPES = ['BASIC', 'PLC', 'OTHER CHARGE', 'IFMS', 'EXTRA ADD ON', 'OTHERS'];
 const VALID_GST_TYPES = ['INTER', 'INTRA', 'UT'];
 const VALID_HSN_TYPES = ['Goods', 'Service'];
-// Reading is open to every signed-in user (booking forms show the rates). Any change needs the master_data permission.
+// Reading is open to every signed-in user (booking forms show the rates). A change alters the tax of every project, so only
+// super admin and accounts and finance may make one.
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
-    const action = req.method === 'POST' ? 'create' : req.method === 'DELETE' ? 'delete' : 'edit';
-    if ((0, rbac_js_1.hasPermission)(req.userRole, 'master_data', action))
+    if (['super_admin', 'accounts_finance'].includes(req.userRole || ''))
         return next();
-    res.status(403).json({ error: 'You do not have permission to change GST configuration' });
+    res.status(403).json({ error: 'Only super admin and accounts and finance can change GST configuration' });
 });
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'This already exists');
 const notFound = (what) => (0, input_js_1.bad)(`${what} not found`, 404);

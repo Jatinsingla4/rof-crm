@@ -215,4 +215,9 @@ const au = (ty, a) => Number(psql(`SELECT count(*) FROM audit_logs WHERE resourc
 t('audit: master created / updated / deleted', au('addon_charge_master', 'create') >= 5 && au('addon_charge_master', 'update') >= 5 && au('addon_charge_master', 'delete') >= 1);
 t('audit: customer charge created / updated', au('consumer_addon_charge', 'create') >= 4 && au('consumer_addon_charge', 'update') >= 6);
 t('refused writes left nothing half-done', psql(`SELECT count(*) FROM consumer_addon_charges WHERE project_id='${P1}'`) === '5', psql(`SELECT count(*) FROM consumer_addon_charges WHERE project_id='${P1}'`));
+
+// a charge the plan does not spread over any instalment is still billed: on the first instalment that has no payment, in full (it would otherwise be owed but on no demand)
+{ const C5 = await mkCust(P1, 'C5', 600); const MU = (await M(P1, { chargeName: 'Unmapped ' + U, defaultAmount: 10000 })).j.data.id;
+  r = await A('POST', '/addon-charges/consumer', { consumerId: C5.cons, projectId: P1, chargeMasterId: MU, amount: 10000 }); t('unmapped charge: added', r.s === 201, JSON.stringify(r.j));
+  t('unmapped charge: billed in full on the first unpaid instalment', dem(C5, 1) === '10000.00/900/900' && dem(C5, 2) === '0.00/0/0', dem(C5, 1) + ' ' + dem(C5, 2)); }
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

@@ -21,6 +21,7 @@ const num4 = () => String(1000 + Math.floor(Math.random() * 8999));
 const made = { fy: [], hsn: [], slab: [], tax: [], map: [], proj: [] };
 let r;
 const co = (await A('POST', '/companies', { name: 'GST Co ' + U })).j.data.id;
+r = await A('POST', '/companies', { name: 'GST Typo ' + U, pan: 'ABCDE1234F' }); t('company: a field name the API does not know (pan instead of pan_no) is refused, not silently dropped', r.s === 400 && /Unknown field/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
 const mkProj = async (tag) => { const id = (await A('POST', '/projects', { companyId: co, name: `GST ${tag} ${U}`, reraNumber: `GS${tag}-${U}`, tcpLicence: 'x' })).j.data.id; made.proj.push(id); return id; };
 const P1 = await mkProj('A'), P2 = await mkProj('B');
 
@@ -28,13 +29,15 @@ const P1 = await mkProj('A'), P2 = await mkProj('B');
 const probes = [['POST', '/financial-years', { name: 'Nope', fromDate: d(Y, 4, 1), toDate: d(Y + 1, 3, 31) }], ['POST', '/hsn-sac-codes', { code: '995499', type: 'Service' }], ['POST', '/gst-slabs', { fromDate: d(Y, 1, 1), toDate: d(Y, 2, 1) }],
   ['POST', '/gst-tax-setup', { slabId: NIL, gstCode: 'x', type: 'INTRA' }], ['POST', '/gst-charge-mapping', { projectId: P1, slabId: NIL, gstTaxId: NIL, chargeType: 'BASIC' }], ['POST', '/project-gstin', { projectId: P1, gstin: 'x' }], ['POST', '/project-rera', { projectId: P1, reraNumber: 'x' }],
   ['POST', '/hsn-sac-assign', { hsnSacId: NIL, projectId: P1, chargeType: 'BASIC' }], ['DELETE', '/gst-slabs/' + NIL], ['PATCH', '/project-gstin/' + NIL, { gstin: 'x' }]];
-for (const [n, c] of [['sales_executive', SE], ['accounts_finance', AF], ['read_only_viewer', RO], ['support_agent', SA]]) {
+for (const [n, c] of [['sales_executive', SE], ['project_manager', PM], ['read_only_viewer', RO], ['support_agent', SA]]) {
   const codes = []; for (const [m, p, b] of probes) codes.push((await c(m, G(p), b)).s);
   t(`roles: ${n} cannot change any GST setting (all ${probes.length} refused)`, codes.every(x => x === 403), codes.join());
 }
 for (const p of ['/financial-years', '/hsn-sac-codes', '/gst-slabs', '/gst-tax-setup', '/gst-charge-mapping', '/project-gstin', '/project-rera', '/hsn-sac-assign', '/projects']) { r = await RO(G(p).length ? 'GET' : 'GET', G(p)); t(`roles: read_only_viewer can read ${p}`, r.s === 200, r.s); }
-r = await PM('POST', G('/hsn-sac-codes'), { code: '99' + num4(), type: 'Service' }); t('roles: project_manager can create an HSN/SAC code', r.s === 201, r.s); made.hsn.push(r.j?.data?.id);
-r = await PM('DELETE', G('/hsn-sac-codes/' + r.j?.data?.id)); t('roles: project_manager cannot delete (matrix) -> 403', r.s === 403, r.s);
+r = await PM('POST', G('/hsn-sac-codes'), { code: '99' + num4(), type: 'Service' }); t('roles: project_manager cannot change GST configuration (it alters the tax of every project) -> 403', r.s === 403, r.s);
+r = await PM('POST', G('/gst-slabs'), { fromDate: '2093-01-01', toDate: '2093-12-31' }); t('roles: project_manager cannot make a GST slab -> 403', r.s === 403, r.s);
+r = await AF('POST', G('/hsn-sac-codes'), { code: '99' + num4(), type: 'Service' }); t('roles: accounts and finance can create an HSN/SAC code', r.s === 201, r.s); made.hsn.push(r.j?.data?.id);
+r = await AF('DELETE', G('/hsn-sac-codes/' + r.j?.data?.id)); t('roles: accounts and finance can delete an HSN/SAC code', r.s === 200 || r.s === 204, r.s);
 
 // ---------- financial years ----------
 const FY = (b) => A('POST', G('/financial-years'), { name: 'FY ' + U, fromDate: d(Y, 4, 1), toDate: d(Y + 1, 3, 31), ...b });
@@ -233,7 +236,7 @@ r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 9, sgstPct: 9 }); t('
 r = await A('POST', G('/gst-charge-mapping'), { projectId: P3, slabId: lockSlab, gstTaxId: lt2, chargeType: 'BASIC' }); t('locked: switching the project to another rate in that slab -> 409', r.s === 409, JSON.stringify(r.j));
 r = await A('POST', G('/gst-charge-mapping'), { projectId: P3, slabId: lockSlab, gstTaxId: lt, chargeType: 'BASIC' }); t('locked: saving the same mapping again is fine', r.s === 201, JSON.stringify(r.j));
 r = await A('DELETE', G('/gst-charge-mapping/' + lm)); t('locked: removing the mapping -> 409', r.s === 409, JSON.stringify(r.j));
-r = await PM('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5, confirmChangeUsedRate: true }); t('locked: project_manager cannot override', r.s === 409, r.s);
+r = await AF('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5, confirmChangeUsedRate: true }); t('locked: accounts and finance cannot override', r.s === 409, r.s);
 r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 2.5, sgstPct: 2.5, confirmChangeUsedRate: 'true' }); t('locked: super admin override must be the boolean true', r.s === 409, r.s);
 r = await A('PATCH', G('/gst-tax-setup/' + lt), { cgstPct: 4.5, sgstPct: 4.5, confirmChangeUsedRate: true }); t('locked: super admin can correct on purpose', r.s === 200 && Number(r.j.data.cgst_pct) === 4.5, JSON.stringify(r.j));
 t('locked: the override is in the audit log with old and new values', psql(`select (previous_values->>'cgst_pct')||'>'||(new_values->>'cgst_pct') from audit_logs where resource_type='gst_tax_setup' and resource_id='${lt}' order by timestamp desc limit 1`) === '9.000>4.500');
