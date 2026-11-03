@@ -122,6 +122,7 @@ let bk1;
   bk1 = await startBooking({ nominee_name: 'Nominee One', remarks: 'first', basic_price: 5000, carpet_area_sqft: 1200 });
   r = await A('GET', `/booking/${bk1.id}`);
   t('start: pending booking, no payment yet', bk1.x.j.data.status === 'pending_payment' && r.j.data.status === 'pending_payment', bk1.x.j.data.status);
+  { const cd = await A('GET', `/consumers/${bk1.c}`); t('consumer detail carries the booking rate, so the profile prices on the same basis as the booking', Number(cd.j.data?.basic_price) === 5000, JSON.stringify(cd.j.data?.basic_price)); }
   t('start: registration number is project-letters-year-number', /^BKA\w-\d{4}-\d{4}$/.test(bk1.reg) || /^[A-Z]{4}-\d{4}-\d{4}$/.test(bk1.reg), bk1.reg);
   t('start: form number defaults to the registration number', bk1.x.j.data.form_no === bk1.reg, bk1.x.j.data.form_no);
   t('start: a pending booking keeps the unit available', psql(`select status from units where id='${bk1.u}'`) === 'available');

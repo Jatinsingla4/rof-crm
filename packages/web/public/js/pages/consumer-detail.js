@@ -124,7 +124,7 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
                   <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
-                  <input id="base-rate-input" type="number" value="${c.basic_price || 4000}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
+                  <input id="base-rate-input" type="number" value="${c.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                   <span style="color:var(--text3)">Basic Cost</span>
@@ -363,9 +363,11 @@ const ConsumerDetailPage = {
       const receipts = receiptRes.status === 'fulfilled' ? (receiptRes.value.data || receiptRes.value || []) : [];
       const demands = demandRes.status === 'fulfilled' ? (demandRes.value.data || demandRes.value || []) : [];
 
-      const approved = receipts.filter(r => (r.status || r.approval_status) === 'approved');
-      const totalPaid = approved.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-      const totalAmount = receipts.reduce((s, r) => s + parseFloat(r.total_amount || r.totalAmount || r.amount || 0), 0) || totalPaid * 2;
+      const amt = r => parseFloat(r.amount_received_inr || 0);
+      const cleared = receipts.filter(r => r.status === 'cleared');
+      const totalPaid = cleared.reduce((s, r) => s + amt(r), 0);
+      // what the plan asks for in all: every installment with its GST and add-on charges
+      const totalAmount = demands.reduce((s, d) => s + ['amount_due_inr', 'cgst_amount', 'sgst_amount', 'addon_charge_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((t, k) => t + parseFloat(d[k] || 0), 0), 0);
       const balance = Math.max(0, totalAmount - totalPaid);
       const pct = totalAmount > 0 ? Math.min((totalPaid / totalAmount) * 100, 100) : 0;
       const pctCls = pct >= 100 ? 'pf-green' : pct < 30 ? 'pf-warn' : 'pf-teal';
@@ -390,7 +392,7 @@ const ConsumerDetailPage = {
           <div class="progress-fill ${pctCls}" style="width:${pct.toFixed(0)}%"></div>
         </div>
         <div style="font-size:10px;color:var(--text3);margin-bottom:10px">
-          ${pct.toFixed(1)}% collected · ${approved.length} receipt(s) approved
+          ${pct.toFixed(1)}% collected · ${cleared.length} receipt(s) cleared
         </div>
         <table style="width:100%;font-size:10.5px">
           <thead><tr><th>Receipt No.</th><th>Amount</th><th>Mode</th><th>Date</th><th>Status</th></tr></thead>
@@ -399,9 +401,9 @@ const ConsumerDetailPage = {
               : receipts.slice(0,5).map(r => `
                 <tr>
                   <td class="td-mono">${r.receipt_number || r.receiptNumber || '—'}</td>
-                  <td style="font-weight:600;color:var(--green)">${Utils.currency(r.amount)}</td>
-                  <td>${r.payment_mode || r.paymentMode || '—'}</td>
-                  <td>${Utils.date(r.payment_date || r.paymentDate || r.created_at)}</td>
+                  <td style="font-weight:600;color:var(--green)">${Utils.currency(amt(r))}</td>
+                  <td>${r.payment_method || '—'}</td>
+                  <td>${Utils.date(r.received_date || r.created_at)}</td>
                   <td>${Utils.chip(r.status || r.approval_status || 'pending')}</td>
                 </tr>`).join('')}
           </tbody>
@@ -416,10 +418,10 @@ const ConsumerDetailPage = {
               : receipts.map(r => `
                 <tr>
                   <td class="td-mono">${r.receipt_number || r.receiptNumber || '—'}</td>
-                  <td style="color:var(--green);font-weight:600">${Utils.currency(r.amount)}</td>
-                  <td>${r.payment_mode || r.paymentMode || '—'}</td>
-                  <td class="td-mono">${r.cheque_number || r.reference_number || '—'}</td>
-                  <td>${Utils.date(r.payment_date || r.created_at)}</td>
+                  <td style="color:var(--green);font-weight:600">${Utils.currency(amt(r))}</td>
+                  <td>${r.payment_method || '—'}</td>
+                  <td class="td-mono">${r.transaction_ref || '—'}</td>
+                  <td>${Utils.date(r.received_date || r.created_at)}</td>
                   <td>${Utils.chip(r.status || r.approval_status || 'pending')}</td>
                   <td><button class="btn btn-ghost btn-sm" onclick="Utils.info('PDF coming soon')">Print</button></td>
                 </tr>`).join('')}

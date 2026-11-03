@@ -256,6 +256,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
               c.authorized_person, c.authorized_designation,
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
+              COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
               p.name as project_name
        FROM consumers c
        LEFT JOIN units u ON c.allocated_unit_id = u.id
