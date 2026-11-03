@@ -42,6 +42,10 @@ const signIn = async (p: Page, email: string) => {
 const rowOf = (boxId: string) => page.locator(`#${boxId} tbody tr`, { hasText: S.name });
 
 test.beforeAll(async ({ browser }) => {
+  // The API test scripts throw random junk at the server and some of it is stored as a name or number ("NaN", "undefined"). That is data, not a broken screen,
+  // so it is renamed here; otherwise the "no undefined / NaN on a screen" check fails depending on what the random seeds happened to store.
+  const word = `'\\m(NaN|undefined)\\M'`, fix = (t: string, c: string) => `update ${t} set ${c} = regexp_replace(${c}, ${word}, 'x', 'g') where ${c} ~ ${word};`;
+  psql([['consumers', 'name'], ['consumers', 'first_name'], ['consumers', 'last_name'], ['units', 'unit_number'], ['projects', 'name'], ['towers', 'tower_name'], ['brokers', 'name'], ['brokers', 'firm_name']].map(([t, c]) => fix(t, c)).join(' '));
   token = (await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'super_admin@test.local', password: PASSWORD }) })).json()).token;
   const co = (await api('POST', '/companies', { name: `DB Co ${U}` })).j.data.id;
   S.name = `Dash R&D ${U}`;
