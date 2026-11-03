@@ -18,6 +18,8 @@ router.post('/', async (req, res, next) => {
         const consumerId = (0, input_js_1.uuid)(b.consumerId, 'consumerId'), bankName = (0, input_js_1.text)(b.bankName, 'bankName', 255, true), branchName = (0, input_js_1.text)(b.branchName, 'branchName', 255, false);
         const loanAmount = (0, input_js_1.has)(b.loanAmount) ? (0, input_js_1.pos)(typeof b.loanAmount === 'string' ? b.loanAmount.trim() : b.loanAmount, 'loanAmount', 0) : null;
         const sanction = (0, input_js_1.day)(b.sanctionLetterDate, 'sanctionLetterDate'), tpa = (0, input_js_1.day)(b.tpaSignedDate, 'tpaSignedDate'), remarks = (0, input_js_1.text)(b.remarks, 'remarks', 500, false);
+        if (sanction && tpa && tpa < sanction)
+            throw (0, input_js_1.bad)('The TPA cannot be signed before the sanction letter date');
         const row = await (0, input_js_1.inTx)(async (c) => {
             if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length)
                 throw (0, input_js_1.bad)('Applicant not found', 404);

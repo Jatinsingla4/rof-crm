@@ -602,8 +602,10 @@ const alloc2 = async (P, T, name) => {   // an applicant with a unit and an allo
   r = await ln(); t('loan: a loan is recorded as sanctioned', r.s === 201 && psql(`select loan_status||'|'||loan_amount from loan_details where id='${r.j.data.id}'`) === 'sanctioned|2500000', r.s + JSON.stringify(r.j));
   r = await ln(); t('loan: the same loan again -> 409', r.s === 409, r.s);
   const rr = await par(5, () => ln({ bankName: 'SBI', loanAmount: 100000 })); t('loan race: 5 parallel identical -> exactly one, no 5xx', cnt(rr, 201) === 1 && cnt(rr, 409) === 4 && no5(rr), rr.map(x => x.s).join());
+  await bad('tpa before the sanction date', { sanctionLetterDate: '2026-05-10', tpaSignedDate: '2026-05-09' });
+  r = await ln({ sanctionLetterDate: '2026-05-10', tpaSignedDate: '2026-05-10', bankName: 'Tpa Same Day Bank' }); t('loan: tpa on the sanction day is fine', r.s === 201, r.s + JSON.stringify(r.j));
   r = await ln({ loanAmount: undefined, bankName: 'Axis', branchName: undefined, sanctionLetterDate: undefined, tpaSignedDate: undefined, remarks: undefined }); t('loan: only a bank is needed', r.s === 201, r.s + JSON.stringify(r.j));
-  r = await SE('GET', `/loans/${c}`); t('loan: listed for the applicant', r.s === 200 && r.j.data.length === 3, r.s); r = await SE('GET', '/loans/abc'); t('loan: list id "abc" -> 400', r.s === 400, r.s);
+  r = await SE('GET', `/loans/${c}`); t('loan: listed for the applicant', r.s === 200 && r.j.data.length === 4, r.s); r = await SE('GET', '/loans/abc'); t('loan: list id "abc" -> 400', r.s === 400, r.s);
   t('loan: saved loans are logged', Number(psql(`select count(*) from audit_logs where resource_type='loan_detail' and timestamp > now() - interval '1 hour'`)) >= 3);
   extraSql.push(`delete from audit_logs where resource_type='loan_detail' and new_values->>'consumer_id'='${c}'`, `delete from loan_details where consumer_id='${c}'`);
 }
