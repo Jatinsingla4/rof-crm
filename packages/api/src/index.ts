@@ -465,12 +465,21 @@ app.post('/api/auth/logout', authenticateToken, async (req: AuthRequest, res: Re
 });
 
 // ============================================
-// PUBLIC HEALTH / DIAGNOSTIC ENDPOINTS (before auth)
+// DIAGNOSTIC ENDPOINTS
+// The only public health answer is GET /api/health (status, time, short commit) for deployment checks.
+// The two diagnostics below need a login with the super_admin role and are rate limited, and neither returns
+// document text or an internal error message.
 // ============================================
 
 let lastMigrationLog: string[] = [];
 
-app.get('/api/health/debug', async (req: AuthRequest, res: Response) => {
+const adminDiagnostics = [
+  apiLimiter,
+  authenticateToken,
+  (req: AuthRequest, res: Response, next: NextFunction) => (req.userRole === 'super_admin' ? next() : res.status(403).json({ error: 'Forbidden' })),
+];
+
+app.get('/api/health/debug', ...adminDiagnostics, async (req: AuthRequest, res: Response) => {
   res.json({
     success: true,
     timestamp: new Date().toISOString(),
@@ -479,7 +488,7 @@ app.get('/api/health/debug', async (req: AuthRequest, res: Response) => {
   });
 });
 
-app.get('/api/health/templates', async (req: AuthRequest, res: Response) => {
+app.get('/api/health/templates', ...adminDiagnostics, async (req: AuthRequest, res: Response) => {
   try {
     const fs = require('fs');
     const path = require('path');
@@ -497,17 +506,16 @@ app.get('/api/health/templates', async (req: AuthRequest, res: Response) => {
       console.log(`[HEALTH] File ${file.name}: ${filesStatus[file.name] ? 'EXISTS' : 'MISSING'} at ${file.path}`);
     }
 
-    // Check database templates
+    // Which templates exist (type, project, name, how many). The stored template text is never returned here.
     const dbRes = await db.query(`
       SELECT
         document_type,
         project_id,
         name,
-        body_html,
         COUNT(*) as count
       FROM document_templates
       WHERE document_type IN ('buyer_builder_agreement', 'conveyance_deed')
-      GROUP BY document_type, project_id, name, body_html
+      GROUP BY document_type, project_id, name
       ORDER BY document_type, project_id NULLS FIRST
     `);
 
@@ -525,10 +533,7 @@ app.get('/api/health/templates', async (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     console.error('[HEALTH] Diagnostic failed:', error);
-    res.status(500).json({
-      success: false,
-      error: (error as Error).message,
-    });
+    res.status(500).json({ success: false, error: 'Diagnostic failed' });
   }
 });
 

@@ -173,6 +173,7 @@ SEC.openLogin = (u) => {
       </div>
       ${SEC.field('sf-role', 'Role <i>*</i>', `<select class="sm-input" id="sf-role" name="role">${m.roles.map((r) => `<option value="${sesc(r.value)}"${(u?.role || 'sales_executive') === r.value ? ' selected' : ''}>${sesc(r.label)}</option>`).join('')}</select>`,
         edit ? 'Changing the role signs the person out; the menu is rebuilt when they sign in again.' : 'The role sets what the person can do. Menu access is set in Role Menu Access.')}
+      ${edit && u?.id === (Auth.getUser() || {}).userId ? SEC.field('sf-pw0', 'Current password', '<input class="sm-input" type="password" id="sf-pw0" autocomplete="current-password" maxlength="72">', 'Needed only when you set a new password for your own login.') : ''}
       <div class="sm-grid2">
         ${SEC.field('sf-pw', edit ? 'New password' : 'Password <i>*</i>', `<input class="sm-input" type="password" id="sf-pw" name="password" autocomplete="new-password" maxlength="72">`, edit ? 'Leave empty to keep the password. Setting one signs the person out.' : '8 to 72 characters with a letter and a number.')}
         ${SEC.field('sf-pw2', edit ? 'Repeat new password' : 'Repeat password <i>*</i>', '<input class="sm-input" type="password" id="sf-pw2" autocomplete="new-password" maxlength="72">')}
@@ -224,6 +225,8 @@ SEC.openLogin = (u) => {
         assignedProjectIds: all('proj'), companyIds: all('comp'), homePageWidgets: all('wid'), processPermissions: rights,
       };
       if (pw) body.password = pw;
+      const cur = f.querySelector('#sf-pw0');
+      if (pw && cur) body.currentPassword = cur.value;
       if (!edit) {
         Object.assign(body, { username: v('username'), confirmPassword: f.querySelector('#sf-pw2').value });
         if (!body.password) throw new Error('Enter a password');

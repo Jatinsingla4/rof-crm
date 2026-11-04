@@ -148,6 +148,8 @@ async function checkUserFields(body: any) {
 
 export async function updateUser(req: AuthRequest, res: Response, id: string, body: any) {
   if (!isUuid(id)) return fail(404, 'User not found');
+  // Setting your OWN password through the edit form needs the current password too (same check and throttle as change-password)
+  if (body.password !== undefined && id === req.userId) await verifyOwnPassword(res, id, body.currentPassword, 403);
   const set = await checkUserFields(body);
   const perms = body.processPermissions === undefined ? null : checkProcessPermissions(body.processPermissions);
   const companyIds = body.companyIds === undefined ? null : await checkIds('companies', body.companyIds, 'companyIds');
@@ -206,6 +208,7 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
     }
     await client.query('COMMIT');
     invalidateAuthUser(id);
+    if (set.password_hash !== undefined) currentPwFails.delete(id); // a new password starts with a clean current-password count
 
     const { password_hash: _hash, ...shown } = set as any;
     await auditChange(db, req, res, 'update', 'user', id, { name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active },
@@ -479,26 +482,66 @@ router.patch('/:id', guard(async (req, res) => {
   res.json({ success: true, data: r.rows[0] });
 }));
 
+// Checking the CURRENT password is a password-guessing oracle for anyone holding a valid token, so it is throttled per account:
+// 5 wrong answers within 15 minutes block further current-password checks for that account for 15 minutes (a correct answer is
+// refused during the block too). It is counted per account, not per address, so changing address does not help. Only this check is
+// blocked: signing in, every other action and the admin reset of someone else's password are not affected, and a correct answer
+// before the limit clears the count. The counters live in this process (the same limit as the login lockout); a shared store is
+// part of the login protection work (AUTH-004).
+const CURRENT_PW_MAX_FAILS = 5;
+const CURRENT_PW_WINDOW_MS = 15 * 60 * 1000;
+const currentPwFails = new Map<string, { count: number; first: number; until: number }>();
+const currentPwBlockedFor = (id: string): number => {
+  const f = currentPwFails.get(id);
+  if (!f) return 0;
+  const now = Date.now();
+  if (f.until > now) return f.until - now;
+  if (now - f.first > CURRENT_PW_WINDOW_MS || f.until) currentPwFails.delete(id);
+  return 0;
+};
+const noteCurrentPwFailure = (id: string) => {
+  const now = Date.now();
+  const f = currentPwFails.get(id);
+  const cur = f && now - f.first <= CURRENT_PW_WINDOW_MS && !f.until ? f : { count: 0, first: now, until: 0 };
+  cur.count += 1;
+  if (cur.count >= CURRENT_PW_MAX_FAILS) cur.until = now + CURRENT_PW_WINDOW_MS;
+  currentPwFails.set(id, cur);
+  if (currentPwFails.size > 5000) currentPwFails.clear();
+};
+
+// Proves the caller's current password (400 when missing, 429 when blocked, 401 when wrong). Used by change-password and by the edit
+// form when someone sets their own password, so there is no way to set your own password without it. A wrong answer is 401 on
+// change-password (its existing answer) but 403 on the edit form: the screens sign the user out on any 401, which a typing mistake must not do.
+async function verifyOwnPassword(res: Response, id: string, currentPassword: unknown, wrongStatus = 401): Promise<void> {
+  if (!currentPassword || typeof currentPassword !== 'string') return fail(400, 'Current password is required');
+  const wait = currentPwBlockedFor(id);
+  if (wait > 0) {
+    res.setHeader('Retry-After', String(Math.ceil(wait / 1000)));
+    return fail(429, `Too many wrong current passwords. Try again in ${Math.ceil(wait / 60000)} minute(s).`);
+  }
+  const hash = (await db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
+  const ok = hash?.startsWith('$2') ? await bcrypt.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
+  if (!ok) { noteCurrentPwFailure(id); return fail(wrongStatus, 'Current password is incorrect'); }
+  currentPwFails.delete(id);
+}
+
 // POST /api/users/:id/change-password
+// Your own password: the current one is always required, for every role including super_admin.
+// Another user's password: super_admin only, no current password (an administrator reset); everyone else gets 403.
 router.post('/:id/change-password', guard(async (req, res) => {
   const { id } = req.params;
   const { newPassword, currentPassword } = req.body || {};
   if (!isUuid(id)) return fail(404, 'User not found');
   const problem = passwordProblem(newPassword);
   if (problem) return fail(400, problem);
-  // Non-admins can only change their own password, and must give the current one
   if (req.userRole !== 'super_admin' && req.userId !== id) return fail(403, 'Forbidden: can only change your own password');
-  if (req.userId === id && req.userRole !== 'super_admin') {
-    if (!currentPassword || typeof currentPassword !== 'string') return fail(400, 'Current password is required');
-    const hash = (await db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
-    const ok = hash?.startsWith('$2') ? await bcrypt.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
-    if (!ok) return fail(401, 'Current password is incorrect');
-  }
+  if (req.userId === id) await verifyOwnPassword(res, id, currentPassword);
   const r = await db.query(
     `UPDATE users SET password_hash = $1, token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() WHERE id = $2 RETURNING id, name, email`,
     [await bcrypt.hash(newPassword, 12), id]);
   if (!r.rows[0]) return fail(404, 'User not found');
   invalidateAuthUser(id);
+  currentPwFails.delete(id);
   await auditChange(db, req, res, 'update', 'user', id, {}, { passwordChanged: true });
   res.json({ success: true, data: r.rows[0] });
 }));
