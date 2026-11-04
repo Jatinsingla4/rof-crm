@@ -12,6 +12,7 @@ const input_js_1 = require("../utils/input.js");
 const report_input_js_1 = require("../utils/report-input.js");
 const reports_dues_js_1 = require("./reports-dues.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
+const company_bank_js_1 = require("../utils/company-bank.js");
 const router = (0, express_1.Router)();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
 const PROJECT = `COALESCE(pp.project_id, c.project_id)`;
@@ -105,7 +106,7 @@ router.get('/cash-bank-summary', (0, reports_dues_js_1.h)(async (req, res) => {
       WHERE cba.is_active = true AND ($1::uuid IS NULL OR cba.company_id = $1::uuid)
         AND ($2::uuid IS NULL OR cba.company_id = (SELECT company_id FROM projects WHERE id = $2::uuid)) AND ($3::uuid IS NULL OR cba.id = $3::uuid)
       ORDER BY cba.is_primary DESC, cba.bank_name`, [x.companyId || null, x.projectId || null, x.companyBankAccountId || null, x.fromDate || null, x.toDate || null]);
-    res.json({ success: true, data: r.rows.map((a) => ({ id: a.id, bank_name: a.bank_name, account_name: a.account_name, account_number: a.account_number, credit: num(a.credit), debit: num(a.debit), closing_balance: (0, report_ledger_js_1.r2)(num(a.credit) - num(a.debit)) })) });
+    res.json({ success: true, data: r.rows.map((a) => ({ id: a.id, bank_name: a.bank_name, account_name: a.account_name, account_number: (0, company_bank_js_1.forRole)(req.userRole, a).account_number, credit: num(a.credit), debit: num(a.debit), closing_balance: (0, report_ledger_js_1.r2)(num(a.credit) - num(a.debit)) })) });
 }));
 router.get('/ledger-monthly-summary/:companyBankAccountId', (0, reports_dues_js_1.h)(async (req, res) => {
     notScoped('The ledger summary');

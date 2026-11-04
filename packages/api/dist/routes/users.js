@@ -17,6 +17,8 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const security_js_1 = require("../utils/security.js");
+const superAdmin_js_1 = require("../middleware/superAdmin.js");
+const audit_values_js_1 = require("../utils/audit-values.js");
 const router = (0, express_1.Router)();
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const like = (v) => v.replace(/[\\%_]/g, (c) => '\\' + c);
@@ -109,6 +111,8 @@ function checkProcessPermissions(list) {
 // Create and update a login (one place for both)
 // ---------------------------------------------------------------------------
 const MOBILE_RE = /^[0-9+\-\s()]{6,20}$/;
+// Process rights as readable labels for the audit log, e.g. "receipt:maker,checker"
+const processLabels = (rows) => rows.map((p) => `${p.processName}:${[p.isMaker && 'maker', p.isChecker && 'checker'].filter(Boolean).join(',') || 'none'}`).sort();
 // Checks everything in body that is present and returns the columns to write
 async function checkUserFields(body) {
     const set = {};
@@ -170,13 +174,24 @@ async function checkUserFields(body) {
 async function updateUser(req, res, id, body) {
     if (!(0, security_js_1.isUuid)(id))
         return fail(404, 'User not found');
+    // Setting your OWN password through the edit form needs the current password too (same check and throttle as change-password)
+    if (body.password !== undefined && id === req.userId)
+        await verifyOwnPassword(res, id, body.currentPassword, 403);
+    // A username is an identity: only the system super_admin changes one, stated here and not only through the route table
+    if (body.username !== undefined && !(0, superAdmin_js_1.isSuperAdmin)(req))
+        return fail(403, 'Only super_admin can change a username');
     const set = await checkUserFields(body);
     const perms = body.processPermissions === undefined ? null : checkProcessPermissions(body.processPermissions);
     const companyIds = body.companyIds === undefined ? null : await checkIds('companies', body.companyIds, 'companyIds');
     const client = await index_js_1.db.connect();
     try {
         await client.query('BEGIN');
-        const cur = (await client.query(`SELECT id, name, email, role, is_active, username FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+        // Every change that can take a super_admin away (role or is_active) runs one at a time, so two admins demoting each other
+        // cannot both pass the "someone else is still active" count below. Taken before the row lock, in the same order every time.
+        if (set.role !== undefined || set.is_active !== undefined)
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext('users:super_admin_guard'))`);
+        const cur = (await client.query(`SELECT id, name, email, mobile, role, is_active, username, assigned_project_ids, authorized_print, authorized_download, unit_status_access, ip_security_enabled, home_page_widgets
+       FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
         if (!cur)
             fail(404, 'User not found');
         const losesRole = set.role !== undefined && set.role !== cur.role;
@@ -210,6 +225,12 @@ async function updateUser(req, res, id, body) {
             }
             set.ip_security_enabled = body.ipSecurityEnabled;
         }
+        // What the lists were before this change, read inside the transaction, for the audit row
+        const before = {};
+        if (perms)
+            before.processes = processLabels((await client.query(`SELECT process_name, is_maker, is_checker FROM user_process_permissions WHERE user_id = $1`, [id])).rows.map((r) => ({ processName: r.process_name, isMaker: r.is_maker, isChecker: r.is_checker })));
+        if (companyIds)
+            before.companyIds = (await client.query(`SELECT company_id FROM user_company_access WHERE user_id = $1 ORDER BY company_id`, [id])).rows.map((r) => r.company_id);
         const cols = Object.keys(set);
         const sessionEnds = set.password_hash !== undefined || losesAccess || losesRole;
         if (cols.length || sessionEnds) {
@@ -232,8 +253,17 @@ async function updateUser(req, res, id, body) {
         }
         await client.query('COMMIT');
         (0, index_js_2.invalidateAuthUser)(id);
+        if (set.password_hash !== undefined)
+            currentPwFails.delete(id); // a new password starts with a clean current-password count
+        // Old and new values of everything this request changed, never the password or its hash. The two JSON columns are shown as lists.
         const { password_hash: _hash, ...shown } = set;
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, { name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active }, { ...shown, ...(perms ? { processPermissions: perms.length } : {}), ...(companyIds ? { companies: companyIds.length } : {}), ...(set.password_hash ? { passwordChanged: true } : {}) });
+        for (const k of ['assigned_project_ids', 'home_page_widgets'])
+            if (typeof shown[k] === 'string')
+                shown[k] = JSON.parse(shown[k]);
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, (0, audit_values_js_1.withoutSecrets)({ name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active, ...(0, audit_values_js_1.pick)(cur, Object.keys(shown)), ...before }), (0, audit_values_js_1.withoutSecrets)({ ...shown,
+            ...(perms ? { processPermissions: perms.length, processes: processLabels(perms) } : {}),
+            ...(companyIds ? { companies: companyIds.length, companyIds } : {}),
+            ...(set.password_hash ? { passwordChanged: true } : {}) }));
     }
     catch (err) {
         await client.query('ROLLBACK');
@@ -362,7 +392,11 @@ router.post('/employee-login', guard(async (req, res) => {
         if (companyIds.length)
             await client.query(`INSERT INTO user_company_access (user_id, company_id, created_by_user_id) SELECT $1, unnest($2::uuid[]), $3`, [userId, companyIds, req.userId]);
         await client.query('COMMIT');
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'user', userId, {}, { username: fields.username, email: fields.email, role: fields.role });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'user', userId, {}, (0, audit_values_js_1.withoutSecrets)({
+            username: fields.username, email: fields.email, role: fields.role,
+            processes: processLabels(perms), companyIds, assigned_project_ids: JSON.parse(fields.assigned_project_ids ?? '[]'),
+            authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'all',
+        }));
         res.status(201).json({ success: true, data: { userId, username: fields.username } });
     }
     catch (err) {
@@ -509,7 +543,59 @@ router.patch('/:id', guard(async (req, res) => {
     const r = await index_js_1.db.query(`SELECT id, name, email, role, is_active, updated_at FROM users WHERE id = $1`, [req.params.id]);
     res.json({ success: true, data: r.rows[0] });
 }));
+// Checking the CURRENT password is a password-guessing oracle for anyone holding a valid token, so it is throttled per account:
+// 5 wrong answers within 15 minutes block further current-password checks for that account for 15 minutes (a correct answer is
+// refused during the block too). It is counted per account, not per address, so changing address does not help. Only this check is
+// blocked: signing in, every other action and the admin reset of someone else's password are not affected, and a correct answer
+// before the limit clears the count. The counters live in this process (the same limit as the login lockout); a shared store is
+// part of the login protection work (AUTH-004).
+const CURRENT_PW_MAX_FAILS = 5;
+const CURRENT_PW_WINDOW_MS = 15 * 60 * 1000;
+const currentPwFails = new Map();
+const currentPwBlockedFor = (id) => {
+    const f = currentPwFails.get(id);
+    if (!f)
+        return 0;
+    const now = Date.now();
+    if (f.until > now)
+        return f.until - now;
+    if (now - f.first > CURRENT_PW_WINDOW_MS || f.until)
+        currentPwFails.delete(id);
+    return 0;
+};
+const noteCurrentPwFailure = (id) => {
+    const now = Date.now();
+    const f = currentPwFails.get(id);
+    const cur = f && now - f.first <= CURRENT_PW_WINDOW_MS && !f.until ? f : { count: 0, first: now, until: 0 };
+    cur.count += 1;
+    if (cur.count >= CURRENT_PW_MAX_FAILS)
+        cur.until = now + CURRENT_PW_WINDOW_MS;
+    currentPwFails.set(id, cur);
+    if (currentPwFails.size > 5000)
+        currentPwFails.clear();
+};
+// Proves the caller's current password (400 when missing, 429 when blocked, 401 when wrong). Used by change-password and by the edit
+// form when someone sets their own password, so there is no way to set your own password without it. A wrong answer is 401 on
+// change-password (its existing answer) but 403 on the edit form: the screens sign the user out on any 401, which a typing mistake must not do.
+async function verifyOwnPassword(res, id, currentPassword, wrongStatus = 401) {
+    if (!currentPassword || typeof currentPassword !== 'string')
+        return fail(400, 'Current password is required');
+    const wait = currentPwBlockedFor(id);
+    if (wait > 0) {
+        res.setHeader('Retry-After', String(Math.ceil(wait / 1000)));
+        return fail(429, `Too many wrong current passwords. Try again in ${Math.ceil(wait / 60000)} minute(s).`);
+    }
+    const hash = (await index_js_1.db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
+    const ok = hash?.startsWith('$2') ? await bcryptjs_1.default.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
+    if (!ok) {
+        noteCurrentPwFailure(id);
+        return fail(wrongStatus, 'Current password is incorrect');
+    }
+    currentPwFails.delete(id);
+}
 // POST /api/users/:id/change-password
+// Your own password: the current one is always required, for every role including super_admin.
+// Another user's password: super_admin only, no current password (an administrator reset); everyone else gets 403.
 router.post('/:id/change-password', guard(async (req, res) => {
     const { id } = req.params;
     const { newPassword, currentPassword } = req.body || {};
@@ -518,21 +604,15 @@ router.post('/:id/change-password', guard(async (req, res) => {
     const problem = (0, security_js_1.passwordProblem)(newPassword);
     if (problem)
         return fail(400, problem);
-    // Non-admins can only change their own password, and must give the current one
     if (req.userRole !== 'super_admin' && req.userId !== id)
         return fail(403, 'Forbidden: can only change your own password');
-    if (req.userId === id && req.userRole !== 'super_admin') {
-        if (!currentPassword || typeof currentPassword !== 'string')
-            return fail(400, 'Current password is required');
-        const hash = (await index_js_1.db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
-        const ok = hash?.startsWith('$2') ? await bcryptjs_1.default.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
-        if (!ok)
-            return fail(401, 'Current password is incorrect');
-    }
+    if (req.userId === id)
+        await verifyOwnPassword(res, id, currentPassword);
     const r = await index_js_1.db.query(`UPDATE users SET password_hash = $1, token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() WHERE id = $2 RETURNING id, name, email`, [await bcryptjs_1.default.hash(newPassword, 12), id]);
     if (!r.rows[0])
         return fail(404, 'User not found');
     (0, index_js_2.invalidateAuthUser)(id);
+    currentPwFails.delete(id);
     await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, {}, { passwordChanged: true });
     res.json({ success: true, data: r.rows[0] });
 }));

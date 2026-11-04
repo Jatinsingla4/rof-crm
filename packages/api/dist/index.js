@@ -8,7 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = exports.clearAuthUserCache = exports.invalidateAuthUser = exports.db = void 0;
+exports.authenticateToken = exports.clearAuthUserCache = exports.invalidateAuthUser = exports.db = exports.appConfig = void 0;
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
@@ -63,6 +63,7 @@ const custom_letters_js_1 = __importDefault(require("./routes/custom-letters.js"
 const gst_configuration_js_1 = __importDefault(require("./routes/gst-configuration.js"));
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
+const app_config_js_1 = require("./utils/app-config.js");
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -72,6 +73,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET)
     throw new Error('JWT_SECRET is not set. Refusing to start.');
+// Which deployment this is (APP_ENV) and how project scope is applied (SCOPE_MODE); a bad combination stops the start.
+exports.appConfig = (0, app_config_js_1.loadAppConfig)();
 // Dev shortcuts (mock token, passwordless login) need an explicit opt-in on top of a non-production NODE_ENV.
 const DEV_AUTH = isDev && process.env.ALLOW_DEV_AUTH === 'true';
 // Behind the host's proxy (Vercel), req.ip must be the client address or every user shares one rate-limit bucket.
@@ -384,10 +387,18 @@ app.post('/api/auth/logout', exports.authenticateToken, async (req, res) => {
     }
 });
 // ============================================
-// PUBLIC HEALTH / DIAGNOSTIC ENDPOINTS (before auth)
+// DIAGNOSTIC ENDPOINTS
+// The only public health answer is GET /api/health (status, time, short commit) for deployment checks.
+// The two diagnostics below need a login with the super_admin role and are rate limited, and neither returns
+// document text or an internal error message.
 // ============================================
 let lastMigrationLog = [];
-app.get('/api/health/debug', async (req, res) => {
+const adminDiagnostics = [
+    apiLimiter,
+    exports.authenticateToken,
+    (req, res, next) => (req.userRole === 'super_admin' ? next() : res.status(403).json({ error: 'Forbidden' })),
+];
+app.get('/api/health/debug', ...adminDiagnostics, async (req, res) => {
     res.json({
         success: true,
         timestamp: new Date().toISOString(),
@@ -395,7 +406,7 @@ app.get('/api/health/debug', async (req, res) => {
         databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
     });
 });
-app.get('/api/health/templates', async (req, res) => {
+app.get('/api/health/templates', ...adminDiagnostics, async (req, res) => {
     try {
         const fs = require('fs');
         const path = require('path');
@@ -410,17 +421,16 @@ app.get('/api/health/templates', async (req, res) => {
             filesStatus[file.name] = fs.existsSync(file.path);
             console.log(`[HEALTH] File ${file.name}: ${filesStatus[file.name] ? 'EXISTS' : 'MISSING'} at ${file.path}`);
         }
-        // Check database templates
+        // Which templates exist (type, project, name, how many). The stored template text is never returned here.
         const dbRes = await pool_1.db.query(`
       SELECT
         document_type,
         project_id,
         name,
-        body_html,
         COUNT(*) as count
       FROM document_templates
       WHERE document_type IN ('buyer_builder_agreement', 'conveyance_deed')
-      GROUP BY document_type, project_id, name, body_html
+      GROUP BY document_type, project_id, name
       ORDER BY document_type, project_id NULLS FIRST
     `);
         const dbTemplates = dbRes.rows;
@@ -437,10 +447,7 @@ app.get('/api/health/templates', async (req, res) => {
     }
     catch (error) {
         console.error('[HEALTH] Diagnostic failed:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-        });
+        res.status(500).json({ success: false, error: 'Diagnostic failed' });
     }
 });
 // ============================================
@@ -500,6 +507,8 @@ app.use('/api/test-data', exports.authenticateToken, (req, res, next) => (req.us
 app.use('/api/roles', exports.authenticateToken, roles_js_1.default);
 app.use('/api/companies', exports.authenticateToken, companies_js_1.default);
 app.use('/api/custom-letters', exports.authenticateToken, rbac('documents'), custom_letters_js_1.default);
+// An API path no route handled answers in JSON, like every other API error
+app.use('/api', (req, res) => { res.status(404).json({ error: 'Not found' }); });
 // ============================================
 // SPA FALLBACK
 // ============================================
@@ -534,7 +543,7 @@ app.use((err, req, res, next) => {
     if (!process.env.VERCEL) {
         app.listen(Number(PORT), '0.0.0.0', () => {
             console.log(`ROF CRM API running on port ${PORT}`);
-            console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`Environment: ${process.env.NODE_ENV || 'development'} (APP_ENV ${exports.appConfig.appEnv ?? 'not set'}, SCOPE_MODE ${exports.appConfig.scopeMode})`);
         });
     }
 })();

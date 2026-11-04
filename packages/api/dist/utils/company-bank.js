@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.companyBankCols = void 0;
+exports.forRole = exports.maskAccount = exports.SEES_FULL_ACCOUNT = exports.companyBankCols = void 0;
 // The bank account printed on letters. The Company screen keeps accounts in company_bank_accounts (one primary);
 // the single bank_* columns on companies are the old place. The primary account wins, the old columns are the fallback.
 const primary = (co, col) => `(SELECT b.${col} FROM company_bank_accounts b WHERE b.company_id = ${co}.id AND b.is_active = true ORDER BY b.is_primary DESC, b.created_at LIMIT 1)`;
@@ -12,4 +12,23 @@ const companyBankCols = (co = 'c') => `
   COALESCE(${primary(co, 'bank_name')}, NULLIF(${co}.bank_name, '')) AS bank_name,
   COALESCE(${primary(co, 'branch')}, NULLIF(${co}.bank_branch, '')) AS bank_branch`;
 exports.companyBankCols = companyBankCols;
+// Who may read a full company bank account number. The same finance roles that already have the finance-only rule (`financeOnly` in utils/input.ts);
+// every other role gets the last four digits. Letters and demand letters print the number on purpose (customers pay into it) and are limited
+// to roles that can create documents, so they are not masked here.
+exports.SEES_FULL_ACCOUNT = ['super_admin', 'accounts_finance'];
+const maskAccount = (n) => { if (n == null)
+    return n; const t = String(n); return t.length > 4 ? 'XXXX' + t.slice(-4) : t; };
+exports.maskAccount = maskAccount;
+// Masks `bank_account_no` and `account_number` on one row (or a list of rows) unless the role may see them in full
+const forRole = (role, row) => {
+    if (!row || exports.SEES_FULL_ACCOUNT.includes(role || ''))
+        return row;
+    const o = { ...row };
+    if ('bank_account_no' in o)
+        o.bank_account_no = (0, exports.maskAccount)(o.bank_account_no);
+    if ('account_number' in o)
+        o.account_number = (0, exports.maskAccount)(o.account_number);
+    return o;
+};
+exports.forRole = forRole;
 //# sourceMappingURL=company-bank.js.map

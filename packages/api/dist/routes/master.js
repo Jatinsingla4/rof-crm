@@ -7,6 +7,7 @@
  */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.fieldLabel = void 0;
+exports.tooLong = tooLong;
 exports.badNumber = badNumber;
 exports.cleanBody = cleanBody;
 const unit_type_price_js_1 = require("../utils/unit-type-price.js");
@@ -15,6 +16,7 @@ const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const pool_js_1 = require("../db/pool.js");
 const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
 // ─── Access control ──────────────────────────────────────────────────────────
@@ -29,6 +31,30 @@ router.use((req, res, next) => {
         return next();
     return res.status(403).json({ error: 'You do not have permission to change master data' });
 });
+// A login limited to some projects (assigned_project_ids) must not change a record that applies to every project:
+// row level security treats a row with no project as visible and writable to all, so the route has to refuse it.
+// Create needs a project in the body; change and delete look at the stored row; moving a row to "no project" is refused too.
+const GLOBAL_DENIED = 'Your login is limited to some projects, so it cannot change a record that applies to every project. Ask an administrator.';
+const globalGuard = (table) => async (req, res, next) => {
+    try {
+        if (!(0, pool_js_1.isScoped)())
+            return next();
+        const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+        if (req.method === 'POST')
+            return b.project_id ? next() : res.status(403).json({ error: GLOBAL_DENIED });
+        if ('project_id' in b && !b.project_id && req.method !== 'DELETE')
+            return res.status(403).json({ error: GLOBAL_DENIED });
+        if (!/^[0-9a-f-]{36}$/i.test(req.params.id))
+            return next();
+        const row = (await index_js_1.db.query(`SELECT project_id FROM ${table} WHERE id = $1`, [req.params.id])).rows[0];
+        if (row && row.project_id === null)
+            return res.status(403).json({ error: GLOBAL_DENIED });
+        next();
+    }
+    catch (err) {
+        next(err);
+    }
+};
 // ─── Input helpers ───────────────────────────────────────────────────────────
 // "towerName" or "base_rate_sqft" -> "Tower name" / "Base rate sqft" for messages shown to the user
 const fieldLabel = (f) => {
@@ -37,6 +63,13 @@ const fieldLabel = (f) => {
 };
 exports.fieldLabel = fieldLabel;
 // Returns a message when one of the listed fields is present but not a number of zero or more
+// Longest text each column holds (from the schema), checked here so the message names the field
+function tooLong(values, lens = {}) {
+    for (const [f, n] of Object.entries(lens))
+        if (typeof values[f] === 'string' && values[f].length > n)
+            return `${(0, exports.fieldLabel)(f)} can be at most ${n} characters`;
+    return null;
+}
 function badNumber(values, fields = []) {
     for (const f of fields) {
         const v = values[f];
@@ -66,6 +99,9 @@ function cleanBody(body, fields, current) {
             return { error: `Invalid value for ${(0, exports.fieldLabel)(f)}` };
         if (v !== null && TEXT_FIELDS.has(f) && typeof v !== 'string')
             return { error: `Invalid value for ${(0, exports.fieldLabel)(f)}` };
+        // Bidirectional embedding, override and isolate characters can make one name read as another; normal Arabic, Hebrew and Hindi text does not need them
+        if (typeof v === 'string' && input_js_1.BIDI.test(v) && !(current && current[f] === v))
+            return { error: `${(0, exports.fieldLabel)(f)} contains characters that are not allowed` };
         // Other pages put these names into dropdowns and letters as HTML, so markup characters are not accepted
         if (typeof v === 'string' && /[<>]/.test(v) && !(current && current[f] === v))
             return { error: `${(0, exports.fieldLabel)(f)} cannot contain < or >` };
@@ -116,7 +152,7 @@ function addRoute(table, fields, opts = {}) {
                     return res.status(400).json({ error: `${(0, exports.fieldLabel)(r)} is required` });
             if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen)
                 return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
-            const numberError = badNumber(values, opts.nonNegative);
+            const numberError = badNumber(values, opts.nonNegative) || tooLong(values, opts.lens);
             if (numberError)
                 return res.status(400).json({ error: numberError });
             if (opts.unique && await isDuplicate(table, opts.unique, values)) {
@@ -170,7 +206,7 @@ function updateRoute(table, fields, opts = {}) {
                     return res.status(400).json({ error: `${(0, exports.fieldLabel)(r)} is required` });
             if (opts.maxLen && typeof values.name === 'string' && values.name.length > opts.maxLen)
                 return res.status(400).json({ error: `Name can be at most ${opts.maxLen} characters` });
-            const numberError = badNumber(values, opts.nonNegative);
+            const numberError = badNumber(values, opts.nonNegative) || tooLong(values, opts.lens);
             if (numberError)
                 return res.status(400).json({ error: numberError });
             // Renaming a list item that other records hold as text would split their data, so it is refused while in use
@@ -196,7 +232,11 @@ function updateRoute(table, fields, opts = {}) {
         }
     };
 }
-const countOf = async (sql, id) => (await index_js_1.db.query(sql, [id])).rows[0].n;
+// "Is it in use?" must look at every project, not only the ones the caller is limited to: the lists below are shared by all projects,
+// so a limited login that cannot see another project's records would otherwise be told an item is free and could rename or delete it.
+// Only counts are read this way, never rows, and the change itself still runs with the caller's scope.
+const cnt = (sql, params = []) => pool_js_1.scopeStore.exit(() => index_js_1.db.query(sql, params));
+const countOf = async (sql, id) => (await cnt(sql, [id])).rows[0].n;
 // These lists are stored as plain text on other records. Returns how many records carry this item's name.
 // The table and column names below are fixed in code, never taken from a request.
 async function textUsage(table, id, usedIn) {
@@ -205,7 +245,7 @@ async function textUsage(table, id, usedIn) {
         return null;
     let n = 0;
     for (const [t, col] of usedIn)
-        n += Number((await index_js_1.db.query(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = $1`, [row.name])).rows[0].n);
+        n += Number((await cnt(`SELECT COUNT(*) AS n FROM ${t} WHERE ${col} = $1`, [row.name])).rows[0].n);
     return { name: row.name, n };
 }
 const PERSON_TABLES = (col) => [['consumers', col], ['co_applicants', col], ['applicant_details', col]];
@@ -240,8 +280,9 @@ const countryCheck = (req, res, next) => {
         b.isd_code = b.isd_code.trim().replace(/^\+/, '');
     next();
 };
-router.post('/countries', countryCheck, addRoute('countries', COUNTRY_FIELDS, { unique: [] }));
-router.put('/countries/:id', countryCheck, updateRoute('countries', COUNTRY_FIELDS, { unique: [] }));
+const COUNTRY_LENS = { name: 150, code: 10, abbreviation: 10, iso_code: 3, isd_code: 6 };
+router.post('/countries', countryCheck, addRoute('countries', COUNTRY_FIELDS, { unique: [], lens: COUNTRY_LENS }));
+router.put('/countries/:id', countryCheck, updateRoute('countries', COUNTRY_FIELDS, { unique: [], lens: COUNTRY_LENS }));
 router.delete('/countries/:id', deleteRoute('countries', {
     inUse: async (id) => {
         const n = await countOf('SELECT COUNT(*)::int AS n FROM states WHERE country_id = $1', id);
@@ -263,8 +304,8 @@ router.get('/states', async (req, res, next) => {
         next(err);
     }
 });
-router.post('/states', addRoute('states', ['name', 'country_id', 'code'], { unique: ['country_id'], required: ['country_id'] }));
-router.put('/states/:id', updateRoute('states', ['name', 'country_id', 'code'], { unique: ['country_id'], required: ['country_id'] }));
+router.post('/states', addRoute('states', ['name', 'country_id', 'code'], { unique: ['country_id'], required: ['country_id'], lens: { name: 150, code: 10 } }));
+router.put('/states/:id', updateRoute('states', ['name', 'country_id', 'code'], { unique: ['country_id'], required: ['country_id'], lens: { name: 150, code: 10 } }));
 router.delete('/states/:id', deleteRoute('states', {
     inUse: async (id) => {
         const n = await countOf('SELECT COUNT(*)::int AS n FROM cities WHERE state_id = $1', id);
@@ -288,8 +329,8 @@ router.get('/cities', async (req, res, next) => {
         next(err);
     }
 });
-router.post('/cities', addRoute('cities', ['name', 'state_id'], { unique: ['state_id'], required: ['state_id'] }));
-router.put('/cities/:id', updateRoute('cities', ['name', 'state_id'], { unique: ['state_id'], required: ['state_id'] }));
+router.post('/cities', addRoute('cities', ['name', 'state_id'], { unique: ['state_id'], required: ['state_id'], lens: { name: 150 } }));
+router.put('/cities/:id', updateRoute('cities', ['name', 'state_id'], { unique: ['state_id'], required: ['state_id'], lens: { name: 150 } }));
 router.delete('/cities/:id', deleteRoute('cities'));
 // ─── BANKS ────────────────────────────────────────────────────────────────────
 // ?type=customer or ?type=loan lists one use of the bank list; a loan bank can be limited to some projects (projectIds)
@@ -307,6 +348,10 @@ router.get('/banks', async (req, res, next) => {
     }
 });
 const BANK_FIELDS = ['name', 'ifsc_prefix', 'branch', 'is_customer_bank', 'is_loan_bank'];
+const BANK_LENS = { name: 200, ifsc_prefix: 10, branch: 200 };
+// The IFSC prefix is the start of the IFSC code (the screen says the first four letters). Only letters and digits, 4 to 10 characters (the column holds 10),
+// are checked: symbols and spaces are refused, and the exact 4-letter rule is left alone because existing data and tests use other values.
+const IFSC_PREFIX = /^[A-Za-z0-9]{4,10}$/;
 const bankFlags = (req, res, next) => {
     const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
     for (const k of ['is_customer_bank', 'is_loan_bank'])
@@ -317,13 +362,91 @@ const bankFlags = (req, res, next) => {
             b.is_customer_bank = true;
         if (b.is_loan_bank === undefined)
             b.is_loan_bank = false;
+        if (b.is_customer_bank === false && b.is_loan_bank !== true)
+            return res.status(400).json({ error: BANK_KIND_MSG });
     }
-    if (req.method === 'POST' && b.is_customer_bank === false && b.is_loan_bank !== true)
-        return res.status(400).json({ error: 'A bank must be a customer bank, a loan bank or both' });
     next();
 };
-router.post('/banks', bankFlags, addRoute('banks', BANK_FIELDS, { unique: [] }));
-router.put('/banks/:id', bankFlags, updateRoute('banks', BANK_FIELDS, { unique: [] }));
+const BANK_KIND_MSG = 'A bank must be a customer bank, a loan bank or both';
+router.post('/banks', bankFlags, async (req, res, next) => {
+    const b = req.body;
+    if (typeof b.ifsc_prefix === 'string' && b.ifsc_prefix.trim() && !IFSC_PREFIX.test(b.ifsc_prefix.trim()))
+        return res.status(400).json({ error: 'IFSC prefix must be 4 to 10 letters or digits, for example HDFC' });
+    if (typeof b.ifsc_prefix === 'string')
+        b.ifsc_prefix = b.ifsc_prefix.trim().toUpperCase();
+    return addRoute('banks', BANK_FIELDS, { unique: [], lens: BANK_LENS })(req, res, next);
+});
+// Edit: the flags are checked on the bank as it will be after the change (not only on the fields sent), and a bank that stops
+// being a loan bank loses its project approvals in the same transaction, so no stale approval comes back if it is made a loan bank again.
+router.put('/banks/:id', bankFlags, async (req, res, next) => {
+    const c = await index_js_1.db.connect();
+    try {
+        const id = req.params.id;
+        if (!/^[0-9a-f-]{36}$/i.test(id))
+            return res.status(404).json({ error: 'Not found' });
+        const b = req.body;
+        const cleaned = cleanBody(b, BANK_FIELDS);
+        if ('error' in cleaned)
+            return res.status(400).json({ error: cleaned.error });
+        const v = cleaned.values;
+        const keys = Object.keys(v);
+        if (!keys.length)
+            return res.status(400).json({ error: 'Nothing to update' });
+        if ('name' in v && !v.name)
+            return res.status(400).json({ error: 'Name is required' });
+        for (const k of ['is_customer_bank', 'is_loan_bank'])
+            if (k in v && v[k] === null)
+                delete v[k];
+        const tl = tooLong(v, BANK_LENS);
+        if (tl)
+            return res.status(400).json({ error: tl });
+        await c.query('BEGIN');
+        const cur = (await c.query('SELECT * FROM banks WHERE id = $1 FOR UPDATE', [id])).rows[0];
+        if (!cur) {
+            await c.query('ROLLBACK');
+            return res.status(404).json({ error: 'Not found' });
+        }
+        if (typeof v.ifsc_prefix === 'string' && v.ifsc_prefix !== cur.ifsc_prefix) {
+            if (!IFSC_PREFIX.test(v.ifsc_prefix)) {
+                await c.query('ROLLBACK');
+                return res.status(400).json({ error: 'IFSC prefix must be 4 to 10 letters or digits, for example HDFC' });
+            }
+            v.ifsc_prefix = v.ifsc_prefix.toUpperCase();
+        }
+        const finalCustomer = 'is_customer_bank' in v ? v.is_customer_bank : cur.is_customer_bank;
+        const finalLoan = 'is_loan_bank' in v ? v.is_loan_bank : cur.is_loan_bank;
+        if (!finalCustomer && !finalLoan) {
+            await c.query('ROLLBACK');
+            return res.status(400).json({ error: BANK_KIND_MSG });
+        }
+        // Approvals are shared by every project; a login limited to some projects sees only its own rows, so it cannot switch a bank off as a loan bank
+        if (cur.is_loan_bank && !finalLoan && (0, pool_js_1.isScoped)()) {
+            await c.query('ROLLBACK');
+            return res.status(403).json({ error: 'Your login is limited to some projects, so it cannot stop a bank from being a loan bank. Ask an administrator.' });
+        }
+        if ('name' in v && v.name !== cur.name && (await c.query('SELECT 1 FROM banks WHERE lower(name) = lower($1) AND id <> $2', [v.name, id])).rows.length) {
+            await c.query('ROLLBACK');
+            return res.status(409).json({ error: 'A record with this name already exists' });
+        }
+        const upd = (await c.query(`UPDATE banks SET ${keys.filter((k) => k in v).map((k, i) => `${k} = $${i + 1}`).join(', ')} WHERE id = $${keys.filter((k) => k in v).length + 1} RETURNING *`, [...keys.filter((k) => k in v).map((k) => v[k]), id])).rows[0];
+        let dropped = [];
+        // also a bank made a loan bank again starts with no approvals (none can be valid while it was not a loan bank)
+        if (cur.is_loan_bank !== finalLoan)
+            dropped = (await c.query('DELETE FROM loan_bank_projects WHERE bank_id = $1 RETURNING project_id', [id])).rows.map((r) => r.project_id);
+        await c.query('COMMIT');
+        await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'master.banks', id, cur, upd);
+        if (dropped.length)
+            await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'master.loan_bank_projects', id, { project_ids: dropped }, { project_ids: [] });
+        res.json({ success: true, data: upd });
+    }
+    catch (err) {
+        await c.query('ROLLBACK').catch(() => { });
+        next(err);
+    }
+    finally {
+        c.release();
+    }
+});
 // Projects a loan bank is approved for (an empty list means every project)
 router.get('/banks/:id/projects', async (req, res, next) => {
     try {
@@ -339,20 +462,31 @@ router.get('/banks/:id/projects', async (req, res, next) => {
 router.put('/banks/:id/projects', async (req, res, next) => {
     const c = await index_js_1.db.connect();
     try {
+        // The list is one setting for the whole bank (an empty list means every project). A login limited to some projects sees only
+        // its own approval rows, so it could not replace the list without leaving the other projects' approvals behind.
+        if ((0, pool_js_1.isScoped)())
+            return res.status(403).json({ error: 'Your login is limited to some projects, so it cannot change the projects a loan bank is approved for. Ask an administrator.' });
         const ids = req.body?.projectIds;
         if (!/^[0-9a-f-]{36}$/i.test(req.params.id))
             return res.status(400).json({ error: 'Bank not found' });
         if (!Array.isArray(ids) || ids.length > 500 || ids.some((x) => typeof x !== 'string' || !/^[0-9a-f-]{36}$/i.test(x)))
             return res.status(400).json({ error: 'projectIds must be a list of project ids' });
-        const bank = (await c.query('SELECT is_loan_bank FROM banks WHERE id = $1', [req.params.id])).rows[0];
-        if (!bank)
-            return res.status(404).json({ error: 'Bank not found' });
-        if (!bank.is_loan_bank)
-            return res.status(400).json({ error: 'Only a loan bank can be approved for projects' });
         const uniq = [...new Set(ids.map((x) => x.toLowerCase()))];
-        if (uniq.length && (await c.query('SELECT id FROM projects WHERE id = ANY($1::uuid[])', [uniq])).rows.length !== uniq.length)
-            return res.status(400).json({ error: 'A project in the list does not exist' });
         await c.query('BEGIN');
+        // The bank row is locked so a flag change cannot slip in between the check and the write
+        const bank = (await c.query('SELECT is_loan_bank FROM banks WHERE id = $1 FOR UPDATE', [req.params.id])).rows[0];
+        if (!bank) {
+            await c.query('ROLLBACK');
+            return res.status(404).json({ error: 'Bank not found' });
+        }
+        if (!bank.is_loan_bank) {
+            await c.query('ROLLBACK');
+            return res.status(400).json({ error: 'Only a loan bank can be approved for projects' });
+        }
+        if (uniq.length && (await c.query('SELECT id FROM projects WHERE id = ANY($1::uuid[])', [uniq])).rows.length !== uniq.length) {
+            await c.query('ROLLBACK');
+            return res.status(400).json({ error: 'A project in the list does not exist' });
+        }
         const before = (await c.query('SELECT project_id FROM loan_bank_projects WHERE bank_id = $1', [req.params.id])).rows.map((r) => r.project_id);
         await c.query('DELETE FROM loan_bank_projects WHERE bank_id = $1', [req.params.id]);
         for (const pid of uniq)
@@ -376,10 +510,23 @@ router.delete('/banks/:id', deleteRoute('banks', {
     },
 }));
 // ─── AREA TYPES and CURRENCIES (plain lists the client's Set Up menu has) ─────────────────────────────────────────────
+// Area types are held as text by projects (land area unit), unit areas (area measurement) and unit types (unit of measurement, plot area unit)
+// and matched without regard to letter case. Currencies are not held by any other table today, so a currency can always be removed.
+const AREA_USERS = [['projects', 'land_area_unit'], ['unit_areas', 'area_measurement'], ['unit_types', 'unit_of_measurement'], ['unit_types', 'plot_area_unit']];
+const areaTypeUse = async (id) => {
+    const row = (await index_js_1.db.query('SELECT name FROM area_types WHERE id = $1', [id])).rows[0];
+    if (!row)
+        return null;
+    let n = 0;
+    for (const [t, col] of AREA_USERS)
+        n += Number((await cnt(`SELECT COUNT(*) AS n FROM ${t} WHERE lower(${col}) = lower($1)`, [row.name])).rows[0].n);
+    return { name: row.name, n };
+};
+const areaTypeInUse = async (id) => { const u = await areaTypeUse(id); return u && u.n ? `"${u.name}" is used on ${u.n} record(s) (projects, unit types or unit areas). Change them before deleting this area type.` : null; };
 router.get('/area-types', listRoute('area_types', 'name'));
 router.post('/area-types', addRoute('area_types', ['name'], { unique: [], maxLen: 50 }));
-router.put('/area-types/:id', updateRoute('area_types', ['name'], { unique: [], maxLen: 50 }));
-router.delete('/area-types/:id', deleteRoute('area_types'));
+router.put('/area-types/:id', updateRoute('area_types', ['name'], { unique: [], maxLen: 50, inUse: areaTypeInUse }));
+router.delete('/area-types/:id', deleteRoute('area_types', { inUse: areaTypeInUse }));
 router.get('/currencies', listRoute('currencies', 'name'));
 router.post('/currencies', addRoute('currencies', ['name'], { unique: [], maxLen: 50 }));
 router.put('/currencies/:id', updateRoute('currencies', ['name'], { unique: [], maxLen: 50 }));
@@ -391,18 +538,18 @@ router.put('/salutations/:id', updateRoute('salutations', ['name'], { unique: []
 router.delete('/salutations/:id', deleteRoute('salutations', { inUse: inUseByText('salutations', 'salutation', PERSON_TABLES('salutation')) }));
 // ─── PROFESSIONS ──────────────────────────────────────────────────────────────
 router.get('/professions', listRoute('professions', 'name'));
-router.post('/professions', addRoute('professions', ['name'], { unique: [] }));
-router.put('/professions/:id', updateRoute('professions', ['name'], { unique: [], inUse: inUseByText('professions', 'profession', PERSON_TABLES('profession')) }));
+router.post('/professions', addRoute('professions', ['name'], { unique: [], maxLen: 100 }));
+router.put('/professions/:id', updateRoute('professions', ['name'], { unique: [], maxLen: 100, inUse: inUseByText('professions', 'profession', PERSON_TABLES('profession')) }));
 router.delete('/professions/:id', deleteRoute('professions', { inUse: inUseByText('professions', 'profession', PERSON_TABLES('profession')) }));
 // ─── NATIONALITIES ────────────────────────────────────────────────────────────
 router.get('/nationalities', listRoute('nationalities', 'name'));
-router.post('/nationalities', addRoute('nationalities', ['name'], { unique: [] }));
-router.put('/nationalities/:id', updateRoute('nationalities', ['name'], { unique: [], inUse: inUseByText('nationalities', 'nationality', PERSON_TABLES('nationality')) }));
+router.post('/nationalities', addRoute('nationalities', ['name'], { unique: [], maxLen: 100 }));
+router.put('/nationalities/:id', updateRoute('nationalities', ['name'], { unique: [], maxLen: 100, inUse: inUseByText('nationalities', 'nationality', PERSON_TABLES('nationality')) }));
 router.delete('/nationalities/:id', deleteRoute('nationalities', { inUse: inUseByText('nationalities', 'nationality', PERSON_TABLES('nationality')) }));
 // ─── SOURCES OF ENQUIRY ───────────────────────────────────────────────────────
 router.get('/sources-of-enquiry', listRoute('sources_of_enquiry', 'name'));
-router.post('/sources-of-enquiry', addRoute('sources_of_enquiry', ['name', 'description'], { unique: [] }));
-router.put('/sources-of-enquiry/:id', updateRoute('sources_of_enquiry', ['name', 'description'], { unique: [], inUse: inUseByText('sources_of_enquiry', 'source', [['consumers', 'source_of_enquiry']]) }));
+router.post('/sources-of-enquiry', addRoute('sources_of_enquiry', ['name', 'description'], { unique: [], maxLen: 100, lens: { description: 1000 } }));
+router.put('/sources-of-enquiry/:id', updateRoute('sources_of_enquiry', ['name', 'description'], { unique: [], maxLen: 100, lens: { description: 1000 }, inUse: inUseByText('sources_of_enquiry', 'source', [['consumers', 'source_of_enquiry']]) }));
 router.delete('/sources-of-enquiry/:id', deleteRoute('sources_of_enquiry', { inUse: inUseByText('sources_of_enquiry', 'source', [['consumers', 'source_of_enquiry']]) }));
 // ─── DOCUMENT TYPES ───────────────────────────────────────────────────────────
 router.get('/document-types', async (req, res, next) => {
@@ -450,7 +597,7 @@ async function documentTypeError(v) {
     return null;
 }
 const DOCUMENT_TYPE_FIELDS = ['name', 'category', 'description', 'project_id', 'document_from', 'is_mandatory', 'required_at'];
-router.post('/document-types', async (req, res, next) => {
+router.post('/document-types', globalGuard('document_types'), async (req, res, next) => {
     try {
         const cleaned = cleanBody(req.body, DOCUMENT_TYPE_FIELDS);
         if ('error' in cleaned)
@@ -479,7 +626,7 @@ router.post('/document-types', async (req, res, next) => {
     }
 });
 // Only the fields present in the request are changed (the edit form does not send category)
-router.put('/document-types/:id', async (req, res, next) => {
+router.put('/document-types/:id', globalGuard('document_types'), async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
         const { id } = req.params;
@@ -516,14 +663,16 @@ router.put('/document-types/:id', async (req, res, next) => {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Nothing to update' });
         }
-        const result = await client.query(`UPDATE document_types SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')}, updated_at = NOW() WHERE id = $${keys.length + 1} RETURNING *`, [...keys.map(k => v[k]), id]);
-        const newName = result.rows[0].name;
-        // booking documents and dispatches hold the name as text: follow a rename only when no other document type still uses the old name
-        const oldNameStillUsed = oldName && newName && oldName !== newName ? (await client.query('SELECT 1 FROM document_types WHERE lower(name) = lower($1) AND id <> $2 LIMIT 1', [oldName, id])).rows.length > 0 : false;
-        if (oldName && newName && oldName !== newName && !oldNameStillUsed) {
-            await client.query(`UPDATE booking_documents  SET document_type = $1 WHERE document_type = $2`, [newName, oldName]);
-            await client.query(`UPDATE document_dispatch  SET document_type = $1 WHERE document_type = $2`, [newName, oldName]);
+        // Booking documents and dispatch entries keep the document name as it was when they were recorded, and a dispatch entry is proof
+        // of what was sent, so a rename never rewrites them. A name that history still uses cannot be renamed away; add a new document instead.
+        if (typeof v.name === 'string' && v.name.toLowerCase() !== String(oldName).toLowerCase()) {
+            const blocked = await documentNameInUse(client, id, oldName);
+            if (blocked) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({ error: blocked.replace('cannot be deleted', 'cannot be renamed') });
+            }
         }
+        const result = await client.query(`UPDATE document_types SET ${keys.map((k, i) => `${k} = $${i + 1}`).join(', ')}, updated_at = NOW() WHERE id = $${keys.length + 1} RETURNING *`, [...keys.map(k => v[k]), id]);
         await client.query('COMMIT');
         // Audited on the same connection: asking the pool for a second one while holding this one can deadlock a busy pool
         await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'master.document_types', id, oldRes.rows[0], result.rows[0]);
@@ -537,14 +686,19 @@ router.put('/document-types/:id', async (req, res, next) => {
         client.release();
     }
 });
-router.delete('/document-types/:id', deleteRoute('document_types', {
+// Used by delete and rename: history holds the name as text, so only the last document type that carries a name is protected by it
+async function documentNameInUse(q, id, name) {
+    const others = (await cnt('SELECT 1 FROM document_types WHERE lower(name) = lower($1) AND id <> $2 LIMIT 1', [name, id])).rows.length;
+    if (others)
+        return null;
+    const n = Number((await cnt(`SELECT (SELECT COUNT(*) FROM booking_documents WHERE lower(document_type) = lower($1))
+          + (SELECT COUNT(*) FROM document_dispatch WHERE lower(document_type) = lower($1)) AS n`, [name])).rows[0].n);
+    return n ? `This document type is used in ${n} booking document or dispatch record(s) and cannot be deleted.` : null;
+}
+router.delete('/document-types/:id', globalGuard('document_types'), deleteRoute('document_types', {
     inUse: async (id) => {
         const row = (await index_js_1.db.query('SELECT name FROM document_types WHERE id = $1', [id])).rows[0];
-        if (!row)
-            return null;
-        const n = (await index_js_1.db.query(`SELECT (SELECT COUNT(*) FROM booking_documents WHERE document_type = $1)
-            + (SELECT COUNT(*) FROM document_dispatch WHERE document_type = $1) AS n`, [row.name])).rows[0].n;
-        return Number(n) ? `This document type is used in ${n} booking document or dispatch record(s) and cannot be deleted.` : null;
+        return row ? documentNameInUse(index_js_1.db, id, row.name) : null;
     },
 }));
 // ─── DOCUMENT DISPATCH ────────────────────────────────────────────────────────
@@ -614,7 +768,7 @@ router.get('/document-dispatch-master', async (req, res, next) => {
     }
 });
 const dmDup = async (b, excludeId) => (await index_js_1.db.query(`SELECT 1 FROM document_dispatch_master WHERE lower(name) = lower($1) AND project_id IS NOT DISTINCT FROM $2 ${excludeId ? 'AND id <> $3' : ''}`, excludeId ? [b.name, b.project_id ?? null, excludeId] : [b.name, b.project_id ?? null])).rows.length > 0;
-router.post('/document-dispatch-master', dmCheck, async (req, res, next) => {
+router.post('/document-dispatch-master', globalGuard('document_dispatch_master'), dmCheck, async (req, res, next) => {
     try {
         const c = cleanBody(req.body, DM_FIELDS);
         if ('error' in c)
@@ -630,7 +784,7 @@ router.post('/document-dispatch-master', dmCheck, async (req, res, next) => {
         next(err);
     }
 });
-router.put('/document-dispatch-master/:id', dmCheck, async (req, res, next) => {
+router.put('/document-dispatch-master/:id', globalGuard('document_dispatch_master'), dmCheck, async (req, res, next) => {
     try {
         if (!/^[0-9a-f-]{36}$/i.test(req.params.id))
             return res.status(404).json({ error: 'Not found' });
@@ -653,7 +807,7 @@ router.put('/document-dispatch-master/:id', dmCheck, async (req, res, next) => {
         next(err);
     }
 });
-router.delete('/document-dispatch-master/:id', async (req, res, next) => {
+router.delete('/document-dispatch-master/:id', globalGuard('document_dispatch_master'), async (req, res, next) => {
     try {
         if (!/^[0-9a-f-]{36}$/i.test(req.params.id))
             return res.status(404).json({ error: 'Not found' });
@@ -772,7 +926,7 @@ router.get('/reminder-master', async (req, res, next) => {
         next(err);
     }
 });
-router.post('/reminder-master', async (req, res, next) => {
+router.post('/reminder-master', globalGuard('reminder_master'), async (req, res, next) => {
     try {
         const rb = (0, input_js_1.body)(req);
         const name = (0, input_js_1.text)(rb.name, 'Name', 200, true);
@@ -804,7 +958,7 @@ router.post('/reminder-master', async (req, res, next) => {
         err?.http ? res.status(err.http).json({ error: err.message }) : next(err);
     }
 });
-router.patch('/reminder-master/:id', async (req, res, next) => {
+router.patch('/reminder-master/:id', globalGuard('reminder_master'), async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Reminder id'), rb = (0, input_js_1.body)(req);
         const cur = (await index_js_1.db.query('SELECT * FROM reminder_master WHERE id = $1', [id])).rows[0];
@@ -828,7 +982,7 @@ router.patch('/reminder-master/:id', async (req, res, next) => {
         err?.http ? res.status(err.http).json({ error: err.message }) : next(err);
     }
 });
-router.delete('/reminder-master/:id', deleteRoute('reminder_master'));
+router.delete('/reminder-master/:id', globalGuard('reminder_master'), deleteRoute('reminder_master'));
 // ─── UNIT TYPES ───────────────────────────────────────────────────────────────
 router.get('/unit-types', async (req, res, next) => {
     try {
@@ -1028,33 +1182,132 @@ router.get('/floors', async (req, res, next) => {
         next(err);
     }
 });
-router.post('/floors', addRoute('floors', ['tower_id', 'floor_number', 'floor_name']));
-router.put('/floors/:id', updateRoute('floors', ['tower_id', 'floor_number', 'floor_name']));
+// Floors: a tower id, a whole floor number (the same -5 to 300 the tower screen accepts) and an optional name of up to 50 characters,
+// one row per tower and floor number. Nothing in Set Master or Set Projects calls these routes today (towers have their own floor routes).
+const floorInput = async (rb, cur) => {
+    const towerId = 'tower_id' in rb || !cur ? (0, input_js_1.uuid)(rb.tower_id, 'Tower') : cur.tower_id;
+    let floorNumber = cur ? cur.floor_number : null;
+    if ('floor_number' in rb || !cur) {
+        const n = rb.floor_number;
+        if (typeof n === 'boolean' || n === null || n === undefined || n === '')
+            throw (0, input_js_1.bad)('Floor number is required');
+        const v = typeof n === 'number' ? n : typeof n === 'string' && /^-?\d{1,3}$/.test(n) ? Number(n) : NaN;
+        if (!Number.isInteger(v) || v < -5 || v > 300)
+            throw (0, input_js_1.bad)('Floor number must be a whole number from -5 to 300');
+        floorNumber = v;
+    }
+    const floorName = 'floor_name' in rb ? (0, input_js_1.text)(rb.floor_name, 'Floor name', 50, false) : cur ? cur.floor_name : null;
+    if (!(await index_js_1.db.query('SELECT 1 FROM towers WHERE id = $1', [towerId])).rows.length)
+        throw Object.assign((0, input_js_1.bad)('Tower not found'), { http: 404 });
+    return { towerId, floorNumber, floorName };
+};
+router.post('/floors', async (req, res, next) => {
+    try {
+        const f = await floorInput((0, input_js_1.body)(req));
+        if ((await index_js_1.db.query('SELECT 1 FROM floors WHERE tower_id = $1 AND floor_number = $2', [f.towerId, f.floorNumber])).rows.length)
+            throw Object.assign((0, input_js_1.bad)('This tower already has this floor number'), { http: 409 });
+        const r = (await index_js_1.db.query('INSERT INTO floors (tower_id, floor_number, floor_name) VALUES ($1,$2,$3) RETURNING *', [f.towerId, f.floorNumber, f.floorName])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'master.floors', r.id, undefined, r);
+        res.status(201).json({ success: true, data: r });
+    }
+    catch (err) {
+        sendErr(err, res, next);
+    }
+});
+router.put('/floors/:id', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Floor id'), rb = (0, input_js_1.body)(req);
+        const cur = (await index_js_1.db.query('SELECT * FROM floors WHERE id = $1', [id])).rows[0];
+        if (!cur)
+            return res.status(404).json({ error: 'Not found' });
+        if (!['tower_id', 'floor_number', 'floor_name'].some((k) => k in rb))
+            throw (0, input_js_1.bad)('Nothing to update');
+        const f = await floorInput(rb, cur);
+        if ((await index_js_1.db.query('SELECT 1 FROM floors WHERE tower_id = $1 AND floor_number = $2 AND id <> $3', [f.towerId, f.floorNumber, id])).rows.length)
+            throw Object.assign((0, input_js_1.bad)('This tower already has this floor number'), { http: 409 });
+        const r = (await index_js_1.db.query('UPDATE floors SET tower_id = $2, floor_number = $3, floor_name = $4 WHERE id = $1 RETURNING *', [id, f.towerId, f.floorNumber, f.floorName])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'master.floors', id, cur, r);
+        res.json({ success: true, data: r });
+    }
+    catch (err) {
+        sendErr(err, res, next);
+    }
+});
 router.delete('/floors/:id', deleteRoute('floors'));
 // ─── TAX SLABS ────────────────────────────────────────────────────────────────
+// Columns: name (100, unique), cgst, sgst and igst as numeric(5,2) percentages, effective_from a date, is_active a flag.
+// A percentage is checked as 0 to 100 with up to 2 decimals (the column holds two). No other module reads this table today.
+const TAX_PCT = [['cgst_percent', 'CGST percent'], ['sgst_percent', 'SGST percent'], ['igst_percent', 'IGST percent']];
+const taxInput = (rb, cur) => {
+    const name = 'name' in rb || !cur ? (0, input_js_1.text)(rb.name, 'Name', 100, true) : cur.name;
+    const out = { name };
+    for (const [k, label] of TAX_PCT)
+        out[k] = k in rb ? ((0, input_js_1.has)(rb[k]) ? (0, input_js_1.num)(rb[k], label, 100, 2) : null) : cur ? (cur[k] == null ? null : Number(cur[k])) : null;
+    out.effective_from = 'effective_from' in rb ? (0, input_js_1.day)(rb.effective_from, 'Effective from') : cur ? (cur.effective_from instanceof Date ? cur.effective_from.toISOString().slice(0, 10) : cur.effective_from ?? null) : null;
+    if ('is_active' in rb && rb.is_active !== null && typeof rb.is_active !== 'boolean')
+        throw (0, input_js_1.bad)('Is active must be true or false');
+    out.is_active = 'is_active' in rb && rb.is_active !== null ? rb.is_active : cur ? cur.is_active : true;
+    return out;
+};
+// two requests with the same name at the same moment: the database index (migration 145) refuses the second one
+const sendTaxErr = (err, res, next) => err?.code === '23505' ? res.status(409).json({ error: 'A record with this name already exists' }) : sendErr(err, res, next);
+const taxNameTaken = async (name, exceptId) => (await index_js_1.db.query(`SELECT 1 FROM tax_slabs WHERE lower(name) = lower($1) ${exceptId ? 'AND id <> $2' : ''}`, exceptId ? [name, exceptId] : [name])).rows.length > 0;
 router.get('/tax-slabs', listRoute('tax_slabs', 'name'));
-router.post('/tax-slabs', addRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
-router.put('/tax-slabs/:id', updateRoute('tax_slabs', ['name', 'cgst_percent', 'sgst_percent', 'igst_percent', 'effective_from', 'is_active']));
+router.post('/tax-slabs', async (req, res, next) => {
+    try {
+        const t = taxInput((0, input_js_1.body)(req));
+        if (await taxNameTaken(t.name))
+            throw Object.assign((0, input_js_1.bad)('A record with this name already exists'), { http: 409 });
+        const r = (await index_js_1.db.query('INSERT INTO tax_slabs (name, cgst_percent, sgst_percent, igst_percent, effective_from, is_active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', [t.name, t.cgst_percent, t.sgst_percent, t.igst_percent, t.effective_from, t.is_active])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'master.tax_slabs', r.id, undefined, r);
+        res.status(201).json({ success: true, data: r });
+    }
+    catch (err) {
+        sendTaxErr(err, res, next);
+    }
+});
+router.put('/tax-slabs/:id', async (req, res, next) => {
+    try {
+        const id = (0, input_js_1.uuid)(req.params.id, 'Tax slab id'), rb = (0, input_js_1.body)(req);
+        const cur = (await index_js_1.db.query('SELECT * FROM tax_slabs WHERE id = $1', [id])).rows[0];
+        if (!cur)
+            return res.status(404).json({ error: 'Not found' });
+        if (!['name', 'effective_from', 'is_active', ...TAX_PCT.map(([k]) => k)].some((k) => k in rb))
+            throw (0, input_js_1.bad)('Nothing to update');
+        const t = taxInput(rb, cur);
+        if (await taxNameTaken(t.name, id))
+            throw Object.assign((0, input_js_1.bad)('A record with this name already exists'), { http: 409 });
+        const r = (await index_js_1.db.query('UPDATE tax_slabs SET name=$2, cgst_percent=$3, sgst_percent=$4, igst_percent=$5, effective_from=$6, is_active=$7 WHERE id=$1 RETURNING *', [id, t.name, t.cgst_percent, t.sgst_percent, t.igst_percent, t.effective_from, t.is_active])).rows[0];
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'master.tax_slabs', id, cur, r);
+        res.json({ success: true, data: r });
+    }
+    catch (err) {
+        sendTaxErr(err, res, next);
+    }
+});
 router.delete('/tax-slabs/:id', deleteRoute('tax_slabs'));
 // ─── USAGE COUNTS ─────────────────────────────────────────────────────────────
 // How many records use each list item, so the screen can show it and disable Delete.
 // Applicant lists are stored as text, banks by id. Table and column names are fixed in code.
 const usageByName = async (col, tables) => {
     const union = tables.map(t => `SELECT ${col} AS k FROM ${t}`).join(' UNION ALL ');
-    const rows = (await index_js_1.db.query(`SELECT k, COUNT(*)::int AS n FROM (${union}) u WHERE k IS NOT NULL GROUP BY k`)).rows;
+    const rows = (await cnt(`SELECT k, COUNT(*)::int AS n FROM (${union}) u WHERE k IS NOT NULL GROUP BY k`)).rows;
     return Object.fromEntries(rows.map(r => [r.k, r.n]));
 };
 router.get('/usage', async (req, res, next) => {
     try {
         const people = ['consumers', 'co_applicants', 'applicant_details'];
+        // one query for all area types (same four columns as areaTypeUse, letter case ignored)
+        const areaRows = (await cnt(`SELECT a.name, COUNT(*)::int AS n FROM area_types a JOIN (${AREA_USERS.map(([t, c]) => `SELECT ${c} AS k FROM ${t}`).join(' UNION ALL ')}) u ON lower(u.k) = lower(a.name) GROUP BY a.name`)).rows;
+        const areaTypes = Object.fromEntries(areaRows.map((r) => [r.name, r.n]));
         const [salutations, professions, nationalities, sources, banks] = await Promise.all([
             usageByName('salutation', people),
             usageByName('profession', people),
             usageByName('nationality', people),
             usageByName('source_of_enquiry', ['consumers']),
-            index_js_1.db.query(`SELECT clearing_bank_id AS k, COUNT(*)::int AS n FROM receipts WHERE clearing_bank_id IS NOT NULL GROUP BY 1`),
+            cnt(`SELECT clearing_bank_id AS k, COUNT(*)::int AS n FROM receipts WHERE clearing_bank_id IS NOT NULL GROUP BY 1`),
         ]);
-        res.json({ success: true, data: { salutations, professions, nationalities, sources, banks: Object.fromEntries(banks.rows.map(r => [r.k, r.n])) } });
+        res.json({ success: true, data: { salutations, professions, nationalities, sources, areaTypes, currencies: {}, banks: Object.fromEntries(banks.rows.map(r => [r.k, r.n])) } });
     }
     catch (err) {
         next(err);

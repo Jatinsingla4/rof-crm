@@ -10,6 +10,8 @@ const fs_1 = __importDefault(require("fs"));
 const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const input_js_1 = require("../utils/input.js");
+const company_bank_js_1 = require("../utils/company-bank.js");
 const router = (0, express_1.Router)();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Format checks for tax and bank identifiers. Values are upper-cased before checking.
@@ -97,6 +99,9 @@ const uploadLogo = (0, multer_1.default)({
         cb(null, allowed.includes(file.mimetype));
     },
 });
+// Full bank account numbers go only to finance roles (utils/company-bank.ts); everyone else gets the last four digits.
+// The masking is done here, not on the screen, so a direct API call cannot read the full number.
+const forRoleOf = (req, row) => (0, company_bank_js_1.forRole)(req.userRole, row);
 // GET /api/companies
 router.get('/', async (req, res, next) => {
     try {
@@ -110,7 +115,7 @@ router.get('/', async (req, res, next) => {
       GROUP BY c.id
       ORDER BY c.name
     `);
-        res.json({ success: true, data: result.rows });
+        res.json({ success: true, data: result.rows.map((r) => forRoleOf(req, r)) });
     }
     catch (err) {
         next(err);
@@ -130,7 +135,7 @@ router.get('/:id', async (req, res, next) => {
     `, [req.params.id]);
         if (!result.rows[0])
             return res.status(404).json({ error: 'Company not found' });
-        res.json({ success: true, data: result.rows[0] });
+        res.json({ success: true, data: forRoleOf(req, result.rows[0]) });
     }
     catch (err) {
         next(err);
@@ -160,6 +165,8 @@ router.post('/', async (req, res, next) => {
             x = (x || '').trim() || null;
             if (hasMarkup(x))
                 return res.status(400).json({ error: `${col} cannot contain < or >` });
+            if (typeof x === 'string' && input_js_1.BIDI.test(x))
+                return res.status(400).json({ error: `${col} contains characters that are not allowed` });
             const r = FORMATS[col] ? checkFormat(col, x) : { value: x };
             if ('error' in r)
                 return res.status(400).json({ error: r.error });
@@ -190,6 +197,14 @@ router.put('/:id', async (req, res, next) => {
             // Only the fields present in the request are changed; a blank value clears the field
             const before = (await client.query('SELECT * FROM companies WHERE id = $1', [id])).rows[0];
             const body = req.body || {};
+            // The active company is remembered by id (global_settings.active_company_id) so renaming it cannot lose it. A database that only
+            // has the printed company name (set before the id existed) is upgraded here, before a rename changes the name it is matched by.
+            if (before) {
+                const gs = Object.fromEntries((await client.query(`SELECT key, value FROM global_settings WHERE key IN ('active_company_id', 'company_name')`)).rows.map((r) => [r.key, r.value]));
+                if (!gs.active_company_id && gs.company_name && String(gs.company_name).trim().toLowerCase() === String(before.name || '').trim().toLowerCase()) {
+                    await client.query(`INSERT INTO global_settings (key, value, updated_at) VALUES ('active_company_id', $1, NOW()) ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [id]);
+                }
+            }
             const columns = COMPANY_COLUMNS;
             const sets = [];
             const vals = [];
@@ -204,6 +219,10 @@ router.put('/:id', async (req, res, next) => {
                 if (hasMarkup(v) && (!before || v !== before[col])) {
                     await client.query('ROLLBACK');
                     return res.status(400).json({ error: `${col} cannot contain < or >` });
+                }
+                if (typeof v === 'string' && input_js_1.BIDI.test(v) && (!before || v !== before[col])) {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({ error: `${col} contains characters that are not allowed` });
                 }
                 if (typeof v === 'string')
                     v = v.trim() || null;
@@ -237,6 +256,7 @@ router.put('/:id', async (req, res, next) => {
             const co = result.rows[0];
             if (write_to_global_settings === true) {
                 const settings = [
+                    ['active_company_id', co.id],
                     ['company_name', co.name || ''],
                     ['company_cin', co.cin || ''],
                     ['company_gstin', co.gstin || ''],
@@ -289,7 +309,7 @@ router.get('/:id/bank-accounts', async (req, res, next) => {
       WHERE company_id = $1 AND is_active = true
       ORDER BY is_primary DESC, created_at ASC
     `, [id]);
-        return res.json({ success: true, data: result.rows });
+        return res.json({ success: true, data: result.rows.map((r) => forRoleOf(req, r)) });
     }
     catch (err) {
         next(err);
@@ -471,11 +491,19 @@ router.post('/:id/logo', logoGuard, logoUpload, async (req, res, next) => {
         for (const other of ['.png', '.jpg', '.gif'])
             if (other !== ext)
                 fs_1.default.unlink(path_1.default.join(path_1.default.dirname(finalPath), `${req.params.id}${other}`), () => { });
-        await index_js_1.db.query(`
+        // The global logo is the active company's logo. The active company is the one "Set as active company" last wrote to global_settings,
+        // remembered by id so a rename does not lose it; a database from before the id existed falls back to matching the printed name.
+        const gs = Object.fromEntries((await index_js_1.db.query(`SELECT key, value FROM global_settings WHERE key IN ('active_company_id', 'company_name')`)).rows.map((r) => [r.key, r.value]));
+        const owner = (await index_js_1.db.query('SELECT name FROM companies WHERE id = $1', [req.params.id])).rows[0];
+        const isActive = !!owner && (gs.active_company_id
+            ? String(gs.active_company_id).toLowerCase() === req.params.id
+            : !!gs.company_name && String(gs.company_name).trim().toLowerCase() === String(owner.name || '').trim().toLowerCase());
+        if (isActive)
+            await index_js_1.db.query(`
       INSERT INTO global_settings (key, value, updated_at) VALUES ('company_logo_url', $1, NOW())
       ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`, [logoUrl]);
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'company', req.params.id, undefined, { logo_url: logoUrl });
-        res.json({ success: true, logo_url: logoUrl });
+        res.json({ success: true, logo_url: logoUrl, active_logo_updated: isActive });
     }
     catch (err) {
         next(err);

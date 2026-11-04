@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.failWith = exports.bad = void 0;
+exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.BIDI = exports.failWith = exports.bad = void 0;
 const index_js_1 = require("../index.js");
 const bad = (message, http = 400) => Object.assign(new Error(message), { http });
 exports.bad = bad;
@@ -13,6 +13,9 @@ const failWith = (err, res, next, duplicate = 'This already exists') => {
     next(err);
 };
 exports.failWith = failWith;
+// Embedding, override and isolate characters (U+202A to U+202E, U+2066 to U+2069) can make one name read as another.
+// Letters of Arabic, Hebrew, Hindi and other scripts, and the left-to-right and right-to-left marks, are not touched.
+exports.BIDI = /[\u202A-\u202E\u2066-\u2069]/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuid = (v, label) => { if (typeof v !== 'string' || !UUID.test(v))
     throw (0, exports.bad)(`${label} is not valid`); return v; };

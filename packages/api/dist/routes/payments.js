@@ -12,6 +12,7 @@ const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const input_js_1 = require("../utils/input.js");
 const penal_interest_js_1 = require("../utils/penal-interest.js");
+const company_bank_js_1 = require("../utils/company-bank.js");
 const financial_ops_js_1 = require("./financial-ops.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
@@ -2218,14 +2219,14 @@ router.get('/clearing-banks/:projectId', async (req, res, next) => {
        WHERE p.id = $1 AND cba.is_active = true
        ORDER BY cba.is_primary DESC, cba.bank_name ASC`, [projectId]);
         if (companyResult.rows.length > 0) {
-            return res.json({ success: true, data: companyResult.rows });
+            return res.json({ success: true, data: companyResult.rows.map((r) => (0, company_bank_js_1.forRole)(req.userRole, r)) });
         }
         // Fallback: project-level bank_accounts (legacy)
         const fallbackResult = await index_js_1.db.query(`SELECT id, bank_name, account_number, ifsc_code
        FROM bank_accounts
        WHERE project_id = $1 AND is_active = true
        ORDER BY bank_name`, [projectId]);
-        res.json({ success: true, data: fallbackResult.rows });
+        res.json({ success: true, data: fallbackResult.rows.map((r) => (0, company_bank_js_1.forRole)(req.userRole, r)) });
     }
     catch (error) {
         fail(error, res, next);
