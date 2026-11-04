@@ -5,6 +5,7 @@ exports.applyUnitStatusFilter = applyUnitStatusFilter;
 const index_js_1 = require("../index.js");
 // Maps unit_status_access value → allowed DB status values (null = no filter)
 exports.UNIT_STATUS_MAP = {
+    none: [],
     unit_hold: ['held', 'locked'],
     available: ['available'],
     available_hold: ['available', 'held', 'locked'],

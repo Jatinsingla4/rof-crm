@@ -8,7 +8,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.authenticateToken = exports.clearAuthUserCache = exports.invalidateAuthUser = exports.db = exports.appConfig = void 0;
+exports.authenticateToken = exports.clientIp = exports.clearAuthUserCache = exports.invalidateAuthUser = exports.db = exports.appConfig = void 0;
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const path_1 = __importDefault(require("path"));
@@ -63,6 +63,7 @@ const custom_letters_js_1 = __importDefault(require("./routes/custom-letters.js"
 const gst_configuration_js_1 = __importDefault(require("./routes/gst-configuration.js"));
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
+const security_js_1 = require("./utils/security.js");
 const app_config_js_1 = require("./utils/app-config.js");
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 dotenv_1.default.config();
@@ -143,7 +144,12 @@ const loadAuthUser = async (userId) => {
     const hit = authUserCache.get(userId);
     if (hit && Date.now() - hit.at < AUTH_CACHE_MS)
         return hit.user;
-    const r = await pool_1.db.query(`SELECT u.role, COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role) AS eff_role,
+    const r = await pool_1.db.query(`SELECT u.role,
+            -- UR-001: only a login whose own role is super_admin gets the super_admin bypass; a custom role whose base role is
+            -- super_admin resolves to null (unknown role, refused by rbac) and never to super_admin
+            CASE WHEN u.role = 'super_admin' THEN 'super_admin'
+                 ELSE NULLIF(COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role), 'super_admin')
+            END AS eff_role,
             u.is_active, COALESCE(u.token_version, 0) AS token_version,
             CASE WHEN u.ip_security_enabled IS TRUE
                  THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules,
@@ -161,8 +167,22 @@ const loadAuthUser = async (userId) => {
     return user;
 };
 // IP security: a user with it switched on may only work from the addresses on their allow list
-const clientIp = (req) => (req.ip || '').replace(/^::ffff:/, '');
-const ipBlocked = (user, req) => !!user?.ip_rules && !user.ip_rules.includes(clientIp(req));
+const clientIp = (req) => (0, security_js_1.cleanIp)(req.ip) ?? '';
+exports.clientIp = clientIp;
+// Stored addresses are compared in canonical form, so a row saved in another spelling still matches
+const ipBlocked = (user, req) => !!user?.ip_rules && !user.ip_rules.map((a) => (0, security_js_1.cleanIp)(a) ?? a).includes((0, exports.clientIp)(req));
+// UR-006: a blocked address looks like any other failed sign-in from outside; the real reason goes to the audit log only
+const blockedLogged = new Map(); // one audit row a minute per login and channel, so a retrying client cannot flood the log
+const auditBlocked = (userId, req, channel) => {
+    const k = userId + channel;
+    const now = Date.now();
+    if ((blockedLogged.get(k) ?? 0) > now - 60000)
+        return;
+    blockedLogged.set(k, now);
+    if (blockedLogged.size > 2000)
+        blockedLogged.clear();
+    (0, auditLogger_js_1.logAudit)(pool_1.db, userId, 'auth_blocked', 'auth', userId, {}, { ip: (0, exports.clientIp)(req), reason: 'ip_not_allowed', channel }).catch(() => { });
+};
 const authenticateToken = async (req, res, next) => {
     const authHeader = req.headers['authorization'];
     // ?token= is accepted for GET only (window.open() navigations such as letters and receipts)
@@ -197,11 +217,13 @@ const authenticateToken = async (req, res, next) => {
         if (!user || user.is_active === false || user.token_version !== (decoded.tv ?? 0)) {
             return res.status(401).json({ error: 'Session is no longer valid. Please sign in again.' });
         }
-        if (ipBlocked(user, req))
-            return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
+        if (ipBlocked(user, req)) {
+            auditBlocked(decoded.userId, req, 'request');
+            return res.status(401).json({ error: 'Authentication required' });
+        }
         req.userId = decoded.userId;
         req.userName = decoded.name || decoded.email || 'Unknown';
-        req.userRole = user.eff_role;
+        req.userRole = user.eff_role ?? undefined;
         req.roleName = user.role;
         if (user.eff_role !== 'super_admin' && user.project_scope)
             pool_1.scopeStore.enterWith({ projectIds: user.project_scope });
@@ -356,10 +378,11 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         }
         loginFailures.delete(failKey);
         if (ipBlocked(await loadAuthUser(user.id), req)) {
-            return res.status(403).json({ error: 'Your IP address is not allowed for this account' });
+            auditBlocked(user.id, req, 'login');
+            return res.status(401).json({ error: 'Invalid email or password' });
         }
         pool_1.db.query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]).catch(() => { });
-        (0, auditLogger_js_1.logAudit)(pool_1.db, user.id, 'login', 'auth', user.id, {}, { ip: clientIp(req) }).catch(() => { });
+        (0, auditLogger_js_1.logAudit)(pool_1.db, user.id, 'login', 'auth', user.id, {}, { ip: (0, exports.clientIp)(req) }).catch(() => { });
         const token = jsonwebtoken_1.default.sign({ userId: user.id, email: user.email, name: user.name, role: user.role, tv: user.token_version }, JWT_SECRET, { expiresIn: '8h', algorithm: 'HS256' });
         return res.json({
             success: true,

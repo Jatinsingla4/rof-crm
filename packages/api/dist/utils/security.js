@@ -24,12 +24,24 @@ const passwordProblem = (p) => {
     return null;
 };
 exports.passwordProblem = passwordProblem;
-// Returns the normalised IPv4 or IPv6 address, or null
+// One canonical spelling of an exact IPv4 or IPv6 address, or null (UR-006). A dotted IPv4-mapped prefix (::ffff:1.2.3.4)
+// is stripped; hostnames, CIDR ranges and zone ids (%eth0) are refused; IPv6 is lowercase and compressed
+// (2001:0DB8:0:0::1 -> 2001:db8::1). Used on storage, on comparison and on the incoming request address.
 const cleanIp = (v) => {
     if (typeof v !== 'string')
         return null;
-    const ip = v.trim().replace(/^::ffff:/i, '');
-    return (0, node_net_1.isIP)(ip) ? ip.toLowerCase() : null;
+    const ip = v.trim().replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, '');
+    const kind = (0, node_net_1.isIP)(ip);
+    if (!kind)
+        return null;
+    if (kind === 4)
+        return ip;
+    try {
+        return new URL(`http://[${ip}]`).hostname.slice(1, -1);
+    }
+    catch {
+        return null;
+    }
 };
 exports.cleanIp = cleanIp;
 // Clamp a paging value coming from the query string to a whole number in [min, max]

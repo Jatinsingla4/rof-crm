@@ -20,9 +20,17 @@ const security_js_1 = require("../utils/security.js");
 const superAdmin_js_1 = require("../middleware/superAdmin.js");
 const audit_values_js_1 = require("../utils/audit-values.js");
 const router = (0, express_1.Router)();
+// UR-001: everything under /api/users is super_admin only, stated here and not only in the rbac table. The three routes every
+// signed-in user needs stay open: the name list, their own profile and their own password change.
+router.use((req, res, next) => {
+    if (req.method === 'GET' && (req.path === '/directory' || req.path === '/me'))
+        return next();
+    if (req.method === 'POST' && req.path === `/${req.userId}/change-password`)
+        return next();
+    return (0, superAdmin_js_1.requireSuperAdmin)(req, res, next);
+});
 const str = (v) => (typeof v === 'string' ? v.trim() : '');
 const like = (v) => v.replace(/[\\%_]/g, (c) => '\\' + c);
-const clientIp = (req) => (req.ip || '').replace(/^::ffff:/, '');
 // The processes the API really enforces (requireProcess in routes) and which of maker / checker each uses.
 // Keep this list in step with the routes: a flag that no route checks would be a permission that does nothing.
 const PROCESSES = [
@@ -76,6 +84,15 @@ async function roleName(name) {
     const r = await index_js_1.db.query(`SELECT name FROM roles WHERE lower(name) = lower($1) AND is_active = true LIMIT 1`, [name]);
     return r.rows[0]?.name ?? fail(400, 'Unknown role');
 }
+// UR-008: inside the transaction that gives a login its role, hold a shared lock on the role row. A role delete takes the exclusive
+// lock and re-counts the holders, so "assign while deleting" can no longer leave a login on a role that no longer exists.
+async function lockRole(client, name) {
+    const r = await client.query(`SELECT 1 FROM roles WHERE name = $1 AND is_active = true FOR SHARE`, [name]);
+    if (!r.rowCount)
+        fail(400, 'Unknown role');
+}
+// UR-005: the username index (lower(btrim(username))) is the final guard; a race that gets past the friendly check lands here
+const usernameTaken = (err) => err?.code === '23505' && /username/.test(err?.constraint || '') && fail(409, 'Username already exists');
 async function checkIds(table, ids, label) {
     if (!Array.isArray(ids) || !ids.every(security_js_1.isUuid))
         return fail(400, `${label} must be a list of ids`);
@@ -171,6 +188,17 @@ async function checkUserFields(body) {
     }
     return set;
 }
+// What access a login holds right now, in counts, for the reactivation check and the audit rows (UR-011)
+async function grantSummary(q, id) {
+    const r = (await q.query(`SELECT jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb))::int AS projects,
+            (SELECT COUNT(*)::int FROM user_company_access WHERE user_id = u.id) AS companies,
+            (SELECT COUNT(*)::int FROM user_process_permissions WHERE user_id = u.id) AS process_rights,
+            (SELECT COUNT(*)::int FROM user_ip_restrictions WHERE user_id = u.id) AS ip_addresses,
+            u.ip_security_enabled, u.authorized_print, u.authorized_download, u.unit_status_access
+       FROM users u WHERE u.id = $1`, [id])).rows[0];
+    return r;
+}
+const grantText = (g) => `${g.projects} project(s), ${g.companies} company(ies), ${g.process_rights} process right(s), ${g.ip_addresses} IP address(es) (IP security ${g.ip_security_enabled ? 'on' : 'off'}), print ${g.authorized_print ? 'yes' : 'no'}, download ${g.authorized_download ? 'yes' : 'no'}, unit status ${g.unit_status_access}`;
 async function updateUser(req, res, id, body) {
     if (!(0, security_js_1.isUuid)(id))
         return fail(404, 'User not found');
@@ -190,10 +218,20 @@ async function updateUser(req, res, id, body) {
         // cannot both pass the "someone else is still active" count below. Taken before the row lock, in the same order every time.
         if (set.role !== undefined || set.is_active !== undefined)
             await client.query(`SELECT pg_advisory_xact_lock(hashtext('users:super_admin_guard'))`);
+        if (set.role !== undefined)
+            await lockRole(client, set.role);
         const cur = (await client.query(`SELECT id, name, email, mobile, role, is_active, username, assigned_project_ids, authorized_print, authorized_download, unit_status_access, ip_security_enabled, home_page_widgets
        FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
         if (!cur)
             fail(404, 'User not found');
+        // UR-011: bringing a deactivated login back needs a super_admin to have seen what access it still holds
+        const reactivates = set.is_active === true && cur.is_active === false;
+        let reviewed = null;
+        if (reactivates) {
+            reviewed = await grantSummary(client, id);
+            if (body.reviewedGrants !== true)
+                fail(409, `Review this login's access before reactivating it, then send reviewedGrants: true. It currently holds: ${grantText(reviewed)}`);
+        }
         const losesRole = set.role !== undefined && set.role !== cur.role;
         const losesAccess = set.is_active === false && cur.is_active;
         if (id === req.userId && (losesRole || losesAccess))
@@ -204,7 +242,7 @@ async function updateUser(req, res, id, body) {
                 fail(409, 'At least one active super_admin is required');
         }
         if (set.username !== undefined) {
-            const dup = await client.query(`SELECT 1 FROM users WHERE lower(username) = lower($1) AND id <> $2`, [set.username, id]);
+            const dup = await client.query(`SELECT 1 FROM users WHERE lower(btrim(username)) = lower(btrim($1)) AND id <> $2`, [set.username, id]);
             if (dup.rowCount)
                 fail(409, 'Username already exists');
         }
@@ -217,11 +255,11 @@ async function updateUser(req, res, id, body) {
             if (typeof body.ipSecurityEnabled !== 'boolean')
                 fail(400, 'ipSecurityEnabled must be true or false');
             if (body.ipSecurityEnabled) {
-                const ips = (await client.query(`SELECT ip_address FROM user_ip_restrictions WHERE user_id = $1 AND is_active = true`, [id])).rows.map((r) => r.ip_address);
+                const ips = (await client.query(`SELECT ip_address FROM user_ip_restrictions WHERE user_id = $1 AND is_active = true`, [id])).rows.map((r) => (0, security_js_1.cleanIp)(r.ip_address) ?? r.ip_address);
                 if (!ips.length)
                     fail(400, 'Add at least one allowed IP address before switching IP security on');
-                if (id === req.userId && !ips.includes(clientIp(req)))
-                    fail(400, `Add your current IP address (${clientIp(req)}) first, or you would lock yourself out`);
+                if (id === req.userId && !ips.includes((0, index_js_2.clientIp)(req)))
+                    fail(400, `Add your current IP address (${(0, index_js_2.clientIp)(req)}) first, or you would lock yourself out`);
             }
             set.ip_security_enabled = body.ipSecurityEnabled;
         }
@@ -263,10 +301,12 @@ async function updateUser(req, res, id, body) {
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, (0, audit_values_js_1.withoutSecrets)({ name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active, ...(0, audit_values_js_1.pick)(cur, Object.keys(shown)), ...before }), (0, audit_values_js_1.withoutSecrets)({ ...shown,
             ...(perms ? { processPermissions: perms.length, processes: processLabels(perms) } : {}),
             ...(companyIds ? { companies: companyIds.length, companyIds } : {}),
-            ...(set.password_hash ? { passwordChanged: true } : {}) }));
+            ...(set.password_hash ? { passwordChanged: true } : {}),
+            ...(reviewed ? { reactivated: true, grantsReviewed: reviewed } : {}) }));
     }
     catch (err) {
         await client.query('ROLLBACK');
+        usernameTaken(err);
         throw err;
     }
     finally {
@@ -276,9 +316,11 @@ async function updateUser(req, res, id, body) {
 // ---------------------------------------------------------------------------
 // Lists that do not depend on one user
 // ---------------------------------------------------------------------------
-// GET /api/users/directory — names for pick lists (task owner, sales person). Open to every signed-in user.
+// GET /api/users/directory — names for pick lists (task owner, sales person). Open to every signed-in user: id and name only,
+// active logins only, never a super_admin (UR-001; a custom role never counts as super_admin either).
 router.get('/directory', guard(async (_req, res) => {
-    const r = await index_js_1.db.query(`SELECT id, name, role FROM users WHERE is_active = true ORDER BY name`);
+    const r = await index_js_1.db.query(`SELECT id, name FROM users WHERE is_active = true AND role <> 'super_admin'
+      AND NOT EXISTS (SELECT 1 FROM roles r WHERE lower(r.name) = lower(users.role) AND r.is_active AND r.base_role = 'super_admin') ORDER BY name`);
     res.json({ success: true, data: r.rows });
 }));
 // GET /api/users - list users
@@ -377,7 +419,8 @@ router.post('/employee-login', guard(async (req, res) => {
     const client = await index_js_1.db.connect();
     try {
         await client.query('BEGIN');
-        const dup = await client.query(`SELECT 1 FROM users WHERE lower(email) = $1 OR lower(username) = lower($2)`, [fields.email, fields.username]);
+        await lockRole(client, fields.role);
+        const dup = await client.query(`SELECT 1 FROM users WHERE lower(email) = $1 OR (lower(btrim(username)) = lower(btrim($2)) AND btrim($2) <> '')`, [fields.email, fields.username]);
         if (dup.rowCount)
             fail(409, 'Username or email already exists');
         const created = await client.query(`INSERT INTO users (email, name, username, role, password_hash, authorized_print, authorized_download,
@@ -401,6 +444,7 @@ router.post('/employee-login', guard(async (req, res) => {
     }
     catch (err) {
         await client.query('ROLLBACK');
+        usernameTaken(err);
         throw err;
     }
     finally {
@@ -479,7 +523,11 @@ router.post('/employee-login/:id/ips', guard(async (req, res) => {
     if (!ip)
         return fail(400, 'Enter a valid IPv4 or IPv6 address');
     const description = str(req.body?.description).slice(0, 200) || null;
-    const r = await index_js_1.db.query(`INSERT INTO user_ip_restrictions (user_id, ip_address, description) VALUES ($1,$2,$3)
+    // The same address in another spelling (older rows) is the same row: reactivate it instead of adding a second one
+    const same = (await index_js_1.db.query(`SELECT id, ip_address FROM user_ip_restrictions WHERE user_id = $1`, [req.params.id])).rows.find((x) => (0, security_js_1.cleanIp)(x.ip_address) === ip);
+    const r = same
+        ? await index_js_1.db.query(`UPDATE user_ip_restrictions SET ip_address = $2, is_active = true, description = COALESCE($3, description) WHERE id = $1 RETURNING id, ip_address, description, is_active`, [same.id, ip, description])
+        : await index_js_1.db.query(`INSERT INTO user_ip_restrictions (user_id, ip_address, description) VALUES ($1,$2,$3)
      ON CONFLICT (user_id, ip_address) DO UPDATE SET is_active = true, description = COALESCE($3, user_ip_restrictions.description)
      RETURNING id, ip_address, description, is_active`, [req.params.id, ip, description]);
     (0, index_js_2.invalidateAuthUser)(req.params.id);
@@ -490,16 +538,65 @@ router.delete('/employee-login/:id/ips/:ipId', guard(async (req, res) => {
     await ipTarget(req.params.id);
     if (!(0, security_js_1.isUuid)(req.params.ipId))
         return fail(404, 'IP address not found');
-    const left = await index_js_1.db.query(`SELECT COUNT(*) FILTER (WHERE is_active AND id <> $2)::int AS others, bool_or(id = $2) AS found, (SELECT ip_security_enabled FROM users WHERE id = $1) AS on_
+    const left = await index_js_1.db.query(`SELECT COUNT(*) FILTER (WHERE is_active AND id <> $2)::int AS others, bool_or(id = $2) AS found, (SELECT ip_security_enabled FROM users WHERE id = $1) AS on_,
+            (array_agg(ip_address) FILTER (WHERE id = $2))[1] AS address
      FROM user_ip_restrictions WHERE user_id = $1`, [req.params.id, req.params.ipId]);
     if (!left.rows[0].found)
         return fail(404, 'IP address not found');
+    // UR-006: with IP security on, you cannot remove the address you are working from (you would be locked out at once)
+    if (left.rows[0].on_ && req.params.id === req.userId && (0, security_js_1.cleanIp)(left.rows[0].address) === (0, index_js_2.clientIp)(req))
+        return fail(409, 'This is the address you are signed in from. Switch IP security off first, or sign in from another allowed address');
     if (left.rows[0].on_ && left.rows[0].others === 0)
         return fail(409, 'Switch IP security off before removing the last allowed address');
     await index_js_1.db.query(`DELETE FROM user_ip_restrictions WHERE id = $1 AND user_id = $2`, [req.params.ipId, req.params.id]);
     (0, index_js_2.invalidateAuthUser)(req.params.id);
     await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', req.params.id, {}, { ipRemoved: req.params.ipId });
     res.json({ success: true });
+}));
+// POST /api/users/employee-login/:id/revoke-all - deactivate AND remove every grant, in one transaction (UR-011).
+// Plain deactivation (PATCH isActive:false) keeps the configuration as a suspension; this does not.
+router.post('/employee-login/:id/revoke-all', guard(async (req, res) => {
+    const id = req.params.id;
+    if (!(0, security_js_1.isUuid)(id))
+        return fail(404, 'User not found');
+    if (id === req.userId)
+        return fail(400, 'You cannot revoke your own access');
+    const client = await index_js_1.db.connect();
+    try {
+        await client.query('BEGIN');
+        await client.query(`SELECT pg_advisory_xact_lock(hashtext('users:super_admin_guard'))`);
+        const cur = (await client.query(`SELECT id, name, role, is_active FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+        if (!cur)
+            return fail(404, 'User not found');
+        if (cur.role === 'super_admin' && cur.is_active) {
+            const others = await client.query(`SELECT COUNT(*)::int AS n FROM users WHERE role = 'super_admin' AND is_active = true AND id <> $1`, [id]);
+            if (others.rows[0].n === 0)
+                return fail(409, 'At least one active super_admin is required');
+        }
+        const before = await grantSummary(client, id);
+        const lists = {
+            projects: (await client.query(`SELECT assigned_project_ids FROM users WHERE id = $1`, [id])).rows[0].assigned_project_ids,
+            companyIds: (await client.query(`SELECT company_id FROM user_company_access WHERE user_id = $1 ORDER BY company_id`, [id])).rows.map((r) => r.company_id),
+            processes: processLabels((await client.query(`SELECT process_name, is_maker, is_checker FROM user_process_permissions WHERE user_id = $1`, [id])).rows.map((r) => ({ processName: r.process_name, isMaker: r.is_maker, isChecker: r.is_checker }))),
+            ipAddresses: (await client.query(`SELECT ip_address FROM user_ip_restrictions WHERE user_id = $1 ORDER BY ip_address`, [id])).rows.map((r) => r.ip_address),
+        };
+        await client.query(`DELETE FROM user_company_access WHERE user_id = $1`, [id]);
+        await client.query(`DELETE FROM user_process_permissions WHERE user_id = $1`, [id]);
+        await client.query(`DELETE FROM user_ip_restrictions WHERE user_id = $1`, [id]);
+        await client.query(`UPDATE users SET is_active = false, assigned_project_ids = '[]'::jsonb, ip_security_enabled = false, authorized_print = false,
+              authorized_download = false, unit_status_access = 'none', token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() WHERE id = $1`, [id]);
+        await client.query('COMMIT');
+        (0, index_js_2.invalidateAuthUser)(id);
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, { is_active: cur.is_active, ...before, ...lists }, { is_active: false, revokedAll: true, projects: 0, companies: 0, process_rights: 0, ip_addresses: 0, ip_security_enabled: false, authorized_print: false, authorized_download: false, unit_status_access: 'none' });
+        res.json({ success: true, data: { id, revoked: before } });
+    }
+    catch (err) {
+        await client.query('ROLLBACK').catch(() => { });
+        throw err;
+    }
+    finally {
+        client.release();
+    }
 }));
 // ---------------------------------------------------------------------------
 // Own profile and single users
