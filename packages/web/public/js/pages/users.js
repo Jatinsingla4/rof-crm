@@ -172,7 +172,7 @@ SEC.openLogin = (u) => {
         ${SEC.field('sf-mobile', 'Mobile', `<input class="sm-input" id="sf-mobile" name="mobile" maxlength="20" value="${sesc(u?.mobile || '')}">`)}
       </div>
       ${SEC.field('sf-role', 'Role <i>*</i>', `<select class="sm-input" id="sf-role" name="role">${m.roles.map((r) => `<option value="${sesc(r.value)}"${(u?.role || 'sales_executive') === r.value ? ' selected' : ''}>${sesc(r.label)}</option>`).join('')}</select>`,
-        edit ? 'Changing the role signs the person out; the menu is rebuilt when they sign in again.' : 'The role sets what the person can do. Menu access is set in Role Menu Access.')}
+        edit ? 'Changing the role signs the person out; the menu is rebuilt when they sign in again.' : 'The role sets what the person can do. Which menu entries the person sees is set in Role Menu Access.')}
       ${edit && u?.id === (Auth.getUser() || {}).userId ? SEC.field('sf-pw0', 'Current password', '<input class="sm-input" type="password" id="sf-pw0" autocomplete="current-password" maxlength="72">', 'Needed only when you set a new password for your own login.') : ''}
       <div class="sm-grid2">
         ${SEC.field('sf-pw', edit ? 'New password' : 'Password <i>*</i>', `<input class="sm-input" type="password" id="sf-pw" name="password" autocomplete="new-password" maxlength="72">`, edit ? 'Leave empty to keep the password. Setting one signs the person out.' : '8 to 72 characters with a letter and a number.')}
@@ -281,7 +281,7 @@ SEC.screens.roles = async (el) => {
   el.innerHTML = `
     <div class="sm-panel">
       <div class="sm-panel-h">
-        <div><div class="sm-panel-t">Roles</div><div class="sm-panel-s">A custom role is based on a system role, which decides what it may do. Menu access is set per role.</div></div>
+        <div><div class="sm-panel-t">Roles</div><div class="sm-panel-s">A custom role is based on a system role, which decides what it may do. Menu visibility is set per role.</div></div>
         <div class="sm-tools">${SEC.admin ? '<button class="sm-btn sm-btn--primary" onclick="SEC.openRole()">New role</button>' : ''}</div>
       </div>
       <div class="sm-scroll" style="max-height:none"><table class="sm-tbl">
@@ -356,7 +356,7 @@ SEC.screens['role-menu'] = async (el) => {
   el.innerHTML = `
     <div class="sm-panel">
       <div class="sm-panel-h">
-        <div><div class="sm-panel-t">Role Menu Access</div><div class="sm-panel-s">Which screens each role can open from the menu. Super Admin always sees everything. What a role may do inside a screen comes from its base role.</div></div>
+        <div><div class="sm-panel-t">Role Menu Access</div><div class="sm-panel-s">This only shows or hides menu entries. It does not give or take away any permission: what a role may do comes from its base role. Super Admin always sees everything.</div></div>
         <div class="sm-tools">${SM.search('sec-pages', 'Search pages')}</div>
       </div>
       <div class="sm-scroll" style="max-height:none"><table class="sm-tbl sec-grid" id="sec-grid">

@@ -11,6 +11,8 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { UNIT_STATUS_MAP } from '../middleware/unitStatusAccess.js';
 import { cleanEmail, cleanIp, intParam, isUuid, passwordProblem } from '../utils/security.js';
+import { isSuperAdmin } from '../middleware/superAdmin.js';
+import { pick, withoutSecrets } from '../utils/audit-values.js';
 
 const router = Router();
 
@@ -98,6 +100,10 @@ function checkProcessPermissions(list: unknown): PermRow[] {
 
 const MOBILE_RE = /^[0-9+\-\s()]{6,20}$/;
 
+// Process rights as readable labels for the audit log, e.g. "receipt:maker,checker"
+const processLabels = (rows: { processName: string; isMaker: boolean; isChecker: boolean }[]) =>
+  rows.map((p) => `${p.processName}:${[p.isMaker && 'maker', p.isChecker && 'checker'].filter(Boolean).join(',') || 'none'}`).sort();
+
 // Checks everything in body that is present and returns the columns to write
 async function checkUserFields(body: any) {
   const set: Record<string, unknown> = {};
@@ -150,6 +156,8 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
   if (!isUuid(id)) return fail(404, 'User not found');
   // Setting your OWN password through the edit form needs the current password too (same check and throttle as change-password)
   if (body.password !== undefined && id === req.userId) await verifyOwnPassword(res, id, body.currentPassword, 403);
+  // A username is an identity: only the system super_admin changes one, stated here and not only through the route table
+  if (body.username !== undefined && !isSuperAdmin(req)) return fail(403, 'Only super_admin can change a username');
   const set = await checkUserFields(body);
   const perms = body.processPermissions === undefined ? null : checkProcessPermissions(body.processPermissions);
   const companyIds = body.companyIds === undefined ? null : await checkIds('companies', body.companyIds, 'companyIds');
@@ -157,7 +165,12 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
   const client = await db.connect();
   try {
     await client.query('BEGIN');
-    const cur = (await client.query(`SELECT id, name, email, role, is_active, username FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+    // Every change that can take a super_admin away (role or is_active) runs one at a time, so two admins demoting each other
+    // cannot both pass the "someone else is still active" count below. Taken before the row lock, in the same order every time.
+    if (set.role !== undefined || set.is_active !== undefined) await client.query(`SELECT pg_advisory_xact_lock(hashtext('users:super_admin_guard'))`);
+    const cur = (await client.query(
+      `SELECT id, name, email, mobile, role, is_active, username, assigned_project_ids, authorized_print, authorized_download, unit_status_access, ip_security_enabled, home_page_widgets
+       FROM users WHERE id = $1 FOR UPDATE`, [id])).rows[0];
     if (!cur) fail(404, 'User not found');
 
     const losesRole = set.role !== undefined && set.role !== cur.role;
@@ -185,6 +198,11 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
       set.ip_security_enabled = body.ipSecurityEnabled;
     }
 
+    // What the lists were before this change, read inside the transaction, for the audit row
+    const before: Record<string, unknown> = {};
+    if (perms) before.processes = processLabels((await client.query(`SELECT process_name, is_maker, is_checker FROM user_process_permissions WHERE user_id = $1`, [id])).rows.map((r) => ({ processName: r.process_name, isMaker: r.is_maker, isChecker: r.is_checker })));
+    if (companyIds) before.companyIds = (await client.query(`SELECT company_id FROM user_company_access WHERE user_id = $1 ORDER BY company_id`, [id])).rows.map((r) => r.company_id);
+
     const cols = Object.keys(set);
     const sessionEnds = set.password_hash !== undefined || losesAccess || losesRole;
     if (cols.length || sessionEnds) {
@@ -210,9 +228,15 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
     invalidateAuthUser(id);
     if (set.password_hash !== undefined) currentPwFails.delete(id); // a new password starts with a clean current-password count
 
+    // Old and new values of everything this request changed, never the password or its hash. The two JSON columns are shown as lists.
     const { password_hash: _hash, ...shown } = set as any;
-    await auditChange(db, req, res, 'update', 'user', id, { name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active },
-      { ...shown, ...(perms ? { processPermissions: perms.length } : {}), ...(companyIds ? { companies: companyIds.length } : {}), ...(set.password_hash ? { passwordChanged: true } : {}) });
+    for (const k of ['assigned_project_ids', 'home_page_widgets']) if (typeof shown[k] === 'string') shown[k] = JSON.parse(shown[k]);
+    await auditChange(db, req, res, 'update', 'user', id,
+      withoutSecrets({ name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active, ...pick(cur, Object.keys(shown)), ...before }),
+      withoutSecrets({ ...shown,
+        ...(perms ? { processPermissions: perms.length, processes: processLabels(perms) } : {}),
+        ...(companyIds ? { companies: companyIds.length, companyIds } : {}),
+        ...(set.password_hash ? { passwordChanged: true } : {}) }));
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -338,7 +362,11 @@ router.post('/employee-login', guard(async (req, res) => {
     }
     if (companyIds.length) await client.query(`INSERT INTO user_company_access (user_id, company_id, created_by_user_id) SELECT $1, unnest($2::uuid[]), $3`, [userId, companyIds, req.userId]);
     await client.query('COMMIT');
-    await auditChange(db, req, res, 'create', 'user', userId, {}, { username: fields.username, email: fields.email, role: fields.role });
+    await auditChange(db, req, res, 'create', 'user', userId, {}, withoutSecrets({
+      username: fields.username, email: fields.email, role: fields.role,
+      processes: processLabels(perms), companyIds, assigned_project_ids: JSON.parse((fields.assigned_project_ids as string) ?? '[]'),
+      authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'all',
+    }));
     res.status(201).json({ success: true, data: { userId, username: fields.username } });
   } catch (err) {
     await client.query('ROLLBACK');

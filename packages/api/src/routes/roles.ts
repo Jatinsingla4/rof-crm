@@ -122,6 +122,7 @@ router.patch('/:roleName', async (req: AuthRequest, res: Response, next: NextFun
     if (!role) return res.status(404).json({ error: 'Role not found' });
     if (role.is_system) return res.status(403).json({ error: 'System roles cannot be edited' });
     const { label, description, baseRole } = req.body;
+    const previous = (await db.query(`SELECT label, description, base_role FROM roles WHERE id = $1`, [role.id])).rows[0];
     if (label !== undefined && (!text(label) || text(label).length > 100)) return res.status(400).json({ error: 'label must be 1 to 100 characters' });
     if (description !== undefined && text(description).length > 500) return res.status(400).json({ error: 'description must be at most 500 characters' });
     if (baseRole !== undefined && !BASE_ROLES.includes(text(baseRole))) return res.status(400).json({ error: `baseRole must be one of: ${BASE_ROLES.join(', ')}` });
@@ -131,7 +132,7 @@ router.patch('/:roleName', async (req: AuthRequest, res: Response, next: NextFun
       [label === undefined ? null : text(label), description === undefined ? null : text(description), baseRole === undefined ? null : text(baseRole), role.id]
     );
     clearAuthUserCache();
-    await auditChange(db, req, res, 'update', 'role', role.id, {}, r.rows[0]);
+    await auditChange(db, req, res, 'update', 'role', role.id, previous ?? {}, r.rows[0]);
     res.json({ success: true, data: r.rows[0] });
   } catch (err) { next(err); }
 });
@@ -155,7 +156,9 @@ router.get('/:roleName/pages', async (req: AuthRequest, res: Response, next: Nex
   } catch (err) { next(err); }
 });
 
-// PUT /api/roles/:roleName/pages — replace page access for a role
+// PUT /api/roles/:roleName/pages — replace page access for a role.
+// Role Menu Access is MENU VISIBILITY ONLY: the browser hides or shows entries from it. It never grants or removes an API
+// permission (that comes from the role's base role through rbac), so no server route reads role_page_access to allow or refuse.
 router.put('/:roleName/pages', async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (!isAdmin(req)) return res.status(403).json({ error: 'Only super_admin can edit role pages' });
   try {
@@ -167,8 +170,10 @@ router.put('/:roleName/pages', async (req: AuthRequest, res: Response, next: Nex
     if ('error' in pages) return res.status(400).json({ error: pages.error });
 
     const client = await db.connect();
+    let oldIds: string[] = [];
     try {
       await client.query('BEGIN');
+      oldIds = (await client.query(`SELECT page_id FROM role_page_access WHERE role_name = $1 AND can_view = true`, [role.name])).rows.map((r) => r.page_id);
       await client.query(`DELETE FROM role_page_access WHERE role_name = $1`, [role.name]);
       if (pages.ids.length) {
         await client.query(`INSERT INTO role_page_access (role_name, page_id, can_view) SELECT $1, unnest($2::uuid[]), true`, [role.name, pages.ids]);
@@ -180,7 +185,10 @@ router.put('/:roleName/pages', async (req: AuthRequest, res: Response, next: Nex
     } finally {
       client.release();
     }
-    await auditChange(db, req, res, 'update', 'role', role.id, {}, { role: role.name, pages: pages.ids.length });
+    // Before: how many pages. After: how many, and exactly which page ids were added and removed (old list = new list - added + removed)
+    const added = pages.ids.filter((i) => !oldIds.includes(i)).sort();
+    const removed = oldIds.filter((i) => !pages.ids.includes(i)).sort();
+    await auditChange(db, req, res, 'update', 'role', role.id, { role: role.name, pages: oldIds.length }, { role: role.name, pages: pages.ids.length, added, removed });
     res.json({ success: true, data: { pages: pages.ids.length } });
   } catch (err) { next(err); }
 });

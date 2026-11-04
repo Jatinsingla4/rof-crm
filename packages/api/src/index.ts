@@ -59,6 +59,7 @@ import customLettersRoutes from './routes/custom-letters.js';
 import gstConfigRoutes from './routes/gst-configuration.js';
 import { requirePermission, hasPermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
+import { loadAppConfig } from './utils/app-config.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 
 dotenv.config();
@@ -70,6 +71,8 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Auth config. No fallback secret: a missing JWT_SECRET must stop the server, not sign tokens with a known value.
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('JWT_SECRET is not set. Refusing to start.');
+// Which deployment this is (APP_ENV) and how project scope is applied (SCOPE_MODE); a bad combination stops the start.
+export const appConfig = loadAppConfig();
 // Dev shortcuts (mock token, passwordless login) need an explicit opt-in on top of a non-production NODE_ENV.
 const DEV_AUTH = isDev && process.env.ALLOW_DEV_AUTH === 'true';
 // Behind the host's proxy (Vercel), req.ip must be the client address or every user shares one rate-limit bucket.
@@ -639,7 +642,7 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   if (!process.env.VERCEL) {
     app.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`ROF CRM API running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'} (APP_ENV ${appConfig.appEnv ?? 'not set'}, SCOPE_MODE ${appConfig.scopeMode})`);
     });
   }
 })();
