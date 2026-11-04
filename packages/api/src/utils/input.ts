@@ -9,6 +9,9 @@ export const failWith = (err: any, res: Response, next: NextFunction, duplicate 
   if (err?.code === '23505') return res.status(400).json({ error: duplicate });
   next(err);
 };
+// Embedding, override and isolate characters (U+202A to U+202E, U+2066 to U+2069) can make one name read as another.
+// Letters of Arabic, Hebrew, Hindi and other scripts, and the left-to-right and right-to-left marks, are not touched.
+export const BIDI = /[\u202A-\u202E\u2066-\u2069]/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const uuid = (v: any, label: string): string => { if (typeof v !== 'string' || !UUID.test(v)) throw bad(`${label} is not valid`); return v; };
 export const has = (v: any) => v !== undefined && v !== null && v !== '';

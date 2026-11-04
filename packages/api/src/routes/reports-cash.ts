@@ -10,6 +10,7 @@ import { bad } from '../utils/input.js';
 import { pick } from '../utils/report-input.js';
 import { h, Q } from './reports-dues.js';
 import { r2 } from '../utils/report-ledger.js';
+import { forRole } from '../utils/company-bank.js';
 
 const router = Router();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
@@ -116,7 +117,7 @@ router.get('/cash-bank-summary', h(async (req, res) => {
         AND ($2::uuid IS NULL OR cba.company_id = (SELECT company_id FROM projects WHERE id = $2::uuid)) AND ($3::uuid IS NULL OR cba.id = $3::uuid)
       ORDER BY cba.is_primary DESC, cba.bank_name`,
     [x.companyId || null, x.projectId || null, x.companyBankAccountId || null, x.fromDate || null, x.toDate || null]);
-  res.json({ success: true, data: r.rows.map((a: any) => ({ id: a.id, bank_name: a.bank_name, account_name: a.account_name, account_number: a.account_number, credit: num(a.credit), debit: num(a.debit), closing_balance: r2(num(a.credit) - num(a.debit)) })) });
+  res.json({ success: true, data: r.rows.map((a: any) => ({ id: a.id, bank_name: a.bank_name, account_name: a.account_name, account_number: forRole(req.userRole, a).account_number, credit: num(a.credit), debit: num(a.debit), closing_balance: r2(num(a.credit) - num(a.debit)) })) });
 }));
 
 router.get('/ledger-monthly-summary/:companyBankAccountId', h(async (req, res) => {

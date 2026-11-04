@@ -78,8 +78,9 @@ r = await A('GET', '/master/document-dispatch?from=yesterday'); t('dispatch: bad
 r = await A('GET', '/master/document-dispatch?consumer_id=x'); t('dispatch: bad consumer filter -> 400', r.s === 400, r.s);
 r = await A('GET', '/master/document-dispatch?pageSize=1&q=' + U); t('dispatch: paging says when there is more', r.s === 200 && r.j.data.length === 1 && r.j.has_more === true, JSON.stringify(r.j).slice(0, 100));
 r = await A('GET', '/master/document-dispatch?pageSize=1&page=2&q=' + U); t('dispatch: second page', r.s === 200 && r.j.data.length === 1 && r.j.has_more === false);
-r = await A('PUT', '/master/document-types/' + dtid, { name: dn + ' renamed' }); r = await A('GET', '/master/document-dispatch?consumer_id=' + c1);
-t('checklist: renaming a document renames its dispatch entries too', r.j.data[0].document_type === dn + ' renamed', r.j.data[0]?.document_type);
+r = await A('PUT', '/master/document-types/' + dtid, { name: dn + ' renamed' }); const renameRes = r; r = await A('GET', '/master/document-dispatch?consumer_id=' + c1);
+// Set Master audit SM-011: a dispatch entry is proof of what was sent, so a rename never rewrites it; the rename is refused while history uses the name
+t('checklist: a document used by the dispatch log cannot be renamed (409) and the entry keeps its name', renameRes.s === 409 && r.j.data[0].document_type === dn, renameRes.s + ' ' + r.j.data[0]?.document_type);
 r = await A('DELETE', '/master/document-types/' + dtid); t('checklist: a document used in the dispatch log cannot be deleted -> 409', r.s === 409, r.s);
 r = await SE('DELETE', '/master/document-dispatch/' + dd2); t('dispatch: sales_executive cannot delete -> 403', r.s === 403, r.s);
 r = await A('DELETE', '/master/document-dispatch/' + dd2); t('dispatch: delete', r.s === 200, r.s);

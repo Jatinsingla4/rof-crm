@@ -10,6 +10,8 @@ SM.screens = {};
 SM.d = {};            // data cache, filled by SM.loadAll and SM.reload
 SM.sel = {};          // selected country and state on the Locations screen
 SM.q = {};            // search text per box, kept across redraws
+SM.failed = [];       // paths that could not be loaded; a path leaves the list as soon as it loads
+SM.CACHE_MS = 10000;  // how long data from the last load is reused when moving between screens
 SM.screen = 'locations';
 SM.list = 'salutations';
 
@@ -57,8 +59,8 @@ Pages.setMaster = async function (params = {}) {
   const legacy = SM.OLD_TABS[params.tab];
   SM.screen = params.screen || (legacy && legacy[0]) || 'locations';
   SM.list = params.list || (legacy && legacy[1]) || SM.list;
-  // Moving between screens reuses data loaded in the last 30 seconds; every change reloads what it touched
-  if (!SM.loadedAt || Date.now() - SM.loadedAt > 30000) {
+  // Moving between screens reuses data loaded in the last 10 seconds (SM.CACHE_MS); every change reloads what it touched
+  if (!SM.loadedAt || Date.now() - SM.loadedAt > SM.CACHE_MS) {
     document.getElementById('content').innerHTML = '<div class="sm-empty">Loading...</div>';
     await SM.loadAll();
   }
@@ -66,7 +68,8 @@ Pages.setMaster = async function (params = {}) {
 };
 
 SM.get = async (path) => {
-  try { return (await Api.get(path)).data; } catch (e) { SM.failed.push(path); return null; }
+  try { const data = (await Api.get(path)).data; SM.failed = SM.failed.filter((x) => x !== path); return data; }
+  catch (e) { if (!SM.failed.includes(path)) SM.failed.push(path); return null; }
 };
 
 SM.loadAll = async () => {

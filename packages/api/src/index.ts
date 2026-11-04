@@ -591,6 +591,9 @@ app.use('/api/roles',          authenticateToken, rolesRoutes);
 app.use('/api/companies',      authenticateToken, companiesRoutes);
 app.use('/api/custom-letters', authenticateToken, rbac('documents'), customLettersRoutes);
 
+// An API path no route handled answers in JSON, like every other API error
+app.use('/api', (req: Request, res: Response) => { res.status(404).json({ error: 'Not found' }); });
+
 // ============================================
 // SPA FALLBACK
 // ============================================

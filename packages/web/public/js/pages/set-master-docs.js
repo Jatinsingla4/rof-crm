@@ -5,7 +5,8 @@
 const SM = window.SM;
 const esc = (s) => Utils.esc(s);
 
-const STAGES = ['On Booking', 'On Allotment', 'On Agreement', 'On Possession', 'On Demand', 'Other'];
+// Same list as the server (routes/master.ts REQUIRED_AT); a stage missing here would show blank when its document is opened
+const STAGES = ['On Booking', 'On Allotment', 'On Agreement', 'On Possession', 'On Transfer', 'On Demand', 'Other'];
 const FROM = ['Individual', 'Firm or Company'];
 const MODES = ['Courier', 'Speed Post', 'Registered Post', 'Hand Delivery', 'Email', 'Other'];
 
@@ -52,7 +53,7 @@ SM.screens.checklist = (root) => {
 SM.docAction = async (kind, id, act) => {
   const row = (SM.d.doctypes || []).find((t) => t.id === id);
   if (act === 'del') {
-    const yes = await SM.ask({ title: `Delete ${row.name}?`, text: 'Dispatch records that use this name block the delete. The change is recorded in the audit log.' });
+    const yes = await SM.ask({ title: `Delete ${row.name}?`, text: 'A name that booking documents or dispatch records still use cannot be deleted or renamed, because those records keep the name they were saved with. The change is recorded in the audit log.' });
     if (yes && await SM.run(() => Api.delete(`${SM.EP.doctypes}/${id}`), 'Deleted')) await SM.reload('doctypes');
     return;
   }
@@ -156,7 +157,7 @@ SM.screens.dispatch = async (root) => {
         { key: 'document_type', label: 'Document', required: true, maxlength: 150 },
         { key: 'dispatch_mode', label: 'Mode', type: 'select', required: true, options: MODES.map((m) => ({ value: m, label: m })) },
         { key: 'tracking_no', label: 'Tracking number', maxlength: 100 },
-        { key: 'dispatched_at', label: 'Date dispatched', placeholder: 'YYYY-MM-DD' },
+        { key: 'dispatched_at', label: 'Date dispatched', type: 'date' },
       ],
       onSubmit: async (v) => { await Api.put(`/master/document-dispatch/${id}`, { ...v, tracking_no: v.tracking_no || null, dispatched_at: v.dispatched_at || null }); Utils.success('Saved'); SM.paint(); },
     });

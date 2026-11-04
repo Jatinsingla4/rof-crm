@@ -12,6 +12,7 @@ import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, r
 import { requireProcess } from '../middleware/processPermission.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2, flag, financeOnly } from '../utils/input.js';
 import { persistInterest, nextNumber } from '../utils/penal-interest.js';
+import { forRole } from '../utils/company-bank.js';
 import { raiseNote, notOwn, postRefundJournal } from './financial-ops.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
@@ -2300,7 +2301,7 @@ router.get('/clearing-banks/:projectId', async (req: AuthRequest, res: Response,
     );
 
     if (companyResult.rows.length > 0) {
-      return res.json({ success: true, data: companyResult.rows });
+      return res.json({ success: true, data: companyResult.rows.map((r: any) => forRole(req.userRole, r)) });
     }
 
     // Fallback: project-level bank_accounts (legacy)
@@ -2311,7 +2312,7 @@ router.get('/clearing-banks/:projectId', async (req: AuthRequest, res: Response,
        ORDER BY bank_name`,
       [projectId]
     );
-    res.json({ success: true, data: fallbackResult.rows });
+    res.json({ success: true, data: fallbackResult.rows.map((r: any) => forRole(req.userRole, r)) });
   } catch (error) { fail(error, res, next); }
 });
 
