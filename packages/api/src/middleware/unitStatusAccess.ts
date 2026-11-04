@@ -4,6 +4,7 @@ import { AuthRequest } from '../index.js';
 
 // Maps unit_status_access value → allowed DB status values (null = no filter)
 export const UNIT_STATUS_MAP: Record<string, string[] | null> = {
+  none:           [],
   unit_hold:      ['held', 'locked'],
   available:      ['available'],
   available_hold: ['available', 'held', 'locked'],

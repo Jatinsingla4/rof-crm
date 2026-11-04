@@ -32,7 +32,7 @@ export const auditChange = (
 export const logAudit = async (
   db: Pick<Pool, 'query'>,
   userId: string | null,
-  action: 'create' | 'update' | 'delete' | 'view' | 'login',
+  action: 'create' | 'update' | 'delete' | 'view' | 'login' | 'auth_blocked',
   resourceType: string,
   resourceId: string,
   previousValues?: object,

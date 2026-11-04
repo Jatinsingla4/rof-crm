@@ -1,6 +1,6 @@
 /**
  * Employees: departments, teams, employee profiles, who reports to whom.
- * Mounted with the `users` rights (index.ts): super_admin changes things, project_manager can look.
+ * super_admin only (router guard below), except /directory.
  * /directory (names only) is open to every signed-in user for pick lists.
  */
 import { Router, Response, NextFunction } from 'express';
@@ -9,8 +9,13 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { isUuid } from '../utils/security.js';
 import { Bad, updateUser } from './users.js';
+import { requireSuperAdmin } from '../middleware/superAdmin.js';
 
 const router = Router();
+
+// UR-001: every employees route is super_admin only except /directory (names for pick lists, open to every signed-in user).
+router.use((req: AuthRequest, res: Response, next: NextFunction) =>
+  req.method === 'GET' && req.path === '/directory' ? next() : requireSuperAdmin(req, res, next));
 
 const fail = (status: number, message: string): never => { throw new Bad(status, message); };
 const guard = (fn: (req: AuthRequest, res: Response) => Promise<unknown>) =>
@@ -269,10 +274,10 @@ router.patch('/teams/:id/set-head', guard(async (req, res) => {
 // GET /api/employees/directory: names for pick lists (no pay or private details). Open to every signed-in user.
 router.get('/directory', guard(async (_req, res) => {
   const r = await db.query(`
-    SELECT ep.user_id AS id, ep.id AS profile_id, u.name, ep.designation, d.name AS department_name
+    SELECT ep.user_id AS id, u.name
     FROM employee_profiles ep JOIN users u ON u.id = ep.user_id
-    LEFT JOIN departments d ON d.id = ep.department_id
-    WHERE ep.is_active ORDER BY u.name`);
+    WHERE ep.is_active AND u.is_active AND u.role <> 'super_admin'
+      AND NOT EXISTS (SELECT 1 FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active AND r.base_role = 'super_admin') ORDER BY u.name`);
   res.json({ success: true, data: r.rows });
 }));
 
@@ -397,7 +402,7 @@ router.patch('/:id', guard(async (req, res) => {
     if (typeof req.body.is_active !== 'boolean') fail(400, 'is_active must be true or false');
     set.is_active = req.body.is_active;
     // The login follows. This refuses (400 or 409) when it is your own login or the last super admin.
-    if (req.body.is_active !== p.is_active) await updateUser(req, res, p.user_id, { isActive: req.body.is_active });
+    if (req.body.is_active !== p.is_active) await updateUser(req, res, p.user_id, { isActive: req.body.is_active, reviewedGrants: req.body.reviewedGrants }); // UR-011: switching a leaver back on needs the access review too
   }
   const keys = Object.keys(set);
   if (!keys.length) fail(400, 'Nothing to update');

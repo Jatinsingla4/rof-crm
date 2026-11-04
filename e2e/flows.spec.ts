@@ -110,6 +110,8 @@ test('Set Up: applicant list (add, duplicate, edit, in-use rules, delete)', asyn
   const box = page.getByPlaceholder(/^New profession/);
   await box.fill(names.prof); await add();
   await expect(toast('Profession added')).toBeVisible();
+  await expect(content().getByText(names.prof, { exact: true })).toBeVisible(); // the list has re-drawn; typing earlier is wiped by it
+  await expect(box).toHaveValue('');
   await box.fill(names.prof.toUpperCase()); await add();
   await expect(toast('A record with this name already exists')).toBeVisible();
 
@@ -439,6 +441,21 @@ test('security: edit a login, disable it, and it cannot sign in', async () => {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Disable' }).click();
   await expect(toast('Login disabled')).toBeVisible();
   await expect(userRow()).toContainText('Inactive');
+  // enabling shows what the login still holds and needs a confirm (UR-011)
+  await userRow().hover();
+  await userRow().getByRole('button', { name: 'Enable' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('It currently holds');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Enable' }).click();
+  await expect(toast('Login enabled')).toBeVisible();
+  await expect(userRow()).toContainText('Active');
+  // revoke all: disables and removes every grant
+  await userRow().hover();
+  await userRow().getByRole('button', { name: 'Revoke all' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('cannot be undone');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke all' }).click();
+  await expect(toast('All access revoked')).toBeVisible();
+  await expect(userRow()).toContainText('Inactive');
+  await expect(userRow()).toContainText('None');
   await logout();
   await signInAs(sec.email, sec.pw);
   await expect(page.locator('body')).toContainText(/Invalid email or password/i);
@@ -798,15 +815,15 @@ test('Employees: team with a head and members, then delete', async () => {
   await expect(smRow(emp.team)).toHaveCount(0);
 });
 
-test('Employees: project_manager can look but not change; others cannot open it', async () => {
+test('Employees: only super_admin can open it (UR-001); project_manager sees "No access" and no data', async () => {
   await logout();
   await login('project_manager');
-  await go('#/employees?tab=employees');
-  await expect(content()).toContainText('Employees');
-  await expect(content().getByRole('button', { name: 'New employee' })).toHaveCount(0);
-  await expect(content().getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
-  await go('#/employees?tab=departments');
-  await expect(content().getByRole('button', { name: 'New department' })).toHaveCount(0);
+  for (const tab of ['employees', 'departments']) {
+    await go(`#/employees?tab=${tab}`);
+    await expect(content()).toContainText('No access');
+    await expect(content().getByRole('button', { name: 'New employee' })).toHaveCount(0);
+    await expect(content().locator('tr[data-row]')).toHaveCount(0);
+  }
   await logout();
   await login('sales_executive');
   await go('#/employees?tab=employees');

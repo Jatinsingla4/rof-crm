@@ -28,7 +28,7 @@ r = await SE('GET', '/employees'); t('roles: sales_executive cannot read employe
 r = await SE('GET', '/employees/departments'); t('roles: sales_executive cannot read departments -> 403', r.s === 403, r.s);
 r = await SE('GET', '/employees/directory'); t('directory: every signed-in user can read names', r.s === 200 && Array.isArray(r.j.data), r.s);
 r = await PM('POST', '/employees/departments', { name: 'PM dept ' + U }); t('roles: project_manager cannot add a department -> 403', r.s === 403, r.s);
-r = await PM('GET', '/employees/departments'); t('roles: project_manager may look', r.s === 200, r.s);
+r = await PM('GET', '/employees/departments'); t('roles: project_manager cannot look (UR-001, super_admin only) -> 403', r.s === 403, r.s);
 
 // ---------- departments ----------
 const dn = 'Dept ' + U;
@@ -88,10 +88,10 @@ r = await PM('PATCH', '/employees/' + e2, { city: 'x' }); t('employee edit: proj
 
 // who sees what
 r = await A('GET', '/employees/' + e1); t('details: super_admin sees pay and private contacts', r.s === 200 && r.j.data.salary_grade === 'G4' && r.j.data.emergency_contact && r.j.data.address, JSON.stringify(r.j).slice(0, 120));
-r = await PM('GET', '/employees/' + e1); t('details: project_manager does not see salary grade, personal mobile, emergency contact or address', r.s === 200 && !('salary_grade' in r.j.data) && !('mobile_personal' in r.j.data) && !('emergency_contact' in r.j.data) && !('address' in r.j.data) && r.j.data.designation === 'Sales Manager', JSON.stringify(r.j.data));
-r = await PM('GET', '/employees?search=' + code); t('list: the same hiding in the list', r.s === 200 && r.j.data.length >= 1 && r.j.data.every((x) => !('salary_grade' in x)), JSON.stringify(r.j).slice(0, 100));
+r = await PM('GET', '/employees/' + e1); t('details: project_manager cannot open a profile at all (UR-001) -> 403', r.s === 403, r.s);
+r = await PM('GET', '/employees?search=' + code); t('list: project_manager cannot list profiles (UR-001) -> 403', r.s === 403, JSON.stringify(r.j).slice(0, 100));
 r = await SE('GET', '/employees/directory'); t('directory: names only, no pay or private details', r.s === 200 && r.j.data.length >= 3 && !JSON.stringify(r.j).includes('salary_grade') && !JSON.stringify(r.j).includes('mobile'), JSON.stringify(r.j.data[0]));
-t('directory: its id is the login id (what bookings and calls store)', r.j.data.some((x) => x.id === u1.id && x.profile_id === e1));
+t('directory: its id is the login id (what bookings and calls store)', r.j.data.some((x) => x.id === u1.id));
 r = await A('GET', '/employees/' + NIL); t('details: unknown -> 404', r.s === 404, r.s);
 r = await A('GET', '/employees?department_id=x'); t('list: bad department filter -> 400', r.s === 400, r.s);
 r = await A('GET', '/employees?department_id=' + d1); t('list: filter by department', r.s === 200 && r.j.data.every((x) => x.department_id === d1) && r.j.data.length === 2, r.j.data?.length);
@@ -128,7 +128,8 @@ r = await call(lg)('GET', '/users/me'); t('leaver: the login stops at once (sess
 r = await post('/auth/login', { email: u4.email, password: PW }); t('leaver: cannot sign in again', r.s === 401, r.s);
 r = await A('GET', '/employees/tree'); t('leaver: not in the org chart', !find(r.j.data, u4.id));
 r = await A('GET', '/employees/directory'); t('leaver: not in the directory', !r.j.data.some((x) => x.id === u4.id));
-r = await A('PATCH', '/employees/' + e4, { is_active: true }); t('leaver: switching the employee back on', r.s === 200, r.s);
+r = await A('PATCH', '/employees/' + e4, { is_active: true }); t('leaver: switching the employee back on needs reviewedGrants -> 409 (UR-011)', r.s === 409, r.s);
+r = await A('PATCH', '/employees/' + e4, { is_active: true, reviewedGrants: true }); t('leaver: switching the employee back on', r.s === 200, r.s);
 r = await post('/auth/login', { email: u4.email, password: PW }); t('leaver: the login works again', r.s === 200, r.s);
 await A('POST', '/employees', pf({ user_id: me.id, employee_code: code + 'ME', department_id: null })); r = await A('PATCH', '/employees/' + me.id, { is_active: false });
 t('leaver: you cannot switch yourself off -> 400', r.s === 400, r.s + ' ' + JSON.stringify(r.j));

@@ -20,7 +20,7 @@ r = await A('POST', '/master/not-listed-anywhere', { name: 'x' }); t('master: sa
 r = await A('GET', '/roles'); t('roles: super_admin lists roles', r.s === 200 && r.j.data.length >= 6, r.s);
 t('roles: the six system roles are marked system', ['super_admin', 'project_manager', 'sales_executive', 'accounts_finance', 'support_agent', 'read_only_viewer'].every(n => r.j.data.find(x => x.name === n)?.is_system === true));
 r = await SE('GET', '/roles'); t('roles: sales_executive cannot list roles -> 403', r.s === 403, r.s);
-r = await PM('GET', '/roles'); t('roles: project_manager may view the list', r.s === 200, r.s);
+r = await PM('GET', '/roles'); t('roles: project_manager cannot view the list (UR-001, super_admin only)', r.s === 403, r.s);
 r = await PM('POST', '/roles', { name: 'pm_role_' + U, label: 'X', baseRole: 'read_only_viewer' }); t('roles: project_manager cannot create -> 403', r.s === 403, r.s);
 
 const rn = 'collector_' + U;
@@ -160,7 +160,8 @@ tok = await login(email, PW + 'x');
 r = await patch(uid, { isActive: false }); t('deactivate', r.s === 200, r.s);
 r = await call(tok)('GET', '/users/me'); t('deactivate: the session ends at once', r.s === 401, r.s);
 r = await post('/auth/login', { email, password: PW + 'x' }); t('deactivate: sign in refused', r.s === 401, r.s);
-r = await patch(uid, { isActive: true }); t('reactivate', r.s === 200, r.s);
+r = await patch(uid, { isActive: true }); t('reactivate without reviewedGrants -> 409 (UR-011)', r.s === 409 && /reviewedGrants/.test(r.j?.error), JSON.stringify(r.j));
+r = await patch(uid, { isActive: true, reviewedGrants: true }); t('reactivate with reviewedGrants', r.s === 200, r.s);
 
 // the last super_admin and yourself
 const me = (await A('GET', '/users/me')).j.data;
@@ -180,8 +181,8 @@ r = await patch(me.id, { ipSecurityEnabled: true }); t('ip: admin cannot lock th
 await A('DELETE', `/users/employee-login/${me.id}/ips/${myIpRow}`);
 tok = await login(email, PW + 'x'); const live = call(tok);
 r = await patch(uid, { ipSecurityEnabled: true }); t('ip: switch on with addresses listed', r.s === 200, JSON.stringify(r.j));
-r = await live('GET', '/users/me'); t('ip: a request from an address not on the list is refused -> 403', r.s === 403, r.s);
-r = await post('/auth/login', { email, password: PW + 'x' }); t('ip: sign in from an address not on the list is refused -> 403', r.s === 403, r.s);
+r = await live('GET', '/users/me'); t('ip: a request from an address not on the list is refused -> 401 Authentication required (UR-016)', r.s === 401 && r.j?.error === 'Authentication required', JSON.stringify(r));
+r = await post('/auth/login', { email, password: PW + 'x' }); t('ip: sign in from an address not on the list is refused like a failed sign-in -> 401 Invalid email or password (UR-016)', r.s === 401 && r.j?.error === 'Invalid email or password', JSON.stringify(r));
 r = await A('DELETE', `/users/employee-login/${uid}/ips/${ipid}`); t('ip: remove one of two addresses', r.s === 200, r.s);
 const left = (await A('GET', `/users/employee-login/${uid}/ips`)).j.data[0];
 r = await A('DELETE', `/users/employee-login/${uid}/ips/${left.id}`); t('ip: removing the last address while IP security is on -> 409', r.s === 409, r.s);
@@ -212,7 +213,7 @@ r = await A('GET', `/users/audit-logs?fromDate=${today}&toDate=${today}&pageSize
 r = await A('GET', '/users/audit-logs?fromDate=2000-01-01&toDate=2000-01-02'); t('audit: old date range is empty', r.s === 200 && r.j.data.length === 0, r.s);
 r = await A('GET', '/users/audit-logs?fromDate=yesterday'); t('audit: bad date -> 400', r.s === 400, r.s);
 r = await A('GET', '/users/audit-logs?userId=x'); t('audit: bad userId -> 400', r.s === 400, r.s);
-r = await PM('GET', '/users/audit-logs'); t('audit: project_manager may read the log', r.s === 200, r.s);
+r = await PM('GET', '/users/audit-logs'); t('audit: project_manager cannot read the log (UR-001, super_admin only)', r.s === 403, r.s);
 r = await SE('GET', '/users/audit-logs'); t('audit: sales_executive may not -> 403', r.s === 403, r.s);
 r = await A('POST', '/users/audit-logs', { action: 'create' }); t('audit: the log cannot be written from outside', r.s === 404, r.s);
 

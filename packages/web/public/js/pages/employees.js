@@ -29,7 +29,7 @@ Pages.employees = async function (params = {}) {
 EMPX.tag = (t, kind) => `<span class="sm-tag${kind ? ' sm-tag--' + kind : ''}">${ex(t)}</span>`;
 EMPX.status = (on) => (on ? EMPX.tag('Active', 'ok') : EMPX.tag('Inactive', 'warn'));
 EMPX.fail = (el, e) => {
-  el.innerHTML = /403|permission|Forbidden/i.test(e.message) ? SM.empty('No access', 'Your role cannot open this screen. Ask a super admin.') : SM.empty('Could not load', e.message);
+  el.innerHTML = /403|permission|Forbidden|Only super_admin|no usable role/i.test(e.message) ? SM.empty('No access', 'Your role cannot open this screen. Ask a super admin.') : SM.empty('Could not load', e.message);
 };
 EMPX.get = async (path) => (await Api.get(path)).data || [];
 // Logins that can be chosen as head, manager or member

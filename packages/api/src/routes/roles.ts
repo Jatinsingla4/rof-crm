@@ -1,14 +1,15 @@
 import { Router, Response, NextFunction } from 'express';
 import { db, AuthRequest, clearAuthUserCache } from '../index.js';
-import { hasPermission, SYSTEM_ROLES, BASE_ROLES } from '../middleware/rbac.js';
+import { SYSTEM_ROLES, BASE_ROLES } from '../middleware/rbac.js';
+import { isSuperAdmin } from '../middleware/superAdmin.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { isUuid } from '../utils/security.js';
 
 const router = Router();
 
-const isAdmin = (req: AuthRequest) => req.userRole === 'super_admin';
-const canSee = (req: AuthRequest) => hasPermission(req.userRole, 'users', 'view');
+const isAdmin = (req: AuthRequest) => isSuperAdmin(req);
+const canSee = isAdmin; // UR-001: the role lists are super_admin only
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 
 // Every id must be the id of an active page; returns the unique ids or an error text
@@ -137,7 +138,7 @@ router.patch('/:roleName', async (req: AuthRequest, res: Response, next: NextFun
   } catch (err) { next(err); }
 });
 
-// GET /api/roles/:roleName/pages — all pages with a has_access flag. Own role, or anyone who may see users.
+// GET /api/roles/:roleName/pages — all pages with a has_access flag. Own role, or super_admin.
 router.get('/:roleName/pages', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { roleName } = req.params;
@@ -200,13 +201,17 @@ router.delete('/:roleName', async (req: AuthRequest, res: Response, next: NextFu
     const role = await findRole(req.params.roleName);
     if (!role) return res.status(404).json({ error: 'Role not found' });
     if (role.is_system) return res.status(403).json({ error: 'Cannot delete system roles' });
-    const inUse = await db.query(`SELECT COUNT(*)::int AS n FROM users WHERE role = $1`, [role.name]);
-    if (inUse.rows[0].n > 0) {
-      return res.status(409).json({ error: `${inUse.rows[0].n} user(s) still have this role. Move them to another role first.` });
-    }
     const client = await db.connect();
     try {
       await client.query('BEGIN');
+      // UR-008: the exclusive lock waits for any login being given this role (they hold a shared lock), then the holders are counted
+      // inside the same transaction, so a login can never be assigned a role that is being deleted
+      await client.query(`SELECT 1 FROM roles WHERE id = $1 FOR UPDATE`, [role.id]);
+      const inUse = await client.query(`SELECT COUNT(*)::int AS n FROM users WHERE role = $1`, [role.name]);
+      if (inUse.rows[0].n > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `${inUse.rows[0].n} user(s) still have this role. Move them to another role first.` });
+      }
       await client.query(`DELETE FROM role_page_access WHERE role_name = $1`, [role.name]);
       await client.query(`DELETE FROM roles WHERE id = $1`, [role.id]);
       await client.query('COMMIT');

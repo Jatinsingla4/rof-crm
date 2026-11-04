@@ -33,7 +33,7 @@ Pages.users = async function (params = {}) {
 };
 
 SEC.denied = (el, e) => {
-  el.innerHTML = /403|permission|Forbidden/i.test(e.message)
+  el.innerHTML = /403|permission|Forbidden|Only super_admin|no usable role/i.test(e.message)
     ? SM.empty('No access', 'Your role cannot open this screen. Ask a super admin.')
     : SM.empty('Could not load', e.message);
 };
@@ -123,6 +123,7 @@ SEC.screens.permissions = async (el) => {
     const u = SEC.users.find((x) => x.id === b.dataset.id);
     if (b.dataset.act === 'edit') SEC.openLogin(u);
     if (b.dataset.act === 'toggle') SEC.toggleActive(u);
+    if (b.dataset.act === 'revoke') SEC.revokeAll(u);
   };
 };
 
@@ -139,7 +140,8 @@ SEC.userRow = (u) => `<tr data-row data-role="${sesc(u.role)}" data-active="${u.
   <td class="sm-muted">${sesc(SEC.when(u.last_login_at)) || 'Never'}</td>
   <td>${u.is_active ? SEC.tag('Active', 'ok') : SEC.tag('Inactive', 'warn')}${u.ip_security_enabled ? ' ' + SEC.tag('IP locked', 'info') : ''}</td>
   <td class="act">${SEC.admin ? `<button class="sm-btn sm-btn--quiet" data-act="edit" data-id="${sesc(u.id)}">Edit</button>
-    <button class="sm-btn sm-btn--quiet${u.is_active ? ' sm-btn--danger' : ''}" data-act="toggle" data-id="${sesc(u.id)}">${u.is_active ? 'Disable' : 'Enable'}</button>` : ''}</td></tr>`;
+    <button class="sm-btn sm-btn--quiet${u.is_active ? ' sm-btn--danger' : ''}" data-act="toggle" data-id="${sesc(u.id)}">${u.is_active ? 'Disable' : 'Enable'}</button>
+    ${u.is_active ? `<button class="sm-btn sm-btn--quiet sm-btn--danger" data-act="revoke" data-id="${sesc(u.id)}" title="Disable and remove every project, company, process right, IP address and print/download/unit status grant">Revoke all</button>` : ''}` : ''}</td></tr>`;
 
 SEC.filterUsers = () => {
   const root = document.getElementById('sm-main');
@@ -153,8 +155,22 @@ SEC.filterUsers = () => {
 };
 
 SEC.toggleActive = async (u) => {
-  if (u.is_active && !(await SM.ask({ title: `Disable ${u.name}?`, text: 'They are signed out at once and cannot sign in until you enable the login again.', ok: 'Disable' }))) return;
-  if (await SM.run(() => Api.patch(`/users/employee-login/${u.id}`, { isActive: !u.is_active }), u.is_active ? 'Login disabled' : 'Login enabled')) Pages.users({ tab: 'permissions' });
+  if (u.is_active) {
+    if (!(await SM.ask({ title: `Disable ${u.name}?`, text: 'They are signed out at once and cannot sign in until you enable the login again. Their access settings are kept.', ok: 'Disable' }))) return;
+    if (await SM.run(() => Api.patch(`/users/employee-login/${u.id}`, { isActive: false }), 'Login disabled')) Pages.users({ tab: 'permissions' });
+    return;
+  }
+  // Enabling a login needs a super admin to have seen what access it still holds: the server states it in its refusal text
+  let held = '';
+  try { await Api.patch(`/users/employee-login/${u.id}`, { isActive: true }); Utils.success('Login enabled'); Pages.users({ tab: 'permissions' }); return; }
+  catch (e) { held = String(e.message || ''); if (!/reviewedGrants/.test(held)) { Utils.error(held); return; } }
+  if (!(await SM.ask({ title: `Enable ${u.name}?`, text: held.replace(/^.*It currently holds: /, 'It currently holds: ') + '. Check this is still right before you enable the login.', ok: 'Enable', danger: false }))) return;
+  if (await SM.run(() => Api.patch(`/users/employee-login/${u.id}`, { isActive: true, reviewedGrants: true }), 'Login enabled')) Pages.users({ tab: 'permissions' });
+};
+
+SEC.revokeAll = async (u) => {
+  if (!(await SM.ask({ title: `Revoke all access for ${u.name}?`, text: 'This disables the login and removes every project, company, process right, IP address and print, download and unit status grant. It cannot be undone; the audit log keeps what was removed. To keep the settings, use Disable instead.', ok: 'Revoke all' }))) return;
+  if (await SM.run(() => Api.post(`/users/employee-login/${u.id}/revoke-all`, {}), 'All access revoked')) Pages.users({ tab: 'permissions' });
 };
 
 SEC.openLogin = (u) => {

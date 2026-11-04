@@ -92,7 +92,8 @@ export const requirePermission = (resource: string, action: string) => {
     const userRole = req.userRole;
 
     if (!userRole) {
-      return res.status(401).json({ error: 'Unauthorized: No role assigned' });
+      // signed in but no usable role (for example a custom role whose base role is super_admin): refused, not logged out
+      return res.status(403).json({ error: 'Forbidden: no usable role assigned' });
     }
 
     const permissions = rolePermissions[userRole];

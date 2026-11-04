@@ -85,3 +85,10 @@ Verified on 2026-11-04 on a fresh disposable database (migrations 96 to 145) wit
 | AUTH-002 | Fixed and verified | own password change needs the current password for every role on change-password (wrong = 401) and on `PATCH /users/:id` and `/employee-login/:id` (wrong = 403); a super_admin can still reset another login without it |
 | AUTH-008 | Fixed and verified, with a known limit | 5 wrong current passwords in 15 minutes block the check for that account (429 + Retry-After), counted once across all three routes; the counter is in process memory, so a restart or another instance starts fresh (shared store belongs to AUTH-004). The 15 minute expiry itself was not tested at runtime |
 | AUTH-003, 004, 005, 006, 007, 009 to 017 | Open | not touched; the Authentication module is NOT complete |
+
+## Users & Roles: who can reach what (after plan v7 phase 2, UR-001, UR-006, UR-011)
+- Only a login whose own role is `super_admin` is a super admin. A custom role never inherits it: `loadAuthUser` (`index.ts`) turns a super_admin base role into "no usable role" and the request is refused (403).
+- `/api/users`, `/api/employees`, `/api/roles` are super_admin only (router guards). Open to every signed-in user: `GET /users/me`, own password change, `GET /users/directory`, `GET /employees/directory` (id and name of active non-super-admin logins only), and `GET /roles/<own role>/pages`.
+- IP security: one canonical address spelling on storage, comparison and the request address. A blocked address gets the same 401 as a failed sign-in; the reason (`auth_blocked`) goes to the audit log. The address you work from cannot be removed while IP security is on.
+- Login lifecycle: Disable keeps every setting; Revoke all disables and removes projects, companies, process rights, IP rows and print/download/unit status in one transaction; enabling either needs `reviewedGrants: true`.
+- Role assignment and role deletion are serialized with a row lock, so a login can never end on a role that is being deleted.

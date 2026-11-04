@@ -205,9 +205,13 @@ router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, n
     }
 
     if (req.unitStatusFilter !== null && req.unitStatusFilter !== undefined) {
-      const placeholders = req.unitStatusFilter.map((_, i) => `$${innerParams.length + i + 1}`).join(', ');
-      innerWhere += ` AND u.status::text IN (${placeholders})`;
-      innerParams.push(...req.unitStatusFilter);
+      // 'none' is an empty list: the inventory screen shows no unit at all (an empty IN () would be a syntax error)
+      if (!req.unitStatusFilter.length) innerWhere += ' AND FALSE';
+      else {
+        const placeholders = req.unitStatusFilter.map((_, i) => `$${innerParams.length + i + 1}`).join(', ');
+        innerWhere += ` AND u.status::text IN (${placeholders})`;
+        innerParams.push(...req.unitStatusFilter);
+      }
     }
 
     const innerQuery = `
