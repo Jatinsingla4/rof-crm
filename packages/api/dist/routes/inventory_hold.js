@@ -20,7 +20,7 @@ const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next, 'This unit is already held');
 // GET /api/inventory-hold?status=active|expired|converted|cancelled|all
-router.get('/', async (req, res, next) => {
+router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const status = (0, input_js_1.oneOf)(req.query.status, 'status', ['active', 'expired', 'converted', 'cancelled', 'all']) || 'active';
         const { size, offset } = (0, input_js_1.paging)(req.query, 200, 500);
@@ -30,6 +30,12 @@ router.get('/', async (req, res, next) => {
         if (status !== 'all') {
             params.push(status);
             where = `WHERE uh.status = $1`;
+        }
+        // inventory view: only holds on units whose current status the login's unit-status grant covers (none: an empty list)
+        const f = req.unitStatusFilter;
+        if (f !== null) {
+            params.push(f ?? []);
+            where += `${where ? ' AND' : 'WHERE'} u.status::text = ANY($${params.length}::text[])`;
         }
         params.push(size, offset);
         const result = await index_js_1.db.query(`SELECT uh.*, u.unit_number, u.bhk_type, u.floor, t.tower_name, p.name AS project_name, u.project_id,
