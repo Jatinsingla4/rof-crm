@@ -9,6 +9,7 @@ person points `psql` at a named environment, and they never run on production or
 | D2 ghost roles | a login whose role has no exact `roles` row, or differs in case | M3 `users_role_fkey` | `d2-ghost-roles-report.sql` | `d2-ghost-roles-dryrun.sql` |
 | D11 super_admin base | a role whose `base_role` is `super_admin` or not a system role | M2 `roles_base_role_not_super_admin` | `d11-super-admin-base-report.sql` | `d11-super-admin-base-dryrun.sql` |
 
+| D7 capability grants | print, download and unit status per login; NULL or unknown becomes "no" / "none" at release | M9 defaults (`M9_users_capability_defaults.sql`), M11 later | `d7-capability-report.sql` | owner decides each login (no mass grant; no script) |
 | D4 to D6 NULL-scope rows | rows with no project, consumer or unit (they stay super-admin-only under the strict policy until mapped, or the table goes on the owner's allow-list) | M10a `M10a_strict_null_scope.sql` | `d6-null-scope-report.sql` | owner decisions per table (no script yet: mapping rows needs the business answer) |
 
 ## How to use them

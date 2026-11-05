@@ -92,3 +92,12 @@ Verified on 2026-11-04 on a fresh disposable database (migrations 96 to 145) wit
 - IP security: one canonical address spelling on storage, comparison and the request address. A blocked address gets the same 401 as a failed sign-in; the reason (`auth_blocked`) goes to the audit log. The address you work from cannot be removed while IP security is on.
 - Login lifecycle: Disable keeps every setting; Revoke all disables and removes projects, companies, process rights, IP rows and print/download/unit status in one transaction; enabling either needs `reviewedGrants: true`.
 - Role assignment and role deletion are serialized with a row lock, so a login can never end on a role that is being deleted.
+
+## Security controls added after the independent review (where each one lives)
+- **Maker-checker** (`routes/financial-ops.ts` `notOwn` over `utils/not-creator.ts`): nobody, super_admin included, approves, rejects, processes, completes or cancels what they created; a record with no known creator waits (409). Receipts and journals check it inside the same UPDATE.
+- **Company access** (`index.ts` `loadAuthUser`, `routes/companies.ts`): `user_company_access` narrows the project scope that the database policies apply to every project-bound table, and company routes, bank accounts and typed bank-account ids follow the grants. No grant = unchanged until the owner's per-user mapping (D5).
+- **Print and download** (`middleware/printDownload.ts`): `authorized_print` / `authorized_download` gate the printable pages, generated documents, exports and file endpoints (also the `?token=` link routes); the browser hides buttons from `/users/me` (usability only).
+- **Unit status** (`utils/unit-grant.ts`, `middleware/unitStatusAccess.ts`): NULL or unknown = none; inventory views refuse `none`; booking, allocation, shift and hold check the unit's current status against the grant; `/units/lookup` serves non-inventory screens.
+- **Throttles** (`utils/throttle.ts`): sign-in and current-password failures are counted in the shared table `auth_throttle` (draft T2) and fall back to per-process counts with a startup warning when it is missing.
+- **NULL-project rows** (`db/pool.ts` + draft `M10a`): the app sets `app.scope_strict`; the policy that hides rows with no project from limited logins is a pending draft with an owner-signed allow-list.
+- **Business calendar**: Asia/Kolkata for business dates, UTC for instants (`utils/business-date.ts`).
