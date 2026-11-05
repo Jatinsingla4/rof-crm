@@ -12,6 +12,7 @@ import { AuthRequest } from '../index.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { bad, failWith, uuid, has, num, text, day, body, paging, qtext, oneOf, inTx, lock } from '../utils/input.js';
 import { likeOf } from '../utils/applicant.js';
+import { businessToday } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ const CUSTOMER_STATUS: Record<string, string[]> = {
 };
 const STAGES = ['enquiry', 'interested', 'application_filed', 'draw_entered', 'allotted', 'onboarded', 'cancelled', 'transferred'];
 const NOT_SENT = 'Recorded as queued. No email, WhatsApp or SMS sender is connected yet, so nothing has left the system.';
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => businessToday();
 const MAX_LIST = 2000;
 
 const outChannel = (v: any, label = 'channel') => { const c = oneOf(v, label, OUT); if (!c) throw bad(`${label} is required`); return c; };

@@ -13,6 +13,7 @@ import { AuthRequest } from '../index.js';
 import { requirePermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, text, body, paging, oneOf, inTx, lock } from '../utils/input.js';
+import { SQL_TODAY } from '../utils/business-date.js';
 
 const router = Router();
 router.use(requirePermission('payments', 'create'));
@@ -88,7 +89,7 @@ router.post('/import', async (req: AuthRequest, res: Response, next: NextFunctio
       if (same) throw bad(`This statement was already imported as "${same.file_name}" on ${new Date(same.import_date).toISOString().slice(0, 10)}`, 409);
       const imp = (await c.query(
         `INSERT INTO bank_statement_imports (project_id, file_name, imported_by_user_id, import_date, total_transactions, total_amount_inr, file_hash, status)
-         VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, 'processing') RETURNING id`,
+         VALUES ($1, $2, $3, ${SQL_TODAY}, $4, $5, $6, 'processing') RETURNING id`,
         [projectId, fileName, req.userId, rows.length, rows.reduce((s, r) => s + r.amount, 0), hash])).rows[0];
       await c.query(
         `INSERT INTO bank_transactions (import_id, project_id, transaction_date, description, amount_inr, transaction_ref, bank_account, match_status)

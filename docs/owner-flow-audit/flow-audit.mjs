@@ -4,6 +4,7 @@
 // Local test stack only (psql to the same database the API uses, test users). Every row it creates is named "FA<run id> ...".
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { bizToday } from '../_shared/business-date.mjs';
 
 const B = process.env.BASE || 'http://localhost:3010/api';
 const env = { ...process.env, PGHOST: process.env.PGHOST || 'localhost', PGPORT: process.env.PGPORT || '5433', PGUSER: process.env.PGUSER || 'postgres', PGDATABASE: process.env.PGDATABASE || 'rof_sec' };
@@ -19,7 +20,7 @@ const api = async (m, p, b) => {
   return { s: r.status, j, text };
 };
 const must = (r, what) => { if (r.s >= 300) throw new Error(`${what}: ${r.s} ${r.text.slice(0, 300)}`); return r.j?.data ?? r.j; };
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 const RUN = Date.now().toString(36).toUpperCase();
 let pass = 0, fail = 0;
 const check = (name, ours, expected, tol = 0.5) => {

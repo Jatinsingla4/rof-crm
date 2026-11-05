@@ -828,7 +828,7 @@ const UnitStatusPage = {
   },
 
   buildDetailPageHtml(data, statusGroup) {
-    const today = new Date().toLocaleDateString('en-GB');
+    const today = new Date().toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' });
     const statusLabels = {
       allotted: 'Allotted Units', booked: 'Booked Units',
       hold: 'Hold Units', available: 'Available Units', all: 'All Units'

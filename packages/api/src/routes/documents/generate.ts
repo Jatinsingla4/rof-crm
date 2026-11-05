@@ -12,6 +12,7 @@ import { numberToWordsIndian, ordinalFloor, fmtDateIndia, fmtIndianNumber, fmtIn
 import { GenCtx, demandLetterData } from './merge-demand.js';
 import { checkListData, allotmentLetterData, buyerBuilderAgreementData, conveyanceDeedData } from './merge-letters.js';
 import { getDemandLetterShell, getCheckListShell } from './shells.js';
+import { businessDayStart, businessYear } from '../../utils/business-date.js';
 
 const router = Router();
 
@@ -221,10 +222,10 @@ router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunct
           unitNumber: d.unit_number || '—',
           unitCategory: d.unit_category || '—',
           carpetArea: d.carpet_area || '0',
-          currentDate: new Date().toLocaleDateString('en-IN'),
-          day: new Date().getDate(),
-          month: new Date().toLocaleString('en-IN', { month: 'long' }),
-          year: new Date().getFullYear(),
+          currentDate: businessDayStart().toLocaleDateString('en-IN'),
+          day: businessDayStart().getDate(),
+          month: businessDayStart().toLocaleString('en-IN', { month: 'long' }),
+          year: businessYear(),
         };
 
         // Special logic for Demand Letter Rows

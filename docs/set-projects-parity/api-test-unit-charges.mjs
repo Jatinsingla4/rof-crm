@@ -1,6 +1,7 @@
 // Charges attached to a unit in advance: the list route and its rules, and what a booking of the unit puts on the customer (quantity, Mandatory charges).
 // Run: PGHOST=.. BASE=http://localhost:3010/api node docs/set-projects-parity/api-test-unit-charges.mjs   (psql must reach the same database)
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + (typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 300))); };
@@ -8,14 +9,14 @@ const call = (tok) => async (m, p, b) => { const r = await fetch(B + p, { method
 const login = async (e) => (await call()('POST', '/auth/login', { email: e, password: 'Test#Pass1234' })).j?.token;
 const A = call(await login('super_admin@test.local')), RO = call(await login('read_only_viewer@test.local')), SE = call(await login('sales_executive@test.local')), NO = call();
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim();
-const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000', today = new Date().toISOString().slice(0, 10);
+const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000', today = bizToday();
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');
 const co = (await A('GET', '/companies')).j?.data?.[0]?.id || (await A('POST', '/companies', { name: `Co ${U}` })).j?.data?.id;
 const mkProject = async (tag) => {
   const P = (await A('POST', '/projects', { name: `UC ${tag} ${U}`, reraNumber: `U${tag}-${U}`, tcpLicence: 'x', companyId: co })).j.data.id;
   const T = (await A('POST', `/projects/${P}/towers`, { towerName: 'T' + U })).j.data.id;
   let slab = (await A('GET', '/gst-configuration/gst-slabs')).j.data.find((x) => x.from_date <= today && x.to_date >= today)?.id;
-  if (!slab) slab = (await A('POST', '/gst-configuration/gst-slabs', { fromDate: new Date(Date.now() - 3 * 864e5).toISOString().slice(0, 10), toDate: new Date(Date.now() + 40 * 864e5).toISOString().slice(0, 10) })).j.data.id;
+  if (!slab) slab = (await A('POST', '/gst-configuration/gst-slabs', { fromDate: bizDate(Date.now() - 3 * 864e5), toDate: bizDate(Date.now() + 40 * 864e5) })).j.data.id;
   const taxId = (await A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab, gstCode: `UC ${tag} ${U}`, type: 'INTRA', cgstPct: 2.5, sgstPct: 2.5 })).j.data.id;
   for (const ct of ['BASIC', 'PLC', 'OTHER CHARGE']) await A('POST', '/gst-configuration/gst-charge-mapping', { projectId: P, slabId: slab, gstTaxId: taxId, chargeType: ct });
   const r1 = (await A('POST', `/projects/${P}/plan-templates`, { plan_name: 'Plan ' + U, installment_name: 'Booking', installment_type: 'booking', percentage: 20, due_date_offset_days: 0, installment_index: 1 })).j.data.id;

@@ -12,6 +12,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { typePrice } from '../utils/unit-type-price.js';
 import { lockCharges, requireStock } from '../utils/charge-stock.js';
 import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce } from '../utils/input.js';
+import { businessDayStart, businessToday } from '../utils/business-date.js';
 
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
@@ -502,7 +503,7 @@ router.get('/tower-detail', async (req: AuthRequest, res: Response, next: NextFu
     const units = result.rows;
     const projectName = units[0]?.project_name || '';
     const towerName   = units[0]?.tower_name   || '';
-    const today = new Date().toLocaleDateString('en-GB');
+    const today = businessDayStart().toLocaleDateString('en-GB');
 
     res.json({ success: true, project_name: projectName, tower_name: towerName,
                status_group: statusGroup, date: today, units });
@@ -785,7 +786,7 @@ router.get('/:id/areas/history', async (req: AuthRequest, res: Response, next: N
 router.put('/:id/areas', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Unit id'), b = bodyOf(req);
-    const effective = has(b.effectiveDate) ? day(b.effectiveDate, 'Effective date') : new Date().toISOString().slice(0, 10);
+    const effective = has(b.effectiveDate) ? day(b.effectiveDate, 'Effective date') : businessToday();
     const note = has(b.note) ? text(b.note, 'Note', 500, false) : null;
     const given: Record<string, number | null> = {};
     for (const [k, , label] of AREA_FIELDS) if (k in b) given[k] = has(b[k]) ? num(b[k], label, AREA_MAX, 4) : null;

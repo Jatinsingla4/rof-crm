@@ -23,6 +23,7 @@ import {
 } from '../utils/applicant.js';
 import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, sha, lock, conflict, checkIdentity, personName, hasLetter } from '../utils/applicant-fields.js';
 import { penalRateFrom } from '../utils/penal-rate.js';
+import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -742,7 +743,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
            SELECT gts.cgst_pct, gts.sgst_pct
            FROM gst_tax_charge_mapping gcm
            JOIN gst_slabs gs ON gs.id = gcm.slab_id
-             AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+             AND gs.from_date <= ${SQL_TODAY} AND gs.to_date >= ${SQL_TODAY}
            JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
            WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC'
            LIMIT 1
@@ -868,7 +869,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     if (projectId) {
       try {
         const projRateRes = await db.query(
-          `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`,
+          `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= ${SQL_TODAY} ORDER BY effective_from DESC LIMIT 1`,
           [projectId]
         );
         if (projRateRes.rows.length > 0) penalRate = parseFloat(projRateRes.rows[0].rate_percent);
@@ -888,7 +889,7 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
     const interestCalcRows = buildInterestRows(wfRcptsRes.rows, demandsForInterest, penalRate, {
       interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
       gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
-      asOfDate:          new Date(),
+      asOfDate:          businessDayStart(),
     });
     // ─────────────────────────────────────────
 
@@ -908,8 +909,8 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
        FROM gst_tax_charge_mapping gcm
        JOIN gst_slabs gs
          ON gs.id = gcm.slab_id
-        AND gs.from_date <= CURRENT_DATE
-        AND gs.to_date   >= CURRENT_DATE
+        AND gs.from_date <= ${SQL_TODAY}
+        AND gs.to_date   >= ${SQL_TODAY}
        JOIN gst_tax_setup gts
          ON gts.id = gcm.gst_tax_id
        WHERE gcm.project_id  = $1
@@ -926,8 +927,8 @@ router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: 
          FROM gst_tax_charge_mapping gcm
          JOIN gst_slabs gs
            ON gs.id = gcm.slab_id
-          AND gs.from_date <= CURRENT_DATE
-          AND gs.to_date   >= CURRENT_DATE
+          AND gs.from_date <= ${SQL_TODAY}
+          AND gs.to_date   >= ${SQL_TODAY}
          JOIN gst_tax_setup gts
            ON gts.id = gcm.gst_tax_id
          WHERE gcm.project_id  = $1

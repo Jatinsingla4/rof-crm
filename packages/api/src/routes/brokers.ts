@@ -17,6 +17,7 @@ import { closeHold } from '../utils/holds.js';
 import { notOwn } from './financial-ops.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { sqlDay } from '../utils/business-date.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next, 'A broker with the same mobile or PAN already exists');
@@ -109,8 +110,8 @@ const commissionFilter = (q: any) => {
   if (has(q.projectId)) add('bc.project_id = ?', uuid(q.projectId, 'projectId'));
   const st = oneOf(q.status, 'status', COMMISSION_STATUS); if (st) add('bc.status = ?', st);
   const from = day(q.dateFrom, 'dateFrom'), to = day(q.dateTo, 'dateTo');
-  if (from) add('bc.created_at::date >= ?', from);
-  if (to) add('bc.created_at::date <= ?', to);
+  if (from) add(`${sqlDay('bc.created_at')} >= ?`, from);
+  if (to) add(`${sqlDay('bc.created_at')} <= ?`, to);
   if (from && to && from > to) throw bad('dateFrom is after dateTo');
   return { w, params };
 };

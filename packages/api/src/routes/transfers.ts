@@ -10,6 +10,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
 import { gstinNo, likeOf } from '../utils/applicant.js';
+import { SQL_TODAY, businessTomorrow } from '../utils/business-date.js';
 
 function fmtDateIndia(d: any): string {
   if (!d) return '';
@@ -53,7 +54,7 @@ const money = (v: any, label: string): number => (has(v) ? num(v, label, MAX_MON
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v: any, label: string): string | null => {
   const d = day(v, label);
-  if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  if (d && d > businessTomorrow()) throw bad(`${label} cannot be in the future`);
   return d;
 };
 
@@ -167,7 +168,7 @@ router.post('/', requireProcess('applicant_transfer', 'maker'), async (req: Auth
            unit_id, old_consumer_id, new_consumer_id, transfer_fee_inr, admin_charges_inr, transfer_remarks, created_by_user_id,
            transfer_no, application_date, transfer_type, transfer_amount_inr, stax_amount, cgst_amount, sgst_amount, igst_amount, ugst_amount,
            basic_price, gstin, broker_company, main_broker, sales_person_name, transfer_receipt_no, seller_total_paid_inr, seller_total_due_inr, seller_balance_inr, transfer_date
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, COALESCE($26::date, CURRENT_DATE)) RETURNING id`,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, COALESCE($26::date, ${SQL_TODAY})) RETURNING id`,
         [unitId, oldId, newId, f.fee, f.admin, f.remarks, req.userId, f.no, f.app, f.type, f.amount, f.stax, f.cgst, f.sgst, f.igst, f.ugst, f.basic, f.gstin, f.broker, f.mainBroker, f.sales, f.receiptNo,
          paid, dueAmt, dueAmt - paid, f.date]
       );

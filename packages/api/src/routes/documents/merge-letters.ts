@@ -8,6 +8,7 @@ import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } 
 import { numberToWordsIndian, ordinalFloor, fmtDateIndia, fmtIndianNumber, fmtIndianNumberDecimal, fmtIndianMoneyDecimal, fmtIndianAreaDecimal } from './shells.js';
 import { penalRateFrom } from '../../utils/penal-rate.js';
 import { GenCtx } from './merge-demand.js';
+import { SQL_TODAY, businessDayStart } from '../../utils/business-date.js';
 // Check list
 export async function checkListData(ctx: GenCtx): Promise<void> {
   const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -150,7 +151,7 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
             try {
               const projRateResCL = await db.query(
                 `SELECT rate_percent FROM project_interest_rates
-                 WHERE project_id = $1 AND effective_from <= CURRENT_DATE
+                 WHERE project_id = $1 AND effective_from <= ${SQL_TODAY}
                  ORDER BY effective_from DESC LIMIT 1`,
                 [projectIdCL]
               );
@@ -196,7 +197,7 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
             {
               interestStartDate: planCL.interest_start_date ? new Date(String(planCL.interest_start_date)) : null,
               gracePeriodDays: parseInt(String(planCL.grace_period_days || 0)),
-              asOfDate: new Date(),
+              asOfDate: businessDayStart(),
             }
           );
           const totalInterestCalcCL = irRowsCL.reduce((sum: number, ir: any) => sum + ir.interest_amount, 0);
@@ -264,14 +265,14 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
             consumerName: planCL.consumer_name || d?.name || '—',
             coApplicants: coApplicantsCL || '—',
             customerId: planCL.registration_no || d?.registration_no || '—',
-            printDate: fmtDateIndia(new Date()),
+            printDate: fmtDateIndia(businessDayStart()),
             bookingDate: fmtDateIndia(planCL.booking_date),
             paymentMode: planCL.booking_payment_mode || '—',
             projectName: planCL.project_name || d?.project_name || '—',
             unitNumber: planCL.unit_number || d?.unit_number || '—',
             carpetArea: planCL.carpet_area_sqft ? fmtIndianAreaDecimal(parseFloat(planCL.carpet_area_sqft)) : '—',
             balconyArea: planCL.balcony_area_sqft ? fmtIndianAreaDecimal(parseFloat(planCL.balcony_area_sqft)) : '0',
-            currentDate: fmtDateIndia(new Date()),
+            currentDate: fmtDateIndia(businessDayStart()),
             companyName: settingsCL['company_name'] || 'ROF INFRATECH & HOUSING PVT. LTD.',
             companyCin: settingsCL['company_cin'] || '—',
             companyAddress: settingsCL['company_address'] || '—',
@@ -443,7 +444,7 @@ export async function allotmentLetterData(ctx: GenCtx): Promise<void> {
             bankName:        s2['bank_name']          || '—',
             bankBranch:      s2['bank_branch']        || '—',
             // Dates
-            letterDate:    fmtDateIndia(new Date()),
+            letterDate:    fmtDateIndia(businessDayStart()),
             // Consumer
             consumerFullName: al.consumer_full_name || '—',
             consumerAddress:  consumerAddress,
@@ -698,10 +699,10 @@ export async function buyerBuilderAgreementData(ctx: GenCtx): Promise<void> {
             booking_amount_words: numberToWordsIndian(parseFloat(ats.booking_amount || 0)),
             booking_amount_pct: bookingPct3,
             application_no: ats.consumer_id?.slice(0, 8).toUpperCase() || '—',
-            agreement_date: fmtDateIndia(ats.agreement_date || new Date()),
-            agreement_day: new Date(ats.agreement_date || new Date()).getDate().toString(),
-            agreement_month: new Date(ats.agreement_date || new Date()).toLocaleString('en-IN', { month: 'long' }),
-            agreement_year: new Date(ats.agreement_date || new Date()).getFullYear().toString(),
+            agreement_date: fmtDateIndia(ats.agreement_date || businessDayStart()),
+            agreement_day: new Date(ats.agreement_date || businessDayStart()).getDate().toString(),
+            agreement_month: new Date(ats.agreement_date || businessDayStart()).toLocaleString('en-IN', { month: 'long' }),
+            agreement_year: new Date(ats.agreement_date || businessDayStart()).getFullYear().toString(),
             auth_signatory_name: ats.authorised_signatory_name || '—',
             board_resolution_date: fmtDateIndia(ats.board_resolution_date),
             payment_plan_rows: paymentPlanRows,
@@ -763,7 +764,7 @@ export async function conveyanceDeedData(ctx: GenCtx): Promise<void> {
           const cd = cdRes.rows[0];
           if (!cd) throw bad('Allocation data not found', 404);
 
-          const deedDate = cd.conveyance_deed_date ? new Date(cd.conveyance_deed_date) : new Date();
+          const deedDate = cd.conveyance_deed_date ? new Date(cd.conveyance_deed_date) : businessDayStart();
           const deedDay = String(deedDate.getDate());
           const deedMonthNum = deedDate.getMonth();
           const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

@@ -6,6 +6,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, r2, inTx, oneOf } from '../utils/input.js';
 import { lockCharges, requireStock, stockUsedSql } from '../utils/charge-stock.js';
 import { CHARGE_AREAS, chargeAreaSql, percentChargeSql, PERCENT_BASES } from '../utils/charge-area.js';
+import { businessToday } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -381,7 +382,7 @@ router.post('/consumer', async (req: AuthRequest, res: Response, next: NextFunct
     const given = has(b.amount) || !chargeMasterId ? num(b.amount, 'Amount', 1_000_000_000, 2) : null;
     if (given !== null && given <= 0) throw bad('Amount must be more than 0');
     const remark = text(b.remark, 'Remark', 1000, false);
-    const effectiveDate = day(b.effectiveDate) || new Date().toISOString().slice(0, 10);
+    const effectiveDate = day(b.effectiveDate) || businessToday();
     const out = await inTx(async (c) => {
       await lockConsumer(c, consumerId);
       if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {

@@ -3,6 +3,7 @@
 // Every run uses new random areas, prices, percentages and order; the seed is printed so a failure can be repeated: SEED=123 node ...
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-end-to-end.mjs   (psql must reach the same database)
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 const SEED = Number(process.env.SEED || Date.now() % 1e9);
 let a = SEED; const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -15,7 +16,7 @@ const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { m
 const A = call(await login('super_admin@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local'));
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const U = Date.now().toString(36).slice(-5) + ri(0, 99), NIL = '00000000-0000-0000-0000-000000000000';
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 let r;
 const cleanups = [];   // run at the end, also after a failed set-up step, so a failed run leaves no GST slab behind for the scripts that follow
 const tidy = () => { for (const f of cleanups.reverse()) { try { f(); } catch {} } };
@@ -51,7 +52,7 @@ t('PLC quote is right for every unit (flat or carpet x rate; 0 outside the locat
 // GST: reuse a slab that covers today, else make one; a random total rate
 let slab = (await A('GET', '/gst-configuration/gst-slabs')).j.data.find(s => s.from_date <= today && s.to_date >= today)?.id;
 const madeSlab = !slab;
-if (!slab) slab = (await must('slab', A('POST', '/gst-configuration/gst-slabs', { fromDate: new Date(Date.now() - 864e5).toISOString().slice(0, 10), toDate: new Date(Date.now() + 864e5 * 5).toISOString().slice(0, 10) }))).id;
+if (!slab) slab = (await must('slab', A('POST', '/gst-configuration/gst-slabs', { fromDate: bizDate(Date.now() - 864e5), toDate: bizDate(Date.now() + 864e5 * 5) }))).id;
 cleanups.push(() => { if (madeSlab) { psql(`delete from gst_tax_charge_mapping where slab_id='${slab}'`); psql(`delete from gst_tax_setup where slab_id='${slab}'`); psql(`delete from gst_slabs where id='${slab}'`); } });
 const gstPct = pick([0, 1, 5, 12, 18]);
 const taxId = (await must('tax', A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab, gstCode: `E2E ${U}`, type: 'INTRA', cgstPct: gstPct / 2, sgstPct: gstPct / 2 }))).id;
@@ -173,7 +174,7 @@ const sumAmt = Number(psql(`select sum(amount_due_inr) from demands d join payme
 t('unit price change: the demands add up to that total (within a rupee per row)', Math.abs(sumAmt - ppTotal) <= nRows, `${sumAmt} vs ${ppTotal}`);
 
 // R5: a later GST period: a booking dated in it uses its rate, one dated today still uses the old rate
-const later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const later = (d) => bizDate(Date.now() + d * 864e5);
 const newPct = gstPct === 18 ? 5 : 18;
 const slab2 = await A('POST', '/gst-configuration/gst-slabs', { fromDate: later(10), toDate: later(40) });
 if (slab2.s === 201) {

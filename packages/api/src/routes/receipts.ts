@@ -15,6 +15,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
 import { likeOf } from '../utils/applicant.js';
+import { businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -48,7 +49,7 @@ const mode = (v: any, label = 'Payment mode'): string => {
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v: any, label: string): string | null => {
   const d = day(v, label);
-  if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  if (d && d > businessTomorrow()) throw bad(`${label} cannot be in the future`);
   return d;
 };
 const money = (v: any, label: string): number | null => (has(v) ? num(v, label, MAX_AMOUNT, 2) : null);
@@ -83,7 +84,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     if (amount < 1) throw bad('Amount must be at least 1 rupee');
     const planGiven = has(b.paymentPlanId) ? uuid(b.paymentPlanId, 'paymentPlanId') : null;
     const idxGiven = int(b.installmentIndex, 'installmentIndex', 0, 500);
-    const date = pastDay(b.paymentDate ?? b.receivedDate, 'Receipt date') || new Date().toISOString().slice(0, 10);
+    const date = pastDay(b.paymentDate ?? b.receivedDate, 'Receipt date') || businessToday();
     const method = mode(b.paymentMode ?? b.paymentMethod ?? 'cash');
     const ref = text(b.referenceNumber ?? b.transactionRef, 'Reference', 100, false);
     const bankName = text(b.bankName, 'Bank name', 255, false);
@@ -243,8 +244,8 @@ router.get('/receipts/pending-cheques', async (req: AuthRequest, res: Response, 
     if (has(q.project_id)) where += ` AND p.id = ${add(uuid(q.project_id, 'project_id'))}`;
     if (has(q.tower_id)) where += ` AND t.id = ${add(uuid(q.tower_id, 'tower_id'))}`;
     const unit = query(q.unit_address, 'unit_address');       if (unit) where += ` AND u.unit_number ILIKE ${add(likeOf(unit))}`;
-    const from = day(q.from_date, 'from_date');               if (from) where += ` AND r.created_at::date >= ${add(from)}`;
-    const to = day(q.to_date, 'to_date');                     if (to) where += ` AND r.created_at::date <= ${add(to)}`;
+    const from = day(q.from_date, 'from_date');               if (from) where += ` AND ${sqlDay('r.created_at')} >= ${add(from)}`;
+    const to = day(q.to_date, 'to_date');                     if (to) where += ` AND ${sqlDay('r.created_at')} <= ${add(to)}`;
     if (from && to && from > to) throw bad('from_date must not be after to_date');
     const cheque = query(q.cheque_no, 'cheque_no');           if (cheque) where += ` AND r.cheque_no ILIKE ${add(likeOf(cheque))}`;
     const reg = query(q.registration_no, 'registration_no');  if (reg) where += ` AND c.registration_no ILIKE ${add(likeOf(reg))}`;

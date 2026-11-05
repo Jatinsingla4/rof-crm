@@ -454,7 +454,7 @@
 
   // ── SECTION 1: CUSTOMER ────────────────────────────────────────────────────
   function _renderCustomerSection(c, co, bk, p) {
-    const today = new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    const today = new Date().toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric', timeZone:'Asia/Kolkata' });
     const nameStr = [c.salutation, c.first_name, c.last_name].filter(Boolean).join(' ');
     const fatherStr = c.father_name ? `S/o ${c.father_name}` : '';
     const addrStr = [c.present_address, c.present_city, c.present_state, c.present_pin ? `- ${c.present_pin}` : ''].filter(Boolean).join(', ');

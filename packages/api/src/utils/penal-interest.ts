@@ -1,4 +1,5 @@
 import { lock } from './input.js';
+import { businessYear } from './business-date.js';
 
 // Saves a fresh interest calculation for one applicant: the stored 'calculated' rows are replaced (manual rows stay).
 // What was waived is never lost: the amount waived per installment comes back from the approved waivers, up to the new interest.
@@ -25,7 +26,7 @@ export const persistInterest = async (c: any, consumerId: string, planId: string
 // Next number of a series such as INV/2026/00007 (one writer at a time, so two requests never get the same number)
 export const nextNumber = async (c: any, table: string, column: string, prefix: string, width: number): Promise<string> => {
   await lock(c, 'num:' + table);
-  const year = new Date().getFullYear();
+  const year = businessYear();
   const n = (await c.query(
     `SELECT COALESCE(MAX(substring(${column} from '[0-9]+$')::bigint), 0) + 1 AS n FROM ${table} WHERE ${column} ~ $1`, [`^${prefix}/${year}/[0-9]+$`]
   )).rows[0].n;

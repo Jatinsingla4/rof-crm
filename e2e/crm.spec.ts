@@ -3,12 +3,13 @@
 // A JavaScript error, a console error, a 5xx, or "undefined" / "NaN" on a screen fails the test. Texts with markup must show as text.
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../docs/_shared/business-date.mjs';
 
 const PASSWORD = 'Test#Pass1234';
 const BASE = process.env.BASE_URL || 'http://localhost:3002';
 const U = Date.now().toString(36).slice(-5);
-const today = new Date().toISOString().slice(0, 10);
-const later = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday();
+const later = (d: number) => bizDate(Date.now() + d * 864e5);
 const psql = (sql: string) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n')[0];
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');
 const XSS = `<img src=x onerror="window.__xss=1;alert('xss')">`;

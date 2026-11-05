@@ -19,6 +19,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { getPenalRate, DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
+import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -30,7 +31,7 @@ const getPenalInterestRate = async (projectId?: string): Promise<number> => {
   try {
     if (projectId) {
       const projRate = await db.query(
-        `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`,
+        `SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= ${SQL_TODAY} ORDER BY effective_from DESC LIMIT 1`,
         [projectId]
       );
       if (projRate.rows.length > 0) return parseFloat(projRate.rows[0].rate_percent);
@@ -47,7 +48,7 @@ const calculatePenalInterest = (principalInr: number, daysOverdue: number, rate:
 
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
 const optId = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => businessToday();
 
 // POST /api/payments/payment-plans - Create the standard 8-step payment schedule for an allocation (accounts and finance only)
 router.post('/payment-plans', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -70,7 +71,7 @@ router.post('/payment-plans', financeOnly, async (req: AuthRequest, res: Respons
       )).rows[0].id;
 
       // Dynamic Schedule Generator
-      const d = new Date(allotmentDate || new Date());
+      const d = new Date(allotmentDate || businessDayStart());
       const m = (days: number) => { const nd = new Date(d); nd.setDate(nd.getDate() + days); return nd.toISOString().split('T')[0]; };
       const schedule = [
         { sn:1, name:'At the time of Application', pct:5, due: m(0) },
@@ -204,7 +205,7 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
     const desc = text(b.installmentName ?? b.description, 'description', 100, false), hsn = text(b.hsnCode, 'hsnCode', 20, false) || '9972';
     if (has(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase()))) throw bad('buyerGstin must be 15 letters and digits');
     const gstin = has(b.buyerGstin) ? b.buyerGstin.trim().toUpperCase() : null;
-    if (invoiceDate > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad('The invoice date cannot be in the future');
+    if (invoiceDate > businessTomorrow()) throw bad('The invoice date cannot be in the future');
     const rate = (v: any, label: string) => num(v, label, 28, 2);
     let cgstRate: number, sgstRate: number, igstRate: number;
     if (has(b.cgstRate) || has(b.sgstRate) || has(b.igstRate)) {
@@ -267,7 +268,7 @@ const cancelInvoice = (reverse: boolean) => async (req: AuthRequest, res: Respon
         const no = await nextNumber(c, 'credit_debit_notes', 'note_number', 'CDN', 4);
         note = (await c.query(
           `INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id, approved_by, approved_at)
-           VALUES ($1,$2,$3,'credit',$4,$5,$6,$7,$8,COALESCE($9::date, CURRENT_DATE),$10,'issued',$11,$11,NOW()) RETURNING *`,
+           VALUES ($1,$2,$3,'credit',$4,$5,$6,$7,$8,COALESCE($9::date, ${SQL_TODAY}),$10,'issued',$11,$11,NOW()) RETURNING *`,
           [inv.consumer_id, inv.id, no, invoiceNumber, adj, r2(Number(inv.cgst_rate) + Number(inv.sgst_rate) + Number(inv.igst_rate)), gstAmt, r2(adj + gstAmt), noteDate, reason, req.userId])).rows[0];
       }
       await c.query(`UPDATE gst_invoices SET status = 'cancelled', cancelled_at = NOW(), cancelled_reason = $2, updated_at = NOW() WHERE id = $1`, [inv.id, reason]);
@@ -389,7 +390,7 @@ router.get('/draw-refunds/overdue', async (req: AuthRequest, res: Response, next
     const result = await db.query(
       `SELECT id, consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status,
               refund_initiated_at, created_at, EXTRACT(DAY FROM (NOW() - refund_due_by))::INT as days_overdue
-         FROM draw_refunds WHERE refund_due_by < CURRENT_DATE AND refund_status NOT IN ('completed') ORDER BY refund_due_by ASC`
+         FROM draw_refunds WHERE refund_due_by < ${SQL_TODAY} AND refund_status NOT IN ('completed') ORDER BY refund_due_by ASC`
     );
     res.json({ success: true, data: result.rows });
   } catch (error) { fail(error, res, next); }
@@ -509,7 +510,7 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
     // 4. Log the bounce
     await client.query(
       `INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
-       VALUES ($1, $2, CURRENT_DATE, $3, $4)`,
+       VALUES ($1, $2, ${SQL_TODAY}, $3, $4)`,
       [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']
     );
 
@@ -1294,7 +1295,7 @@ router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: N
           SELECT gts.cgst_pct, gts.sgst_pct
           FROM gst_tax_charge_mapping gcm
           JOIN gst_slabs gs ON gs.id = gcm.slab_id
-            AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+            AND gs.from_date <= ${SQL_TODAY} AND gs.to_date >= ${SQL_TODAY}
           JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
           WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC'
           LIMIT 1
@@ -1474,7 +1475,7 @@ function buildReceiptFormHtml(consumer: any, installments: any[], banks: any[], 
     const n = parseFloat(String(v || 0));
     return n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
-  const today = new Date().toISOString().split('T')[0];
+  const today = businessToday();
   const inp = `width:100%;padding:6px 8px;border:1px solid #ccc;border-radius:3px;font-size:13px;box-sizing:border-box;height:30px;`;
 
   const instOpts = installments.map((x: any) => {
@@ -1966,7 +1967,7 @@ router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, 
     const usersResult = await db.query(`SELECT id, name, email FROM users ORDER BY name LIMIT 50`);
 
     // 5. Resolve real project GST rate (percentage points) for CGST/SGST display calc
-    const today = new Date().toISOString().split('T')[0];
+    const today = businessToday();
     const rate = await resolveRate(db, consumer.project_id, consumer.project_name, 'BASIC', today);
     const cgstPct = rate.cgstPct * 100;
     const sgstPct = rate.sgstPct * 100;
@@ -2248,7 +2249,7 @@ router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response
         SELECT gts.cgst_pct, gts.sgst_pct
         FROM gst_tax_charge_mapping gcm
         JOIN gst_slabs gs ON gs.id = gcm.slab_id
-          AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+          AND gs.from_date <= ${SQL_TODAY} AND gs.to_date >= ${SQL_TODAY}
         JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
         WHERE gcm.project_id = p.id AND gcm.charge_type = 'BASIC'
         LIMIT 1
@@ -2409,7 +2410,7 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
         interestStartDate: consumer.interest_start_date
           ? new Date(String(consumer.interest_start_date))
           : null,
-        asOfDate: new Date(),
+        asOfDate: businessDayStart(),
       });
       const interestRows = allRows.filter(r => r.interest_amount > 0);
 
@@ -2658,7 +2659,7 @@ router.patch('/consumer-interest-date/:consumerId', financeOnly, async (req: Aut
       await lock(c, 'pi:' + consumerId);
       const u = await c.query(`UPDATE consumers SET interest_start_date = $1 WHERE id = $2 RETURNING id, interest_start_date`, [interest_start_date, consumerId]);
       if (!u.rows[0]) throw bad('Consumer not found', 404);
-      await c.query(`DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated' AND calculated_at::date < $2::date`, [consumerId, interest_start_date]);
+      await c.query(`DELETE FROM penal_interests WHERE consumer_id = $1 AND status = 'calculated' AND ${sqlDay('calculated_at')} < $2::date`, [consumerId, interest_start_date]);
       return u.rows[0];
     });
     await auditChange(db, req, res, 'update', 'consumer_interest', consumerId, undefined, { interest_start_date });
@@ -2804,7 +2805,7 @@ router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, re
       const allRows = buildInterestRows(receiptsRes.rows, demands, penalRate, {
         interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
         gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
-        asOfDate:          new Date(),
+        asOfDate:          businessDayStart(),
       });
       const interestRows = allRows.filter((r: any) => r.interest_amount > 0);
 

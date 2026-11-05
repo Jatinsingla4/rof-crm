@@ -12,6 +12,7 @@ import { bad, failWith, uuid, has, text, day, body, inTx } from '../utils/input.
 import { likeOf } from '../utils/applicant.js';
 import { sha } from '../utils/applicant-fields.js';
 import { performSurrender } from './surrender.js';
+import { SQL_TODAY, businessToday, businessTomorrow } from '../utils/business-date.js';
 
 const router = Router();
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
@@ -32,7 +33,7 @@ const int = (v: any, label: string, min: number, max: number, dflt: number): num
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v: any, label: string): string | null => {
   const d = day(v, label);
-  if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  if (d && d > businessTomorrow()) throw bad(`${label} cannot be in the future`);
   return d;
 };
 const history = (c: any, unitId: string, from: string | null, to: string, userId: string | undefined, reason: string) =>
@@ -61,14 +62,14 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       let alloc;
       if (unit.status === 'booked') {
         alloc = await c.query(
-          `UPDATE allocations SET status = 'allotted', allotment_date = COALESCE($1::date, CURRENT_DATE), remarks = COALESCE($2, remarks), updated_at = NOW()
+          `UPDATE allocations SET status = 'allotted', allotment_date = COALESCE($1::date, ${SQL_TODAY}), remarks = COALESCE($2, remarks), updated_at = NOW()
             WHERE consumer_id = $3 AND unit_id = $4 AND status = 'booked' RETURNING id, allocated_date, allotment_date, remarks`, [date, remarks, consumerId, unitId]
         );
         if (alloc.rowCount === 0) throw bad('No matching booked allocation found for this consumer and unit', 409);
       } else {
         if ((await c.query(`SELECT 1 FROM allocations WHERE unit_id = $1 AND status NOT IN ('cancelled', 'transferred') LIMIT 1`, [unitId])).rows.length) throw bad('This unit already has an active allocation', 409);
         alloc = await c.query(
-          `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks) VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6)
+          `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks) VALUES ($1, $2, $3, $4, COALESCE($5::date, ${SQL_TODAY}), $6)
            RETURNING id, allocated_date, allotment_date, remarks`, [consumerId, unitId, projectId, req.userId, date, remarks]
         );
       }
@@ -152,7 +153,7 @@ router.post('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFun
       const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [alloc.consumer_id])).rows[0].s);
       const forfeit = Math.min(29500, received), refund = Math.round((received - forfeit) * 100) / 100;
       const done = await performSurrender(c, req, res, {
-        consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: new Date().toISOString().slice(0, 10), sType: 'allocation_cancel', mode: null,
+        consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: businessToday(), sType: 'allocation_cancel', mode: null,
         f: { forfeit, refund, penBase: 0, penGst: 0, penTotal: 0, extra: 0, premium: 0, total: 0, gst: true, st: false, vat: false, interest: true, bankNoc: false, brokerNoc: false, reason, remark: null },
       });
       // Waitlist: the first waiting applicant who holds no unit gets it
@@ -227,7 +228,7 @@ router.post('/import-edraw', (req: AuthRequest, res: Response, next: NextFunctio
           if (paid > 0) {
             await c.query(
               `INSERT INTO draw_refunds (consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status, created_by_user_id, company_bank_account_id)
-               VALUES ($1, $2, 'unsuccessful', $3, $3, CURRENT_DATE + INTERVAL '30 days', 'pending', $4, $5)`, [p.id, projectId, paid, req.userId, bankAccount]
+               VALUES ($1, $2, 'unsuccessful', $3, $3, ${SQL_TODAY} + INTERVAL '30 days', 'pending', $4, $5)`, [p.id, projectId, paid, req.userId, bankAccount]
             );
             await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [p.id]);
             refundsCreated++;
@@ -249,7 +250,7 @@ router.post('/shift', requireProcess('unit_shifting', 'maker'), async (req: Auth
     const b = body(req);
     if (!has(b.consumerId) || !has(b.newUnitId)) throw bad('consumerId and newUnitId are required');
     const consumerId = uuid(b.consumerId, 'consumerId'), newUnitId = uuid(b.newUnitId, 'newUnitId');
-    const reason = text(b.reason, 'reason', 500, false), date = pastDay(b.shiftDate, 'shiftDate') || new Date().toISOString().slice(0, 10);
+    const reason = text(b.reason, 'reason', 500, false), date = pastDay(b.shiftDate, 'shiftDate') || businessToday();
 
     const out = await inTx(async (c) => {
       const person = (await c.query(`SELECT id, allocated_unit_id FROM consumers WHERE id = $1`, [consumerId])).rows[0];
@@ -317,7 +318,7 @@ router.post('/generate-letters', async (req: AuthRequest, res: Response, next: N
           WHERE a.status::text = 'allotted' AND a.allotment_letter_id IS NULL AND ($1::uuid IS NULL OR u.project_id = $1) ORDER BY a.id FOR UPDATE OF a`, [projectId]
       );
       for (const a of rows.rows) {
-        const l = await c.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date) VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE)) RETURNING id`, [a.id, a.consumer_id, a.unit_id, a.allotment_date || null]);
+        const l = await c.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date) VALUES ($1, $2, $3, COALESCE($4, ${SQL_TODAY})) RETURNING id`, [a.id, a.consumer_id, a.unit_id, a.allotment_date || null]);
         await c.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [l.rows[0].id, a.id]);
       }
       if (rows.rows.length) await auditChange(c, req, res, 'create', 'allotment_letters', projectId || rows.rows[0].id, undefined, { generated: rows.rows.length });

@@ -11,6 +11,7 @@ import { pick } from '../utils/report-input.js';
 import { h, Q } from './reports-dues.js';
 import { r2 } from '../utils/report-ledger.js';
 import { forRole } from '../utils/company-bank.js';
+import { businessYear } from '../utils/business-date.js';
 
 const router = Router();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
@@ -37,7 +38,7 @@ router.get('/year-month-collection', h(async (req, res) => {
   const r = await db.query(
     `SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS total
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid) GROUP BY 1, 2 ORDER BY 1, 2`, [x.projectId || null]);
-  const cur = new Date().getFullYear();
+  const cur = businessYear();
   const years = r.rows.map((a: any) => a.yr);
   const minYear = years.length ? Math.min(...years) : cur, maxYear = years.length ? Math.max(...years) : cur;
   const cell = new Map<string, number>(r.rows.map((a: any) => [`${a.yr}-${a.mo}`, num(a.total)]));

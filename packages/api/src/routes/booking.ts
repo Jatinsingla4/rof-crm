@@ -25,6 +25,7 @@ import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { recomputeAddonDemands } from './addon-charges.js';
 import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
+import { businessDayStart, businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -45,7 +46,7 @@ const T = (v: any, label: string, max: number) => text(v, label, max, false);
 const uuidOrNull = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
 const bookingDay = (v: any, label: string): string | null => {
   const d = day(v, label);
-  if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  if (d && d > businessTomorrow()) throw bad(`${label} cannot be in the future`);
   return d;
 };
 const mode = (v: any, required: boolean): string | null => {
@@ -126,7 +127,7 @@ const parseNew = (b: any) => {
 
 // Generate registration number with project-based prefix and sequential numbering
 async function generateRegistrationNo(projectId: string, client: any): Promise<string> {
-  const year = new Date().getFullYear();
+  const year = businessYear();
   const st = await projectSettings(client, projectId);
 
   // Get project name for prefix
@@ -417,7 +418,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
          RETURNING *`,
         [
           consumer_id, project_id, unit_id,
-          booking_date || new Date().toISOString().split('T')[0],
+          booking_date || businessToday(),
           booking_amount,
           payment_mode, payment_ref, bank_name, cheque_date,
           company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct,
@@ -444,7 +445,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       // Resolve BASIC GST rate server-side (same pattern as PATCH /:id) and
       // derive cgst_amount/sgst_amount from the confirmed booking_amount --
       // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
-      const bookingDateForGstCreate = booking_date || new Date().toISOString().split('T')[0];
+      const bookingDateForGstCreate = booking_date || businessToday();
       const projectNameForGstCreate = (await client.query('SELECT name FROM projects WHERE id = $1', [project_id])).rows[0]?.name || project_id;
       const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
 
@@ -772,7 +773,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
       // cgst_pct/sgst_pct which came from the disconnected tax_slabs table.
       const bookingDateForGst = booking.booking_date
         ? new Date(booking.booking_date).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
+        : businessToday();
 
       const projectRowForGst = await client.query(
         'SELECT name FROM projects WHERE id = $1',
@@ -939,7 +940,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             );
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
-              : safeLocalDate(new Date());
+              : safeLocalDate(businessDayStart());
 
             const projectRes = await client.query(
               'SELECT name FROM projects WHERE id = $1',
@@ -1019,7 +1020,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const payMethod = RECEIPT_METHOD[booking.payment_mode] || 'bank_transfer';
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
-              : safeLocalDate(new Date());
+              : safeLocalDate(businessDayStart());
             const receiptNum = await nextReceiptNumber(client, '', booking.project_id);
             const stepGReceiptRes = await client.query(
               `INSERT INTO receipts
@@ -1091,7 +1092,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
           // (inside existingAlloc === 0 guard).
           const bookingDateStr = booking.booking_date
             ? safeLocalDate(booking.booking_date)
-            : safeLocalDate(new Date());
+            : safeLocalDate(businessDayStart());
 
           const addonPctRows = await client.query(
             `SELECT DISTINCT
@@ -2007,7 +2008,7 @@ function buildApplicantPage1(
         </div>
         <div style="text-align:right;">
           <div style="font-weight:700;">(1/3)</div>
-          <div>Date: ${fmtDate(new Date())}</div>
+          <div>Date: ${fmtDate(businessDayStart())}</div>
         </div>
       </div>
     </div>`;
@@ -2504,7 +2505,7 @@ function buildApplicantPage2(
       </div>
       <div style="text-align:right;">
         <div style="font-weight:700;">(2/3)</div>
-        <div>Date: ${fmtDate(new Date())}</div>
+        <div>Date: ${fmtDate(businessDayStart())}</div>
       </div>
     </div>`;
 
@@ -2751,7 +2752,7 @@ async function buildApplicantPage3(
           Customer ID: ${customerId}
         </div>
         <div style="text-align:center;font-weight:700;">(3/3)</div>
-        <div style="text-align:right;">Date: ${fmtDate(new Date())}</div>
+        <div style="text-align:right;">Date: ${fmtDate(businessDayStart())}</div>
       </div>
     </div>`;
 

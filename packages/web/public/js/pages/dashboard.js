@@ -259,7 +259,7 @@ Pages.dashboard = async function() {
   if (hs) hs.textContent = `${totalPending} cheque(s) pending · ${totalApproval} awaiting approval · ${totalToday} due today`;
 
   const dEl = document.getElementById('dash-date');
-  if (dEl) dEl.textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+  if (dEl) dEl.textContent = new Date().toLocaleDateString('en-IN', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Kolkata' });
 
   // Collection by project (this month)
   const collEl = document.getElementById('dash-chart-coll');

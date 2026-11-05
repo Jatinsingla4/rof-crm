@@ -2741,7 +2741,7 @@ const ReportsPage = {
             </div>
             <div class="fg" style="min-width:100px">
               <label class="fl">Year</label>
-              <input type="number" class="fc" id="f-year" value="${new Date().getFullYear()}" min="2020" max="2035">
+              <input type="number" class="fc" id="f-year" value="${Utils.today().slice(0, 4)}" min="2020" max="2035">
             </div>
             <div style="margin-bottom:2px;display:flex;gap:8px">
               <button class="btn btn-primary" onclick="ReportsPage.fetchMonthWiseDues()">FETCH</button>

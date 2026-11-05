@@ -7,13 +7,14 @@
 // Run:  BASE=http://localhost:3014/api node api-test-reports-lifecycle.mjs   (psql must reach the same database)
 let pass = 0, fail = 0; const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 export const B = process.env.BASE || 'http://localhost:3014/api';
 const login = async (r) => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: r + '@test.local', password: 'Test#Pass1234' }) })).json()).token;
 export const mk = (tok) => async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b === undefined ? undefined : JSON.stringify(b) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 export const A = mk(await login('super_admin'));
 export const psql = (q) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', q], { encoding: 'utf8' }).trim();
 export const U = Date.now().toString(36).slice(-5);
-export const today = new Date().toISOString().slice(0, 10), later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+export const today = bizToday(), later = (d) => bizDate(Date.now() + d * 864e5);
 let mob = 0; const mobv = () => '9' + String((Date.now() % 1e7) * 100 + (++mob) + 300000000).slice(-9).padStart(9, '0');
 const must = async (l, p) => { const x = await p; if (x.s >= 300) throw new Error(l + ' ' + x.s + JSON.stringify(x.j).slice(0, 250)); return x.j.data ?? x.j; };
 export const S = {};

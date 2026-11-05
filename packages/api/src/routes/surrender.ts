@@ -9,6 +9,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
 import { flagPaidCommission } from '../utils/broker.js';
 import { likeOf } from '../utils/applicant.js';
+import { businessToday, businessTomorrow } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -395,8 +396,8 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const given = { booking: has(b.bookingId) ? uuid(b.bookingId, 'bookingId') : null, unit: has(b.unitId) ? uuid(b.unitId, 'unitId') : null, project: has(b.projectId) ? uuid(b.projectId, 'projectId') : null };
     if (b.type !== undefined && b.type !== 'surrender' && b.type !== 'cancellation') throw bad('type must be surrender or cancellation');
     const isCancel = b.type === 'cancellation';
-    const date = day(b.surrenderDate, 'Surrender date') || new Date().toISOString().slice(0, 10);
-    if (date > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad('Surrender date cannot be in the future');
+    const date = day(b.surrenderDate, 'Surrender date') || businessToday();
+    if (date > businessTomorrow()) throw bad('Surrender date cannot be in the future');
     const sType = has(b.surrenderType) ? String(b.surrenderType) : isCancel ? 'builder_cancellation' : 'voluntary';
     if (!SURRENDER_TYPES.includes(sType)) throw bad(`surrenderType must be one of ${SURRENDER_TYPES.join(', ')}`);
     const mode = has(b.refundMode) ? String(b.refundMode).toLowerCase() : null;

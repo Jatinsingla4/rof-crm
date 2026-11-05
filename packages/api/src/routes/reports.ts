@@ -13,6 +13,7 @@ import ageingRoutes from './reports-ageing.js';
 import cashRoutes from './reports-cash.js';
 import applicantRoutes from './reports-applicant.js';
 import { baseCostSql } from '../utils/report-ledger.js';
+import { sqlDay } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -41,7 +42,7 @@ router.get('/sales-dashboard', async (req: AuthRequest, res: Response, next: Nex
     }
 
     if (dateFrom && dateTo) {
-      whereClause += ` AND c.created_at::date >= $${params.length + 1} AND c.created_at::date <= $${params.length + 2}`;
+      whereClause += ` AND ${sqlDay('c.created_at')} >= $${params.length + 1} AND ${sqlDay('c.created_at')} <= $${params.length + 2}`;
       params.push(dateFrom, dateTo);
     }
 

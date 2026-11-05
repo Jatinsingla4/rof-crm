@@ -1,5 +1,6 @@
 // Input rules for applicants (consumers, co-applicants, additional applicants). Each helper returns a clean value (null when blank) or throws a 400 with a message for the user.
 import { bad, has, text, num } from './input.js';
+import { addYears, businessToday, businessTomorrow } from './business-date.js';
 
 export const gstinOk = (g: string) => {
   const A = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -58,13 +59,13 @@ export const pastDay = (v: any, label: string): string | null => {
   if (!has(v)) return null;
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v) throw bad(`${label} must be a real date (YYYY-MM-DD)`);
   if (v < '1900-01-01') throw bad(`${label} is too far in the past`);
-  if (v > new Date(Date.now() + 864e5).toISOString().slice(0, 10)) throw bad(`${label} cannot be in the future`);
+  if (v > businessTomorrow()) throw bad(`${label} cannot be in the future`);
   return v;
 };
 // Date of birth: a buyer must be at least 18 years old
 export const birthDay = (v: any, label = 'Date of birth', minAge = 18): string | null => {
   const d = pastDay(v, label);
-  if (d && minAge) { const lim = new Date(); lim.setFullYear(lim.getFullYear() - minAge); if (d > lim.toISOString().slice(0, 10)) throw bad(`${label}: the applicant must be at least ${minAge} years old`); }
+  if (d && minAge) { if (d > addYears(businessToday(), -minAge)) throw bad(`${label}: the applicant must be at least ${minAge} years old`); }
   return d;
 };
 const GENDER: Record<string, string> = { male: 'male', m: 'male', female: 'female', f: 'female', trans: 'trans', transgender: 'trans', other: 'other' };

@@ -2,6 +2,7 @@
 // Roles, hostile input, project scope, races, honest status of a message, a random run.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-crm.mjs   (psql must reach the same database; SEED=n repeats the random run)
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + (typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 300))); };
@@ -15,7 +16,7 @@ const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
 console.log('SEED=' + SEED);
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000';
-const today = new Date().toISOString().slice(0, 10), later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday(), later = (d) => bizDate(Date.now() + d * 864e5);
 const par = (n, f) => Promise.all(Array.from({ length: n }, (_, i) => f(i)));
 const no5 = (xs) => xs.every((x) => x.s < 500);
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');

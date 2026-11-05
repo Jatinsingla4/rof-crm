@@ -7,6 +7,7 @@ import { balconyTerms } from '../utils/project-settings.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { day, failWith } from '../utils/input.js';
+import { businessToday } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -98,7 +99,7 @@ router.get('/balcony-preview', async (req: AuthRequest, res: Response, next: Nex
     if (!Number.isFinite(area) || area > 100000) return res.status(400).json({ success: false, error: 'balconyAreaSqft must be a number from 0 to 100000' });
     if (bookingDate !== undefined) { try { day(bookingDate, 'bookingDate'); } catch (e: any) { return res.status(400).json({ success: false, error: e.message }); } }
 
-    const resolveDate = bookingDate || new Date().toISOString().split('T')[0];
+    const resolveDate = bookingDate || businessToday();
 
     const projRes = await db.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
     if (!projRes.rows.length) return res.status(404).json({ success: false, error: 'Project not found' });

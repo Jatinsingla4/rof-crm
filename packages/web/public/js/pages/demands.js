@@ -471,7 +471,7 @@ const DemandsPage = {
   async printDemandLetter(consumerId, demandId, btn, dueDate) {
     if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
     try {
-      const normalizedDueDate = dueDate ? new Date(dueDate).toLocaleDateString('en-CA') : null;
+      const normalizedDueDate = dueDate ? (/^\d{4}-\d{2}-\d{2}/.test(dueDate) ? String(dueDate).slice(0, 10) : new Date(dueDate).toLocaleDateString('en-CA')) : null;
       const genRes = await Api.post('/documents/generate', {
         consumerId,
         documentType: 'demand_letter',

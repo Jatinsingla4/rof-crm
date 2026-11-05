@@ -8,6 +8,7 @@ import cron from 'node-cron';
 import { db } from '../index.js';
 import { demandLetterQueue } from './index.js';
 import { expireDueHolds } from '../utils/holds.js';
+import { SQL_TODAY, businessDayStart, startOfBusinessDay } from '../utils/business-date.js';
 
 interface Demand {
   id: string;
@@ -28,12 +29,12 @@ export function scheduleDemandLetters() {
       // Query for demands that are due in 15, 7, or 3 days
       const result = await db.query(`
         SELECT id, consumer_id, due_date, amount_due_inr,
-               EXTRACT(DAY FROM (due_date::date - NOW()::date))::int as days_until_due
+               EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int as days_until_due
         FROM demands
         WHERE delivery_status IN ('pending', 'queued')
-          AND (EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 15
-               OR EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 7
-               OR EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 3)
+          AND (EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 15
+               OR EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 7
+               OR EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 3)
       `);
 
       const demands: Demand[] = result.rows;
@@ -45,7 +46,7 @@ export function scheduleDemandLetters() {
       // Add each demand to the queue
       for (const demand of demands) {
         const daysUntilDue = Math.ceil(
-          (new Date(demand.due_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
+          (startOfBusinessDay(demand.due_date).getTime() - businessDayStart().getTime()) / (1000 * 60 * 60 * 24)
         );
 
         await demandLetterQueue.add(
@@ -88,9 +89,9 @@ export function scheduleOverdueCheck() {
       // Query for overdue demands
       const result = await db.query(`
         SELECT d.id, d.consumer_id, d.due_date, d.amount_due_inr,
-               EXTRACT(DAY FROM (NOW()::date - d.due_date::date))::int as days_overdue
+               EXTRACT(DAY FROM (${SQL_TODAY} - d.due_date::date))::int as days_overdue
         FROM demands d
-        WHERE d.due_date < NOW()::date
+        WHERE d.due_date < ${SQL_TODAY}
           AND d.delivery_status NOT IN ('paid', 'cancelled')
       `);
 

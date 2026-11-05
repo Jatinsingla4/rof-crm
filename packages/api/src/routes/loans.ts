@@ -4,6 +4,7 @@ import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, text, day, body, pos, inTx, lock, paging } from '../utils/input.js';
+import { businessTomorrow } from '../utils/business-date.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
@@ -20,7 +21,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const sanction = day(b.sanctionLetterDate, 'sanctionLetterDate'), tpa = day(b.tpaSignedDate, 'tpaSignedDate'), remarks = text(b.remarks, 'remarks', 500, false);
     if (sanction && tpa && tpa < sanction) throw bad('The TPA cannot be signed before the sanction letter date');
     // a letter or agreement that is dated tomorrow or later has not happened yet (one day of room for the time zone)
-    const soon = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    const soon = businessTomorrow();
     if (sanction && sanction > soon) throw bad('The sanction letter date cannot be in the future');
     if (tpa && tpa > soon) throw bad('The TPA signed date cannot be in the future');
 

@@ -9,6 +9,7 @@ import { AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
+import { businessToday } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -420,7 +421,7 @@ router.delete('/gst-charge-mapping/:id', async (req: AuthRequest, res: Response,
 router.get('/resolve', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = uuid(req.query.projectId, 'projectId'), ct = chargeType(req.query.chargeType);
-    const resolveDate = day(req.query.date, 'date') || new Date().toISOString().split('T')[0];
+    const resolveDate = day(req.query.date, 'date') || businessToday();
     const proj = (await db.query(`SELECT name FROM projects WHERE id = $1`, [projectId])).rows[0];
     if (!proj) throw notFound('Project');
     const find = async (type: string) => (await db.query(

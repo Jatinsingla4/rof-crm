@@ -6,6 +6,7 @@ import { AuthRequest } from '../../index.js';
 import { auditChange } from '../../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, text, body, qtext, day, paging, likeOf } from '../../utils/input.js';
 import { encrypt, decrypt } from '../../utils/doc-crypto.js';
+import { sqlDayStart, sqlDayEnd } from '../../utils/business-date.js';
 
 const router = Router();
 
@@ -74,8 +75,8 @@ router.get('/edits-report', async (req: AuthRequest, res: Response, next: NextFu
       (() => { const e = qtext(q.editedBy, 'Edited by', 100); return e ? likeOf(e) : null; })(),
     ];
     const whereClause = `
-      WHERE ($1::date IS NULL OR dfo.edited_at >= $1::date)
-        AND ($2::date IS NULL OR dfo.edited_at <  ($2::date + INTERVAL '1 day'))
+      WHERE ($1::date IS NULL OR dfo.edited_at >= ${sqlDayStart('$1')})
+        AND ($2::date IS NULL OR dfo.edited_at <  ${sqlDayEnd('$2')})
         AND ($3::text IS NULL OR d.document_type = $3)
         AND ($4::uuid IS NULL OR d.consumer_id   = $4::uuid)
         AND ($5::text IS NULL OR u.name ILIKE $5 ESCAPE '\\')`;
@@ -115,8 +116,8 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (has(q.consumerId)) add('d.consumer_id = ?', uuid(q.consumerId, 'Applicant'));
     const dt = qtext(q.documentType, 'Document type', 50); if (dt) add('d.document_type = ?', dt);
     const from = day(q.from, 'From'), to = day(q.to, 'To');
-    if (from) add('d.created_at >= ?::date', from);
-    if (to) add(`d.created_at < ?::date + interval '1 day'`, to);
+    if (from) add(`d.created_at >= ${sqlDayStart('?')}`, from);
+    if (to) add(`d.created_at < ${sqlDayEnd('?')}`, to);
     const result = await db.query(
       `SELECT d.id, d.document_type, d.delivery_method, d.delivery_status, d.created_at, d.sent_at, c.name as consumer_name
        FROM documents d LEFT JOIN consumers c ON d.consumer_id = c.id

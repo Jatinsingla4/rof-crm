@@ -6,6 +6,7 @@
 // applicant that still has live demands, duplicate receipt numbers ...). The server must never answer 5xx.
 // Repeat a run:  SEED=123 BASE=http://localhost:3010/api node api-test-whole-flow.mjs   (psql must reach the same database)
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 const SEED = Number(process.env.SEED || Date.now() % 1e9), STEPS = Number(process.env.STEPS || 260), PEOPLE = Number(process.env.PEOPLE || 16);
 let s = SEED >>> 0;
@@ -15,7 +16,7 @@ console.log('SEED=' + SEED);
 let pass = 0, fail = 0; const bad5 = [];
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 const NIL = '00000000-0000-0000-0000-000000000000', U = Date.now().toString(36).slice(-4) + ri(0, 99);
-const today = new Date().toISOString().slice(0, 10), later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday(), later = (d) => bizDate(Date.now() + d * 864e5);
 const login = async (email) => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'Test#Pass1234' }) })).json()).token;
 let last = ''; const tally = {};
 const call = (tok) => async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: b === undefined ? undefined : JSON.stringify(b) }); let j = null; try { j = await r.json(); } catch {} { const k = `${m} ${p.split('?')[0].replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, ':id')} ${r.status}${r.status >= 300 ? ' ' + String(j?.error || '').replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, ':id').slice(0, 70) : ''}`; tally[k] = (tally[k] || 0) + 1; }

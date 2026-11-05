@@ -10,6 +10,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, text, day, body, inTx } from '../utils/input.js';
 import { likeOf } from '../utils/applicant.js';
+import { SQL_TODAY, businessToday, sqlDayEnd, sqlDayStart } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -82,7 +83,7 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
         const total = Number(plan.total_amount_inr);
         const plc = Number(plan.plc_amount || 0), other = Number(plan.other_charge_amount || 0), balcony = Number(plan.balcony_charge_amount || 0);
         const basic = total - plc - other - balcony;
-        const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+        const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : businessToday();
         const isNri = String(plan.nationality).toLowerCase() === 'nri';
 
         for (const t of templates.rows) {
@@ -201,9 +202,9 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
     const to = day(q.to ?? q.dateTo, 'to');
     if (to) where += ` AND d.due_date <= ${add(to)}`;
     const rFrom = day(q.raisedFrom, 'raisedFrom');
-    if (rFrom) where += ` AND d.generated_at >= ${add(rFrom)}::date`;
+    if (rFrom) where += ` AND d.generated_at >= ${sqlDayStart(add(rFrom))}`;
     const rTo = day(q.raisedTo, 'raisedTo');
-    if (rTo) where += ` AND d.generated_at < ${add(rTo)}::date + 1`;
+    if (rTo) where += ` AND d.generated_at < ${sqlDayEnd(add(rTo))}`;
     if (from && to && from > to) throw bad('from must not be after to');
 
     const pageSize = int(q.pageSize, 'pageSize', 1, 1000, 50)!;
@@ -269,7 +270,7 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
     const due = day(b.installmentDate, 'installmentDate');
     if (!due) throw bad('installmentDate (the due date) is required');
     // One day of grace for the clock difference between the browser and the server
-    if ((await db.query(`SELECT $1::date < CURRENT_DATE - 1 AS past`, [due])).rows[0].past) throw bad('The due date cannot be in the past');
+    if ((await db.query(`SELECT $1::date < ${SQL_TODAY} - 1 AS past`, [due])).rows[0].past) throw bad('The due date cannot be in the past');
 
     const out = await inTx(async (c) => {
       // Oldest instalment first, so a batch holding stage 1 and stage 2 raises both whatever order the ids arrive in

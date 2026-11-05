@@ -7,6 +7,7 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { bad, failWith, uuid, has, num, text, day, body } from '../utils/input.js';
+import { SQL_TODAY } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -28,7 +29,7 @@ router.post('/outgoing-payments', async (req: AuthRequest, res: Response, next: 
     const result = await db.query(
       `INSERT INTO outgoing_payments
         (company_bank_account_id, amount_inr, payment_date, payee, status, reference_number, notes, created_by_user_id)
-       VALUES ($1, $2, COALESCE($3, CURRENT_DATE), $4, COALESCE($5, 'pending'), $6, $7, $8)
+       VALUES ($1, $2, COALESCE($3, ${SQL_TODAY}), $4, COALESCE($5, 'pending'), $6, $7, $8)
        RETURNING *`,
       [
         company_bank_account_id,

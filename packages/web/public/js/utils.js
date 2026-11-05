@@ -55,25 +55,32 @@ const Utils = {
     return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   },
 
+  // Business calendar (policy): a timestamp is an instant and is shown on the Asia/Kolkata calendar; a calendar date (a DATE column, which the API
+  // sends as YYYY-MM-DD or as midnight UTC) is shown as that same day and never shifted by the browser timezone.
+  _bizOpts(v, opts) {
+    const calendarDay = typeof v === 'string' && (/^\d{4}-\d{2}-\d{2}$/.test(v) || /^\d{4}-\d{2}-\d{2}T00:00:00(\.000)?Z$/.test(v));
+    return { ...opts, timeZone: calendarDay ? 'UTC' : 'Asia/Kolkata' };
+  },
+
   date(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     if (isNaN(d)) return iso;
-    return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    return d.toLocaleDateString('en-IN', this._bizOpts(iso, { day:'2-digit', month:'short', year:'numeric' }));
   },
 
   dateShort(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     if (isNaN(d)) return iso;
-    return d.toLocaleDateString('en-IN', { day:'2-digit', month:'2-digit', year:'numeric' });
+    return d.toLocaleDateString('en-IN', this._bizOpts(iso, { day:'2-digit', month:'2-digit', year:'numeric' }));
   },
 
   dateTime(iso) {
     if (!iso) return '—';
     const d = new Date(iso);
     if (isNaN(d)) return iso;
-    return d.toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    return d.toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone: 'Asia/Kolkata' });
   },
 
   percentage(value) {
@@ -220,9 +227,11 @@ const Utils = {
 
   // ── DATE INPUT ───────────────────────────────
 
-  // A date as YYYY-MM-DD in the user's own calendar. toISOString() is UTC, so between midnight and 5:30 in the morning in India it gave yesterday
-  // and the first of the month gave the last day of the month before; every screen takes its default dates from here.
-  isoDate(d = new Date()) {
+  // A date as YYYY-MM-DD on the business calendar (Asia/Kolkata), whatever the browser timezone. toISOString() is UTC, so between midnight and
+  // 5:30 in the morning in India it gave yesterday; every screen takes its default dates from here. With a Date argument the Date's own
+  // calendar fields are used (callers build those from year, month, day).
+  isoDate(d) {
+    if (!d) return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   },
 
@@ -234,15 +243,14 @@ const Utils = {
   },
 
   today() {
-    return this.isoDate(new Date());
+    return this.isoDate();
   },
 
   monthStart() {
-    const d = new Date();
-    return this.isoDate(new Date(d.getFullYear(), d.getMonth(), 1));
+    return this.isoDate().slice(0, 8) + '01';
   },
 
   displayDate() {
-    return new Date().toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+    return new Date().toLocaleDateString('en-IN', { weekday:'short', day:'numeric', month:'short', year:'numeric', timeZone: 'Asia/Kolkata' });
   },
 };

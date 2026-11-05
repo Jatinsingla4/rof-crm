@@ -6,6 +6,7 @@ import { requireProcess } from '../middleware/processPermission.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
 import { challanStatus } from '../utils/tds.js';
+import { businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
 
 const router = Router();
 const MAX = 1_000_000_000;
@@ -57,14 +58,14 @@ router.post('/journals', requireProcess('jv_refund_drcr', 'maker'), async (req: 
 
     const seqResult = await db.query(`SELECT nextval('journal_entry_seq') AS seq`);
     const seq = String(seqResult.rows[0].seq).padStart(4, '0');
-    const entryNo = `JE/${new Date().getFullYear()}/${seq}`;
+    const entryNo = `JE/${businessYear()}/${seq}`;
 
     const result = await db.query(
       `INSERT INTO journal_entries
          (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks, status, created_by_user_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)
        RETURNING *`,
-      [entryNo, entryDate || new Date(), resolvedConsumerId, debitAmount, creditAmount, ledgerHead, remarks, req.userId]
+      [entryNo, entryDate || businessToday(), resolvedConsumerId, debitAmount, creditAmount, ledgerHead, remarks, req.userId]
     );
 
     res.status(201).json({ success: true, data: result.rows[0] });
@@ -132,7 +133,7 @@ router.patch('/journals/:id/reject', requireProcess('jv_refund_drcr', 'checker')
 // A challan's balance is amount - assigned_amount; assigned_amount moves only while the challan row is locked (see utils/tds.ts).
 const financeOnly = (req: AuthRequest, res: Response, next: NextFunction) =>
   ['super_admin', 'accounts_finance'].includes(req.userRole || '') ? next() : res.status(403).json({ error: 'Only accounts and finance can add or assign TDS challans' });
-const today = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10);   // a day of grace for the browser/server clock gap
+const today = () => businessTomorrow();   // a day of grace for the browser/server clock gap
 const q1 = (v: any, label: string, max = 100) => { if (Array.isArray(v)) throw bad(`${label} is not valid`); return text(v, label, max, false); };
 
 const FILE_TYPES: [string, number[]][] = [['application/pdf', [0x25, 0x50, 0x44, 0x46]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/jpeg', [0xff, 0xd8, 0xff]]];

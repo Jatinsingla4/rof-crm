@@ -9,10 +9,11 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { failWith } from '../utils/input.js';
+import { SQL_TODAY } from '../utils/business-date.js';
 
 const router = Router();
 
-const TODAY = `(NOW() AT TIME ZONE 'Asia/Kolkata')::date`;
+const TODAY = SQL_TODAY; // the business day (Asia/Kolkata), shared with every other module
 const RAISED = `d.status IN ('demanded','raised')`;                                // a demand that was raised (pending = not yet raised, paid / cancelled are done)
 const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;

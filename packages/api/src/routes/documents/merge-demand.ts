@@ -7,6 +7,7 @@ import { writebackField, WritebackContext } from '../../utils/document-writeback
 import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } from '../../utils/payment-waterfall.js';
 import { numberToWordsIndian, ordinalFloor, fmtDateIndia, fmtIndianNumber, fmtIndianNumberDecimal, fmtIndianMoneyDecimal, fmtIndianAreaDecimal } from './shells.js';
 import { penalRateFrom } from '../../utils/penal-rate.js';
+import { SQL_TODAY, businessDayStart, businessYear } from '../../utils/business-date.js';
 export interface GenCtx {
   req: any; consumerId: string; allocationId?: string; template: any; d: any;
   includeAllDemands?: boolean; dueDate?: string; mergeData: any; htmlContent: string;
@@ -117,7 +118,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
               const projRateRes = await db.query(
                 `SELECT rate_percent FROM project_interest_rates
                  WHERE project_id = $1
-                   AND effective_from <= CURRENT_DATE
+                   AND effective_from <= ${SQL_TODAY}
                  ORDER BY effective_from DESC
                  LIMIT 1`,
                 [plan.project_id]
@@ -300,7 +301,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
 
           // Build interest map via buildInterestRows (same logic as applicant file).
           // Uses actual receipt dates for paid demands; asOfDate for still-unpaid ones.
-          const letterAsOfDate = new Date(); // interest always
+          const letterAsOfDate = businessDayStart(); // interest always
           // uses real today -- dueDate (entered by staff) only
           // filters which installments appear on the letter,
           // never affects how much interest has accrued
@@ -657,11 +658,11 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
             allotmentDate: fmtDateIndia(plan.allotment_date),
             bookingDate: fmtDateIndia(plan.booking_date),
             dueDate: lastDueDate ? fmtDateIndia(lastDueDate) : (dueDate ? fmtDateIndia(new Date(dueDate)) : '—'),
-            invoiceDate: dueDate ? fmtDateIndia(new Date(dueDate)) : fmtDateIndia(new Date()),
-            currentDate: fmtDateIndia(new Date()),
-            day: String(new Date().getDate()),
-            month: new Date().toLocaleString('en-IN', { month: 'long' }),
-            year: String(new Date().getFullYear()),
+            invoiceDate: dueDate ? fmtDateIndia(new Date(dueDate)) : fmtDateIndia(businessDayStart()),
+            currentDate: fmtDateIndia(businessDayStart()),
+            day: String(businessDayStart().getDate()),
+            month: businessDayStart().toLocaleString('en-IN', { month: 'long' }),
+            year: String(businessYear()),
             // Payment plan
             planName: plan.plan_name || '—',
             totalAmount: plan.total_amount_inr ? fmtIndianMoneyDecimal(parseFloat(plan.total_amount_inr)) : '—',

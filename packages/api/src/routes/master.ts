@@ -14,6 +14,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { isScoped, scopeStore } from '../db/pool.js';
 import { BIDI, inTx as inTxOnce, bad, uuid as inUuid, has as inHas, num as inNum, text as inText, body as inBody, day as inDay, oneOf as inOneOf } from '../utils/input.js';
+import { businessTomorrow, sqlDayEnd, sqlDayStart } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -576,7 +577,7 @@ async function dispatchError(v: Record<string, any>): Promise<string | null> {
   if (typeof v.tracking_no === 'string' && v.tracking_no.length > 100) return 'Tracking number is longer than 100 characters';
   if (v.dispatched_at != null) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v.dispatched_at)) || Number.isNaN(Date.parse(String(v.dispatched_at)))) return 'Date dispatched must be a date like 2026-01-31';
-    if (String(v.dispatched_at) > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) return 'Date dispatched cannot be in the future';
+    if (String(v.dispatched_at) > businessTomorrow()) return 'Date dispatched cannot be in the future';
   }
   if (v.consumer_id != null) {
     if (!/^[0-9a-f-]{36}$/i.test(String(v.consumer_id))) return 'Consumer not found';
@@ -653,7 +654,7 @@ router.get('/document-dispatch', async (req: AuthRequest, res: Response, next: N
     const add = (sql: string, v: unknown) => { params.push(v); where.push(sql.split('?').join(`$${params.length}`)); };
     if (consumer_id) { if (!/^[0-9a-f-]{36}$/i.test(String(consumer_id))) return res.status(400).json({ error: 'Invalid consumer_id' }); add('dd.consumer_id = ?', consumer_id); }
     if (q) add('(dd.document_type ILIKE ? OR dd.tracking_no ILIKE ? OR c.name ILIKE ?)', `%${String(q).replace(/[\\%_]/g, (m) => '\\' + m)}%`);
-    for (const [name, v, sql] of [['from', from, 'COALESCE(dd.dispatched_at, dd.created_at) >= ?::date'], ['to', to, 'COALESCE(dd.dispatched_at, dd.created_at) < (?::date + 1)']] as const) {
+    for (const [name, v, sql] of [['from', from, `COALESCE(dd.dispatched_at, dd.created_at) >= ${sqlDayStart('?')}`], ['to', to, `COALESCE(dd.dispatched_at, dd.created_at) < ${sqlDayEnd('?')}`]] as const) {
       if (!v) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(String(v)))) return res.status(400).json({ error: `${name} must be a date like 2026-01-31` });
       add(sql, v);

@@ -51,8 +51,19 @@ and every `/employees` route except `/directory`; reactivating a login needs `re
 Playwright test ("project_manager can look but not change", which passed because an error page has no buttons) was replaced by one that requires the
 "No access" text and no data rows; it found a real UI gap, now fixed (`employees.js`/`users.js` did not recognise the new refusal text).
 
-## Timezone (finding, not changed)
-The application deliberately runs on UTC (`packages/api/src/db/pool.ts`: `process.env.TZ = 'UTC'`; its comment says production and CI run on UTC;
+## Timezone: business calendar policy (owner decision, implemented)
+Policy: timestamps are UTC instants; user-facing calendar dates and business-day maths use **Asia/Kolkata**; neither the machine timezone nor the
+PostgreSQL session timezone decides a business date; DATE columns stay calendar days.
+- Shared helper `packages/api/src/utils/business-date.ts` (`businessToday`, `businessTomorrow`, `businessYear`, `businessDayStart`, `addDays`, `addYears`, `SQL_TODAY`, `sqlDay`, `sqlDayStart`, `sqlDayEnd`); web: `Utils.isoDate/today/monthStart/displayDate/date/dateTime` in `packages/web/public/js/utils.js`; tests: `docs/_shared/business-date.mjs`.
+- Replaced everywhere: 27 SQL `CURRENT_DATE`/`NOW()::date` uses, `created_at::date` style casts, timestamp-versus-date range filters (now exact IST day boundaries), JS "today"/"tomorrow grace" (`toISOString().slice`), calendar year in receipt/journal numbers, as-of dates of interest and letters, the scheduler day counts, printed letter dates, the min-age check; dashboard and milestones now share `SQL_TODAY`.
+- Pending migration `docs/users-roles/pending-migrations/T1_business_date_defaults.sql`: the 14 `DATE DEFAULT CURRENT_DATE` columns follow the session timezone until it is applied (schema change, release batch; idempotent, defaults only).
+- Not changed on purpose: `responseFormatter.ts` compares an instant with a due date (rule-sensitive, left as it was); DATE-to-text conversions that rely on the process running on UTC (`db/pool.ts` forces `TZ=UTC`); browser-side display of other pages uses the browser timezone (users are in India); demo seed scripts (not tests).
+- Regression test `docs/timezone/api-test-business-date.mjs` (49 checks): fixed instants around 18:30 UTC (midnight IST) and the whole 00:00 to 05:30 IST window, year, month and leap-day boundaries, process `TZ` of four zones, database session timezone of four zones for `SQL_TODAY`, `sqlDay`, `sqlDayStart/End` and a range filter, a DATE value, and a source scan that fails on the old patterns (proved to catch a planted violation).
+- Evidence: run at 01:19 to 03:10 IST (the window where UTC and India dates differ) with the application on UTC and the local database on `Asia/Kolkata`: the 6 API checks and 3 browser tests that used to fail now pass; complete API suite 52 scripts, 0 failed (47 scripts with totals: 8,553 checks).
+- **Browser verification is incomplete.** The first full Playwright run at 205 of 210 found one real regression of mine (`pending-cheques.html` does not load `utils.js`; fixed). The remaining failures were 90-second timeouts of different tests on every rerun while the machine was swapping (about 5.7 GB of swap used, load average 16 to 20, 4 to 17 minutes for a spec that took under 2); an API call to the same screens answers in 0.1 s. A clean full Playwright run on a quiet machine is still owed.
+
+## Timezone before the decision (history)
+(superseded by the policy above) The application deliberately runs on UTC (`packages/api/src/db/pool.ts`: `process.env.TZ = 'UTC'`; its comment says production and CI run on UTC;
 CI uses `postgres:18`, default UTC). A local database on `Asia/Kolkata` made 6 API checks and 3 browser tests fail between 00:00 and 05:30 IST (the tests
 use the UTC date, the database `current_date` was the IST date). With the local database on UTC they all pass. UTC is therefore the intended
 standard, and the local database was the odd one; it has been put back to its default. Open product question for the owner: `dashboard.ts` and

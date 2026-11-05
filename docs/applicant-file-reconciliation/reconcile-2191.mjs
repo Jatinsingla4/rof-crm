@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bizToday } from '../_shared/business-date.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const L = JSON.parse(readFileSync(join(HERE, 'legacy-2191-sunita-sundriyal.json'), 'utf8'));
@@ -24,7 +25,7 @@ const TOK = await login('super_admin@test.local');
 const api = async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + TOK }, body: b === undefined ? undefined : JSON.stringify(b) }); const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch {} return { s: r.status, j, text }; };
 const must = (r, what) => { if (r.s >= 300) throw new Error(`${what} failed: ${r.s} ${r.text.slice(0, 400)}`); return r.j?.data ?? r.j; };
 const log = (...a) => console.log(...a);
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 const addDays = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 864e5);
 const r2 = (x) => Math.round(x * 100) / 100;

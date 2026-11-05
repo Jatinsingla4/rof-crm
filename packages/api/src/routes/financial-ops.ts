@@ -14,11 +14,12 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2 } from '../utils/input.js';
 import { nextNumber } from '../utils/penal-interest.js';
+import { SQL_TODAY, businessTomorrow, businessYear } from '../utils/business-date.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
 const MODES = ['cash', 'cheque', 'demand_draft', 'bank_transfer', 'neft', 'rtgs', 'upi', 'card'] as const;
-const tomorrow = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10);   // a day of grace for the browser/server clock gap
+const tomorrow = () => businessTomorrow();   // a day of grace for the browser/server clock gap
 const index = (v: any) => { if (!has(v)) return null; if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 999) throw bad('installment_index must be a whole number from 1 to 999'); return v; };
 const optId = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
 // The person who raised a request cannot approve it
@@ -30,8 +31,8 @@ export const postRefundJournal = async (c: any, req: AuthRequest, consumerId: st
   const seq = String((await c.query(`SELECT nextval('journal_entry_seq') AS n`)).rows[0].n).padStart(4, '0');
   await c.query(
     `INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks, status, created_by_user_id, approved_by, approved_at)
-     VALUES ($1, CURRENT_DATE, $2, $3, 0, 'Refund', $4, 'approved', $5, $6, NOW())`,
-    [`JE/${new Date().getFullYear()}/${seq}`, consumerId, amount, remarks, madeBy || req.userId, req.userId]);
+     VALUES ($1, ${SQL_TODAY}, $2, $3, 0, 'Refund', $4, 'approved', $5, $6, NOW())`,
+    [`JE/${businessYear()}/${seq}`, consumerId, amount, remarks, madeBy || req.userId, req.userId]);
 };
 const consumerExists = async (c: any, id: string) => { if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [id])).rows.length) throw bad('Applicant not found', 404); };
 
@@ -406,7 +407,7 @@ export const raiseNote = async (req: AuthRequest, b: any) => {
     const auto = ((await c.query(`SELECT journal_auth_mode FROM project_settings WHERE project_id = $1`, [inv.project_id])).rows[0]?.journal_auth_mode ?? 'Manual') === 'Automatic';
     return (await c.query(
       `INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id, approved_by, approved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,$12::varchar,$13,$14, CASE WHEN $12::text = 'issued' THEN NOW() END) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, ${SQL_TODAY}),$11,$12::varchar,$13,$14, CASE WHEN $12::text = 'issued' THEN NOW() END) RETURNING *`,
       [inv.consumer_id, inv.id, no, type, inv.invoice_no, amount, gstRate, gst, r2(amount + gst), noteDate, reason, auto ? 'issued' : 'pending', req.userId, auto ? req.userId : null])).rows[0];
   });
 };

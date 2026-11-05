@@ -2,6 +2,7 @@
 // unit holds (one active hold per unit, release, expiry, booking a held unit), roles, project scope, hostile input, races and a random run.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-broker-hold.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
@@ -13,7 +14,7 @@ const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
 console.log('SEED=' + SEED);
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000';
-const today = new Date().toISOString().slice(0, 10), later = (d) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday(), later = (d) => bizDate(Date.now() + d * 864e5);
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');
 const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; const pan = () => Array.from({ length: 5 }, () => L[ri(0, 23)]).join('') + String(ri(1000, 9999)) + L[ri(0, 23)];
 const gstin = (p = pan()) => { const A36 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', g = '27' + p + '1Z'; let sum = 0; for (let i = 0; i < 14; i++) { const v = A36.indexOf(g[i]) * (i % 2 ? 2 : 1); sum += Math.floor(v / 36) + (v % 36); } return g + A36[(36 - (sum % 36)) % 36]; };

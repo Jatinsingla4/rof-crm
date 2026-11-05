@@ -14,6 +14,7 @@ import { computeInclusiveGstSplit } from './gst-backward-derive.js';
 import { computeReceiptGstSplit } from './gst-receipt-split.js';
 
 import { nextReceiptNumber } from './receipt-number.js';
+import { SQL_TODAY, businessToday } from './business-date.js';
 export interface WaterfallReceipt {
   id: string;
   amount_received_inr: number;
@@ -399,7 +400,7 @@ export async function recomputeBookingPaymentTaxes(
 
   const bookingDateForGst = booking.booking_date
     ? new Date(booking.booking_date).toISOString().split('T')[0]
-    : new Date().toISOString().split('T')[0];
+    : businessToday();
 
   const projectRow = await client.query('SELECT name FROM projects WHERE id = $1', [projectId]);
   const projectName = projectRow.rows[0]?.name || projectId;
@@ -661,7 +662,7 @@ export async function cascadeOverpaymentExcess(
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
           is_advance, advance_from_demand_id, company_bank_account_id)
-       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, CURRENT_DATE),$7,$8,0,'pending','pending','not_printed',true,$9,$10)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, ${SQL_TODAY}),$7,$8,0,'pending','pending','not_printed',true,$9,$10)
        RETURNING id`,
       [consumerId, paymentPlanId, nextId, nextIdx, excess,
        method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate]
@@ -677,7 +678,7 @@ export async function cascadeOverpaymentExcess(
       [paymentPlanId]
     );
     const advanceProjectId: string | null = planProjectRes.rows[0]?.project_id || null;
-    const advanceReceivedDate = sourceDate || new Date().toISOString().split('T')[0];
+    const advanceReceivedDate = sourceDate || businessToday();
     const advanceGstSplit = await computeReceiptGstSplit(client, excess, advanceProjectId, advanceReceivedDate);
     await client.query(
       `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,

@@ -10,6 +10,7 @@ import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { intParam, isUuid } from '../utils/security.js';
+import { businessDayStart, sqlDayEnd, sqlDayStart } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -130,7 +131,7 @@ router.get('/log', async (req: AuthRequest, res: Response, next: NextFunction) =
     if (consumer_id) { if (!isUuid(consumer_id)) return res.status(400).json({ error: 'Invalid consumer_id' }); add('l.consumer_id = ?', consumer_id); }
     if (template_id) { if (!isUuid(template_id)) return res.status(400).json({ error: 'Invalid template_id' }); add('l.template_id = ?', template_id); }
     if (q) add('(l.ref_no ILIKE ? OR c.name ILIKE ? OR l.template_name ILIKE ?)', `%${String(q).replace(/[\\%_]/g, (m) => '\\' + m)}%`);
-    for (const [name, v, sql] of [['from', from, `l.generated_at >= ?::date`], ['to', to, `l.generated_at < (?::date + 1)`]] as const) {
+    for (const [name, v, sql] of [['from', from, `l.generated_at >= ${sqlDayStart('?')}`], ['to', to, `l.generated_at < ${sqlDayEnd('?')}`]] as const) {
       if (!v) continue;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(String(v)))) return res.status(400).json({ error: `${name} must be a date like 2026-01-31` });
       add(sql, v);
@@ -295,7 +296,7 @@ router.post('/:id/generate', async (req: AuthRequest, res: Response, next: NextF
       if (meta.letter_for === 'Self' && loan) return res.status(400).json({ error: 'This letter is for self-funded bookings; this booking has a loan' });
     }
 
-    const now = new Date();
+    const now = businessDayStart();
     const fy = financialYear(now);
     const client = await db.connect();
     let refNo = '', refPrefix: string | null = null, refSeq: number | null = null, duplicate = false, logId: string;

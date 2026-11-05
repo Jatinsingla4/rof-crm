@@ -2,12 +2,13 @@
 // Set-up through the API; after each save the database is asked whether it did what the screen said.
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { bizToday, bizDate } from '../docs/_shared/business-date.mjs';
 
 const PASSWORD = 'Test#Pass1234';
 const BASE = process.env.BASE_URL || 'http://localhost:3002';
 const U = Date.now().toString(36).slice(-5);
-const today = new Date().toISOString().slice(0, 10);
-const later = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday();
+const later = (d: number) => bizDate(Date.now() + d * 864e5);
 let seq = 0;
 const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 300000000).slice(-9).padStart(9, '0');
 const sql = (q: string) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', q], { encoding: 'utf8' }).trim();

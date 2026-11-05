@@ -3,12 +3,13 @@
 // The set-up (company, project, towers, units, plan, GST) is made through the API; everything after that is done on the screens.
 // After each screen the database is asked, through the API, whether the screen really did what it showed.
 import { test, expect, Page } from '@playwright/test';
+import { bizToday, bizDate } from '../docs/_shared/business-date.mjs';
 
 const PASSWORD = 'Test#Pass1234';
 const BASE = process.env.BASE_URL || 'http://localhost:3002';
 const U = Date.now().toString(36).slice(-5);
-const today = new Date().toISOString().slice(0, 10);
-const later = (d: number) => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+const today = bizToday();
+const later = (d: number) => bizDate(Date.now() + d * 864e5);
 const mob = () => '9' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
 
 test.describe.configure({ mode: 'serial' });
@@ -141,7 +142,7 @@ test('Demand Raise (customer wise): raise the 1st, then the 2nd instalment', asy
   await expect.poll(async () => (await byIndex(2)).status).not.toBe('pending');   // the toast of the 1st raise may still be on screen, so wait for the data
   const d = await byIndex(2);
   expect(['demanded', 'raised']).toContain(d.status);
-  expect(new Date(d.due_date).toLocaleDateString('en-CA')).toBe(new Date(Date.now() + 10 * 864e5).toLocaleDateString('en-CA'));
+  expect(String(d.due_date).slice(0, 10)).toBe(bizDate(Date.now() + 10 * 864e5));
 });
 
 // ---------- Receipts screen: every tab, the TDS challan flow, cancel and bounce ----------

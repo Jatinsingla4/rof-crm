@@ -243,7 +243,7 @@ const PC = {
       const clearingDate   = document.querySelector('.pc-clearing-date[data-id="' + id + '"]')?.value || '';
       const clearingBankId = document.querySelector('.pc-clearing-bank[data-id="' + id + '"]')?.value || '';
       const body = {};
-      body.clearing_date = clearingDate || new Date().toLocaleDateString('en-CA');   // left blank = cleared today
+      body.clearing_date = clearingDate || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());   // left blank = cleared today on the business calendar (this page does not load utils.js)
       if (clearingBankId) body.clearing_bank_id = clearingBankId;
 
       try {

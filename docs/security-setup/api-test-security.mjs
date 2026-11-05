@@ -1,3 +1,4 @@
+import { bizToday } from '../_shared/business-date.mjs';
 // Security module checks (roles, role menu access, logins, permissions, IP allow list, audit log).
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-security.mjs
 const B = process.env.BASE || 'http://localhost:3010/api';
@@ -208,7 +209,7 @@ r = await A('GET', '/users/audit-logs?resourceType=role&action=create'); t('audi
 r = await A('GET', '/users/audit-logs?resourceType=user&userId=' + me.id); t('audit: user changes are logged against the admin', r.s === 200 && r.j.data.length > 0, r.s);
 const logs = JSON.stringify((await A('GET', '/users/audit-logs?resourceType=user&pageSize=200')).j);
 t('audit: no password or hash is ever written to the log', !/\$2[aby]\$/.test(logs) && !logs.includes(PW), '');
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 r = await A('GET', `/users/audit-logs?fromDate=${today}&toDate=${today}&pageSize=3`); t('audit: date range today finds rows (To date is inclusive)', r.s === 200 && r.j.data.length > 0, r.s);
 r = await A('GET', '/users/audit-logs?fromDate=2000-01-01&toDate=2000-01-02'); t('audit: old date range is empty', r.s === 200 && r.j.data.length === 0, r.s);
 r = await A('GET', '/users/audit-logs?fromDate=yesterday'); t('audit: bad date -> 400', r.s === 400, r.s);

@@ -1,6 +1,7 @@
 // Outgoing payments (and the role gate on the financial-ops router): roles, input rules, list filters.
 // Run:  BASE=http://localhost:3010/api node api-test-outgoing.mjs   (psql must reach the same database)
 import { execFileSync } from 'node:child_process';
+import { bizToday } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
@@ -12,7 +13,7 @@ const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-0000
 // its own company and bank account (a fresh database has none)
 const co = (await A('POST', '/companies', { name: 'Outgoing Co ' + U })).j.data.id;
 const acct = psql(`insert into company_bank_accounts (company_id, bank_name, account_number) values ('${co}', 'Test Bank', 'OUT${U}') returning id`);
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 let r; const made = [];
 const add = async (b, who = A) => { const x = await who('POST', '/payments/outgoing-payments', { company_bank_account_id: acct, amount_inr: 100, payee: 'P' + U, ...b }); if (x.s === 201) made.push(x.j.data.id); return x; };
 

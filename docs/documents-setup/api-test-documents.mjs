@@ -2,6 +2,7 @@
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-documents.mjs
 // Needs psql (PSQL, PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE) to put applicants and bookings into the database.
 import { execFileSync } from 'node:child_process';
+import { bizToday } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 const PSQL = process.env.PSQL || 'psql';
 const sql = (q) => execFileSync(PSQL, ['-X', '-A', '-t', '-q', '-v', 'ON_ERROR_STOP=1', '-c', q], { encoding: 'utf8' }).trim().split('\n')[0];
@@ -48,7 +49,7 @@ r = await A('GET', '/master/document-types?project_id=' + P1); t('checklist: and
 // ---------- Dispatch log ----------
 const consumer = (name, project) => sql(`INSERT INTO consumers (name, mobile, project_id) VALUES ('${name.replace(/'/g, "''")}', lpad((random()*1e9)::int::text, 10, '9'), ${project ? `'${project}'` : 'NULL'}) RETURNING id`);
 const c1 = consumer('Dispatch Person ' + U, P1);
-const dv = (o = {}) => ({ document_type: dn, dispatch_mode: 'Courier', tracking_no: 'TRK' + U, consumer_id: c1, dispatched_at: new Date().toISOString().slice(0, 10), ...o });
+const dv = (o = {}) => ({ document_type: dn, dispatch_mode: 'Courier', tracking_no: 'TRK' + U, consumer_id: c1, dispatched_at: bizToday(), ...o });
 r = await A('POST', '/master/document-dispatch', dv({ document_type: '' })); t('dispatch: no document -> 400', r.s === 400, r.s);
 r = await A('POST', '/master/document-dispatch', dv({ dispatch_mode: '' })); t('dispatch: no mode -> 400', r.s === 400, r.s);
 r = await A('POST', '/master/document-dispatch', dv({ dispatch_mode: 'Pigeon' })); t('dispatch: unknown mode -> 400', r.s === 400, r.s);
@@ -72,7 +73,7 @@ r = await A('GET', '/master/document-dispatch?q=' + encodeURIComponent('Dispatch
 r = await A('GET', '/master/document-dispatch?q=' + encodeURIComponent('%')); t('dispatch: % in the search is text, not a wildcard', r.s === 200 && r.j.data.length === 0, r.j.data?.length);
 r = await A('GET', '/master/document-dispatch?consumer_id=' + c1); t('dispatch: filter by consumer', r.s === 200 && r.j.data.length === 1);
 r = await A('GET', '/master/document-dispatch?from=2000-01-01&to=2000-01-02'); t('dispatch: old date range is empty', r.s === 200 && r.j.data.length === 0);
-const today = new Date().toISOString().slice(0, 10);
+const today = bizToday();
 r = await A('GET', `/master/document-dispatch?from=${today}&to=${today}&q=${U}`); t('dispatch: today\'s range includes today (To is inclusive)', r.s === 200 && r.j.data.length >= 1, r.s);
 r = await A('GET', '/master/document-dispatch?from=yesterday'); t('dispatch: bad date filter -> 400', r.s === 400, r.s);
 r = await A('GET', '/master/document-dispatch?consumer_id=x'); t('dispatch: bad consumer filter -> 400', r.s === 400, r.s);

@@ -2,6 +2,7 @@
 // Every expected figure comes from docs/regression/reference/deal-model.mjs thinking, computed here by hand from the inputs.
 //   BASE=http://localhost:3011/api node docs/regression/modules-deal.mjs      (local test stack only)
 import { execFileSync } from 'node:child_process';
+import { bizToday } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3011/api';
 const env = { ...process.env, PGHOST: 'localhost', PGPORT: '5433', PGUSER: 'postgres', PGPASSWORD: 'postgres', PGDATABASE: process.env.PGDATABASE || 'rof_x' };
 const q = (s) => execFileSync('/Library/PostgreSQL/18/bin/psql', ['-qAt', '-c', s], { encoding: 'utf8', env }).trim();
@@ -11,7 +12,7 @@ const ok = (r, w) => { if (r.s >= 300) throw new Error(`${w}: ${r.s} ${r.t}`); r
 let pass = 0, fail = 0;
 const check = (n, got, exp, tol = 0.011) => { const g = Number(got), e = Number(exp); const good = Math.abs(g - e) <= tol; good ? pass++ : fail++; console.log(`${good ? 'ok  ' : 'FAIL'} ${n}: ours ${got} expected ${exp}`); };
 const truth = (n, c, i = '') => { c ? pass++ : fail++; console.log(`${c ? 'ok  ' : 'FAIL'} ${n}${c ? '' : ' ' + i}`); };
-const RUN = 'MD' + Date.now().toString(36).toUpperCase(); const today = new Date().toISOString().slice(0, 10);
+const RUN = 'MD' + Date.now().toString(36).toUpperCase(); const today = bizToday();
 const mob = () => '9' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
 
 const co = ok(await api('POST', '/companies', { name: RUN + ' Co' }), 'co').id;

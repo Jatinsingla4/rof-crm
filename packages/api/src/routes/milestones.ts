@@ -9,6 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
+import { SQL_TODAY } from '../utils/business-date.js';
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.patch('/:id/complete', async (req: AuthRequest, res: Response, next: Next
 
     const out = await inTx(async (c) => {
       const m = (await c.query(
-        `SELECT m.id, m.project_id, m.milestone_name, m.status, m.notify_allottees, p.name AS project_name, (NOW() AT TIME ZONE 'Asia/Kolkata')::date::text AS today
+        `SELECT m.id, m.project_id, m.milestone_name, m.status, m.notify_allottees, p.name AS project_name, ${SQL_TODAY}::text AS today
            FROM construction_milestones m JOIN projects p ON p.id = m.project_id WHERE m.id = $1 FOR UPDATE OF m`, [id])).rows[0];
       if (!m) throw bad('Milestone not found', 404);
       if (m.status === 'completed') throw bad('This milestone is already completed', 409);

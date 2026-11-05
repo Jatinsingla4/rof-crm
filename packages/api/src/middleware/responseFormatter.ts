@@ -6,6 +6,7 @@ import { DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
  */
 
 import { Request, Response, NextFunction } from 'express';
+import { businessYear } from '../utils/business-date.js';
 
 // ============================================
 // UNIT STATUS → COLOR MAPPING
@@ -125,7 +126,7 @@ const formatReceipt = (receipt: any): any => {
   return {
     ...receipt,
     // Ensure receipt has a consistent number format (e.g., REC-2026-001)
-    receipt_no: receipt.receipt_no || `REC-${new Date().getFullYear()}-${receipt.id?.substring(0, 6) || 'XXXX'}`,
+    receipt_no: receipt.receipt_no || `REC-${businessYear()}-${receipt.id?.substring(0, 6) || 'XXXX'}`,
   };
 };
 

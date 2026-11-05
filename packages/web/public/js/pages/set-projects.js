@@ -2001,7 +2001,7 @@ Object.assign(SPJPage, {
     } catch (err) { Utils.error(err.message); }
   },
   numPreview() {
-    const f = document.getElementById('spj-num-form').elements, y = new Date().getFullYear(), pj = document.getElementById('spj-num-project');
+    const f = document.getElementById('spj-num-form').elements, y = Number(Utils.today().slice(0, 4)), pj = document.getElementById('spj-num-project');
     const reg = (f.registration_prefix.value || pj.selectedOptions[0].text.replace(/^ROF\s+/i, '').replace(/[^A-Z]/gi, '').toUpperCase().slice(0, 4).padEnd(4, 'X')).toUpperCase();
     document.getElementById('spj-num-preview').textContent = `${(f.receipt_prefix.value || 'REC').toUpperCase()}-${y}-00001   ${reg}-${y}-${'1'.padStart(Number(f.registration_number_size.value) || 4, '0')}`;
   },

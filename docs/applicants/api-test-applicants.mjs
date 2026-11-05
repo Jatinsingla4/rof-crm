@@ -5,6 +5,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bizToday } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
@@ -53,7 +54,7 @@ for (const m of [[9876543210], { a: 1 }, true]) await bad400(`mobile of type ${t
 for (const e of ['a@b', '@x.com', 'a b@c.com', 'a..b@c.com', 'a@b..com', 'plain', 'a@b.c', '<s>@x.com', 'a@-.com']) await bad400(`email ${JSON.stringify(e)}`, { email: e });
 for (const p of ['ABCDE12345', 'abcde1234', 'ABCD1234E', '1234567890', 'ABCDE1234FF', 'ABC DE1234F ZZ']) await bad400(`PAN ${p}`, { pan_no: p });
 for (const a of ['123', '012345678901', '112345678901', '12345678901a', '2345 6789 012', '23456789012345']) await bad400(`Aadhaar ${a}`, { aadhaar_no: a });
-const today = new Date().toISOString().slice(0, 10), yrs = (n) => { const d = new Date(); d.setFullYear(d.getFullYear() - n); return d.toISOString().slice(0, 10); };
+const today = bizToday(), yrs = (n) => { const [y, m, d] = bizToday().split('-').map(Number); const x = new Date(Date.UTC(y - n, m - 1, d)); if (x.getUTCMonth() !== m - 1) x.setUTCDate(0); return x.toISOString().slice(0, 10); };
 for (const [n, d] of [['in the future', '2999-01-01'], ['before 1900', '1899-12-31'], ['impossible 2020-02-30', '2020-02-30'], ['wrong format 31/12/1990', '31/12/1990'], ['today (age 0)', today], ['aged 17', yrs(17)], ['text', 'yesterday'], ['number', 19900101]]) await bad400(`dob ${n}`, { dob: d });
 r = await mk({ dob: yrs(18), first_name: 'Eigh', last_name: 'Teen', name: undefined }); t('create: aged exactly 18 is accepted', r.s === 201, r.s + JSON.stringify(r.j)); if (r.s === 201) made.push(r.j.data.id);
 r = await mk({ dob: '1931-07-04', name: 'Old Buyer' }); t('create: born in 1931 is accepted (date range is not cut at 1990)', r.s === 201, r.s + JSON.stringify(r.j)); if (r.s === 201) made.push(r.j.data.id);
