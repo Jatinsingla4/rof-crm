@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import dotenv from 'dotenv';
+import { loadAppConfig } from '../utils/app-config.js';
 
 dotenv.config();
 
@@ -41,6 +42,11 @@ const scopeOf = () => {
   return ids;
 };
 
+// Strict scope (UR-002, decision 2): a row with no project is super-admin-only for a limited login. The database policy that honours this
+// (migration draft M10a, Batch 5) reads app.scope_strict; until it is applied the setting is ignored. APP_ENV / SCOPE_MODE decide it: unknown = strict.
+const STRICT_NULL_SCOPE = loadAppConfig().scopeMode === 'strict';
+const strictSql = STRICT_NULL_SCOPE ? ", set_config('app.scope_strict', 'on', %s)" : '';
+
 export const isScoped = () => !!scopeStore.getStore()?.projectIds;
 
 // Counts the queries of one request (the reports route sends it back as X-Db-Queries when asked), so a test can prove a report does not query once per row
@@ -49,7 +55,7 @@ export const queryCount = new AsyncLocalStorage<{ n: number }>();
 async function scopedQuery(ids: string, args: any[]) {
   const client = await pool.connect();
   try {
-    await client.query(`BEGIN; SET LOCAL ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', true)`);
+    await client.query(`BEGIN; SET LOCAL ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', true)${strictSql.replace('%s', 'true')}`);
     const result = await (client.query as any)(...args);
     await client.query('COMMIT');
     return result;
@@ -64,7 +70,7 @@ async function scopedQuery(ids: string, args: any[]) {
 async function scopedConnect(ids: string) {
   const client = await pool.connect();
   try {
-    await client.query(`SET ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', false)`);
+    await client.query(`SET ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', false)${strictSql.replace('%s', 'false')}`);
   } catch (err) {
     client.release(err as Error);
     throw err;
@@ -72,7 +78,7 @@ async function scopedConnect(ids: string) {
   const release = client.release.bind(client);
   // The connection goes back to the pool only after the limit is removed; if that fails it is closed instead
   (client as any).release = (err?: Error | boolean) =>
-    client.query('RESET ROLE; RESET app.project_scope').then(() => release(err as any), (e) => release(e));
+    client.query('RESET ROLE; RESET app.project_scope; RESET app.scope_strict').then(() => release(err as any), (e) => release(e));
   return client;
 }
 

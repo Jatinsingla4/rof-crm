@@ -9,6 +9,8 @@ person points `psql` at a named environment, and they never run on production or
 | D2 ghost roles | a login whose role has no exact `roles` row, or differs in case | M3 `users_role_fkey` | `d2-ghost-roles-report.sql` | `d2-ghost-roles-dryrun.sql` |
 | D11 super_admin base | a role whose `base_role` is `super_admin` or not a system role | M2 `roles_base_role_not_super_admin` | `d11-super-admin-base-report.sql` | `d11-super-admin-base-dryrun.sql` |
 
+| D4 to D6 NULL-scope rows | rows with no project, consumer or unit (they stay super-admin-only under the strict policy until mapped, or the table goes on the owner's allow-list) | M10a `M10a_strict_null_scope.sql` | `d6-null-scope-report.sql` | owner decisions per table (no script yet: mapping rows needs the business answer) |
+
 ## How to use them
 1. Restore a **scrubbed copy** of the data (never run the first time on the live database). Run the three reports: `psql -X -f d1-usernames-report.sql` and so on.
 2. The owner fills one **decisions CSV** per operation (the header is in the dry-run file). A login or role that is not in the file is never touched. There is no automatic mapping.
@@ -20,6 +22,14 @@ person points `psql` at a named environment, and they never run on production or
 - **D1:** for each group of colliding usernames, which login keeps the name and what the others are renamed to. The report lists email, role, activity and last sign-in with a *suggested rank* (active first, most recent sign-in first); the rank is a suggestion only.
 - **D2:** for each ghost role, which existing role the logins move to. A case-only mismatch (`Sales_Executive` against `sales_executive`) is still an explicit decision row.
 - **D11:** for each role with a super_admin or unknown base, a valid base role (`set_base`) or `deactivate` (the role is switched off and its blocking base role is cleared, because the M2 CHECK covers inactive roles too; the audit row keeps the old base). A role with active holders cannot be deactivated first; deciding the holders (a D2-style move) comes first.
+
+## NULL-scope rows (decision 2) in one paragraph
+The report `d6-null-scope-report.sql` lists every table that can hold a row with no project, consumer or unit, with the NULL row count. The draft
+`M10a_strict_null_scope.sql` makes those rows super-admin-only for a project-limited login (reads and writes) when `app.scope_strict` is on, which the
+application sets whenever `SCOPE_MODE` is strict; a table on the empty allow-list `rof_scope_global_tables` keeps its NULL rows readable.
+`test-null-scope.sh` proves the behaviour on a scratch database (11 checks). The allow-list and the mapping of the rows are the owner's decisions:
+on the local test data alone, `consumers` (enquiries) has 251 NULL-project rows of 3,509, `reminder_master`, `document_types` and `document_dispatch_master` are
+entirely NULL-project (global catalogues in all likelihood), and `booking_records.unit_id` has 20. Turning this on without that sign-off would hide enquiries and catalogues from limited logins.
 
 ## Status of the evidence
 These scripts were written against the schema of the local test database and run end to end on a scratch database
