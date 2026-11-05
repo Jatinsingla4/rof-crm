@@ -13,6 +13,7 @@ import { GenCtx, demandLetterData } from './merge-demand.js';
 import { checkListData, allotmentLetterData, buyerBuilderAgreementData, conveyanceDeedData } from './merge-letters.js';
 import { getDemandLetterShell, getCheckListShell } from './shells.js';
 import { businessDayStart, businessYear } from '../../utils/business-date.js';
+import { requirePrint } from '../../middleware/printDownload.js';
 
 const router = Router();
 
@@ -49,7 +50,7 @@ const checkedInput = (req: AuthRequest) => {
   return { consumerId, allocationId, templateId, documentType, deliveryMethod, dueDate, includeAllDemands: b.includeAllDemands === true, includeInterest: b.includeInterest, demandId, mergeData };
 };
 
-router.post('/generate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/generate', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const input = checkedInput(req);
     let { consumerId, allocationId, templateId, documentType, mergeData, deliveryMethod, dueDate, includeAllDemands } = input;

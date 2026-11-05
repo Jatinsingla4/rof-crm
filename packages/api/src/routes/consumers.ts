@@ -24,6 +24,7 @@ import {
 import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, sha, lock, conflict, checkIdentity, personName, hasLetter } from '../utils/applicant-fields.js';
 import { penalRateFrom } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
+import { requirePrint } from '../middleware/printDownload.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -560,7 +561,7 @@ router.post('/:id/multi-applicant-photo/:applicantId', photoUpload, async (req: 
 // GET /api/consumers/:id/applicant-file
 // Returns a 3-page applicant file as HTML for printing.
 // Supports ?token= query param for window.open() navigation.
-router.get('/:id/applicant-file', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const consumerId = req.params.id;
 

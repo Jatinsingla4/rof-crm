@@ -209,7 +209,7 @@ t('register: no reference number is used twice (database check)', noLog === '', 
 
 // ---------- A login limited to one project ----------
 const PW = 'Docs#Pass' + U.replace(/\D/g, '') + '1';
-const lim = await A('POST', '/users/employee-login', { username: 'doc_' + U, email: `doc.${U}@example.com`, password: PW, confirmPassword: PW, role: 'sales_executive', assignedProjectIds: [P1] });
+const lim = await A('POST', '/users/employee-login', { username: 'doc_' + U, email: `doc.${U}@example.com`, password: PW, confirmPassword: PW, role: 'sales_executive', assignedProjectIds: [P1], authorizedPrint: true });   // the print grant is its own gate (api-test-print-download); this login tests project scope
 const LIM = call(await login(`doc.${U}@example.com`, PW));
 const cP2 = consumer('Other Project Person ' + U, P2);
 const lP2 = (await A('POST', '/custom-letters', letter({ project_id: P2, name: 'P2 letter ' + U }))).j.data.id;

@@ -36,8 +36,12 @@ const Permissions = (() => {
     }
   }
 
+  // Screens that only a super admin may open (UR-001). The server refuses these routes to everyone else; hiding the menu entries is usability only.
+  const SUPER_ADMIN_ONLY_ROUTES = ['/employees', '/users'];
+
   function canAccessPage(route) {
     if (isSuperAdmin()) return true;
+    if (SUPER_ADMIN_ONLY_ROUTES.includes(route)) return false;
     // Not loaded, or no pages are configured yet (empty nav_pages): allow. The server still enforces every role.
     if (!_pageAccess || Object.keys(_pageAccess).length === 0) return true;
     // A screen that is not on the page list (for example an applicant detail) is not controlled here
@@ -95,6 +99,10 @@ const Permissions = (() => {
     return roles.includes('checker') || roles.includes('approver');
   }
 
+  // Print and download grants (UR-007). The API refuses its own print, export and file endpoints without them; these only decide what the browser offers.
+  function canPrint() { return isSuperAdmin() || _data?.authorizedPrint === true; }
+  function canDownload() { return isSuperAdmin() || _data?.authorizedDownload === true; }
+
   // Alias for checker/approver access
   function canApprove(processName) {
     return canCheck(processName);
@@ -116,5 +124,16 @@ const Permissions = (() => {
     }
   }
 
-  return { load, loadPageAccess, clear, role, isSuperAdmin, can, canMake, canCheck, canApprove, canAccessPage, applyMenu, guard, guardDisable };
+  return { load, loadPageAccess, clear, role, isSuperAdmin, can, canMake, canCheck, canApprove, canPrint, canDownload, canAccessPage, applyMenu, guard, guardDisable };
+})();
+
+// Every screen prints through window.print(): one hook instead of a check on each button. A login without the print grant gets the reason
+// instead of the print dialog (the server refuses the printable pages and documents as well).
+(() => {
+  const nativePrint = window.print.bind(window);
+  window.print = () => {
+    if (Permissions.canPrint()) return nativePrint();
+    const msg = 'Printing is not enabled for your login. Ask a super admin.';
+    if (window.Utils && typeof Utils.error === 'function') Utils.error(msg); else alert(msg);
+  };
 })();

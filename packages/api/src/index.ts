@@ -151,6 +151,8 @@ export interface AuthRequest extends Request {
   userName?: string;
   userRole?: string;   // role the API checks permissions against (a custom role resolves to its base role)
   roleName?: string;   // the role name stored on the user
+  authorizedPrint?: boolean;      // users.authorized_print; only an explicit true counts (middleware/printDownload.ts)
+  authorizedDownload?: boolean;   // users.authorized_download
   userPermissions?: string[];
   unitStatusFilter?: string[] | null;
 }
@@ -190,7 +192,7 @@ export interface DocumentVersion {
 // Role, active flag and token_version are read from the DB (cached briefly) so that
 // deactivation, role changes and logout take effect without waiting for the JWT to expire.
 const AUTH_CACHE_MS = 15_000;
-const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string | null; is_active: boolean; token_version: number; ip_rules: string[] | null; project_scope: string | null } | null }>();
+const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string | null; authorized_print: boolean | null; authorized_download: boolean | null; is_active: boolean; token_version: number; ip_rules: string[] | null; project_scope: string | null } | null }>();
 
 export const invalidateAuthUser = (userId: string) => { authUserCache.delete(userId); };
 export const clearAuthUserCache = () => authUserCache.clear(); // after a role definition changes
@@ -205,7 +207,7 @@ const loadAuthUser = async (userId: string) => {
             CASE WHEN u.role = 'super_admin' THEN 'super_admin'
                  ELSE NULLIF(COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role), 'super_admin')
             END AS eff_role,
-            u.is_active, COALESCE(u.token_version, 0) AS token_version,
+            u.is_active, u.authorized_print, u.authorized_download, COALESCE(u.token_version, 0) AS token_version,
             CASE WHEN u.ip_security_enabled IS TRUE
                  THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules,
             -- project ids the login is limited to, as one comma separated text; null when it may see every project
@@ -278,6 +280,8 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     req.userName = decoded.name || decoded.email || 'Unknown';
     req.userRole = user.eff_role ?? undefined;
     req.roleName = user.role;
+    req.authorizedPrint = user.authorized_print === true;
+    req.authorizedDownload = user.authorized_download === true;
     if (user.eff_role !== 'super_admin' && user.project_scope) scopeStore.enterWith({ projectIds: user.project_scope });
     req.userPermissions = decoded.permissions || [];
     next();

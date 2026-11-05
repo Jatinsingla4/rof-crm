@@ -207,7 +207,7 @@ SEC.openLogin = (u) => {
 
     <div class="sm-section"><h3 class="sec-h">Access</h3>
       <div class="sm-grid2">
-        ${SEC.field('sf-unit', 'Unit status the person sees', `<select class="sm-input" id="sf-unit" name="unitStatusAccess">${m.unitStatusOptions.map((o) => `<option value="${o}"${(u?.unit_status_access || 'all') === o ? ' selected' : ''}>${sesc(o.replace(/_/g, ' '))}</option>`).join('')}</select>`)}
+        ${SEC.field('sf-unit', 'Unit status the person sees', `<select class="sm-input" id="sf-unit" name="unitStatusAccess">${m.unitStatusOptions.map((o) => `<option value="${o}"${(u?.unit_status_access || 'none') === o ? ' selected' : ''}>${sesc(o.replace(/_/g, ' '))}</option>`).join('')}</select>`)}
         <div class="sm-field"><span class="sm-label">Print and download</span>
           <label class="sec-check"><input type="checkbox" name="print"${u?.authorized_print ? ' checked' : ''}> May print</label>
           <label class="sec-check"><input type="checkbox" name="download"${u?.authorized_download ? ' checked' : ''}> May download</label></div>

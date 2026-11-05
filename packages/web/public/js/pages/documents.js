@@ -1114,7 +1114,7 @@ const DocsPage = {
     if(!sel)return; sel.innerHTML='<option value="">&lt;--All--&gt;</option>';
     if(!pid)return;
     try {
-      const res=await Api.get('/units',{params:{projectId:pid,pageSize:500}});
+      const res=await Api.get('/units/lookup',{params:{projectId:pid,pageSize:500}});
       [...new Set((res.data||[]).map(u=>u.tower_name).filter(Boolean))].forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;sel.appendChild(o);});
     } catch {}
   },

@@ -77,7 +77,7 @@ r = await A('PATCH', '/users/employee-login/' + uid1, {
 });
 t('login edit: 200', r.s === 200, JSON.stringify(r.j));
 a = audit('user', uid1, 'update');
-t('login edit audit: previous role, print flag and unit status', a?.p?.role === 'sales_executive' && a?.p?.authorized_print === false && a?.p?.unit_status_access === 'all', JSON.stringify(a?.p));
+t('login edit audit: previous role, print flag and unit status (a new login starts with none)', a?.p?.role === 'sales_executive' && a?.p?.authorized_print === false && a?.p?.unit_status_access === 'none', JSON.stringify(a?.p));
 t('login edit audit: new role, print flag and unit status', a?.n?.role === 'accounts_finance' && a?.n?.authorized_print === true && a?.n?.unit_status_access === 'available', JSON.stringify(a?.n));
 t('login edit audit: process rights before and after as lists', JSON.stringify(a?.p?.processes) === JSON.stringify(['receipt:maker']) && JSON.stringify(a?.n?.processes) === JSON.stringify(['jv_refund_drcr:checker', 'receipt:maker,checker']), JSON.stringify([a?.p?.processes, a?.n?.processes]));
 t('login edit audit: company ids before and after', JSON.stringify(a?.p?.companyIds) === JSON.stringify(companyIds.slice(0, 1)) && JSON.stringify([...a?.n?.companyIds].sort()) === JSON.stringify([...companyIds].sort()), JSON.stringify([a?.p?.companyIds, a?.n?.companyIds]));

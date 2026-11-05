@@ -20,6 +20,7 @@ import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { getPenalRate, DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
+import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
 
 const router = Router();
 
@@ -316,11 +317,11 @@ ${row('Taxable amount', '&#8377; ' + m(r.base_amount))}${r.cgst_amount ? row(`CG
 <p style="margin-top:20px"><button onclick="window.print()">Print</button></p></body></html>`);
   } catch (error) { fail(error, res, next); }
 };
-router.get('/gst-invoices/:id/html', invoicePage);
-router.get('/gst-invoices/:id/pdf', invoicePage);
+router.get('/gst-invoices/:id/html', requirePrint, invoicePage);
+router.get('/gst-invoices/:id/pdf', requirePrintAndDownload, invoicePage);
 
 // GET /api/payments/gst-invoices-export?type=gstr1|gstr3b&month=YYYY-MM[&projectId=] - CSV for the filing (cancelled invoices left out, credit and debit notes netted)
-router.get('/gst-invoices-export', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/gst-invoices-export', requireDownload, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const type = oneOf(req.query.type, 'type', ['gstr1', 'gstr3b'] as const) || 'gstr1';
     const month = qtext(req.query.month, 'month', 7);
@@ -1256,7 +1257,7 @@ function buildPaymentReceiptHtml(r: any, settings: Record<string, string>, coApp
 }
 
 // GET /api/payments/receipts/:id/html — Print-ready receipt with full plan breakdown
-router.get('/receipts/:id/html', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/receipts/:id/html', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Receipt id');
 
@@ -1879,7 +1880,7 @@ function showMsg(msg, isError) {
 }
 
 // GET /api/payments/receipt-form/:consumerId — Serve standalone receipt entry form
-router.get('/receipt-form/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/receipt-form/:consumerId', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const consumerId = uuid(req.params.consumerId, 'Consumer id');
     const rawToken = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
@@ -2189,7 +2190,7 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
 }
 
 // GET /api/payments/receipt-detail/:consumerId — Standalone receipt detail page
-router.get('/receipt-detail/:consumerId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/receipt-detail/:consumerId', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const consumerId = uuid(req.params.consumerId, 'Consumer id');
     if (!(await db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);

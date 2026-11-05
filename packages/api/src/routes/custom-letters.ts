@@ -11,6 +11,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { intParam, isUuid } from '../utils/security.js';
 import { businessDayStart, sqlDayEnd, sqlDayStart } from '../utils/business-date.js';
+import { requirePrint } from '../middleware/printDownload.js';
 
 const router = Router();
 
@@ -247,7 +248,7 @@ router.delete('/:id', needMaster('delete'), async (req: AuthRequest, res: Respon
 });
 
 // POST /api/custom-letters/:id/generate — make the letter for one applicant and enter it in the register
-router.post('/:id/generate', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/:id/generate', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { consumer_id } = req.body || {};
     if (!isUuid(req.params.id)) return res.status(404).json({ error: 'Template not found' });

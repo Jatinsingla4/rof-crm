@@ -8,6 +8,7 @@ import { bad, failWith, uuid, has, text, body, qtext, oneOf, inTx, escHtml } fro
 import { applyRecalc, extractFieldValue, buildEditScript } from '../../utils/document-recalc.js';
 import { writebackField, WritebackContext } from '../../utils/document-writeback.js';
 import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } from '../../utils/payment-waterfall.js';
+import { requirePrint } from '../../middleware/printDownload.js';
 
 const router = Router();
 
@@ -143,7 +144,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
 });
 
 // GET /api/documents/:id/html - Return rendered html_content for a document (used by frontend print)
-router.get('/:id/html', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/html', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const docId = uuid(req.params.id, 'Document');
     const result = await db.query(

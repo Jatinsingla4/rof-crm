@@ -26,6 +26,8 @@ import { recomputeAddonDemands } from './addon-charges.js';
 import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
 import { businessDayStart, businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
+import { requirePrint } from '../middleware/printDownload.js';
+import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
 
 const router = Router();
 
@@ -285,7 +287,7 @@ router.get('/check-form-no', async (req: AuthRequest, res: Response, next: NextF
 
 // POST /api/booking
 const holds = async (q: any, consumerId: string, unitId: string) => (await q.query(`SELECT 1 FROM allocations WHERE consumer_id = $1 AND unit_id <> $2 AND status NOT IN ('cancelled','transferred') LIMIT 1`, [consumerId, unitId])).rows.length > 0;
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const o = parseNew(body(req));
     const {
@@ -318,6 +320,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!unit) throw bad('Selected unit does not exist');
       if (project_id && unit.project_id !== project_id) throw bad('This unit does not belong to the chosen project');
       project_id = unit.project_id;
+      assertUnitGrant(req, unit.status);   // inventory access: checked against the unit's CURRENT status, before a hold is settled
       // A held unit is booked only by the broker who holds it (or once the hold is over); everyone else is refused
       if (unit.status === 'held') { await settleHold(client, unit_id, booking_type === 'broker' ? broker_id : null, req.userId || null); unit.status = 'available'; }
       if (unit.status !== 'available') throw conflict('Unit is no longer available');
@@ -3376,7 +3379,7 @@ function buildReceiptHtml(b: any, settings: Record<string, string>, coApplicants
 }
 
 // GET /api/booking/:id/receipt-html  — must be registered before /:id
-router.get('/:id/receipt-html', async (req: AuthRequest, res: Response) => {
+router.get('/:id/receipt-html', requirePrint, async (req: AuthRequest, res: Response) => {
   try {
     const bookingId = req.params.id;
 

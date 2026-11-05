@@ -7,6 +7,7 @@ import { auditChange } from '../../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, text, body, qtext, day, paging, likeOf } from '../../utils/input.js';
 import { encrypt, decrypt } from '../../utils/doc-crypto.js';
 import { sqlDayStart, sqlDayEnd } from '../../utils/business-date.js';
+import { requireDownload } from '../../middleware/printDownload.js';
 
 const router = Router();
 
@@ -160,7 +161,7 @@ router.post('/vault', maybeFile, async (req: AuthRequest, res: Response, next: N
 });
 
 // GET /api/documents/vault/file/:id - The stored file (before /vault/:consumerId so "file" is not read as an id)
-router.get('/vault/file/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/vault/file/:id', requireDownload, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const r = (await db.query(`SELECT dv.file_name, dv.content_type, dv.file_data FROM document_vault dv WHERE dv.id = $1 AND ${UNIT_OK}`, [uuid(req.params.id, 'Document')])).rows[0];
     if (!r?.file_data) throw bad('No file was stored for this document', 404);

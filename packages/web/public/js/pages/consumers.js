@@ -6,7 +6,7 @@ Pages.consumers = async function(params = {}) {
   // Load projects for filter dropdown
   let projects = [];
   try {
-    const r = await Api.get('/units', { params: { page: 1, pageSize: 100 } });
+    const r = await Api.get('/units/lookup', { params: { page: 1, pageSize: 100 } });
     const projectNames = [...new Set((r.data || r || []).map(u => u.project_name || u.projectName).filter(Boolean))];
     projects = projectNames;
   } catch {}

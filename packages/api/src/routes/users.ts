@@ -9,7 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest, invalidateAuthUser, clientIp } from '../index.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
-import { UNIT_STATUS_MAP } from '../middleware/unitStatusAccess.js';
+import { UNIT_STATUS_MAP, effectiveUnitAccess } from '../middleware/unitStatusAccess.js';
 import { cleanEmail, cleanIp, intParam, isUuid, passwordProblem } from '../utils/security.js';
 import { isSuperAdmin, requireSuperAdmin } from '../middleware/superAdmin.js';
 import { pick, withoutSecrets } from '../utils/audit-values.js';
@@ -397,7 +397,7 @@ router.post('/employee-login', guard(async (req, res) => {
                           unit_status_access, home_page_widgets, assigned_project_ids, is_active, created_by_user_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,NOW()) RETURNING id`,
       [fields.email, name, fields.username, fields.role, fields.password_hash,
-       fields.authorized_print ?? false, fields.authorized_download ?? false, fields.unit_status_access ?? 'all',
+       fields.authorized_print ?? false, fields.authorized_download ?? false, fields.unit_status_access ?? 'none',
        fields.home_page_widgets ?? '[]', fields.assigned_project_ids ?? '[]', req.userId]);
     const userId = created.rows[0].id;
     for (const p of perms) {
@@ -409,7 +409,7 @@ router.post('/employee-login', guard(async (req, res) => {
     await auditChange(db, req, res, 'create', 'user', userId, {}, withoutSecrets({
       username: fields.username, email: fields.email, role: fields.role,
       processes: processLabels(perms), companyIds, assigned_project_ids: JSON.parse((fields.assigned_project_ids as string) ?? '[]'),
-      authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'all',
+      authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'none',
     }));
     res.status(201).json({ success: true, data: { userId, username: fields.username } });
   } catch (err) {
@@ -572,7 +572,7 @@ router.post('/employee-login/:id/revoke-all', guard(async (req, res) => {
 router.get('/me', guard(async (req, res) => {
   if (!req.userId) return fail(401, 'Not authenticated');
   const u = await db.query(
-    `SELECT id, name, email, mobile, role, assigned_project_ids, is_active FROM users WHERE id = $1`, [req.userId]);
+    `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, unit_status_access FROM users WHERE id = $1`, [req.userId]);
   if (!u.rows[0]) return fail(404, 'User not found');
   const [perm, companies] = await Promise.all([
     db.query(`SELECT process_name, is_maker, is_checker, is_approver FROM user_process_permissions WHERE user_id = $1`, [req.userId]),
@@ -586,7 +586,9 @@ router.get('/me', guard(async (req, res) => {
     if (row.is_approver) roles.push('approver');
     processPermissions[row.process_name] = roles;
   }
-  res.json({ success: true, data: { ...u.rows[0], processPermissions, companyIds: companies.rows.map((r) => r.company_id) } });
+  // The effective print and download grants (super_admin has both): the browser hides buttons from these, the API refuses the endpoints on its own
+  const sa = isSuperAdmin(req);
+  res.json({ success: true, data: { ...u.rows[0], processPermissions, companyIds: companies.rows.map((r) => r.company_id), authorizedPrint: sa || req.authorizedPrint === true, authorizedDownload: sa || req.authorizedDownload === true, unitStatusAccess: effectiveUnitAccess(sa, (u.rows[0] as any).unit_status_access) } });
 }));
 
 // GET /api/users/:id

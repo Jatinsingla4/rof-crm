@@ -6,7 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
-import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
+import { applyUnitStatusFilter, requireInventoryAccess } from '../middleware/unitStatusAccess.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { typePrice } from '../utils/unit-type-price.js';
@@ -83,6 +83,13 @@ const saveUnitCharges = async (c: any, unitId: string, projectId: string, list: 
 };
 
 // GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
+// Inventory views (details, counts, summaries, tower maps, area reports) need an inventory grant; fail closed (NULL or unknown = none).
+// '/' and '/lookup' are handled by the list itself, '/:id/charges' is unit set-up and waits for the owner's answer Q-U1.
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  if (req.method !== 'GET' || req.path === '/' || req.path === '/lookup' || /\/charges$/.test(req.path)) return next();
+  return requireInventoryAccess(req, res, next);
+});
+
 router.get('/:id/charges', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Unit id');
@@ -160,7 +167,9 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 });
 
 // GET /api/units - List units with filters
-router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// '/lookup' is the same list for screens that are not inventory screens (documents, applicant forms): it follows project scope and the module
+// permission but ignores the inventory grant, so a sold unit can still be found for its own paperwork. '/' follows the grant.
+const listUnits = async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId, towerId, status, bhkType, consumerName, registrationNo } = req.query;
     // Paging is a number we check ourselves (it used to be pasted into the SQL text)
@@ -265,7 +274,9 @@ router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, n
   } catch (error) {
     fail(error, res, next);
   }
-});
+};
+router.get('/', applyUnitStatusFilter, listUnits);
+router.get('/lookup', (req: AuthRequest, _res: Response, next: NextFunction) => { req.unitStatusFilter = null; next(); }, listUnits);
 
 // GET /api/units/tower/:projectId - Tower-wise breakdown
 router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {

@@ -15,6 +15,7 @@ import { closeHold, expireDueHolds } from '../utils/holds.js';
 import { mappedOk } from '../utils/broker.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
+import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next, 'This unit is already held');
@@ -45,7 +46,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // POST /api/inventory-hold
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const b = body(req);
     const unitId = uuid(b.unitId, 'unitId'), brokerId = uuid(b.brokerId, 'brokerId');
@@ -62,6 +63,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     const hold = await inTx(async (c) => {
       const unit = (await c.query(`SELECT id, status, project_id FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
       if (!unit) throw bad('Unit not found', 404);
+      assertUnitGrant(req, unit.status);   // a hold reserves available inventory: needs the inventory grant (checked first, against the unit's current status)
       const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
       if (!brk) throw bad('Broker not found', 404);
       // Broker authentication of the project: Automatic lets a broker nobody has approved yet hold units here; Manual (the default) needs an active broker

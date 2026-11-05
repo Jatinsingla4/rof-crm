@@ -8,6 +8,7 @@ import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/i
 import { challanStatus } from '../utils/tds.js';
 import { businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
 import { notOwn } from './financial-ops.js';
+import { requireDownload } from '../middleware/printDownload.js';
 
 const router = Router();
 const MAX = 1_000_000_000;
@@ -188,7 +189,7 @@ router.get('/tds/receipts', async (req: AuthRequest, res: Response, next: NextFu
 });
 
 // GET /api/payments/tds/challans/:id - one challan with every assignment (released ones too)
-router.get('/tds/challans/:id', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/tds/challans/:id', requireDownload, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Challan id');
     const c = (await db.query(`SELECT ${LIST} FROM tds_challans c WHERE c.id = $1`, [id])).rows[0];

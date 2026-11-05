@@ -41,7 +41,7 @@ const mk = async (tag) => {
 const P1 = await mk('A'), P2 = await mk('B');
 const newUser = async (tag, role, projectIds) => {
   const email = `scope.${tag}.${U}@example.com`;
-  const x = await A('POST', '/users/employee-login', { username: `scope_${tag}_${U}`, email, password: PW, confirmPassword: PW, role, assignedProjectIds: projectIds });
+  const x = await A('POST', '/users/employee-login', { username: `scope_${tag}_${U}`, email, password: PW, confirmPassword: PW, role, assignedProjectIds: projectIds, unitStatusAccess: 'all', authorizedPrint: true, authorizedDownload: true });   // capability grants are their own gates; this login tests project scope
   return { id: x.j?.data?.userId, call: call(await login(email, PW)), email };
 };
 const one = await newUser('one', 'sales_executive', [P1.pid]);

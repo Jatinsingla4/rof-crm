@@ -13,6 +13,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, uuid, has, num, text, body, qtext } from '../utils/input.js';
+import { requireDownload } from '../middleware/printDownload.js';
 
 // Type of the file is read from its first bytes; the name and the declared type from the browser are not trusted
 const SIGNATURES: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]], ['application/pdf', [0x25, 0x50, 0x44, 0x46]]];
@@ -71,7 +72,7 @@ router.post('/upload', oneFile, async (req: AuthRequest, res: Response, next: Ne
 });
 
 // GET /api/booking-documents/:id/file — the stored file (page address carries a link token when opened in a tab)
-router.get('/:id/file', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/file', requireDownload, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const d = (await db.query(`SELECT file_data, file_mime_type, file_original_name FROM booking_documents WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = booking_record_id)`, [req.params.id])).rows[0];
     if (!d?.file_data) return res.status(404).json({ error: 'File not found' });

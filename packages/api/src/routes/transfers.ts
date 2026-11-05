@@ -11,6 +11,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
 import { gstinNo, likeOf } from '../utils/applicant.js';
 import { SQL_TODAY, businessTomorrow } from '../utils/business-date.js';
+import { requirePrint } from '../middleware/printDownload.js';
 
 function fmtDateIndia(d: any): string {
   if (!d) return '';
@@ -391,7 +392,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
  * GET /api/transfers/:id/letter - printable HTML transfer letter for one transfer.
  * Must be defined before /:id to avoid Express matching "letter" as the id.
  */
-router.get('/:id/letter', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/:id/letter', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Transfer id');
     const result = await db.query(TRANSFER_DETAIL_QUERY, [id]);

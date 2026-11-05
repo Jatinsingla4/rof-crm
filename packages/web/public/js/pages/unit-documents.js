@@ -95,7 +95,7 @@ const UnitDocsPage = {
   async loadUnits() {
     const projectId = document.getElementById('ud-project')?.value;
     try {
-      this._units = projectId ? ((await Api.get('/units', { params: { projectId, pageSize: 1000 } })).data || []) : [];
+      this._units = projectId ? ((await Api.get('/units/lookup', { params: { projectId, pageSize: 1000 } })).data || []) : [];
     } catch (err) { this._units = []; Utils.error(err.message); }
     const towerSel = document.getElementById('ud-tower'); if (towerSel) towerSel.value = '';
     this.filterUnits();

@@ -13,6 +13,8 @@ import { likeOf } from '../utils/applicant.js';
 import { sha } from '../utils/applicant-fields.js';
 import { performSurrender } from './surrender.js';
 import { SQL_TODAY, businessToday, businessTomorrow } from '../utils/business-date.js';
+import { requirePrint } from '../middleware/printDownload.js';
+import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
 
 const router = Router();
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
@@ -40,7 +42,7 @@ const history = (c: any, unitId: string, from: string | null, to: string, userId
   c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) VALUES ($1, $2, $3, $4, $5)`, [unitId, from, to, userId || null, reason]);
 
 // POST /api/allocations - allot a unit to an applicant (one click)
-router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const b = body(req);
     for (const k of ['consumerId', 'unitId', 'projectId']) if (!has(b[k])) throw bad(`${k} must be a valid UUID`);
@@ -52,6 +54,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       const unit = (await c.query(`SELECT status, project_id FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
       if (!unit) throw bad('Unit not found', 404);
       if (!['available', 'booked'].includes(unit.status)) throw bad('Unit not available for allocation');
+      if (unit.status === 'available') assertUnitGrant(req, unit.status);   // a NEW allocation picks available inventory; promoting an existing booking is a lifecycle step (Q-U2)
       if (unit.project_id !== projectId) throw bad('The unit does not belong to that project');
       const person = (await c.query(`SELECT id, project_id, allocated_unit_id FROM consumers WHERE id = $1 FOR UPDATE`, [consumerId])).rows[0];
       if (!person) throw bad('Applicant not found', 404);
@@ -245,7 +248,7 @@ router.post('/import-edraw', (req: AuthRequest, res: Response, next: NextFunctio
 
 // POST /api/allocations/shift - move an applicant to another unit of the same project. The booking, payment plan, allocation and pending commission move with the applicant;
 // the new unit takes the status the old one had and the old unit becomes available. (Prices are not recalculated.)
-router.post('/shift', requireProcess('unit_shifting', 'maker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/shift', requireProcess('unit_shifting', 'maker'), applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const b = body(req);
     if (!has(b.consumerId) || !has(b.newUnitId)) throw bad('consumerId and newUnitId are required');
@@ -267,6 +270,7 @@ router.post('/shift', requireProcess('unit_shifting', 'maker'), async (req: Auth
       const oldU = units.find((u: any) => u.id === oldUnitId), newU = units.find((u: any) => u.id === newUnitId);
       if (!newU) throw bad('New unit not found', 404);
       if (newU.status !== 'available') throw bad('New unit is not available');
+      assertUnitGrant(req, newU.status);
       if (newU.project_id !== oldU.project_id) throw bad('The new unit must be in the same project');
       if ((await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND status <> 'cancelled' LIMIT 1`, [newUnitId])).rows.length) throw bad('The new unit has a booking', 409);
 
@@ -309,7 +313,7 @@ router.get('/shifts', async (req: AuthRequest, res: Response, next: NextFunction
 });
 
 // POST /api/allocations/generate-letters - an allotment letter record for every allotted applicant that has none (once, even if two people click at the same moment)
-router.post('/generate-letters', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.post('/generate-letters', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = has(body(req).projectId) ? uuid(body(req).projectId, 'projectId') : null;
     const out = await inTx(async (c) => {

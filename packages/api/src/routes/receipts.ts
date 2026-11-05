@@ -17,6 +17,7 @@ import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/i
 import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { notOwn } from './financial-ops.js';
+import { requirePrint } from '../middleware/printDownload.js';
 
 const router = Router();
 
@@ -367,7 +368,7 @@ router.patch('/receipts/:id/approve', requireProcess('receipt', 'checker'), asyn
 });
 
 // PATCH /receipts/:id/mark-printed
-router.patch('/receipts/:id/mark-printed', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/receipts/:id/mark-printed', requirePrint, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Receipt id');
     const r = await db.query(`UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2 AND status <> 'cancelled' RETURNING id`, [req.userId, id]);
