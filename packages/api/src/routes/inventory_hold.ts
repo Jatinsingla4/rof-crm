@@ -21,7 +21,7 @@ const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next, 'This unit is already held');
 
 // GET /api/inventory-hold?status=active|expired|converted|cancelled|all
-router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const status = oneOf(req.query.status, 'status', ['active', 'expired', 'converted', 'cancelled', 'all'] as const) || 'active';
     const { size, offset } = paging(req.query, 200, 500);
@@ -29,6 +29,9 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const params: any[] = [];
     let where = '';
     if (status !== 'all') { params.push(status); where = `WHERE uh.status = $1`; }
+    // inventory view: only holds on units whose current status the login's unit-status grant covers (none: an empty list)
+    const f = req.unitStatusFilter;
+    if (f !== null) { params.push(f ?? []); where += `${where ? ' AND' : 'WHERE'} u.status::text = ANY($${params.length}::text[])`; }
     params.push(size, offset);
     const result = await db.query(
       `SELECT uh.*, u.unit_number, u.bhk_type, u.floor, t.tower_name, p.name AS project_name, u.project_id,

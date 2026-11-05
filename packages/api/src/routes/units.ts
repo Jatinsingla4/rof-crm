@@ -6,7 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
-import { applyUnitStatusFilter, requireInventoryAccess } from '../middleware/unitStatusAccess.js';
+import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { typePrice } from '../utils/unit-type-price.js';
@@ -83,12 +83,22 @@ const saveUnitCharges = async (c: any, unitId: string, projectId: string, list: 
 };
 
 // GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
-// Inventory views (details, counts, summaries, tower maps, area reports) need an inventory grant; fail closed (NULL or unknown = none).
-// '/' and '/lookup' are handled by the list itself, '/:id/charges' is unit set-up and waits for the owner's answer Q-U1.
+// Inventory views (details, counts, summaries, tower maps, area reports): the unit-status grant is loaded here and every view applies it to its own
+// query, so a login sees exactly the statuses its grant covers (NULL, unknown or none = no unit, zero counts, empty selectors, 404 on a unit detail).
+// '/' loads it itself, '/lookup' ignores it by design, '/:id/charges' is unit set-up and waits for the owner's answer Q-U1.
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method !== 'GET' || req.path === '/' || req.path === '/lookup' || /\/charges$/.test(req.path)) return next();
-  return requireInventoryAccess(req, res, next);
+  return applyUnitStatusFilter(req, res, next);
 });
+// The grant as a SQL clause on a status column: nothing for 'all' and super_admin (null), otherwise the status must be one of the granted ones;
+// a grant that was not loaded counts as none (fail closed). The list is pushed as the next parameter.
+const grantSql = (req: AuthRequest, col: string, params: any[]): string => {
+  const f = req.unitStatusFilter;
+  if (f === null) return '';
+  params.push(f ?? []);
+  return ` AND ${col}::text = ANY($${params.length}::text[])`;
+};
+const grantCovers = (req: AuthRequest, status: unknown): boolean => req.unitStatusFilter === null || (Array.isArray(req.unitStatusFilter) && req.unitStatusFilter.includes(String(status)));
 
 router.get('/:id/charges', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -282,6 +292,8 @@ router.get('/lookup', (req: AuthRequest, _res: Response, next: NextFunction) => 
 router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId } = req.params;
+    const tp: any[] = [projectId];
+    const grant = grantSql(req, 'u.status', tp);
 
     const result = await db.query(
       `SELECT
@@ -312,10 +324,10 @@ router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: Ne
                     AND r.consumer_id IN (SELECT a.consumer_id FROM allocations a WHERE a.unit_id = u.id AND a.status = 'allotted')
                     AND (SELECT count(*) FROM allocations a2 WHERE a2.consumer_id = r.consumer_id AND a2.status = 'allotted') = 1))
        ) r_total ON true
-       WHERE u.project_id = $1
+       WHERE u.project_id = $1${grant}
        GROUP BY t.id, t.tower_name
        ORDER BY t.tower_name ASC`,
-      [projectId]
+      tp
     );
 
     const towers = result.rows;
@@ -354,6 +366,8 @@ router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: Ne
 router.get('/inventory-summary/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const { projectId } = req.params;
+    const sp: any[] = [projectId];
+    const grant = grantSql(req, 'status', sp);
 
     const result = await db.query(
       `SELECT
@@ -370,8 +384,8 @@ router.get('/inventory-summary/:projectId', async (req: AuthRequest, res: Respon
         SUM(total_price_inr) as total_project_value_inr,
         ROUND(100.0 * COUNT(CASE WHEN status::text = 'allotted' THEN 1 END) / NULLIF(COUNT(*), 0), 2) as fill_percentage
        FROM units
-       WHERE project_id = $1`,
-      [projectId]
+       WHERE project_id = $1${grant}`,
+      sp
     );
 
     const row = result.rows[0];
@@ -394,11 +408,20 @@ router.get('/inventory-summary/:projectId', async (req: AuthRequest, res: Respon
 // GET /api/units/projects - List all distinct projects (must be before /:id)
 router.get('/projects', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const result = await db.query(
-      `SELECT id, name, rera_number, tcp_licence, location, land_area_sqft, total_units, created_at
-       FROM projects
-       ORDER BY name ASC`
-    );
+    const pp: any[] = [];
+    const g = grantSql(req, 'un.status', pp);
+    // A project is listed only when it has a unit the grant covers, and its unit count is that of the covered units (none: an empty selector)
+    const result = g
+      ? await db.query(
+          `SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location, p.land_area_sqft,
+                  (SELECT COUNT(*)::int FROM units un WHERE un.project_id = p.id${g}) AS total_units, p.created_at
+             FROM projects p
+            WHERE EXISTS (SELECT 1 FROM units un WHERE un.project_id = p.id${g})
+            ORDER BY p.name ASC`, pp)
+      : await db.query(
+          `SELECT id, name, rera_number, tcp_licence, location, land_area_sqft, total_units, created_at
+           FROM projects
+           ORDER BY name ASC`);
     res.json({ success: true, data: result.rows });
   } catch (error) {
     next(error);
@@ -410,10 +433,14 @@ router.get('/projects', async (req: AuthRequest, res: Response, next: NextFuncti
 router.get('/towers', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = has(req.query.projectId) ? uuid(req.query.projectId, 'projectId') : null;
+    const tp: any[] = projectId ? [projectId] : [];
+    const g = grantSql(req, 'un.status', tp);
+    // only towers that hold a unit the grant covers (none: an empty selector)
     const result = await db.query(
       `SELECT id, tower_name, tower_name AS name, project_id FROM towers
-       WHERE deleted_at IS NULL ${projectId ? 'AND project_id = $1' : ''} ORDER BY sort_order, tower_name`,
-      projectId ? [projectId] : []
+       WHERE deleted_at IS NULL ${projectId ? 'AND project_id = $1' : ''}
+       ${g ? `AND EXISTS (SELECT 1 FROM units un WHERE un.tower_id = towers.id${g})` : ''} ORDER BY sort_order, tower_name`,
+      tp
     );
     res.json({ success: true, data: result.rows });
   } catch (err) { fail(err, res, next); }
@@ -429,6 +456,7 @@ router.get('/status-counts', async (req: AuthRequest, res: Response, next: NextF
       params.push(projectId);
       where += ` AND u.project_id = $${params.length}`;
     }
+    where += grantSql(req, 'u.status', params);
     const result = await db.query(
       `SELECT u.status::text as status, COUNT(*)::int as count,
               COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
@@ -472,6 +500,7 @@ router.get('/tower-detail', async (req: AuthRequest, res: Response, next: NextFu
       ? [projectId, towerId, statuses]
       : [projectId, towerId];
 
+    const grant = grantSql(req, 'u.status', queryParams);
     const result = await db.query(
       `SELECT
         u.unit_number,
@@ -506,7 +535,7 @@ router.get('/tower-detail', async (req: AuthRequest, res: Response, next: NextFu
        LEFT JOIN brokers b ON b.id = br.main_broker_id
        WHERE u.project_id = $1
        AND u.tower_id = $2
-       ${statusFilter}
+       ${statusFilter}${grant}
        ORDER BY COALESCE(br.booking_date, a.allotment_date) ASC NULLS LAST, u.unit_number ASC`,
       queryParams
     );
@@ -533,6 +562,7 @@ router.get('/status', async (req: AuthRequest, res: Response, next: NextFunction
       params.push(projectId);
       where += ` AND u.project_id = $${params.length}`;
     }
+    where += grantSql(req, 'u.status', params);
     const result = await db.query(
       `SELECT u.status::text as status, COUNT(*)::int as count,
               COALESCE(SUM(u.carpet_area_sqft), 0) as total_area
@@ -571,8 +601,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
       [id]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Unit not found' });
+    if (result.rows.length === 0 || !grantCovers(req, result.rows[0].status)) {
+      return res.status(404).json({ error: 'Unit not found' });   // a unit outside the login's unit-status grant is not found
     }
 
     const historyResult = await db.query(
@@ -767,7 +797,9 @@ router.get('/areas/report', async (req: AuthRequest, res: Response, next: NextFu
   try {
     const projectId = uuid(req.query.projectId, 'projectId'), towerId = has(req.query.towerId) ? uuid(req.query.towerId, 'towerId') : null;
     if (!(await db.query('SELECT 1 FROM projects WHERE id = $1', [projectId])).rows.length) return res.status(404).json({ error: 'Project not found' });
-    const rows = (await db.query(`${areaSelect} WHERE u.project_id = $1 AND ($2::uuid IS NULL OR u.tower_id = $2) ORDER BY t.tower_name, u.floor, u.unit_number`, [projectId, towerId])).rows;
+    const ap: any[] = [projectId, towerId];
+    const grant = grantSql(req, 'u.status', ap);
+    const rows = (await db.query(`${areaSelect} WHERE u.project_id = $1 AND ($2::uuid IS NULL OR u.tower_id = $2)${grant} ORDER BY t.tower_name, u.floor, u.unit_number`, ap)).rows;
     res.json({ success: true, data: rows.map(areaOut) });
   } catch (error) { fail(error, res, next); }
 });
@@ -777,7 +809,7 @@ router.get('/:id/areas', async (req: AuthRequest, res: Response, next: NextFunct
   try {
     const id = uuid(req.params.id, 'Unit id');
     const r = (await db.query(`${areaSelect} WHERE u.id = $1`, [id])).rows[0];
-    if (!r) return res.status(404).json({ error: 'Unit not found' });
+    if (!r || !grantCovers(req, r.status)) return res.status(404).json({ error: 'Unit not found' });
     res.json({ success: true, data: { ...areaOut(r), sold: await unitIsSold(db, id, r.status) } });
   } catch (error) { fail(error, res, next); }
 });
@@ -786,7 +818,8 @@ router.get('/:id/areas', async (req: AuthRequest, res: Response, next: NextFunct
 router.get('/:id/areas/history', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Unit id');
-    if (!(await db.query('SELECT 1 FROM units WHERE id = $1', [id])).rows.length) return res.status(404).json({ error: 'Unit not found' });
+    const un = (await db.query('SELECT status FROM units WHERE id = $1', [id])).rows[0];
+    if (!un || !grantCovers(req, un.status)) return res.status(404).json({ error: 'Unit not found' });
     const rows = (await db.query(`SELECT h.id, h.effective_date::text AS effective_date, h.before, h.after, h.note, h.changed_at, u.name AS changed_by_name
         FROM unit_area_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.unit_id = $1 ORDER BY h.changed_at DESC LIMIT 100`, [id])).rows;
     res.json({ success: true, data: rows });
