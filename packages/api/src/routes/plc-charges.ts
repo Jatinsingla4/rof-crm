@@ -7,6 +7,8 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
+import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
+import { grantClause } from '../utils/unit-grant.js';
 import { bad, failWith, uuid, has, num, flag, body, r2, inTx } from '../utils/input.js';
 
 const router = Router();
@@ -43,13 +45,16 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
 });
 
 // GET /api/plc-charges/units?projectId=&locationId= : units of the project with their location (for the assign screen)
-router.get('/units', async (req: AuthRequest, res: Response, next: NextFunction) => {
+// The unit-status grant applies (owner-approved U-P): only the units the login's grant covers are listed (none: no unit).
+router.get('/units', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = uuid(req.query.projectId, 'projectId');
+    const params: any[] = [projectId];
+    const grant = grantClause(req.unitStatusFilter, 'u.status', params);
     const rows = (await db.query(
       `SELECT u.id, u.unit_number, t.tower_name, u.floor, u.status::text AS status, u.carpet_area_sqft, u.unit_location_id, ul.name AS location_name
          FROM units u JOIN towers t ON t.id = u.tower_id LEFT JOIN unit_locations ul ON ul.id = u.unit_location_id
-        WHERE u.project_id = $1 ORDER BY t.tower_name, u.floor, u.unit_number LIMIT 5000`, [projectId])).rows;
+        WHERE u.project_id = $1${grant} ORDER BY t.tower_name, u.floor, u.unit_number LIMIT 5000`, params)).rows;
     res.json({ success: true, data: rows });
   } catch (err) { fail(err, res, next); }
 });

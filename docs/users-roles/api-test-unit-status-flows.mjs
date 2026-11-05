@@ -1,7 +1,7 @@
 // Users & Roles, UR-007 (plan 8.2): the unit-status grant on the WRITE flows, over real HTTP, with the database checked after every request.
 //   booking create, unit shift, hold create, new allotment: a refused request changes nothing (no row, status untouched); an allowed one writes exactly what it should.
-// Section 2 pins CURRENT behaviour of three surfaces whose policy is an open owner decision (/units/lookup, /plc-charges/units, project/tower/floor counts).
-//   Those checks are regression records, not approval: when the owner decides, the expectation changes with the code.
+// Section 2: the owner-approved rules for /units/lookup (U-L), /plc-charges/units (U-P), project / tower / floor figures (U-C) and GET /units/:id/charges (Q-U1),
+//   for none, NULL, unknown, empty, unit_hold, available, available_hold, all and super_admin.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-unit-status-flows.mjs   (needs psql env and the second-admin helper)
 import { execFileSync } from 'node:child_process';
 import { bizToday } from '../_shared/business-date.mjs';
@@ -29,6 +29,8 @@ let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 1
 const co = must(await A('POST', '/companies', { name: 'FL Co ' + U }), 'company');
 const P1 = must(await A('POST', '/projects', { companyId: co.id, name: `FL-1-${U}`, reraNumber: `FL1-${U}`, tcpLicence: 'x' }), 'project');
 const T1 = must(await A('POST', `/projects/${P1.id}/towers`, { towerName: 'T' + U }), 'tower');
+const P2 = must(await A('POST', '/projects', { companyId: co.id, name: `FL-2-${U}`, reraNumber: `FL2-${U}`, tcpLicence: 'x' }), 'project2');   // read-only views of section 2
+const T2 = must(await A('POST', `/projects/${P2.id}/towers`, { towerName: 'TQ' + U }), 'tower2');
 const PLAN = 'FL Plan ' + U; let pi = 0;
 for (const pc of [20, 30, 50]) must(await A('POST', `/projects/${P1.id}/plan-templates`, { plan_name: PLAN, installment_name: `Row ${++pi}`, installment_type: pi === 1 ? 'booking' : 'installment', percentage: pc, due_date_offset_days: pi * 30, installment_index: pi }), 'plan');
 let slab = (await A('GET', '/gst-configuration/gst-slabs')).j.data.find((s) => s.from_date <= today && s.to_date >= today)?.id;
@@ -43,7 +45,7 @@ const unit = async (st = 'available') => { const x = must(await A('POST', '/unit
 const person = async () => must(await A('POST', '/consumers', { name: `FL Buyer ${++seq} ${U}`, mobile: mob(), project_id: P1.id }), 'consumer').id;
 const mk = async (name, access, procs = true) => {
   const email = `fl.${name}.${U}@test.local`;
-  const r = await A('POST', '/users/employee-login', { username: `fl${name}${U}`, email, password: PW, confirmPassword: PW, role: 'project_manager', companyIds: [co.id], assignedProjectIds: [P1.id],
+  const r = await A('POST', '/users/employee-login', { username: `fl${name}${U}`, email, password: PW, confirmPassword: PW, role: 'project_manager', companyIds: [co.id], assignedProjectIds: [P1.id, P2.id],
     ...(access ? { unitStatusAccess: access } : {}), ...(procs ? { processPermissions: [{ processName: 'unit_shifting', isMaker: true, isChecker: false }] } : {}) });
   if (r.s !== 201) throw new Error(name + ' ' + JSON.stringify(r));
   return { name, id: r.j.data.userId, tok: await login(email, PW) };
@@ -152,34 +154,59 @@ t('unit shift to a BOOKED unit: 400 "not available" for every login (the status 
   t('hold create and new allotment by typed unit id: uncovered -> 403 with no hold/allocation row and the status untouched; covered available -> 201 with the row and the new status; covered but unusable status -> 409 untouched', probs.length === 0, probs.slice(0, 4).join(' | '));
 }
 
-// ---------- 2. CURRENT behaviour of the open-decision surfaces (regression record; the policy is the owner's) ----------
-// A project with a known mix of statuses, read by a login with grant none.
-const P2 = must(await A('POST', '/projects', { companyId: co.id, name: `FL-2-${U}`, reraNumber: `FL2-${U}`, tcpLicence: 'x' }), 'project2');
-const T2 = must(await A('POST', `/projects/${P2.id}/towers`, { towerName: 'TQ' + U }), 'tower2');
-sql(`INSERT INTO user_company_access (user_id, company_id) SELECT '${none.id}', '${co.id}' WHERE NOT EXISTS (SELECT 1 FROM user_company_access WHERE user_id = '${none.id}' AND company_id = '${co.id}')`);
-sql(`UPDATE users SET assigned_project_ids = assigned_project_ids || to_jsonb('${P2.id}'::text) WHERE id IN ('${none.id}', '${all.id}')`);
-const mk2 = async (st) => { const x = must(await A('POST', '/units', { projectId: P2.id, towerId: T2.id, floor: 3, unitNumber: `Q${++un}-${U}`, bhkType: '3BHK', carpetAreaSqft: 900 }), 'unit'); if (st !== 'available') sql(`UPDATE units SET status = '${st}' WHERE id = '${x.id}'`); return x.id; };
-for (const st of ['available', 'available', 'booked', 'allotted', 'held']) await mk2(st);
-const status = (id) => sql(`SELECT status FROM units WHERE id = '${id}'`);
-let r = await raw(none.tok, 'GET', `/units/lookup?projectId=${P2.id}&pageSize=50`);
-const lk = r.j?.data || [];
-t('CURRENT /units/lookup (grant none): 200 and returns every unit of the project with its status, prices and holder columns (policy open: owner decision U-L)',
-  r.s === 200 && lk.length === 5 && new Set(lk.map((x) => x.status)).size === 4 && ['base_price_inr', 'hold_client', 'consumer_name', 'registration_no', 'broker_name'].every((k) => k in (lk[0] || {})), `${r.s} rows=${lk.length} keys=${Object.keys(lk[0] || {}).join(',')}`);
-r = await raw(none.tok, 'GET', `/plc-charges/units?projectId=${P2.id}`);
-const pl = r.j?.data || [];
-t('CURRENT /plc-charges/units (grant none): 200 and lists every unit of the project with its status (policy open: owner decision U-P)', r.s === 200 && pl.length === 5 && new Set(pl.map((x) => x.status)).size === 4, `${r.s} rows=${pl.length} ${JSON.stringify(r.j)?.slice(0, 120)}`);
-const inv = await raw(none.tok, 'GET', `/units?projectId=${P2.id}&pageSize=50`);
-t('CURRENT contrast: the same login sees zero rows on /units (the covered list view)', inv.s === 200 && (inv.j?.data || []).length === 0);
-r = await raw(none.tok, 'GET', '/projects');
-const pj = (r.j?.data || []).find((x) => x.id === P2.id);
-t('CURRENT /projects (grant none): the project row carries real unit counts (policy open: owner decision U-C)', r.s === 200 && !!pj && Number(pj.unit_count) === 5 && Number(pj.available_units) === 2 && Number(pj.allotted_units) === 1, `${r.s} ${JSON.stringify(pj)?.slice(0, 200)}`);
-r = await raw(none.tok, 'GET', `/projects/${P2.id}`);
-const twD = JSON.stringify(r.j?.data?.towers ?? r.j?.data ?? '');
-t('CURRENT /projects/:id (grant none): tower rows carry the unit count', r.s === 200 && /"unit_count":\s*"?5"?/.test(twD), `${r.s} ${twD.slice(0, 200)}`);
-r = await raw(none.tok, 'GET', `/projects/${P2.id}/floors`);
-t('CURRENT /projects/:id/floors (grant none): 200 and the floor numbers that hold units (floor 3), no counts', r.s === 200 && JSON.stringify(r.j?.data) === '[3]', `${r.s} ${JSON.stringify(r.j)?.slice(0, 200)}`);
-r = await raw(none.tok, 'GET', `/projects/${P2.id}/towers/${T2.id}`);
-t('CURRENT /projects/:id/towers/:towerId (grant none): 200 and the tower carries its unit count', r.s === 200 && /"unit_count":\s*"?5"?/.test(JSON.stringify(r.j)), `${r.s} ${JSON.stringify(r.j)?.slice(0, 200)}`);
+// ---------- 2. owner-approved U-L, U-P, U-C, Q-U1: lookup, PLC units, project / tower / floor figures, unit charges ----------
+// One project with a known mix of statuses (7 units on floor 3 of one tower), read by every kind of login.
+const P2_STATUSES = ['available', 'available', 'booked', 'allotted', 'held', 'locked', 'temp_surrender'];
+const p2 = []; for (const st of P2_STATUSES) { const x = must(await A('POST', '/units', { projectId: P2.id, towerId: T2.id, floor: 3, unitNumber: `Q${++un}-${U}`, bhkType: '3BHK', carpetAreaSqft: 900 }), 'unit'); if (st !== 'available') sql(`UPDATE units SET status = '${st}' WHERE id = '${x.id}'`); p2.push({ id: x.id, status: st }); }
+const IDKEYS = 'id,project_id,project_name,tower,tower_id,tower_name,unit_number';
+const IDONLY = [none, nul, weird, empty];
+const n2 = (u) => p2.filter((x) => covers(u, x.status)).length, c2 = (u, st) => p2.filter((x) => x.status === st && covers(u, x.status)).length;
+const P = { lookup: [], lookupFilter: [], plc: [], inv: [], proj: [], projId: [], towers: [], tower: [], floors: [], tfloors: [], charges: [], chargesBad: [] };
+for (const u of USERS) {
+  const n = n2(u), idOnly = IDONLY.includes(u);
+  // U-L: none (and NULL, unknown, empty) -> every unit of the project by identifier only; a partial grant -> only the covered units, in full; all and super_admin -> everything, in full
+  let r = await raw(u.tok, 'GET', `/units/lookup?projectId=${P2.id}&pageSize=50`); let rows = r.j?.data || [];
+  const keysOk = (row) => idOnly ? Object.keys(row).sort().join() === IDKEYS.split(',').sort().join() : ['status', 'base_price_inr', 'hold_client', 'consumer_name', 'registration_no', 'broker_name'].every((k) => k in row);
+  const statusOk = idOnly || rows.every((x) => covers(u, x.status));
+  if (!(r.s === 200 && rows.length === (idOnly ? 7 : n) && rows.every(keysOk) && statusOk)) P.lookup.push(`${u.name}: ${r.s} rows=${rows.length} want ${idOnly ? 7 : n} keys=${Object.keys(rows[0] || {}).join(',').slice(0, 60)}`);
+  if (idOnly) { // the hidden fields cannot be probed through the filters: status, bhk type, name and registration filters are ignored
+    for (const q of ['status=booked', 'status=available', 'bhkType=3BHK', 'consumerName=zzz', 'registrationNo=zzz']) { const f = await raw(u.tok, 'GET', `/units/lookup?projectId=${P2.id}&pageSize=50&${q}`); if (!(f.s === 200 && (f.j?.data || []).length === 7)) P.lookupFilter.push(`${u.name} ?${q}: ${f.s} rows=${(f.j?.data || []).length}`); }
+  }
+  // U-P: the PLC unit list follows the grant (none: no unit)
+  r = await raw(u.tok, 'GET', `/plc-charges/units?projectId=${P2.id}`); rows = r.j?.data || [];
+  if (!(r.s === 200 && rows.length === n && rows.every((x) => covers(u, x.status)))) P.plc.push(`${u.name}: ${r.s} rows=${rows.length} want ${n}`);
+  // U-C: project list row, project detail towers, tower list, one tower, floors, per-floor counts: counted over the covered units only (zero for none)
+  r = await raw(u.tok, 'GET', '/projects'); const pj = (r.j?.data || []).find((x) => x.id === P2.id);
+  if (!(r.s === 200 && pj && Number(pj.unit_count) === n && Number(pj.available_units) === c2(u, 'available') && Number(pj.allotted_units) === c2(u, 'allotted'))) P.proj.push(`${u.name}: ${r.s} unit=${pj?.unit_count} avail=${pj?.available_units} allotted=${pj?.allotted_units} want ${n}/${c2(u, 'available')}/${c2(u, 'allotted')}`);
+  r = await raw(u.tok, 'GET', `/projects/${P2.id}`); const tw = (r.j?.data?.towers || []).find((x) => x.id === T2.id);
+  if (!(r.s === 200 && tw && Number(tw.unit_count) === n)) P.projId.push(`${u.name}: ${r.s} unit_count=${tw?.unit_count} want ${n}`);
+  r = await raw(u.tok, 'GET', `/projects/${P2.id}/towers`); const tl = (r.j?.data || []).find((x) => x.id === T2.id);
+  if (!(r.s === 200 && tl && Number(tl.unit_count) === n)) P.towers.push(`${u.name}: ${r.s} unit_count=${tl?.unit_count} want ${n}`);
+  r = await raw(u.tok, 'GET', `/projects/${P2.id}/towers/${T2.id}`);
+  if (!(r.s === 200 && Number(r.j?.data?.unit_count) === n)) P.tower.push(`${u.name}: ${r.s} unit_count=${r.j?.data?.unit_count} want ${n}`);
+  r = await raw(u.tok, 'GET', `/projects/${P2.id}/floors`);
+  if (!(r.s === 200 && JSON.stringify(r.j?.data) === (n > 0 ? '[3]' : '[]'))) P.floors.push(`${u.name}: ${r.s} ${JSON.stringify(r.j?.data)} want ${n > 0 ? '[3]' : '[]'}`);
+  r = await raw(u.tok, 'GET', `/projects/${P2.id}/towers/${T2.id}/floors`); const f3 = (r.j?.data || []).find((x) => Number(x.floor_number) === 3);
+  if (!(r.s === 200 && f3 && Number(f3.units) === n)) P.tfloors.push(`${u.name}: ${r.s} floor3 units=${f3?.units} want ${n} (the floor itself stays listed)`);
+  // Q-U1: unit charges GET follows the grant: 200 for a covered status, 404 for any other (none: always 404)
+  for (const x of p2) { const c = await raw(u.tok, 'GET', `/units/${x.id}/charges`); const want = covers(u, x.status) ? 200 : 404; if (c.s !== want) P.charges.push(`${u.name} ${x.status}: ${c.s} want ${want}`); }
+  const nf = await raw(u.tok, 'GET', '/units/00000000-0000-0000-0000-0000000000f1/charges'); if (nf.s !== 404) P.chargesBad.push(`${u.name}: unknown unit -> ${nf.s}`);
+}
+t('U-L /units/lookup: none, NULL, unknown, empty -> every unit of the project, identifiers only (id, project, tower, unit number); partial grants -> only covered units, full fields; all and super_admin -> everything, full fields', P.lookup.length === 0, P.lookup.slice(0, 3).join(' | '));
+t('U-L /units/lookup: for an identifiers-only login the status, bhk type, name and registration filters are ignored (they cannot be used to probe hidden data)', P.lookupFilter.length === 0, P.lookupFilter.slice(0, 3).join(' | '));
+t('U-P /plc-charges/units: only the units the grant covers (none, NULL, unknown, empty: none; unit_hold: held and locked; available_hold; all and super_admin: everything)', P.plc.length === 0, P.plc.slice(0, 3).join(' | '));
+t('U-C /projects: unit_count, available_units and allotted_units count only covered units (zero for none)', P.proj.length === 0, P.proj.slice(0, 3).join(' | '));
+t('U-C /projects/:id: tower unit_count over covered units', P.projId.length === 0, P.projId.slice(0, 3).join(' | '));
+t('U-C /projects/:id/towers: tower unit_count over covered units (the tower stays listed)', P.towers.length === 0, P.towers.slice(0, 3).join(' | '));
+t('U-C /projects/:id/towers/:towerId: unit_count over covered units', P.tower.length === 0, P.tower.slice(0, 3).join(' | '));
+t('U-C /projects/:id/floors: only floors that hold a covered unit (none: no floor)', P.floors.length === 0, P.floors.slice(0, 3).join(' | '));
+t('U-C /projects/:id/towers/:towerId/floors: the floor stays listed, its unit count covers covered units only', P.tfloors.length === 0, P.tfloors.slice(0, 3).join(' | '));
+t('Q-U1 GET /units/:id/charges: 200 for a covered status, 404 for any other (none: always 404); an unknown unit is 404', P.charges.length === 0 && P.chargesBad.length === 0, [...P.charges, ...P.chargesBad].slice(0, 4).join(' | '));
+{ // the same logins still reach the unit-charges PUT and the inventory list exactly as before the change (PUT is unchanged policy; the list is the covered view)
+  const inv = await raw(none.tok, 'GET', `/units?projectId=${P2.id}&pageSize=50`);
+  t('contrast: the covered list /units still shows a none login zero rows', inv.s === 200 && (inv.j?.data || []).length === 0);
+}
+let r;
 // historic data stays visible to a login with none (plan 8.2): an applicant and a booking made earlier are not hidden by the grant
 const hist = await unit(), hc = await person();
 must(await A('POST', '/booking', { consumer_id: hc, project_id: P1.id, unit_id: hist, selected_plan_name: PLAN, booking_date: today }), 'historic booking');

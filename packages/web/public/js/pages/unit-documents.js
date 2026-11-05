@@ -120,7 +120,7 @@ const UnitDocsPage = {
 
     const unitSel = document.getElementById('ud-unit');
     if (unitSel) unitSel.innerHTML = '<option value="">— Select Unit —</option>' +
-      filtered.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber||'—'} · Floor ${u.floor||'—'} · ${u.bhk_type||u.bhkType||'—'} · ${Utils.chip(u.status||'available').replace(/<[^>]+>/g, '').trim()}</option>`).join('');
+      filtered.map(u => `<option value="${u.id}">${u.unit_number||u.unitNumber||'—'} · Floor ${u.floor||'—'} · ${u.bhk_type||u.bhkType||'—'}${u.status ? ' · ' + Utils.chip(u.status).replace(/<[^>]+>/g, '').trim() : ''}</option>`).join('');
   },
 
   async loadUnitDocs(unitId) {
@@ -136,10 +136,10 @@ const UnitDocsPage = {
             <div class="sp-title">Unit ${unit?.unit_number||unit?.unitNumber||'—'}</div>
             <div class="udn-sub">${unit?.project_name||unit?.projectName||'—'} · Tower ${unit?.tower||'—'} · Floor ${unit?.floor||'—'} · ${unit?.bhk_type||unit?.bhkType||'—'}</div>
           </div>
-          ${Utils.chip(unit?.status||'available')}
+          ${unit?.status ? Utils.chip(unit.status) : ''}
         </div>
         <div class="sp-body">
-          ${unit ? `
+          ${unit && unit.status ? `
             <div class="udn-stats">
               <div class="udn-stat"><div class="udn-stat-l">Carpet Area</div><div class="udn-stat-v">${unit.carpet_area_sqft||unit.carpetAreaSqft||'—'} sqft</div></div>
               <div class="udn-stat"><div class="udn-stat-l">Super Area</div><div class="udn-stat-v">${unit.super_area_sqft||unit.superAreaSqft||'—'} sqft</div></div>

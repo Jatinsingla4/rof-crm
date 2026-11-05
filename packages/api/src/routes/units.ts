@@ -85,9 +85,9 @@ const saveUnitCharges = async (c: any, unitId: string, projectId: string, list: 
 // GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
 // Inventory views (details, counts, summaries, tower maps, area reports): the unit-status grant is loaded here and every view applies it to its own
 // query, so a login sees exactly the statuses its grant covers (NULL, unknown or none = no unit, zero counts, empty selectors, 404 on a unit detail).
-// '/' loads it itself, '/lookup' ignores it by design, '/:id/charges' is unit set-up and waits for the owner's answer Q-U1.
+// '/' loads it itself; '/lookup' loads it too (none: identifiers only, partial: covered units, all: everything); '/:id/charges' answers 404 for an uncovered unit (Q-U1, owner-approved).
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
-  if (req.method !== 'GET' || req.path === '/' || req.path === '/lookup' || /\/charges$/.test(req.path)) return next();
+  if (req.method !== 'GET' || req.path === '/' || req.path === '/lookup') return next();
   return applyUnitStatusFilter(req, res, next);
 });
 // The grant as a SQL clause on a status column: nothing for 'all' and super_admin (null), otherwise the status must be one of the granted ones;
@@ -103,8 +103,8 @@ const grantCovers = (req: AuthRequest, status: unknown): boolean => req.unitStat
 router.get('/:id/charges', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Unit id');
-    const u = (await db.query('SELECT project_id FROM units WHERE id = $1', [id])).rows[0];
-    if (!u) return res.status(404).json({ error: 'Unit not found' });
+    const u = (await db.query('SELECT project_id, status FROM units WHERE id = $1', [id])).rows[0];
+    if (!u || !grantCovers(req, u.status)) return res.status(404).json({ error: 'Unit not found' });
     const attached = (await db.query('SELECT charge_master_id, quantity FROM unit_addon_charges WHERE unit_id = $1', [id])).rows;
     const mandatory = (await db.query('SELECT id AS charge_master_id, charge_name FROM addon_charge_master WHERE project_id = $1 AND is_active AND is_mandatory ORDER BY charge_name', [u.project_id])).rows;
     res.json({ success: true, data: { attached, mandatory } });
@@ -179,8 +179,12 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
 // GET /api/units - List units with filters
 // '/lookup' is the same list for screens that are not inventory screens (documents, applicant forms): it follows project scope and the module
 // permission but ignores the inventory grant, so a sold unit can still be found for its own paperwork. '/' follows the grant.
-const listUnits = async (req: AuthRequest, res: Response, next: NextFunction) => {
+// lookup = true: the picker of non-inventory screens. none -> every unit of the project by identifier only (id, unit number, tower, project; no status, price, holder or consumer data,
+// and the status / bhk / name / registration filters are ignored so they cannot be used to probe what is hidden); a partial grant -> only the units it covers; all and super_admin -> everything.
+const LOOKUP_IDENTIFIERS = ['id', 'project_id', 'project_name', 'tower_id', 'tower_name', 'tower', 'unit_number'];
+const listUnits = async (req: AuthRequest, res: Response, next: NextFunction, lookup = false) => {
   try {
+    const idOnly = lookup && Array.isArray(req.unitStatusFilter) && req.unitStatusFilter.length === 0;
     const { projectId, towerId, status, bhkType, consumerName, registrationNo } = req.query;
     // Paging is a number we check ourselves (it used to be pasted into the SQL text)
     const intParam = (v: any, label: string, dflt: number, min: number, max: number) => {
@@ -203,28 +207,28 @@ const listUnits = async (req: AuthRequest, res: Response, next: NextFunction) =>
       innerParams.push(towerId);
       innerWhere += ` AND u.tower_id = $${innerParams.length}`;
     }
-    if (status) {
+    if (status && !idOnly) {
       innerParams.push(status);
       innerWhere += ` AND u.status::text = $${innerParams.length}`;
     }
-    if (bhkType && bhkType !== 'any') {
+    if (bhkType && bhkType !== 'any' && !idOnly) {
       // Pattern matching: frontend sends "3BHK", database has "Type-A (3 BHK)"
       const bhkStr = String(bhkType);
       innerParams.push(bhkStr);
       innerParams.push(`%${bhkStr.replace(/(\d)(BHK)/i, '$1 $2')}%`);
       innerWhere += ` AND (u.bhk_type = $${innerParams.length - 1} OR u.bhk_type ILIKE $${innerParams.length})`;
     }
-    if (consumerName) {
+    if (consumerName && !idOnly) {
       innerParams.push(`%${consumerName}%`);
       const idx = innerParams.length;
       innerWhere += ` AND (c.first_name ILIKE $${idx} OR c.last_name ILIKE $${idx})`;
     }
-    if (registrationNo) {
+    if (registrationNo && !idOnly) {
       innerParams.push(`%${registrationNo}%`);
       innerWhere += ` AND c.registration_no ILIKE $${innerParams.length}`;
     }
 
-    if (req.unitStatusFilter !== null && req.unitStatusFilter !== undefined) {
+    if (!idOnly && req.unitStatusFilter !== null && req.unitStatusFilter !== undefined) {
       // 'none' is an empty list: the inventory screen shows no unit at all (an empty IN () would be a syntax error)
       if (!req.unitStatusFilter.length) innerWhere += ' AND FALSE';
       else {
@@ -280,13 +284,13 @@ const listUnits = async (req: AuthRequest, res: Response, next: NextFunction) =>
     innerParams.push(pageSize, (page - 1) * pageSize);
     const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT $${innerParams.length - 1} OFFSET $${innerParams.length}`;
     const result = await db.query(query, innerParams);
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: idOnly ? result.rows.map((r: any) => Object.fromEntries(LOOKUP_IDENTIFIERS.map((k) => [k, r[k]]))) : result.rows });
   } catch (error) {
     fail(error, res, next);
   }
 };
-router.get('/', applyUnitStatusFilter, listUnits);
-router.get('/lookup', (req: AuthRequest, _res: Response, next: NextFunction) => { req.unitStatusFilter = null; next(); }, listUnits);
+router.get('/', applyUnitStatusFilter, (req: AuthRequest, res: Response, next: NextFunction) => listUnits(req, res, next));
+router.get('/lookup', applyUnitStatusFilter, (req: AuthRequest, res: Response, next: NextFunction) => listUnits(req, res, next, true));
 
 // GET /api/units/tower/:projectId - Tower-wise breakdown
 router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: NextFunction) => {

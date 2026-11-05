@@ -13,11 +13,17 @@ const pool_js_1 = require("../db/pool.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const timely_discount_js_1 = require("../utils/timely-discount.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
+const unit_grant_js_1 = require("../utils/unit-grant.js");
 const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
 // GET /api/projects
-router.get('/', async (req, res, next) => {
+// Unit and floor figures on these routes count only the units the login's unit-status grant covers (owner-approved U-C): none -> zero, partial -> covered units only,
+// all and super_admin -> every unit as before. The grant sits in the JOIN so projects, towers and floors are still listed.
+router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
+        const gp = [];
+        const grant = (0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'u.status', gp);
         const result = await index_js_1.db.query(`SELECT p.id, p.name, p.rera_number, p.tcp_licence, p.location,
               p.land_area_sqft, p.total_units, p.group_name, p.possession_date, p.created_at,
               p.company_id, comp.name AS company_name,
@@ -28,9 +34,9 @@ router.get('/', async (req, res, next) => {
        FROM projects p
        LEFT JOIN companies comp ON comp.id = p.company_id
        LEFT JOIN towers t ON p.id = t.project_id
-       LEFT JOIN units u ON p.id = u.project_id
+       LEFT JOIN units u ON p.id = u.project_id${grant}
        GROUP BY p.id, comp.name
-       ORDER BY p.created_at DESC`);
+       ORDER BY p.created_at DESC`, gp);
         res.json({ success: true, data: result.rows });
     }
     catch (error) {
@@ -129,7 +135,7 @@ router.get('/reports/rates', async (req, res, next) => {
     }
 });
 // GET /api/projects/:id/floors?towerId=
-router.get('/:id/floors', async (req, res, next) => {
+router.get('/:id/floors', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const { towerId } = req.query;
         const params = [req.params.id];
@@ -138,6 +144,7 @@ router.get('/:id/floors', async (req, res, next) => {
             extra = ' AND tower_id = $2';
             params.push(towerId);
         }
+        extra += (0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'status', params);
         const result = await index_js_1.db.query(`SELECT DISTINCT floor FROM units WHERE project_id = $1${extra} ORDER BY floor ASC`, params);
         res.json({ success: true, data: result.rows.map((r) => r.floor) });
     }
@@ -689,15 +696,16 @@ router.get('/:id/plan-addon-pcts', async (req, res, next) => {
     }
 });
 // GET /api/projects/:id
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const { id } = req.params;
         const result = await index_js_1.db.query(`SELECT * FROM projects WHERE id = $1`, [id]);
         if (result.rows.length === 0)
             return res.status(404).json({ error: 'Project not found' });
+        const tp = [id];
         const towers = await index_js_1.db.query(`SELECT t.id, t.tower_name, COUNT(u.id) as unit_count
-       FROM towers t LEFT JOIN units u ON t.id = u.tower_id
-       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.tower_name`, [id]);
+       FROM towers t LEFT JOIN units u ON t.id = u.tower_id${(0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'u.status', tp)}
+       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.tower_name`, tp);
         // DATE columns arrive as JS Dates (local midnight); send the plain day so a screen in any time zone shows the day that was saved
         const row = { ...result.rows[0] };
         for (const k of Object.keys(row))
@@ -853,11 +861,12 @@ router.patch('/:id', async (req, res, next) => {
     }
 });
 // GET /api/projects/:id/towers
-router.get('/:id/towers', async (req, res, next) => {
+router.get('/:id/towers', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
+        const tp = [req.params.id];
         const result = await index_js_1.db.query(`SELECT t.id, t.tower_name, t.project_id, t.address_prefix, t.sort_order, t.completion_date::text AS completion_date, COUNT(u.id) as unit_count
-       FROM towers t LEFT JOIN units u ON t.id = u.tower_id
-       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.sort_order NULLS LAST, t.tower_name`, [req.params.id]);
+       FROM towers t LEFT JOIN units u ON t.id = u.tower_id${(0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'u.status', tp)}
+       WHERE t.project_id = $1 GROUP BY t.id ORDER BY t.sort_order NULLS LAST, t.tower_name`, tp);
         res.json({ success: true, data: result.rows });
     }
     catch (err) {
@@ -887,13 +896,14 @@ router.post('/:id/towers', async (req, res, next) => {
     }
 });
 // GET /api/projects/:id/towers/:towerId
-router.get('/:id/towers/:towerId', async (req, res, next) => {
+router.get('/:id/towers/:towerId', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
+        const tp = [req.params.id, req.params.towerId];
         const result = await index_js_1.db.query(`SELECT t.id, t.tower_name, t.project_id, COUNT(u.id) as unit_count
-       FROM towers t LEFT JOIN units u ON t.id = u.tower_id
+       FROM towers t LEFT JOIN units u ON t.id = u.tower_id${(0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'u.status', tp)}
        WHERE t.project_id = $1 AND t.id = $2
        GROUP BY t.id
-       LIMIT 1`, [req.params.id, req.params.towerId]);
+       LIMIT 1`, tp);
         if (result.rows.length === 0) {
             return res.status(404).json({ error: 'Tower not found' });
         }
@@ -1166,15 +1176,16 @@ const towerOf = async (projectId, towerId) => {
     return t;
 };
 // GET /api/projects/:id/towers/:towerId/floors  (every floor that has a unit or a name, with its unit count)
-router.get('/:id/towers/:towerId/floors', async (req, res, next) => {
+router.get('/:id/towers/:towerId/floors', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Project id'), tid = (0, input_js_1.uuid)(req.params.towerId, 'Tower id');
         await towerOf(id, tid);
+        const fp = [tid]; // the floor list is the tower's structure (kept); only the per-floor unit count follows the grant
         const rows = (await index_js_1.db.query(`SELECT n.floor_number, f.floor_name, COALESCE(u.units, 0)::int AS units
          FROM (SELECT floor_number FROM floors WHERE tower_id = $1 UNION SELECT floor FROM units WHERE tower_id = $1 AND floor IS NOT NULL) n
          LEFT JOIN floors f ON f.tower_id = $1 AND f.floor_number = n.floor_number
-         LEFT JOIN (SELECT floor, count(*) AS units FROM units WHERE tower_id = $1 GROUP BY floor) u ON u.floor = n.floor_number
-        ORDER BY n.floor_number`, [tid])).rows;
+         LEFT JOIN (SELECT floor, count(*) AS units FROM units WHERE tower_id = $1${(0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'status', fp)} GROUP BY floor) u ON u.floor = n.floor_number
+        ORDER BY n.floor_number`, fp)).rows;
         res.json({ success: true, data: rows.map((r) => ({ ...r, default_label: defaultFloorLabel(r.floor_number), label: r.floor_name || defaultFloorLabel(r.floor_number) })) });
     }
     catch (error) {

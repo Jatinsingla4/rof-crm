@@ -97,8 +97,8 @@ const broker = must(await raw(SA, 'POST', '/brokers', { firmName: 'US Firm ' + U
   sql(`DELETE FROM unit_holds WHERE id IN ('${hExpired}', '${hActive}')`);
 }
 // ---------- the lookup for screens that are not inventory screens ----------
-const lk = await raw(none.tok, 'GET', '/units/lookup?pageSize=20'); t('lookup: a login with none still finds units for paperwork', lk.s === 200 && (lk.j?.data || []).length > 0, lk.s + JSON.stringify(lk.j).slice(0, 80));
-const lkAvail = await raw(avail.tok, 'GET', '/units/lookup?pageSize=200'); t('lookup ignores the status grant (a sold unit is listed for available)', lkAvail.s === 200 && (lkAvail.j?.data || []).some((x) => x.status !== 'available'), lkAvail.s);
+const lk = await raw(none.tok, 'GET', '/units/lookup?pageSize=20'); t('lookup: a login with none still finds units for paperwork (identifiers only, no status)', lk.s === 200 && (lk.j?.data || []).length > 0 && (lk.j.data).every((x) => !('status' in x) && !('base_price_inr' in x)), lk.s + JSON.stringify(lk.j).slice(0, 80));
+const lkAvail = await raw(avail.tok, 'GET', '/units/lookup?pageSize=200'); t('lookup follows a partial grant (owner-approved U-L): available sees available units only, with full fields', lkAvail.s === 200 && (lkAvail.j?.data || []).length > 0 && (lkAvail.j.data).every((x) => x.status === 'available'), lkAvail.s);
 // ---------- typed unit id ----------
 const availUnit = sql(`SELECT id FROM units WHERE status = 'available' LIMIT 1`), bookedUnit = sql(`SELECT id FROM units WHERE status = 'booked' LIMIT 1`);
 const NILC = '00000000-0000-0000-0000-0000000000c1', NILB = '00000000-0000-0000-0000-0000000000b1';

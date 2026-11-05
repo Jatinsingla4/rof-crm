@@ -9,6 +9,8 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
+const unit_grant_js_1 = require("../utils/unit-grant.js");
 const input_js_1 = require("../utils/input.js");
 const router = (0, express_1.Router)();
 // Reading is open (the booking form asks for a quote); any change needs the Set Master permission
@@ -48,12 +50,15 @@ router.get('/', async (req, res, next) => {
     }
 });
 // GET /api/plc-charges/units?projectId=&locationId= : units of the project with their location (for the assign screen)
-router.get('/units', async (req, res, next) => {
+// The unit-status grant applies (owner-approved U-P): only the units the login's grant covers are listed (none: no unit).
+router.get('/units', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const projectId = (0, input_js_1.uuid)(req.query.projectId, 'projectId');
+        const params = [projectId];
+        const grant = (0, unit_grant_js_1.grantClause)(req.unitStatusFilter, 'u.status', params);
         const rows = (await index_js_1.db.query(`SELECT u.id, u.unit_number, t.tower_name, u.floor, u.status::text AS status, u.carpet_area_sqft, u.unit_location_id, ul.name AS location_name
          FROM units u JOIN towers t ON t.id = u.tower_id LEFT JOIN unit_locations ul ON ul.id = u.unit_location_id
-        WHERE u.project_id = $1 ORDER BY t.tower_name, u.floor, u.unit_number LIMIT 5000`, [projectId])).rows;
+        WHERE u.project_id = $1${grant} ORDER BY t.tower_name, u.floor, u.unit_number LIMIT 5000`, params)).rows;
         res.json({ success: true, data: rows });
     }
     catch (err) {

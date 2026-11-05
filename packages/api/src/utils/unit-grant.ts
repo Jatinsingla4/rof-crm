@@ -17,6 +17,14 @@ export const unitStatusFilterFor = (access: unknown): string[] | null => (known(
 // The value shown to the browser: super_admin is 'all', anything that is not a known grant is 'none'
 export const effectiveUnitAccess = (isAdmin: boolean, stored: unknown): string => (isAdmin ? 'all' : known(stored) ? stored : 'none');
 
+// The grant as a SQL condition on a status column, for counts and lists outside units.ts: '' for all and super_admin (filter null), otherwise the status must be
+// one of the granted ones; a grant that was not loaded counts as none (fail closed). The list is pushed onto params as the next parameter.
+export const grantClause = (filter: string[] | null | undefined, col: string, params: any[]): string => {
+  if (filter === null) return '';
+  params.push(Array.isArray(filter) ? filter : []);
+  return ` AND ${col}::text = ANY($${params.length}::text[])`;
+};
+
 // A login may only book, allocate, shift to or hold a unit whose CURRENT status its grant covers (filter null = all)
 export const assertUnitGrantFilter = (filter: string[] | null | undefined, unitStatus: string | null | undefined): void => {
   if (filter === null) return;
