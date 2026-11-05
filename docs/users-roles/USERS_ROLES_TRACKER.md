@@ -116,6 +116,12 @@ Neither is shown to be a product defect, but neither was changed in this executi
 
 **TypeScript and build**: clean and exit 0, from the earlier completed checks (not rerun in this round).
 
+### Fix of the two failing browser tests (test-only, commit `af701a2`) and the full rerun that is still owed
+Only `e2e/flows.spec.ts` and `e2e/payments-rest.spec.ts` changed; no application code, API test or security policy.
+- `flows.spec.ts` "Employees: only super_admin can open it (UR-001); project_manager is denied the page and the API": now asserts "Access Denied" and "You don't have permission to view this page" on both Employees tabs, no "New employee" button and no data row, and (in the same test) that the API answers **403** to `/api/employees`, `/departments`, `/teams` and `/report` with the project manager's own token. Checked separately with curl: 403 on those four, 200 on `/api/employees/directory` (the open pick list). The whole spec ran: **25 passed, 0 failed** (this test 1.2 s).
+- `payments-rest.spec.ts` "GST Invoicing: reversal, cancellation, credit and debit note": actor A is `accounts_finance` (a real login with its own token) and raises the invoices; actor B is the `super_admin` signed in to the browser and reverses and cancels them on the screen. The maker's own reverse and cancel through the API are asserted to be refused with 403 "created this yourself" and to change nothing (the maker gets checker access only for that check and it is removed again; verified: no `jv_refund_drcr` row left). Database evidence of the run: both invoices `accounts_finance` as maker, status cancelled, the issued credit notes raised by `super_admin`. The whole spec ran: **12 passed, 0 failed**.
+- **The complete Playwright suite was NOT rerun after the fix.** The pre-start check found load average 11.4 on 8 cores, swap 9.45 GB of 10 GB and still growing (19,344 pages in 15 s), 84 MB unused, so it was not started. The last full result therefore stays the one above (236 passed, 2 failed, 7 did not run); with these two fixes the browser suite is expected to be green but that is **not yet demonstrated**. Validation stays incomplete until `cd e2e && BASE_URL=http://localhost:3010 npx playwright test` is run in full and recorded.
+
 ### State of the local disposable database (so a result is not misread)
 It is not a pristine CI database. These objects exist only because tests or checks applied the pending drafts to it, and they must never be applied anywhere else without their release batch:
 | Object | Present locally | Why |
