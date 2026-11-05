@@ -27,7 +27,7 @@ const mk = async (name, access) => {
   if (r.s !== 201) throw new Error(name + ' ' + JSON.stringify(r));
   return { name, id: r.j.data.userId, tok: await login(email, PW) };
 };
-const none = await mk('none', 'none'), avail = await mk('avail', 'available'), ah = await mk('ah', 'available_hold'), all = await mk('all', 'all'), dflt = await mk('default');
+const none = await mk('none', 'none'), avail = await mk('avail', 'available'), ah = await mk('ah', 'available_hold'), uh = await mk('uh', 'unit_hold'), all = await mk('all', 'all'), dflt = await mk('default');
 const nul = await mk('null', 'none'); sql(`UPDATE users SET unit_status_access = NULL WHERE id = '${nul.id}'`);
 const weird = await mk('weird', 'none'); sql(`UPDATE users SET unit_status_access = 'gibberish' WHERE id = '${weird.id}'`);
 const empty = await mk('empty', 'none'); sql(`UPDATE users SET unit_status_access = '' WHERE id = '${empty.id}'`);
@@ -49,10 +49,10 @@ const tower = async (P, n) => must(await raw(SA, 'POST', `/projects/${P.id}/towe
 const T1 = await tower(P1, 'TA'), T2 = await tower(P2, 'TB');
 let un = 0;
 const unit = async (P, T, st) => { const x = must(await raw(SA, 'POST', '/units', { projectId: P.id, towerId: T.id, floor: 1, unitNumber: `US${++un}-${U}`, bhkType: '2BHK', carpetAreaSqft: 500 }), 'unit'); if (st !== 'available') sql(`UPDATE units SET status = '${st}' WHERE id = '${x.id}'`); return { id: x.id, status: st }; };
-const f1 = [await unit(P1, T1, 'available'), await unit(P1, T1, 'available'), await unit(P1, T1, 'booked'), await unit(P1, T1, 'booked'), await unit(P1, T1, 'held'), await unit(P1, T1, 'allotted')];
+const f1 = [await unit(P1, T1, 'available'), await unit(P1, T1, 'available'), await unit(P1, T1, 'booked'), await unit(P1, T1, 'booked'), await unit(P1, T1, 'held'), await unit(P1, T1, 'allotted'), await unit(P1, T1, 'locked'), await unit(P1, T1, 'temp_surrender')];
 const f2 = [await unit(P2, T2, 'booked'), await unit(P2, T2, 'booked')];
 const pid = P1.id, uid = f1[0].id;
-const ALLOWED = [[none, []], [nul, []], [weird, []], [empty, []], [avail, ['available']], [ah, ['available', 'held', 'locked']], [all, null], [{ name: 'super_admin', tok: SA }, null]];
+const ALLOWED = [[none, []], [nul, []], [weird, []], [empty, []], [avail, ['available']], [ah, ['available', 'held', 'locked']], [uh, ['held', 'locked']], [all, null], [{ name: 'super_admin', tok: SA }, null]];
 const cnt = (fx, allowed) => fx.filter((x) => allowed === null || allowed.includes(x.status)).length;
 const g = async (u, p) => { const r = await raw(u.tok, 'GET', p); return r; };
 const probs = { counts: [], status: [], summary: [], tower: [], towers: [], projects: [], detail: [], details: [], areas: [], areaReport: [] };
@@ -68,7 +68,7 @@ for (const [u, allowed] of ALLOWED) {
   if (!(pl.s === 200 && !!l1 === (n1 > 0) && !!l2 === (n2 > 0) && (!l1 || allowed === null || l1.total_units === n1) && (!l2 || allowed === null || l2.total_units === n2))) probs.projects.push(`${u.name}: ${pl.s} P1=${l1?.total_units} want ${n1 > 0 ? n1 : 'absent'}, P2=${l2?.total_units} want ${n2 > 0 ? n2 : 'absent'}`);
   const td = await g(u, `/units/tower-detail?projectId=${pid}&towerId=${T1.id}&statusGroup=all`); if (!(td.s === 200 && td.j.units.length === n1 && td.j.units.every((x) => allowed === null || allowed.includes(x.status)))) probs.detail.push(`${u.name}: ${td.s} units=${td.j?.units?.length} want ${n1}`);
   const ar = await g(u, `/units/areas/report?projectId=${pid}`); if (!(ar.s === 200 && ar.j.data.length === n1 && ar.j.data.every((x) => allowed === null || allowed.includes(x.status)))) probs.areaReport.push(`${u.name}: ${ar.s} rows=${ar.j?.data?.length} want ${n1}`);
-  for (const x of f1.filter((y, i) => [0, 2, 4, 5].includes(i))) {
+  for (const x of f1.filter((y, i) => [0, 2, 4, 5, 6, 7].includes(i))) {
     const want = allowed === null || allowed.includes(x.status) ? 200 : 404;
     for (const path of [`/units/${x.id}`, `/units/${x.id}/areas`, `/units/${x.id}/areas/history`]) { const r = await g(u, path); if (r.s !== want) probs.details.push(`${u.name} ${x.status} ${path.replace(x.id, ':id')} -> ${r.s} want ${want}`); }
   }
@@ -83,8 +83,8 @@ t('tower drill-down: only covered units (none for none)', probs.detail.length ==
 t('area report: only covered units (none for none)', probs.areaReport.length === 0, probs.areaReport.slice(0, 3).join(' | '));
 t('unit detail, areas and area history: 200 for a covered status, 404 for any other (none: always 404)', probs.details.length === 0, probs.details.slice(0, 4).join(' | '));
 // the hold list is an inventory view too: holds on units whose CURRENT status the grant covers
-const broker = sql(`SELECT id FROM brokers ORDER BY created_at LIMIT 1`);
-if (broker) {
+const broker = must(await raw(SA, 'POST', '/brokers', { firmName: 'US Firm ' + U, mobile: '9' + String(Date.now() % 1e9).padStart(9, '0'), commissionPct: 2 }), 'broker').id;   // the test makes its own broker: never skipped
+{
   const mkHold = (unitId, status) => sql(`INSERT INTO unit_holds (unit_id, broker_id, client_name, client_mobile, expires_at, status, notes) VALUES ('${unitId}', '${broker}', 'US test', '9000000000', now() + interval '2 hours', '${status}', 'unit-status test') RETURNING id`);
   const hExpired = mkHold(f1[1].id, 'expired'), hActive = mkHold(f1[4].id, 'active');
   const mine = (r) => (r.j?.data || []).map((x) => x.id).filter((id) => [hExpired, hActive].includes(id)).sort().join();
@@ -93,9 +93,9 @@ if (broker) {
     const want = [[hExpired, f1[1].status], [hActive, f1[4].status]].filter(([, st]) => allowed === null || allowed.includes(st)).map(([id]) => id).sort().join();
     const r = await g(u, '/inventory-hold?status=all'); if (r.s !== 200 || mine(r) !== want) bad.push(`${u.name}: ${r.s} got [${mine(r)}] want [${want}]`);
   }
-  t('hold list: only holds on units the grant covers (none: none; available: the expired one on an available unit; available_hold and all: both)', bad.length === 0, bad.slice(0, 3).join(' | '));
+  t('hold list: only holds on units the grant covers (none: none; available: the expired one on an available unit; unit_hold: the one on the held unit; available_hold and all: both)', bad.length === 0, bad.slice(0, 3).join(' | '));
   sql(`DELETE FROM unit_holds WHERE id IN ('${hExpired}', '${hActive}')`);
-} else console.log('SKIP hold list: no broker exists in this database (not counted as a pass)');
+}
 // ---------- the lookup for screens that are not inventory screens ----------
 const lk = await raw(none.tok, 'GET', '/units/lookup?pageSize=20'); t('lookup: a login with none still finds units for paperwork', lk.s === 200 && (lk.j?.data || []).length > 0, lk.s + JSON.stringify(lk.j).slice(0, 80));
 const lkAvail = await raw(avail.tok, 'GET', '/units/lookup?pageSize=200'); t('lookup ignores the status grant (a sold unit is listed for available)', lkAvail.s === 200 && (lkAvail.j?.data || []).some((x) => x.status !== 'available'), lkAvail.s);

@@ -8,8 +8,8 @@ derived from the code at HEAD, the test suites and the database catalogue; they 
 **How these are asked.** Q-U1 and Q-A1 are phrased by the plan as yes/no questions. The plan rows for **Q-U2 and Q-U3 are not yes/no questions**: the last cell says only "Requires OWNER confirmation: yes", next to a
 "recommended design". An answer "yes" to those can be read in two opposite ways, so all four are presented below as **A or B**. Please answer with the letter.
 
-**Background that applies to all four.** Today (`utils/unit-grant.ts`, `middleware/unitStatusAccess.ts`): NULL, missing or unknown unit status means `none`; a login with `none` gets an **empty** unit list and a refusal (403) on
-the other inventory views; booking, a new allotment, shift and hold check the unit's current status against the grant; `GET /api/units/lookup` serves the non-inventory screens and ignores the grant.
+**Background that applies to all four.** Today (`utils/unit-grant.ts`, `middleware/unitStatusAccess.ts`): NULL, missing or unknown unit status means `none`; a login with `none` gets an **empty** unit list, **zero counts and summaries, empty selectors and a 404 on a unit's detail, areas and area history** (not a 403) on
+the covered inventory views; booking, a new allotment, shift and hold check the unit's current status against the grant; `GET /api/units/lookup` serves the non-inventory screens and ignores the grant (as do `GET /api/plc-charges/units` and the unit counts on the project, tower and floor routes: current behaviour, recorded in `api-test-unit-status-flows.mjs`, policy open).
 Unit statuses that exist in the test data: available, booked, locked, allotted, temp_surrender, held. The partial grants cover: `available` = available; `available_hold` = available, held, locked; `unit_hold` = held, locked;
 `all` = every status; `none` = nothing. **No partial grant covers booked, allotted or temp_surrender.**
 
