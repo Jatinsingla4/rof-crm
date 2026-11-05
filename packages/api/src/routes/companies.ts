@@ -11,6 +11,12 @@ import { forRole } from '../utils/company-bank.js';
 
 const router = Router();
 
+// Company access (UR-002): a login with company grants reaches those companies only, by list, by id and by every sub-route.
+// A login with no company grant is unchanged (the strict "no grant means no access" rule waits for the owner's per-user mapping, D5).
+const companyAllowed = (req: AuthRequest, id: unknown) => !req.companyIds || req.companyIds.includes(String(id).toLowerCase());
+router.param('id', (req: AuthRequest, res: Response, next: NextFunction, id: string) => (companyAllowed(req, id) ? next() : res.status(404).json({ error: 'Company not found' })));
+router.param('companyId', (req: AuthRequest, res: Response, next: NextFunction, id: string) => (companyAllowed(req, id) ? next() : res.status(404).json({ error: 'Company not found' })));
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Format checks for tax and bank identifiers. Values are upper-cased before checking.
@@ -104,10 +110,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
           WHERE b.company_id = c.id AND b.is_active = true AND b.is_primary = true) AS primary_accounts
       FROM companies c
       LEFT JOIN projects p ON p.company_id = c.id
-      WHERE c.is_active = true
+      WHERE c.is_active = true AND ($1::uuid[] IS NULL OR c.id = ANY($1::uuid[]))
       GROUP BY c.id
       ORDER BY c.name
-    `);
+    `, [req.companyIds ?? null]);
     res.json({ success: true, data: result.rows.map((r) => forRoleOf(req, r)) });
   } catch (err) { next(err); }
 });

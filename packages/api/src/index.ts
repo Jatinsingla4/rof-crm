@@ -151,6 +151,7 @@ export interface AuthRequest extends Request {
   userName?: string;
   userRole?: string;   // role the API checks permissions against (a custom role resolves to its base role)
   roleName?: string;   // the role name stored on the user
+  companyIds?: string[] | null;   // the companies this login is limited to (user_company_access); null = no company limit
   authorizedPrint?: boolean;      // users.authorized_print; only an explicit true counts (middleware/printDownload.ts)
   authorizedDownload?: boolean;   // users.authorized_download
   userPermissions?: string[];
@@ -192,7 +193,7 @@ export interface DocumentVersion {
 // Role, active flag and token_version are read from the DB (cached briefly) so that
 // deactivation, role changes and logout take effect without waiting for the JWT to expire.
 const AUTH_CACHE_MS = 15_000;
-const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string | null; authorized_print: boolean | null; authorized_download: boolean | null; is_active: boolean; token_version: number; ip_rules: string[] | null; project_scope: string | null } | null }>();
+const authUserCache = new Map<string, { at: number; user: { role: string; eff_role: string | null; company_ids: string[] | null; authorized_print: boolean | null; authorized_download: boolean | null; is_active: boolean; token_version: number; ip_rules: string[] | null; project_scope: string | null } | null }>();
 
 export const invalidateAuthUser = (userId: string) => { authUserCache.delete(userId); };
 export const clearAuthUserCache = () => authUserCache.clear(); // after a role definition changes
@@ -210,12 +211,19 @@ const loadAuthUser = async (userId: string) => {
             u.is_active, u.authorized_print, u.authorized_download, COALESCE(u.token_version, 0) AS token_version,
             CASE WHEN u.ip_security_enabled IS TRUE
                  THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules,
-            -- project ids the login is limited to, as one comma separated text; null when it may see every project
-            CASE WHEN jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) > 0 THEN
-              -- assigned only to projects that no longer exist: see nothing, never everything
+            -- project ids the login is limited to, as one comma separated text; null when it may see every project.
+            -- Assigned projects and company grants both narrow it (a project must satisfy every limit the login has); a project that belongs
+            -- to no company is outside any company limit. Granting a company never widens anything.
+            CASE WHEN jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) > 0
+                   OR EXISTS (SELECT 1 FROM user_company_access uc WHERE uc.user_id = u.id) THEN
+              -- limited to nothing that exists: see nothing, never everything
               COALESCE((SELECT string_agg(DISTINCT p.id::text, ',') FROM projects p
-                         WHERE p.id::text IN (SELECT jsonb_array_elements_text(u.assigned_project_ids))), '00000000-0000-0000-0000-000000000000')
-            END AS project_scope
+                         WHERE (jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) = 0
+                                OR p.id::text IN (SELECT jsonb_array_elements_text(u.assigned_project_ids)))
+                           AND (NOT EXISTS (SELECT 1 FROM user_company_access uc WHERE uc.user_id = u.id)
+                                OR p.company_id IN (SELECT uc.company_id FROM user_company_access uc WHERE uc.user_id = u.id))), '00000000-0000-0000-0000-000000000000')
+            END AS project_scope,
+            ARRAY(SELECT uc.company_id::text FROM user_company_access uc WHERE uc.user_id = u.id) AS company_ids
        FROM users u WHERE u.id = $1`,
     [userId]
   );
@@ -280,6 +288,7 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     req.userName = decoded.name || decoded.email || 'Unknown';
     req.userRole = user.eff_role ?? undefined;
     req.roleName = user.role;
+    req.companyIds = user.eff_role !== 'super_admin' && user.company_ids && user.company_ids.length ? user.company_ids : null;
     req.authorizedPrint = user.authorized_print === true;
     req.authorizedDownload = user.authorized_download === true;
     if (user.eff_role !== 'super_admin' && user.project_scope) scopeStore.enterWith({ projectIds: user.project_scope });

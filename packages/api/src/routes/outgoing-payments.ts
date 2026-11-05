@@ -24,7 +24,7 @@ router.post('/outgoing-payments', async (req: AuthRequest, res: Response, next: 
     const payee = text(b.payee, 'Payee', 200, false), reference_number = text(b.reference_number, 'Reference number', 100, false), notes = text(b.notes, 'Notes', 1000, false);
     const status = has(b.status) ? String(b.status) : null;
     if (status && !['pending', 'paid', 'cancelled'].includes(status)) throw bad('status must be pending, paid or cancelled');
-    if (!(await db.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1`, [company_bank_account_id])).rows.length) throw bad('Bank account not found', 404);
+    if (!(await db.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [company_bank_account_id, req.companyIds ?? null])).rows.length) throw bad('Bank account not found', 404);
 
     const result = await db.query(
       `INSERT INTO outgoing_payments

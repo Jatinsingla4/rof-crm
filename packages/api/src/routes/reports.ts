@@ -1274,7 +1274,7 @@ router.get('/addon-charge-names', async (req: AuthRequest, res: Response, next: 
 router.get('/bank-ledger-company-banks', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const result = await db.query(
-      `SELECT id, account_name, bank_name FROM company_bank_accounts WHERE is_active = true ORDER BY bank_name`
+      `SELECT id, account_name, bank_name FROM company_bank_accounts WHERE is_active = true AND ($1::uuid[] IS NULL OR company_id = ANY($1::uuid[])) ORDER BY bank_name`, [req.companyIds ?? null]
     );
     res.json({ success: true, data: result.rows });
   } catch (err) { next(err); }

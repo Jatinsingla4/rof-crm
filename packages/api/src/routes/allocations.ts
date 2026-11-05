@@ -216,7 +216,7 @@ router.post('/import-edraw', (req: AuthRequest, res: Response, next: NextFunctio
 
     const out = await inTx(async (c) => {
       if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
-      if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1`, [bankAccount])).rows.length) throw bad('Company bank account not found');
+      if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [bankAccount, req.companyIds ?? null])).rows.length) throw bad('Company bank account not found');
       let matched = 0, refundsCreated = 0, skipped = 0; const mismatches: { applicantId: string; reason: string }[] = [];
       for (const row of rows) {
         const p = (await c.query(`SELECT id, lead_stage, allocated_unit_id FROM consumers WHERE project_id = $2 AND (aadhaar_hash = $1 OR aadhaar_hash = $3 OR registration_no = $1 OR mobile = $1) ORDER BY id LIMIT 1 FOR UPDATE`, [row.applicantId, projectId, sha(row.applicantId.replace(/[\s-]/g, ''))])).rows[0];

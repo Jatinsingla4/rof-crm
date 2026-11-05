@@ -111,7 +111,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       } else {
         planId = (await c.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId])).rows[0]?.id || null;
       }
-      if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1`, [bankAccount])).rows.length) throw bad('Company bank account not found', 400);
+      if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [bankAccount, req.companyIds ?? null])).rows.length) throw bad('Company bank account not found', 400);
       if (chequeNo) await reference(c, 'cheque_no', chequeNo, null, 'Cheque number');
       if (ref) await reference(c, 'transaction_ref', ref, null, 'Reference');
 
