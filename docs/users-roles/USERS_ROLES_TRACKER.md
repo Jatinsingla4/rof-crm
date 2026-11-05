@@ -94,6 +94,26 @@ restored copy of the real data.
 - Complete API suite: 56 scripts, 54 passed cleanly and 45 of them print totals (8,183 checks, 0 failed). Two scripts, `api-test-dashboard-recon` and `api-test-surrender`, crashed with `ECONNRESET` inside the full run (the machine was swapping, as in the timezone round, and a keep-alive socket was reset); each was rerun alone straight after: 197 passed, 0 failed and 183 passed, 0 failed. This is a recorded transient, not a clean full-suite pass.
 - `tsc --noEmit` and `npm run build`: clean. Playwright was not rerun in this round: the browser tests were unreliable on the swapping machine (see the timezone section), and `e2e/broker-hold.spec.ts` and `e2e/dashboard.spec.ts` were changed to record a different maker than the approving admin without being run. A clean full Playwright run on a quiet machine is still owed.
 
+## Final regression validation round (2026-11-05, HEAD `5daa744` at the start)
+**Result: the two full suites were NOT run. The machine was too loaded to give a valid result, so the validation is open.**
+- Preflight (read only): working tree clean; no Playwright or API test process running; nothing listening on port 3010; the API script and every test point at `localhost:5433`, database `rof_p1` (the disposable local database; no `DATABASE_URL`, no Neon).
+- Load at the check: load average 22.5 / 15.7 / 11.1 (rising), swap 8.7 GB of 10 GB used, about 134 MB of memory unused with 3 GB in the compressor, `kernel_task` at 90 % CPU, 22 % user + 25 % system. The heavy processes were not ours (Chrome helpers, the Claude renderer, WindowServer). In the earlier rounds the same condition made unrelated browser tests time out and two API scripts reset a keep-alive socket, so starting the suites would have produced noise, not evidence. Nothing was killed.
+- Two idle shells (`zsh -c ... until ! pgrep -f run-api-tests ...`, 0 % CPU) are old wait loops of the assistant that can never end, because their own command line matches the pattern; they are harmless, were not killed on purpose, and any later wait must use a PID, not `pgrep -f`.
+- Done anyway (light, no server): `tsc --noEmit` clean; `npm run build` exit 0 and the CI dist check is empty; the midnight-IST regression `docs/timezone/api-test-business-date.mjs` 49 passed, 0 failed (fixed instants around 18:30 UTC, process timezone and database session timezone variants, source scan); the local database timezone is `Asia/Kolkata` with no database-level override (restored after the earlier UTC experiment).
+- **Still owed, in this order, on a quiet machine:** (1) `cd e2e && BASE_URL=http://localhost:3010 npx playwright test` (all 245 tests; `broker-hold.spec.ts` and `dashboard.spec.ts` were edited without a run); (2) the 56 API scripts with `.github/scripts/run-api-tests.sh $(ls docs/*/api-test-*.mjs | sort)`, recording the wrapper exit code apart from each script's result, and a look at why `dashboard-recon` and `surrender` reset a socket inside the full run (both pass alone: 197 and 183). Start only when the load average is below the core count and swap is not growing.
+
+### State of the local disposable database (so a result is not misread)
+It is not a pristine CI database. These objects exist only because tests or checks applied the pending drafts to it, and they must never be applied anywhere else without their release batch:
+| Object | Present locally | Why |
+|---|---|---|
+| `users_username_lower_btrim_key` (M1), `roles_name_key` and `roles_base_role_not_super_admin` (M2), `users_role_fkey` (M3) | yes | `api-test-ur005-008.mjs` applies the drafts (idempotent); `api-test-ur001.mjs` lifts the CHECK for one block and restores it |
+| `auth_throttle` (T2) | yes | `api-test-throttle.mjs` applies the draft; the API then counts failures in it |
+| `rof_scope_global_tables` and the M10a policies | no (scratch database only) | `test-null-scope.sh` works on a scratch copy |
+| T1 (14 `DATE DEFAULT CURRENT_DATE` columns), M9 column defaults | not applied (14 columns still `CURRENT_DATE`) | schema changes for a release batch |
+| Seeded role logins with explicit grants (`authorized_print`, `authorized_download` true, `unit_status_access` all) | 6 of 6 | `packages/api/scripts/make-test-db.sh` seeds them; the local rows were updated by hand to match. The owner's D7 does the same for real logins. Denial tests create their own logins, which start with none |
+| Test logins | 466 | accumulated by the test scripts |
+Because the tests apply the drafts themselves, a fresh CI database ends the API suite in the same state; the suite does not depend on the order except that `api-test-throttle.mjs` needs up to 70 seconds for the API to notice the new table.
+
 ## Not done in this validation (still open)
 - Menu entries for Employees/Security are still listed for project_manager (the screen answers "No access"); removing them is menu data (plan 2.3, convenience only).
 - Staging, release gates G1, G2, G9, G10, G13, G14, the pending migrations and every BLOCKED row above.

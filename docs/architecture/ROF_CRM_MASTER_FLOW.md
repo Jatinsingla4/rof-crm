@@ -101,3 +101,6 @@ Verified on 2026-11-04 on a fresh disposable database (migrations 96 to 145) wit
 - **Throttles** (`utils/throttle.ts`): sign-in and current-password failures are counted in the shared table `auth_throttle` (draft T2) and fall back to per-process counts with a startup warning when it is missing.
 - **NULL-project rows** (`db/pool.ts` + draft `M10a`): the app sets `app.scope_strict`; the policy that hides rows with no project from limited logins is a pending draft with an owner-signed allow-list.
 - **Business calendar**: Asia/Kolkata for business dates, UTC for instants (`utils/business-date.ts`).
+
+## Verification status of the Users & Roles work (as of the last validation round)
+Built and unit/API-tested locally: every control above. Not yet verified end to end: the browser suite (245 tests) and a clean full API run were not completed because the test machine was swapping; the state, the exact numbers and the order to rerun them are in `docs/users-roles/USERS_ROLES_TRACKER.md` ("Final regression validation round"). Users & Roles is **not** complete: see the BLOCKED and PARTIAL rows of the tracker (Finance part B, strict company and NULL-project rules, D1 / D2 / D7 / D11 data operations, the pending migrations, staging and the release gates).
