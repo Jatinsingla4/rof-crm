@@ -19,6 +19,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -270,6 +271,7 @@ const cancelInvoice = (reverse) => async (req, res, next) => {
                 throw (0, input_js_1.bad)('Invoice not found', 404);
             if (inv.status === 'cancelled')
                 throw (0, input_js_1.bad)('This invoice is already cancelled', 409);
+            (0, financial_ops_js_1.notOwn)(req, inv.created_by_user_id); // strict maker-checker: whoever raised the invoice cannot cancel or reverse it
             // Credit notes already issued on this invoice are not credited twice; notes still waiting are withdrawn
             await c.query(`UPDATE credit_debit_notes SET status = 'cancelled', rejected_by = $2, rejected_at = NOW(), rejection_reason = 'Invoice cancelled', updated_at = NOW() WHERE invoice_id = $1 AND status = 'pending'`, [inv.id, req.userId]);
             const credited = Number((await c.query(`SELECT COALESCE(SUM(adjustment_amount), 0) AS n FROM credit_debit_notes WHERE invoice_id = $1 AND note_type = 'credit' AND status = 'issued'`, [inv.id])).rows[0].n);
@@ -334,10 +336,10 @@ ${row('Taxable amount', '&#8377; ' + m(r.base_amount))}${r.cgst_amount ? row(`CG
         fail(error, res, next);
     }
 };
-router.get('/gst-invoices/:id/html', invoicePage);
-router.get('/gst-invoices/:id/pdf', invoicePage);
+router.get('/gst-invoices/:id/html', printDownload_js_1.requirePrint, invoicePage);
+router.get('/gst-invoices/:id/pdf', printDownload_js_1.requirePrintAndDownload, invoicePage);
 // GET /api/payments/gst-invoices-export?type=gstr1|gstr3b&month=YYYY-MM[&projectId=] - CSV for the filing (cancelled invoices left out, credit and debit notes netted)
-router.get('/gst-invoices-export', async (req, res, next) => {
+router.get('/gst-invoices-export', printDownload_js_1.requireDownload, async (req, res, next) => {
     try {
         const type = (0, input_js_1.oneOf)(req.query.type, 'type', ['gstr1', 'gstr3b']) || 'gstr1';
         const month = (0, input_js_1.qtext)(req.query.month, 'month', 7);
@@ -448,12 +450,12 @@ const drawStep = (from, to, set) => async (req, res, next) => {
     }
 };
 // PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund (accounts and finance only)
-router.patch('/draw-refunds/:id/initiate', input_js_1.financeOnly, drawStep('pending', 'initiated', (req) => {
+router.patch('/draw-refunds/:id/initiate', (0, processPermission_js_1.requireProcess)('jv_refund_drcr', 'maker'), input_js_1.financeOnly, drawStep('pending', 'initiated', (req) => {
     const b = (0, input_js_1.body)(req);
     return { sql: 'refund_initiated_at = NOW(), initiated_by = $4, refund_reference = $2, notes = COALESCE($3, notes),', params: [(0, input_js_1.text)(b.refundReference, 'refundReference', 255, true), (0, input_js_1.text)(b.notes, 'notes', 500, false), req.userId] };
 }));
 // PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund (accounts and finance only)
-router.patch('/draw-refunds/:id/complete', input_js_1.financeOnly, drawStep('initiated', 'completed', (req) => ({ sql: 'refund_completed_at = NOW(), refund_reference = COALESCE($2, refund_reference),', params: [(0, input_js_1.text)((0, input_js_1.body)(req).refundReference, 'refundReference', 255, false)] })));
+router.patch('/draw-refunds/:id/complete', (0, processPermission_js_1.requireProcess)('jv_refund_drcr', 'checker'), input_js_1.financeOnly, drawStep('initiated', 'completed', (req) => ({ sql: 'refund_completed_at = NOW(), refund_reference = COALESCE($2, refund_reference),', params: [(0, input_js_1.text)((0, input_js_1.body)(req).refundReference, 'refundReference', 255, false)] })));
 /**
  * PATCH /api/payments/receipts/:id/bounce - Mark receipt as bounced
  */
@@ -1232,7 +1234,7 @@ function buildPaymentReceiptHtml(r, settings, coApplicants, allInstallments) {
 </html>`;
 }
 // GET /api/payments/receipts/:id/html — Print-ready receipt with full plan breakdown
-router.get('/receipts/:id/html', async (req, res, next) => {
+router.get('/receipts/:id/html', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         const [settingsResult, receiptResult] = await Promise.all([
@@ -1813,7 +1815,7 @@ function showMsg(msg, isError) {
 </html>`;
 }
 // GET /api/payments/receipt-form/:consumerId — Serve standalone receipt entry form
-router.get('/receipt-form/:consumerId', async (req, res, next) => {
+router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'Consumer id');
         const rawToken = (req.headers.authorization?.split(' ')[1] || req.query.token || '');
@@ -2110,7 +2112,7 @@ async function buildReceiptDetailHtml(rows) {
 </html>`;
 }
 // GET /api/payments/receipt-detail/:consumerId — Standalone receipt detail page
-router.get('/receipt-detail/:consumerId', async (req, res, next) => {
+router.get('/receipt-detail/:consumerId', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'Consumer id');
         if (!(await index_js_1.db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length)

@@ -393,11 +393,12 @@ router.patch('/:id/reject', (0, processPermission_js_1.requireProcess)('broker_r
         const id = (0, input_js_1.uuid)(req.params.id, 'Broker id');
         const notes = (0, input_js_1.text)((0, input_js_1.body)(req).notes, 'Notes', 500, false);
         const row = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT status FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT status, created_by FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Broker not found', 404);
             if (cur.status !== 'pending')
                 throw (0, input_js_1.bad)(`Only a pending broker can be rejected (this one is ${cur.status})`, 409);
+            (0, financial_ops_js_1.notOwn)(req, cur.created_by);
             return (await c.query(`UPDATE brokers SET status = 'rejected', approval_notes = $2, approved_at = NOW(), approved_by = $3, updated_at = NOW() WHERE id = $1 RETURNING id, status`, [id, notes, req.userId])).rows[0];
         });
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'broker', id, { status: 'pending' }, { status: 'rejected' });
@@ -415,9 +416,10 @@ router.patch('/:id/status', (0, processPermission_js_1.requireProcess)('broker_r
         if (!status)
             throw (0, input_js_1.bad)('status is required');
         const out = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT status FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT status, created_by FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Broker not found', 404);
+            (0, financial_ops_js_1.notOwn)(req, cur.created_by);
             if (['pending', 'rejected'].includes(cur.status))
                 throw (0, input_js_1.bad)(`A ${cur.status} broker is approved or rejected first, its status cannot be changed here`, 409);
             if (cur.status === status)

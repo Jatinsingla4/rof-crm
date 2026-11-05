@@ -13,6 +13,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const security_js_1 = require("../utils/security.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 const HEADER_TYPES = ['Computer Generated', 'Own Header'];
 const LETTER_FOR = ['All', 'Loan', 'Self'];
@@ -291,7 +292,7 @@ router.delete('/:id', needMaster('delete'), async (req, res, next) => {
     }
 });
 // POST /api/custom-letters/:id/generate — make the letter for one applicant and enter it in the register
-router.post('/:id/generate', async (req, res, next) => {
+router.post('/:id/generate', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const { consumer_id } = req.body || {};
         if (!(0, security_js_1.isUuid)(req.params.id))

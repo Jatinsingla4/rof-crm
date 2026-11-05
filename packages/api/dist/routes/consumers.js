@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -665,7 +666,7 @@ router.post('/:id/multi-applicant-photo/:applicantId', photoUpload, async (req, 
 // GET /api/consumers/:id/applicant-file
 // Returns a 3-page applicant file as HTML for printing.
 // Supports ?token= query param for window.open() navigation.
-router.get('/:id/applicant-file', async (req, res, next) => {
+router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const consumerId = req.params.id;
         // ── parallel queries ─────────────────

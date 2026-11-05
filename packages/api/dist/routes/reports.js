@@ -1228,7 +1228,7 @@ router.get('/addon-charge-names', async (req, res, next) => {
 // filter dropdown on the Bank Ledger report.
 router.get('/bank-ledger-company-banks', async (req, res, next) => {
     try {
-        const result = await pool_1.db.query(`SELECT id, account_name, bank_name FROM company_bank_accounts WHERE is_active = true ORDER BY bank_name`);
+        const result = await pool_1.db.query(`SELECT id, account_name, bank_name FROM company_bank_accounts WHERE is_active = true AND ($1::uuid[] IS NULL OR company_id = ANY($1::uuid[])) ORDER BY bank_name`, [req.companyIds ?? null]);
         res.json({ success: true, data: result.rows });
     }
     catch (err) {

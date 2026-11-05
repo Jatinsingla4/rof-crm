@@ -8,6 +8,7 @@ const merge_demand_js_1 = require("./merge-demand.js");
 const merge_letters_js_1 = require("./merge-letters.js");
 const shells_js_1 = require("./shells.js");
 const business_date_js_1 = require("../../utils/business-date.js");
+const printDownload_js_1 = require("../../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 // What the caller may send. Ids must be real, the type a plain word, figures that the caller supplies are page text (escaped) and may not carry markup.
 const DELIVERY = ['email', 'whatsapp', 'sms', 'print', 'none'];
@@ -50,7 +51,7 @@ const checkedInput = (req) => {
     }
     return { consumerId, allocationId, templateId, documentType, deliveryMethod, dueDate, includeAllDemands: b.includeAllDemands === true, includeInterest: b.includeInterest, demandId, mergeData };
 };
-router.post('/generate', async (req, res, next) => {
+router.post('/generate', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const input = checkedInput(req);
         let { consumerId, allocationId, templateId, documentType, mergeData, deliveryMethod, dueDate, includeAllDemands } = input;

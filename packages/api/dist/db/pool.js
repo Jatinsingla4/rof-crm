@@ -7,6 +7,7 @@ exports.db = exports.queryCount = exports.isScoped = exports.scopeStore = void 0
 const pg_1 = require("pg");
 const node_async_hooks_1 = require("node:async_hooks");
 const dotenv_1 = __importDefault(require("dotenv"));
+const app_config_js_1 = require("../utils/app-config.js");
 dotenv_1.default.config();
 // A DATE column comes back as a Date at local midnight, so on a server that is not on UTC (a developer machine) its ISO text is the day before.
 // Production and CI already run on UTC; forcing it here makes every environment behave the same.
@@ -40,6 +41,10 @@ const scopeOf = () => {
         throw new Error('Invalid project scope');
     return ids;
 };
+// Strict scope (UR-002, decision 2): a row with no project is super-admin-only for a limited login. The database policy that honours this
+// (migration draft M10a, Batch 5) reads app.scope_strict; until it is applied the setting is ignored. APP_ENV / SCOPE_MODE decide it: unknown = strict.
+const STRICT_NULL_SCOPE = (0, app_config_js_1.loadAppConfig)().scopeMode === 'strict';
+const strictSql = STRICT_NULL_SCOPE ? ", set_config('app.scope_strict', 'on', %s)" : '';
 const isScoped = () => !!exports.scopeStore.getStore()?.projectIds;
 exports.isScoped = isScoped;
 // Counts the queries of one request (the reports route sends it back as X-Db-Queries when asked), so a test can prove a report does not query once per row
@@ -47,7 +52,7 @@ exports.queryCount = new node_async_hooks_1.AsyncLocalStorage();
 async function scopedQuery(ids, args) {
     const client = await pool.connect();
     try {
-        await client.query(`BEGIN; SET LOCAL ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', true)`);
+        await client.query(`BEGIN; SET LOCAL ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', true)${strictSql.replace('%s', 'true')}`);
         const result = await client.query(...args);
         await client.query('COMMIT');
         return result;
@@ -63,7 +68,7 @@ async function scopedQuery(ids, args) {
 async function scopedConnect(ids) {
     const client = await pool.connect();
     try {
-        await client.query(`SET ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', false)`);
+        await client.query(`SET ROLE rof_app; SELECT set_config('app.project_scope', '${ids}', false)${strictSql.replace('%s', 'false')}`);
     }
     catch (err) {
         client.release(err);
@@ -71,7 +76,7 @@ async function scopedConnect(ids) {
     }
     const release = client.release.bind(client);
     // The connection goes back to the pool only after the limit is removed; if that fails it is closed instead
-    client.release = (err) => client.query('RESET ROLE; RESET app.project_scope').then(() => release(err), (e) => release(e));
+    client.release = (err) => client.query('RESET ROLE; RESET app.project_scope; RESET app.scope_strict').then(() => release(err), (e) => release(e));
     return client;
 }
 exports.db = new Proxy(pool, {

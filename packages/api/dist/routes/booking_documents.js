@@ -16,6 +16,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 // Type of the file is read from its first bytes; the name and the declared type from the browser are not trusted
 const SIGNATURES = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]], ['application/pdf', [0x25, 0x50, 0x44, 0x46]]];
 const sniff = (b) => SIGNATURES.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -81,7 +82,7 @@ router.post('/upload', oneFile, async (req, res, next) => {
     }
 });
 // GET /api/booking-documents/:id/file — the stored file (page address carries a link token when opened in a tab)
-router.get('/:id/file', async (req, res, next) => {
+router.get('/:id/file', printDownload_js_1.requireDownload, async (req, res, next) => {
     try {
         const d = (await index_js_1.db.query(`SELECT file_data, file_mime_type, file_original_name FROM booking_documents WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM booking_records br WHERE br.id = booking_record_id)`, [req.params.id])).rows[0];
         if (!d?.file_data)

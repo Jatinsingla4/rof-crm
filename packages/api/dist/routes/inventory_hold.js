@@ -16,6 +16,7 @@ const holds_js_1 = require("../utils/holds.js");
 const broker_js_1 = require("../utils/broker.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next, 'This unit is already held');
 // GET /api/inventory-hold?status=active|expired|converted|cancelled|all
@@ -48,7 +49,7 @@ router.get('/', async (req, res, next) => {
     }
 });
 // POST /api/inventory-hold
-router.post('/', async (req, res, next) => {
+router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
         const unitId = (0, input_js_1.uuid)(b.unitId, 'unitId'), brokerId = (0, input_js_1.uuid)(b.brokerId, 'brokerId');
@@ -67,6 +68,7 @@ router.post('/', async (req, res, next) => {
             const unit = (await c.query(`SELECT id, status, project_id FROM units WHERE id = $1 FOR UPDATE`, [unitId])).rows[0];
             if (!unit)
                 throw (0, input_js_1.bad)('Unit not found', 404);
+            (0, unitStatusAccess_js_1.assertUnitGrant)(req, unit.status); // a hold reserves available inventory: needs the inventory grant (checked first, against the unit's current status)
             const brk = (await c.query(`SELECT status FROM brokers WHERE id = $1`, [brokerId])).rows[0];
             if (!brk)
                 throw (0, input_js_1.bad)('Broker not found', 404);

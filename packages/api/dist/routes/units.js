@@ -97,6 +97,13 @@ const saveUnitCharges = async (c, unitId, projectId, list, userId) => {
         await (0, charge_stock_js_1.requireStock)(c, id);
 };
 // GET /api/units/:id/charges - what the unit carries in advance, and what every booking adds by itself
+// Inventory views (details, counts, summaries, tower maps, area reports) need an inventory grant; fail closed (NULL or unknown = none).
+// '/' and '/lookup' are handled by the list itself, '/:id/charges' is unit set-up and waits for the owner's answer Q-U1.
+router.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path === '/' || req.path === '/lookup' || /\/charges$/.test(req.path))
+        return next();
+    return (0, unitStatusAccess_js_1.requireInventoryAccess)(req, res, next);
+});
 router.get('/:id/charges', async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Unit id');
@@ -191,7 +198,9 @@ router.post('/', async (req, res, next) => {
     }
 });
 // GET /api/units - List units with filters
-router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
+// '/lookup' is the same list for screens that are not inventory screens (documents, applicant forms): it follows project scope and the module
+// permission but ignores the inventory grant, so a sold unit can still be found for its own paperwork. '/' follows the grant.
+const listUnits = async (req, res, next) => {
     try {
         const { projectId, towerId, status, bhkType, consumerName, registrationNo } = req.query;
         // Paging is a number we check ourselves (it used to be pasted into the SQL text)
@@ -297,7 +306,9 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
     catch (error) {
         fail(error, res, next);
     }
-});
+};
+router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, listUnits);
+router.get('/lookup', (req, _res, next) => { req.unitStatusFilter = null; next(); }, listUnits);
 // GET /api/units/tower/:projectId - Tower-wise breakdown
 router.get('/tower/:projectId', async (req, res, next) => {
     try {

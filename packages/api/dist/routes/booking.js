@@ -27,6 +27,8 @@ const addon_charges_js_1 = require("./addon-charges.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const receipt_number_js_1 = require("../utils/receipt-number.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const router = (0, express_1.Router)();
 // ---------- input rules for Booking ----------
 // Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
@@ -296,7 +298,7 @@ router.get('/check-form-no', async (req, res, next) => {
 });
 // POST /api/booking
 const holds = async (q, consumerId, unitId) => (await q.query(`SELECT 1 FROM allocations WHERE consumer_id = $1 AND unit_id <> $2 AND status NOT IN ('cancelled','transferred') LIMIT 1`, [consumerId, unitId])).rows.length > 0;
-router.post('/', async (req, res, next) => {
+router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const o = parseNew((0, input_js_1.body)(req));
         const { consumer_id, unit_id, booking_date, booking_amount, payment_mode, payment_ref, bank_name, cheque_date, company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct, broker_id, broker_commission, broker_commission_type, booking_type, main_broker_id, broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, sales_employee_id, nominee_name, nominee_relation, loan_amount, finance_bank, remarks, form_no, has_plc, plc_amount, has_other_charge, other_charge_amount, other_charge_desc, bank_branch, received_for, account_holder, on_account_of, invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan, interest_amount, dealer_adjustment_amount, tds_challan_id, s_tax_pct, gst_interest_pct, tds_amount, selected_plan_name, basic_price, carpet_area_sqft, } = o;
@@ -311,6 +313,7 @@ router.post('/', async (req, res, next) => {
             if (project_id && unit.project_id !== project_id)
                 throw (0, input_js_1.bad)('This unit does not belong to the chosen project');
             project_id = unit.project_id;
+            (0, unitStatusAccess_js_1.assertUnitGrant)(req, unit.status); // inventory access: checked against the unit's CURRENT status, before a hold is settled
             // A held unit is booked only by the broker who holds it (or once the hold is over); everyone else is refused
             if (unit.status === 'held') {
                 await (0, holds_js_1.settleHold)(client, unit_id, booking_type === 'broker' ? broker_id : null, req.userId || null);
@@ -3115,7 +3118,7 @@ function buildReceiptHtml(b, settings, coApplicants) {
 </html>`;
 }
 // GET /api/booking/:id/receipt-html  — must be registered before /:id
-router.get('/:id/receipt-html', async (req, res) => {
+router.get('/:id/receipt-html', printDownload_js_1.requirePrint, async (req, res) => {
     try {
         const bookingId = req.params.id;
         // Run settings query and booking query in parallel

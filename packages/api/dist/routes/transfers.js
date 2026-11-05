@@ -13,6 +13,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 function fmtDateIndia(d) {
     if (!d)
         return '';
@@ -423,7 +424,7 @@ router.patch('/:id', async (req, res, next) => {
  * GET /api/transfers/:id/letter - printable HTML transfer letter for one transfer.
  * Must be defined before /:id to avoid Express matching "letter" as the id.
  */
-router.get('/:id/letter', async (req, res, next) => {
+router.get('/:id/letter', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Transfer id');
         const result = await index_js_1.db.query(TRANSFER_DETAIL_QUERY, [id]);

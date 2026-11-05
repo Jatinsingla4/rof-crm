@@ -64,6 +64,7 @@ const gst_configuration_js_1 = __importDefault(require("./routes/gst-configurati
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
 const security_js_1 = require("./utils/security.js");
+const throttle_js_1 = require("./utils/throttle.js");
 const app_config_js_1 = require("./utils/app-config.js");
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 dotenv_1.default.config();
@@ -150,15 +151,22 @@ const loadAuthUser = async (userId) => {
             CASE WHEN u.role = 'super_admin' THEN 'super_admin'
                  ELSE NULLIF(COALESCE((SELECT r.base_role FROM roles r WHERE lower(r.name) = lower(u.role) AND r.is_active LIMIT 1), u.role), 'super_admin')
             END AS eff_role,
-            u.is_active, COALESCE(u.token_version, 0) AS token_version,
+            u.is_active, u.authorized_print, u.authorized_download, COALESCE(u.token_version, 0) AS token_version,
             CASE WHEN u.ip_security_enabled IS TRUE
                  THEN ARRAY(SELECT ip_address FROM user_ip_restrictions WHERE user_id = u.id AND is_active) END AS ip_rules,
-            -- project ids the login is limited to, as one comma separated text; null when it may see every project
-            CASE WHEN jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) > 0 THEN
-              -- assigned only to projects that no longer exist: see nothing, never everything
+            -- project ids the login is limited to, as one comma separated text; null when it may see every project.
+            -- Assigned projects and company grants both narrow it (a project must satisfy every limit the login has); a project that belongs
+            -- to no company is outside any company limit. Granting a company never widens anything.
+            CASE WHEN jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) > 0
+                   OR EXISTS (SELECT 1 FROM user_company_access uc WHERE uc.user_id = u.id) THEN
+              -- limited to nothing that exists: see nothing, never everything
               COALESCE((SELECT string_agg(DISTINCT p.id::text, ',') FROM projects p
-                         WHERE p.id::text IN (SELECT jsonb_array_elements_text(u.assigned_project_ids))), '00000000-0000-0000-0000-000000000000')
-            END AS project_scope
+                         WHERE (jsonb_array_length(COALESCE(u.assigned_project_ids, '[]'::jsonb)) = 0
+                                OR p.id::text IN (SELECT jsonb_array_elements_text(u.assigned_project_ids)))
+                           AND (NOT EXISTS (SELECT 1 FROM user_company_access uc WHERE uc.user_id = u.id)
+                                OR p.company_id IN (SELECT uc.company_id FROM user_company_access uc WHERE uc.user_id = u.id))), '00000000-0000-0000-0000-000000000000')
+            END AS project_scope,
+            ARRAY(SELECT uc.company_id::text FROM user_company_access uc WHERE uc.user_id = u.id) AS company_ids
        FROM users u WHERE u.id = $1`, [userId]);
     const user = r.rows[0] || null;
     authUserCache.set(userId, { at: Date.now(), user });
@@ -225,6 +233,9 @@ const authenticateToken = async (req, res, next) => {
         req.userName = decoded.name || decoded.email || 'Unknown';
         req.userRole = user.eff_role ?? undefined;
         req.roleName = user.role;
+        req.companyIds = user.eff_role !== 'super_admin' && user.company_ids && user.company_ids.length ? user.company_ids : null;
+        req.authorizedPrint = user.authorized_print === true;
+        req.authorizedDownload = user.authorized_download === true;
         if (user.eff_role !== 'super_admin' && user.project_scope)
             pool_1.scopeStore.enterWith({ projectIds: user.project_scope });
         req.userPermissions = decoded.permissions || [];
@@ -306,9 +317,8 @@ app.get('/api/import/template/units', (req, res) => {
 // ============================================
 // Compared against when the account does not exist, so response time does not reveal which emails are registered
 const DUMMY_HASH = '$2a$12$sa7LeROPXNZkq2afAye6LuncKbiuFGc0Qx7OUrtgNja4dbiffmqkC';
-const LOGIN_MAX_FAILS = 5;
-const LOGIN_LOCK_MS = 15 * 60 * 1000;
-const loginFailures = new Map();
+// Five failures lock one address and account for 15 minutes. The counts live in the shared store when it exists (utils/throttle.ts), else per process.
+const loginThrottle = (0, throttle_js_1.makeThrottle)('login', 5, 24 * 60 * 60 * 1000, 15 * 60 * 1000);
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 // Opening a letter, receipt or applicant file in a new tab needs a link: valid 2 minutes, for that one page only
@@ -333,14 +343,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
     // Per account and per IP lockout on top of the per IP limiter
     const failKey = `${req.ip}|${email.toLowerCase().trim()}`;
-    const fails = loginFailures.get(failKey);
-    if (fails && fails.until > Date.now()) {
+    if ((await loginThrottle.blockedFor(failKey)) > 0) {
         return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
     }
-    if (fails && fails.until && fails.until <= Date.now())
-        loginFailures.delete(failKey);
-    if (loginFailures.size > 5000)
-        loginFailures.clear();
     try {
         const result = await pool_1.db.query(`SELECT id, name, email, role, password_hash, is_active, COALESCE(token_version, 0) AS token_version FROM users WHERE lower(email) = $1 LIMIT 1`, [email.toLowerCase().trim()]);
         const user = result.rows[0];
@@ -369,14 +374,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             }
         }
         if (!validPassword) {
-            const f = loginFailures.get(failKey) || { count: 0, until: 0 };
-            f.count += 1;
-            if (f.count >= LOGIN_MAX_FAILS)
-                f.until = Date.now() + LOGIN_LOCK_MS;
-            loginFailures.set(failKey, f);
+            await loginThrottle.fail(failKey);
             return res.status(401).json({ error: 'Invalid email or password' });
         }
-        loginFailures.delete(failKey);
+        await loginThrottle.clear(failKey);
         if (ipBlocked(await loadAuthUser(user.id), req)) {
             auditBlocked(user.id, req, 'login');
             return res.status(401).json({ error: 'Invalid email or password' });
@@ -427,6 +428,7 @@ app.get('/api/health/debug', ...adminDiagnostics, async (req, res) => {
         timestamp: new Date().toISOString(),
         lastMigrationLog,
         databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+        throttle: (0, throttle_js_1.throttleBackend)(), // 'shared' once migration T2 is applied, else 'process-local' (a production blocker)
     });
 });
 app.get('/api/health/templates', ...adminDiagnostics, async (req, res) => {
@@ -562,6 +564,14 @@ app.use((err, req, res, next) => {
     // "Run migrations" workflow (.github/workflows/migrate.yml) or `npm run db:migrate`.
     lastMigrationLog = ['[STARTUP] Migrations are not run at startup; see .github/workflows/migrate.yml'];
     console.log('[STARTUP] Skipping runtime migrations (applied separately)');
+    // The sign-in throttles need the shared store (draft migration T2). Without it every instance counts on its own: say so, loudly, in production.
+    if ((await (0, throttle_js_1.refreshThrottleBackend)(true)) !== 'shared') {
+        const msg = '[SECURITY] Login and current-password throttles are PROCESS-LOCAL (table auth_throttle is missing): on a multi-instance host the limits are weaker than they look. Apply migration T2 (docs/users-roles/pending-migrations).';
+        if (exports.appConfig.appEnv === 'production')
+            console.error(msg);
+        else
+            console.warn(msg);
+    }
     // On Vercel the exported app is the request handler; only bind a port elsewhere
     if (!process.env.VERCEL) {
         app.listen(Number(PORT), '0.0.0.0', () => {

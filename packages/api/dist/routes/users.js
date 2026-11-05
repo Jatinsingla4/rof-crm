@@ -19,6 +19,7 @@ const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const security_js_1 = require("../utils/security.js");
 const superAdmin_js_1 = require("../middleware/superAdmin.js");
 const audit_values_js_1 = require("../utils/audit-values.js");
+const throttle_js_1 = require("../utils/throttle.js");
 const router = (0, express_1.Router)();
 // UR-001: everything under /api/users is super_admin only, stated here and not only in the rbac table. The three routes every
 // signed-in user needs stay open: the name list, their own profile and their own password change.
@@ -292,7 +293,7 @@ async function updateUser(req, res, id, body) {
         await client.query('COMMIT');
         (0, index_js_2.invalidateAuthUser)(id);
         if (set.password_hash !== undefined)
-            currentPwFails.delete(id); // a new password starts with a clean current-password count
+            await currentPwThrottle.clear(id); // a new password starts with a clean current-password count
         // Old and new values of everything this request changed, never the password or its hash. The two JSON columns are shown as lists.
         const { password_hash: _hash, ...shown } = set;
         for (const k of ['assigned_project_ids', 'home_page_widgets'])
@@ -426,7 +427,7 @@ router.post('/employee-login', guard(async (req, res) => {
         const created = await client.query(`INSERT INTO users (email, name, username, role, password_hash, authorized_print, authorized_download,
                           unit_status_access, home_page_widgets, assigned_project_ids, is_active, created_by_user_id, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true,$11,NOW()) RETURNING id`, [fields.email, name, fields.username, fields.role, fields.password_hash,
-            fields.authorized_print ?? false, fields.authorized_download ?? false, fields.unit_status_access ?? 'all',
+            fields.authorized_print ?? false, fields.authorized_download ?? false, fields.unit_status_access ?? 'none',
             fields.home_page_widgets ?? '[]', fields.assigned_project_ids ?? '[]', req.userId]);
         const userId = created.rows[0].id;
         for (const p of perms) {
@@ -438,7 +439,7 @@ router.post('/employee-login', guard(async (req, res) => {
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'user', userId, {}, (0, audit_values_js_1.withoutSecrets)({
             username: fields.username, email: fields.email, role: fields.role,
             processes: processLabels(perms), companyIds, assigned_project_ids: JSON.parse(fields.assigned_project_ids ?? '[]'),
-            authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'all',
+            authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'none',
         }));
         res.status(201).json({ success: true, data: { userId, username: fields.username } });
     }
@@ -605,7 +606,7 @@ router.post('/employee-login/:id/revoke-all', guard(async (req, res) => {
 router.get('/me', guard(async (req, res) => {
     if (!req.userId)
         return fail(401, 'Not authenticated');
-    const u = await index_js_1.db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active FROM users WHERE id = $1`, [req.userId]);
+    const u = await index_js_1.db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active, unit_status_access FROM users WHERE id = $1`, [req.userId]);
     if (!u.rows[0])
         return fail(404, 'User not found');
     const [perm, companies] = await Promise.all([
@@ -623,7 +624,9 @@ router.get('/me', guard(async (req, res) => {
             roles.push('approver');
         processPermissions[row.process_name] = roles;
     }
-    res.json({ success: true, data: { ...u.rows[0], processPermissions, companyIds: companies.rows.map((r) => r.company_id) } });
+    // The effective print and download grants (super_admin has both): the browser hides buttons from these, the API refuses the endpoints on its own
+    const sa = (0, superAdmin_js_1.isSuperAdmin)(req);
+    res.json({ success: true, data: { ...u.rows[0], processPermissions, companyIds: companies.rows.map((r) => r.company_id), authorizedPrint: sa || req.authorizedPrint === true, authorizedDownload: sa || req.authorizedDownload === true, unitStatusAccess: (0, unitStatusAccess_js_1.effectiveUnitAccess)(sa, u.rows[0].unit_status_access) } });
 }));
 // GET /api/users/:id
 router.get('/:id', guard(async (req, res) => {
@@ -648,36 +651,17 @@ router.patch('/:id', guard(async (req, res) => {
 // part of the login protection work (AUTH-004).
 const CURRENT_PW_MAX_FAILS = 5;
 const CURRENT_PW_WINDOW_MS = 15 * 60 * 1000;
-const currentPwFails = new Map();
-const currentPwBlockedFor = (id) => {
-    const f = currentPwFails.get(id);
-    if (!f)
-        return 0;
-    const now = Date.now();
-    if (f.until > now)
-        return f.until - now;
-    if (now - f.first > CURRENT_PW_WINDOW_MS || f.until)
-        currentPwFails.delete(id);
-    return 0;
-};
-const noteCurrentPwFailure = (id) => {
-    const now = Date.now();
-    const f = currentPwFails.get(id);
-    const cur = f && now - f.first <= CURRENT_PW_WINDOW_MS && !f.until ? f : { count: 0, first: now, until: 0 };
-    cur.count += 1;
-    if (cur.count >= CURRENT_PW_MAX_FAILS)
-        cur.until = now + CURRENT_PW_WINDOW_MS;
-    currentPwFails.set(id, cur);
-    if (currentPwFails.size > 5000)
-        currentPwFails.clear();
-};
+// Shared store when it exists (utils/throttle.ts), else per process
+const currentPwThrottle = (0, throttle_js_1.makeThrottle)('curpw', CURRENT_PW_MAX_FAILS, CURRENT_PW_WINDOW_MS, CURRENT_PW_WINDOW_MS);
+const currentPwBlockedFor = (id) => currentPwThrottle.blockedFor(id);
+const noteCurrentPwFailure = (id) => currentPwThrottle.fail(id);
 // Proves the caller's current password (400 when missing, 429 when blocked, 401 when wrong). Used by change-password and by the edit
 // form when someone sets their own password, so there is no way to set your own password without it. A wrong answer is 401 on
 // change-password (its existing answer) but 403 on the edit form: the screens sign the user out on any 401, which a typing mistake must not do.
 async function verifyOwnPassword(res, id, currentPassword, wrongStatus = 401) {
     if (!currentPassword || typeof currentPassword !== 'string')
         return fail(400, 'Current password is required');
-    const wait = currentPwBlockedFor(id);
+    const wait = await currentPwBlockedFor(id);
     if (wait > 0) {
         res.setHeader('Retry-After', String(Math.ceil(wait / 1000)));
         return fail(429, `Too many wrong current passwords. Try again in ${Math.ceil(wait / 60000)} minute(s).`);
@@ -685,10 +669,10 @@ async function verifyOwnPassword(res, id, currentPassword, wrongStatus = 401) {
     const hash = (await index_js_1.db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
     const ok = hash?.startsWith('$2') ? await bcryptjs_1.default.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
     if (!ok) {
-        noteCurrentPwFailure(id);
+        await noteCurrentPwFailure(id);
         return fail(wrongStatus, 'Current password is incorrect');
     }
-    currentPwFails.delete(id);
+    await currentPwThrottle.clear(id);
 }
 // POST /api/users/:id/change-password
 // Your own password: the current one is always required, for every role including super_admin.
@@ -709,7 +693,7 @@ router.post('/:id/change-password', guard(async (req, res) => {
     if (!r.rows[0])
         return fail(404, 'User not found');
     (0, index_js_2.invalidateAuthUser)(id);
-    currentPwFails.delete(id);
+    await currentPwThrottle.clear(id);
     await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'user', id, {}, { passwordChanged: true });
     res.json({ success: true, data: r.rows[0] });
 }));

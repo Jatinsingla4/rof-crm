@@ -18,6 +18,8 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const surrender_js_1 = require("./surrender.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
+const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const router = (0, express_1.Router)();
 const csvUpload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 const STATUSES = ['allotted', 'agreement_signed', 'cancelled', 'transferred', 'booked'];
@@ -46,7 +48,7 @@ const pastDay = (v, label) => {
 };
 const history = (c, unitId, from, to, userId, reason) => c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) VALUES ($1, $2, $3, $4, $5)`, [unitId, from, to, userId || null, reason]);
 // POST /api/allocations - allot a unit to an applicant (one click)
-router.post('/', async (req, res, next) => {
+router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
         for (const k of ['consumerId', 'unitId', 'projectId'])
@@ -61,6 +63,8 @@ router.post('/', async (req, res, next) => {
                 throw (0, input_js_1.bad)('Unit not found', 404);
             if (!['available', 'booked'].includes(unit.status))
                 throw (0, input_js_1.bad)('Unit not available for allocation');
+            if (unit.status === 'available')
+                (0, unitStatusAccess_js_1.assertUnitGrant)(req, unit.status); // a NEW allocation picks available inventory; promoting an existing booking is a lifecycle step (Q-U2)
             if (unit.project_id !== projectId)
                 throw (0, input_js_1.bad)('The unit does not belong to that project');
             const person = (await c.query(`SELECT id, project_id, allocated_unit_id FROM consumers WHERE id = $1 FOR UPDATE`, [consumerId])).rows[0];
@@ -252,7 +256,7 @@ router.post('/import-edraw', (req, res, next) => csvUpload.single('file')(req, r
         const out = await (0, input_js_1.inTx)(async (c) => {
             if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
                 throw (0, input_js_1.bad)('Project not found', 404);
-            if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1`, [bankAccount])).rows.length)
+            if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [bankAccount, req.companyIds ?? null])).rows.length)
                 throw (0, input_js_1.bad)('Company bank account not found');
             let matched = 0, refundsCreated = 0, skipped = 0;
             const mismatches = [];
@@ -297,7 +301,7 @@ router.post('/import-edraw', (req, res, next) => csvUpload.single('file')(req, r
 });
 // POST /api/allocations/shift - move an applicant to another unit of the same project. The booking, payment plan, allocation and pending commission move with the applicant;
 // the new unit takes the status the old one had and the old unit becomes available. (Prices are not recalculated.)
-router.post('/shift', (0, processPermission_js_1.requireProcess)('unit_shifting', 'maker'), async (req, res, next) => {
+router.post('/shift', (0, processPermission_js_1.requireProcess)('unit_shifting', 'maker'), unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
         const b = (0, input_js_1.body)(req);
         if (!(0, input_js_1.has)(b.consumerId) || !(0, input_js_1.has)(b.newUnitId))
@@ -326,6 +330,7 @@ router.post('/shift', (0, processPermission_js_1.requireProcess)('unit_shifting'
                 throw (0, input_js_1.bad)('New unit not found', 404);
             if (newU.status !== 'available')
                 throw (0, input_js_1.bad)('New unit is not available');
+            (0, unitStatusAccess_js_1.assertUnitGrant)(req, newU.status);
             if (newU.project_id !== oldU.project_id)
                 throw (0, input_js_1.bad)('The new unit must be in the same project');
             if ((await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND status <> 'cancelled' LIMIT 1`, [newUnitId])).rows.length)
@@ -377,7 +382,7 @@ router.get('/shifts', async (req, res, next) => {
     }
 });
 // POST /api/allocations/generate-letters - an allotment letter record for every allotted applicant that has none (once, even if two people click at the same moment)
-router.post('/generate-letters', async (req, res, next) => {
+router.post('/generate-letters', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const projectId = (0, input_js_1.has)((0, input_js_1.body)(req).projectId) ? (0, input_js_1.uuid)((0, input_js_1.body)(req).projectId, 'projectId') : null;
         const out = await (0, input_js_1.inTx)(async (c) => {

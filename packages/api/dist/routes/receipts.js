@@ -19,6 +19,8 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const financial_ops_js_1 = require("./financial-ops.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 // What the receipt form sends -> what the database keeps
 exports.RECEIPT_MODES = {
@@ -118,7 +120,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
             else {
                 planId = (await c.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId])).rows[0]?.id || null;
             }
-            if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1`, [bankAccount])).rows.length)
+            if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [bankAccount, req.companyIds ?? null])).rows.length)
                 throw (0, input_js_1.bad)('Company bank account not found', 400);
             if (chequeNo)
                 await reference(c, 'cheque_no', chequeNo, null, 'Cheque number');
@@ -398,10 +400,17 @@ router.patch('/receipts/:id', async (req, res, next) => {
 router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
+        // Strict maker-checker: whoever recorded the receipt cannot authorize it (super_admin included); a receipt with no known recorder waits for remediation.
+        // One statement, so the check and the change cannot be separated by a concurrent request.
         const r = await index_js_1.db.query(`UPDATE receipts SET status = 'authorized', authorized_by = $1, authorized_at = NOW(), updated_at = NOW()
-        WHERE id = $2 AND status = 'pending' RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]);
-        if (!r.rows.length)
+        WHERE id = $2 AND status = 'pending' AND received_by_user_id IS NOT NULL AND received_by_user_id <> $1
+        RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]);
+        if (!r.rows.length) {
+            const cur = (await index_js_1.db.query(`SELECT status, received_by_user_id FROM receipts WHERE id = $1`, [id])).rows[0];
+            if (cur && cur.status === 'pending')
+                (0, financial_ops_js_1.notOwn)(req, cur.received_by_user_id);
             throw (0, input_js_1.bad)('Pending receipt not found or already authorized', 404);
+        }
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'receipt', id, { status: 'pending' }, { status: 'authorized' });
         res.json({ success: true, data: r.rows[0], message: 'Receipt authorized successfully' });
     }
@@ -410,7 +419,7 @@ router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)
     }
 });
 // PATCH /receipts/:id/mark-printed
-router.patch('/receipts/:id/mark-printed', async (req, res, next) => {
+router.patch('/receipts/:id/mark-printed', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         const r = await index_js_1.db.query(`UPDATE receipts SET print_status = 'printed', printed_by = $1, printed_at = NOW() WHERE id = $2 AND status <> 'cancelled' RETURNING id`, [req.userId, id]);

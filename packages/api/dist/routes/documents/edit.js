@@ -6,6 +6,7 @@ const index_js_1 = require("../../index.js");
 const input_js_1 = require("../../utils/input.js");
 const document_recalc_js_1 = require("../../utils/document-recalc.js");
 const document_writeback_js_1 = require("../../utils/document-writeback.js");
+const printDownload_js_1 = require("../../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 // GET /api/documents/:id/overrides — List all active field overrides for a document
 router.get('/:id/overrides', async (req, res, next) => {
@@ -138,7 +139,7 @@ router.patch('/:id/edit', async (req, res, next) => {
     }
 });
 // GET /api/documents/:id/html - Return rendered html_content for a document (used by frontend print)
-router.get('/:id/html', async (req, res, next) => {
+router.get('/:id/html', printDownload_js_1.requirePrint, async (req, res, next) => {
     try {
         const docId = (0, input_js_1.uuid)(req.params.id, 'Document');
         const result = await index_js_1.db.query(`SELECT d.html_content, d.document_type, d.id AS doc_id,

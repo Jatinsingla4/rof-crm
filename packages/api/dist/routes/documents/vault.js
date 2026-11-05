@@ -11,6 +11,7 @@ const auditLogger_js_1 = require("../../middleware/auditLogger.js");
 const input_js_1 = require("../../utils/input.js");
 const doc_crypto_js_1 = require("../../utils/doc-crypto.js");
 const business_date_js_1 = require("../../utils/business-date.js");
+const printDownload_js_1 = require("../../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 // A stored link must be a web address or a path inside this site (a "javascript:" link would run when someone opens it)
 const fileLink = (v) => {
@@ -188,7 +189,7 @@ router.post('/vault', maybeFile, async (req, res, next) => {
     }
 });
 // GET /api/documents/vault/file/:id - The stored file (before /vault/:consumerId so "file" is not read as an id)
-router.get('/vault/file/:id', async (req, res, next) => {
+router.get('/vault/file/:id', printDownload_js_1.requireDownload, async (req, res, next) => {
     try {
         const r = (await index_js_1.db.query(`SELECT dv.file_name, dv.content_type, dv.file_data FROM document_vault dv WHERE dv.id = $1 AND ${UNIT_OK}`, [(0, input_js_1.uuid)(req.params.id, 'Document')])).rows[0];
         if (!r?.file_data)

@@ -11,6 +11,8 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const tds_js_1 = require("../utils/tds.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const financial_ops_js_1 = require("./financial-ops.js");
+const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 const MAX = 1000000000;
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next, 'This already exists');
@@ -103,12 +105,18 @@ router.get('/journals/:id', async (req, res, next) => {
 // PATCH /api/payments/journals/:id/approve — CHECKER
 router.patch('/journals/:id/approve', (0, processPermission_js_1.requireProcess)('jv_refund_drcr', 'checker'), async (req, res, next) => {
     try {
+        // Strict maker-checker: the person who made the entry cannot approve it (super_admin included); an entry with no known maker waits for remediation
+        const jid = (0, input_js_1.uuid)(req.params.id, 'Entry id');
         const result = await index_js_1.db.query(`UPDATE journal_entries
        SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
-       WHERE id = $2 AND status = 'pending'
-       RETURNING *`, [req.userId, (0, input_js_1.uuid)(req.params.id, 'Entry id')]);
-        if (!result.rows[0])
+       WHERE id = $2 AND status = 'pending' AND created_by_user_id IS NOT NULL AND created_by_user_id <> $1
+       RETURNING *`, [req.userId, jid]);
+        if (!result.rows[0]) {
+            const cur = (await index_js_1.db.query(`SELECT status, created_by_user_id FROM journal_entries WHERE id = $1`, [jid])).rows[0];
+            if (cur && cur.status === 'pending')
+                (0, financial_ops_js_1.notOwn)(req, cur.created_by_user_id);
             return res.status(404).json({ error: 'Entry not found or already processed' });
+        }
         res.json({ success: true, data: result.rows[0] });
     }
     catch (error) {
@@ -122,10 +130,14 @@ router.patch('/journals/:id/reject', (0, processPermission_js_1.requireProcess)(
         const jid = (0, input_js_1.uuid)(req.params.id, 'Entry id');
         const result = await index_js_1.db.query(`UPDATE journal_entries
        SET status = 'rejected', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
-       WHERE id = $3 AND status = 'pending'
+       WHERE id = $3 AND status = 'pending' AND created_by_user_id IS NOT NULL AND created_by_user_id <> $1
        RETURNING *`, [req.userId, rejection_reason, jid]);
-        if (!result.rows[0])
+        if (!result.rows[0]) {
+            const cur = (await index_js_1.db.query(`SELECT status, created_by_user_id FROM journal_entries WHERE id = $1`, [jid])).rows[0];
+            if (cur && cur.status === 'pending')
+                (0, financial_ops_js_1.notOwn)(req, cur.created_by_user_id);
             return res.status(404).json({ error: 'Entry not found or already processed' });
+        }
         res.json({ success: true, data: result.rows[0] });
     }
     catch (error) {
@@ -190,7 +202,7 @@ router.get('/tds/receipts', async (req, res, next) => {
     }
 });
 // GET /api/payments/tds/challans/:id - one challan with every assignment (released ones too)
-router.get('/tds/challans/:id', async (req, res, next) => {
+router.get('/tds/challans/:id', printDownload_js_1.requireDownload, async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Challan id');
         const c = (await index_js_1.db.query(`SELECT ${LIST} FROM tds_challans c WHERE c.id = $1`, [id])).rows[0];
