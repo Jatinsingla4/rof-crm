@@ -8,7 +8,7 @@ Neon setting was inspected: every "unverified" below means exactly that.
 - One production deployment. A push to `main` runs the `verify` job (build, dist check, fresh database, migrations 096 and later twice, API suite, Playwright), then the `deploy` job, which **first applies every pending migration file to the production database** (`DATABASE_URL` from secrets, no `environment:` key, no human gate) and **then** deploys to Vercel.
 - `migrate.yml` is a manual dispatch (input `confirm` must be `yes`), declares `environment: production`, can re-apply from a given number (`FORCE_FROM`), and has no branch restriction in the file.
 - There is **no staging**: no second deployment, no second database, no scrubbed copy.
-- The application refuses to start in production without `APP_ENV` set to `staging` or `production`, and refuses `SCOPE_MODE=log` outside staging (`UR-013`).
+- **Not on `main`.** The `APP_ENV` and `SCOPE_MODE` start-up check (`UR-013`, Q-D1 option A) exists only in the **feature branch** `integration/rof-crm-stabilization`; the code that production runs (`origin/main`, last commit `8000ec2`) does **not** contain it, so **nothing is enforced in production today**. See section 6.
 
 ## 2. Proposed target (design for the owner to accept or change)
 ```
@@ -58,7 +58,7 @@ Whoever owns the scrub (a script that anonymises personal data, run on every ref
 | **G2** migration inventory and batching | the register lists every schema change; every data change is outside a migration; each release is one batch; no file reaches `main` before its batch is approved; numbers rechecked; dependency order kept | drafts M1 to M3, M9, M10a, T1, T2 (not in the migrations folder on purpose); M4 to M8, M11, M12 not drafted; the remote was clean when last read (one branch, no pull requests) but must be rechecked | owner | NO-GO |
 | **G9** protected production approval and serialization | an administrator has inspected and recorded every item of the list in section 4 below | none: settings not inspected, workflow not changed | administrator, owner | NO-GO |
 | **G10** written owner approval | written approval of the design items of the release, of the batch's migration list, and of the open questions it depends on (Q-D1 to Q-D5, Q-U1 to Q-U3, Q-A1) | none | owner | NO-GO |
-| **G13** no production `SCOPE_MODE=log` | production runs `APP_ENV=production` with strict scope; the refusal of `log` outside staging is tested; the configuration review is recorded | the startup refusal exists and is tested (`UR-013`, inside `api-test-phase1`); Q-D1 written confirmation missing | owner, administrator | NO-GO |
+| **G13** no production `SCOPE_MODE=log` | production runs `APP_ENV=production` with strict scope; the refusal of `log` outside staging is tested; the configuration review is recorded | the start-up refusal exists **in the feature branch only, not on `main` or in production**, and is tested there (`UR-013`, inside `api-test-phase1`); it runs only when `NODE_ENV=production`; Q-D1 written confirmation missing | owner, administrator | NO-GO |
 | **G14** safe rollback and auditability | the forward-safe rollbacks are rehearsed on staging; audit rows are complete; no rollback restores unsafe behaviour | design written; rollbacks are plain drop statements in the drafts; no rehearsal | owner | NO-GO |
 
 **Phase gates (each applies to the phase or batch it names):**
@@ -86,4 +86,22 @@ Whoever owns the scrub (a script that anonymises personal data, run on every ref
 Acceptance (to be tried on a throwaway repository or branch, never on production): a pushed migration stops at the approval step; a rejection deploys and applies nothing; the author cannot approve; a dispatch from another ref is refused; approval applies the listed files once and then deploys the same SHA; a failing migration leaves production code unchanged.
 
 ## 5. How to review this document
-Read section 2 first: if the picture is not what you want, say so before anything else. Then decide the three things only you can: who owns staging and where it is hosted (options A to C), whether you accept the target flow, and who is the administrator who will inspect the settings of section 4. Section 3 is the checklist to tick later; a gate turns GO only when its evidence is written down, never by reading this file.
+Read section 2 first: if the picture is not what you want, say so before anything else. Then decide the three things only you can: who owns staging and where it is hosted (options A to C), whether you accept the target flow, and who is the administrator who will inspect the settings of section 4. Section 3 is the checklist to tick later; a gate turns GO only when its evidence is written down, never by reading this file. Section 6 lists what must be true about `APP_ENV` and `NODE_ENV` before the merge.
+
+## 6. Q-D1 option A: what is and is not enforced, and what must happen before the merge
+**What exists.** `loadAppConfig` in `packages/api/src/utils/app-config.ts` (the check is at lines 12 and 13, the `SCOPE_MODE=log` check at line 18) is called when the application module loads, at `packages/api/src/db/pool.ts:47` and `packages/api/src/index.ts:77`; the Vercel entry `api/index.js` imports the compiled `packages/api/dist/index.js`, which contains it. Calling the compiled function directly gave:
+| Environment seen by the process | Result |
+|---|---|
+| `NODE_ENV=production`, `APP_ENV` unset, `Production` (capital P) or `prod` | **throws** "Refusing to start" |
+| `NODE_ENV=production`, `APP_ENV=production` | starts, scope strict |
+| `NODE_ENV=production`, `APP_ENV=production`, `SCOPE_MODE=log` | throws (log is allowed with `APP_ENV=staging` only) |
+| `NODE_ENV=production`, `APP_ENV=staging`, `SCOPE_MODE=log` | starts, scope log |
+| `NODE_ENV` unset or any value other than exactly `production` (for example `staging`) | **the check does not run**: starts with `appEnv` null |
+**What does not exist.** The check is **on the feature branch only**. It is **not on `origin/main`** and therefore **not in production**. This must not be described as "already enforced in production". Nothing has been merged, pushed to `main` or deployed.
+**It runs only when `NODE_ENV=production`.** A deployment whose runtime `NODE_ENV` is anything else passes without any `APP_ENV` (fail open for that case). Whether Vercel sets `NODE_ENV=production` at runtime for the production deployment (and for any preview or staging deployment) was **not verified from here** and is an assumption until checked.
+**Production release prerequisites (do these before the merge and the deployment, in this order):**
+1. **Verify `NODE_ENV=production` on the deployed Vercel runtime.** The admin-only diagnostics route `GET /api/health/templates` returns `environment.nodeEnv` (it is in the source; confirm it exists on the deployed version), or read the Vercel project's environment variables and a deployment's runtime configuration.
+2. **Set `APP_ENV=production` in the Vercel production environment** (exact lowercase value; `Production` and `prod` are refused). If a staging or preview deployment uses `NODE_ENV=production`, it needs `APP_ENV=staging`.
+3. **Do not set `SCOPE_MODE=log` on production** (it would stop the application from starting); unset means strict.
+4. Only then merge and deploy. **If `APP_ENV` is missing at deployment, the application throws while loading and every request fails** (an outage, by design: fail closed). The release checklist must include "APP_ENV present" as a go/no-go item before the deploy job runs.
+5. Record the written owner confirmation of option A (Q-D1) in the release approval (gate G10 and G13).

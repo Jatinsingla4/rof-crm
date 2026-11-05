@@ -12,6 +12,7 @@ Start with `00-plan-integrity.md` (the plan file v7 is missing; only the v6 copy
 | 3 | `docs/users-roles/decision-support/02-finance-part-b-route-table.md` | every pending financial handler, today's protection, a proposal and the exact Finance question | write A (second person), E (audited edit) or R (retire) next to each row |
 | 4 | `docs/users-roles/decision-support/03-unit-status-questions.md` | the exact wording of Q-U1, Q-U2, Q-U3 and Q-A1 and what YES and NO each change | answer YES or NO per question once you accept its effects |
 | 5 | `docs/users-roles/decision-support/04-staging-architecture-and-release-checklist.md` | staging design, environment matrix, hosting options, the gate checklist and what an administrator must inspect | accept or change the picture; then name an owner and an administrator |
+| 6 | `docs/users-roles/decision-support/05-recommendations-not-policy.md` | my recommendations for each open decision, **clearly not approved policy**, with the reasoning | accept, change or ignore each row; answer in your own words so it is recorded as your decision |
 
 ## D5: how to run and read it
 Run (on a scrubbed or synthetic copy only; the first line makes the session read-only, so a mistake cannot write):
@@ -36,5 +37,21 @@ the activity signals (`last_login_ist`, `receipts_recorded`, `documents_generate
 `owner_print_yes_no`, `owner_download_yes_no`, `owner_unit_status_...` (one of none, available, available_hold, unit_hold, all) and `owner_note`. Rows with many activity signals and "LOSES" are the ones that would notice the release first.
 On the synthetic database it produced 63 rows with the four owner columns empty.
 
+**Print and download usage evidence (what exists and what does not).**
+- **Print: some evidence exists, the sheet does not use it yet.** `receipts.printed_by` and `receipts.printed_at` record who marked a receipt as printed and when (set by `PATCH /receipts/:id/mark-printed`). They are available as a print-usage signal for **receipts only**; a count per login can be added to the sheet in a later version. They say nothing about browser printing of other pages (window.print of letters, reports and the like), which is not logged.
+- **Download: there is no equivalent log.** The application does not record who downloaded an export or a file (the CSV and file endpoints were only gated by the grant, not logged, and browser-generated CSV and Blob downloads happen on the screen). **Do not infer that a login does not need download access because the sheet shows no usage: the absence of a log is not evidence of non-use.** Download access has to be decided from the login's job, not from this sheet.
+- The same holds for print generally: no receipts activity does not mean the login never prints.
+
 ## Reading order for the decision brief
 The short plain-language brief with the decisions is in the reply that accompanied these files; the tracker (`docs/users-roles/USERS_ROLES_TRACKER.md`) keeps the Closure Blocker Register and a pointer here.
+
+## Remaining risks of the D5 and D7 scripts (they are for an authorized scrubbed copy only; **not** for production)
+These scripts only read (verified: no write-capable statement outside comments, and a D5 run left the database's insert, update and delete counters unchanged), but **they are not claimed safe to run against production**.
+Run them only against a copy that an authorized person has scrubbed, and read this list first:
+1. **Personal data (PII).** D5 prints login emails, names and last-login times; D7 writes a CSV with emails, names, last login, activity counts and process rights. If the copy is not truly scrubbed, the output is personal data. Check the scrub (spot-check emails and names) **before** running, keep the CSV out of chats and mail, and know that the CSV is created with the machine's default file permissions in the current directory.
+2. **Host detection is weak and self-attested.** `CONFIRM_SCRUBBED_COPY=yes` is the operator's own statement. The refusal looks only at the **text** of `PGHOST` for `neon`, `amazonaws` or `vercel`. A production database behind a custom domain, an IP address, a tunnel, a pooler alias, `PGHOSTADDR` or a `PGSERVICE` file is **not** detected, and the "Target:" line prints the environment variable, not the server actually reached. Mitigation: use a database role that can only `SELECT` on the scrubbed copy, and confirm the target with `select current_database(), inet_server_addr()` first.
+3. **Read-only enforcement depends on `PGOPTIONS`.** The D7 script exports `PGOPTIONS='-c default_transaction_read_only=on'` itself; the D5 SQL file does **not** enforce read-only inside the file (it relies on the run command setting it, as the instructions show). The D5 file contains only SELECT statements, but an operator who omits `PGOPTIONS` loses the second guard. A hosted pooler may reject the `options` startup parameter; that would stop the script (a safe failure) but was not tested.
+4. **Performance.** D7 runs correlated counts per login over `receipts`, `documents`, `booking_records` and `audit_logs` (the last filtered by time). On a production-size `audit_logs` without a suitable index this can be slow and heavy; the indexes were not checked. Another reason to run it only on a copy.
+5. **Untested on a production-shaped schema.** Both ran only on a freshly built database made from the baseline and migrations. A column that differs in a real copy would make a query fail (a safe failure), and a count could be wrong without failing.
+6. **Signals can mislead.** `bookings_made` uses `booking_records.created_by` only; `receipts_recorded`, `documents_generated` and the audit count each show part of what a login does.
+7. **The D5 CSV vocabulary is a proposal.** `KEEP_UNRESTRICTED`, `ASSIGN` and `NO_ACCESS` are not read by any script yet.
