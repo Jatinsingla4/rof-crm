@@ -18,6 +18,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // What the receipt form sends -> what the database keeps
 exports.RECEIPT_MODES = {
@@ -53,7 +54,7 @@ const mode = (v, label = 'Payment mode') => {
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v, label) => {
     const d = (0, input_js_1.day)(v, label);
-    if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+    if (d && d > (0, business_date_js_1.businessTomorrow)())
         throw (0, input_js_1.bad)(`${label} cannot be in the future`);
     return d;
 };
@@ -91,7 +92,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
             throw (0, input_js_1.bad)('Amount must be at least 1 rupee');
         const planGiven = (0, input_js_1.has)(b.paymentPlanId) ? (0, input_js_1.uuid)(b.paymentPlanId, 'paymentPlanId') : null;
         const idxGiven = int(b.installmentIndex, 'installmentIndex', 0, 500);
-        const date = pastDay(b.paymentDate ?? b.receivedDate, 'Receipt date') || new Date().toISOString().slice(0, 10);
+        const date = pastDay(b.paymentDate ?? b.receivedDate, 'Receipt date') || (0, business_date_js_1.businessToday)();
         const method = mode(b.paymentMode ?? b.paymentMethod ?? 'cash');
         const ref = (0, input_js_1.text)(b.referenceNumber ?? b.transactionRef, 'Reference', 100, false);
         const bankName = (0, input_js_1.text)(b.bankName, 'Bank name', 255, false);
@@ -283,10 +284,10 @@ router.get('/receipts/pending-cheques', async (req, res, next) => {
             where += ` AND u.unit_number ILIKE ${add((0, applicant_js_1.likeOf)(unit))}`;
         const from = (0, input_js_1.day)(q.from_date, 'from_date');
         if (from)
-            where += ` AND r.created_at::date >= ${add(from)}`;
+            where += ` AND ${(0, business_date_js_1.sqlDay)('r.created_at')} >= ${add(from)}`;
         const to = (0, input_js_1.day)(q.to_date, 'to_date');
         if (to)
-            where += ` AND r.created_at::date <= ${add(to)}`;
+            where += ` AND ${(0, business_date_js_1.sqlDay)('r.created_at')} <= ${add(to)}`;
         if (from && to && from > to)
             throw (0, input_js_1.bad)('from_date must not be after to_date');
         const cheque = query(q.cheque_no, 'cheque_no');

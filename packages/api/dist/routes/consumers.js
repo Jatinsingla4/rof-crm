@@ -22,6 +22,7 @@ const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
+const business_date_js_1 = require("../utils/business-date.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -822,7 +823,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
            SELECT gts.cgst_pct, gts.sgst_pct
            FROM gst_tax_charge_mapping gcm
            JOIN gst_slabs gs ON gs.id = gcm.slab_id
-             AND gs.from_date <= CURRENT_DATE AND gs.to_date >= CURRENT_DATE
+             AND gs.from_date <= ${business_date_js_1.SQL_TODAY} AND gs.to_date >= ${business_date_js_1.SQL_TODAY}
            JOIN gst_tax_setup gts ON gts.id = gcm.gst_tax_id
            WHERE gcm.project_id = proj.id AND gcm.charge_type = 'BASIC'
            LIMIT 1
@@ -929,7 +930,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         let penalRate = (0, penal_rate_js_1.penalRateFrom)(settings);
         if (projectId) {
             try {
-                const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= CURRENT_DATE ORDER BY effective_from DESC LIMIT 1`, [projectId]);
+                const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates WHERE project_id = $1 AND effective_from <= ${business_date_js_1.SQL_TODAY} ORDER BY effective_from DESC LIMIT 1`, [projectId]);
                 if (projRateRes.rows.length > 0)
                     penalRate = parseFloat(projRateRes.rows[0].rate_percent);
             }
@@ -949,7 +950,7 @@ router.get('/:id/applicant-file', async (req, res, next) => {
         const interestCalcRows = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsRes.rows, demandsForInterest, penalRate, {
             interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
             gracePeriodDays: parseInt(String(consumer.grace_period_days || 0)),
-            asOfDate: new Date(),
+            asOfDate: (0, business_date_js_1.businessDayStart)(),
         });
         // ─────────────────────────────────────────
         const waiverRes = await index_js_1.db.query(`SELECT COALESCE(SUM(waiver_amount_inr), 0) AS total_waived
@@ -963,8 +964,8 @@ router.get('/:id/applicant-file', async (req, res, next) => {
        FROM gst_tax_charge_mapping gcm
        JOIN gst_slabs gs
          ON gs.id = gcm.slab_id
-        AND gs.from_date <= CURRENT_DATE
-        AND gs.to_date   >= CURRENT_DATE
+        AND gs.from_date <= ${business_date_js_1.SQL_TODAY}
+        AND gs.to_date   >= ${business_date_js_1.SQL_TODAY}
        JOIN gst_tax_setup gts
          ON gts.id = gcm.gst_tax_id
        WHERE gcm.project_id  = $1
@@ -977,8 +978,8 @@ router.get('/:id/applicant-file', async (req, res, next) => {
          FROM gst_tax_charge_mapping gcm
          JOIN gst_slabs gs
            ON gs.id = gcm.slab_id
-          AND gs.from_date <= CURRENT_DATE
-          AND gs.to_date   >= CURRENT_DATE
+          AND gs.from_date <= ${business_date_js_1.SQL_TODAY}
+          AND gs.to_date   >= ${business_date_js_1.SQL_TODAY}
          JOIN gst_tax_setup gts
            ON gts.id = gcm.gst_tax_id
          WHERE gcm.project_id  = $1

@@ -9,8 +9,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
-const TODAY = `(NOW() AT TIME ZONE 'Asia/Kolkata')::date`;
+const TODAY = business_date_js_1.SQL_TODAY; // the business day (Asia/Kolkata), shared with every other module
 const RAISED = `d.status IN ('demanded','raised')`; // a demand that was raised (pending = not yet raised, paid / cancelled are done)
 const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;

@@ -8,6 +8,7 @@ const project_settings_js_1 = require("../utils/project-settings.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // Reading is open (the booking form needs the preview); changing a rate needs the master_data permission
 router.use((req, res, next) => {
@@ -110,7 +111,7 @@ router.get('/balcony-preview', async (req, res, next) => {
                 return res.status(400).json({ success: false, error: e.message });
             }
         }
-        const resolveDate = bookingDate || new Date().toISOString().split('T')[0];
+        const resolveDate = bookingDate || (0, business_date_js_1.businessToday)();
         const projRes = await index_js_1.db.query(`SELECT name FROM projects WHERE id = $1`, [projectId]);
         if (!projRes.rows.length)
             return res.status(404).json({ success: false, error: 'Project not found' });

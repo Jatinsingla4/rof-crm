@@ -13,6 +13,7 @@ const report_input_js_1 = require("../utils/report-input.js");
 const reports_dues_js_1 = require("./reports-dues.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const company_bank_js_1 = require("../utils/company-bank.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
 const PROJECT = `COALESCE(pp.project_id, c.project_id)`;
@@ -34,7 +35,7 @@ router.get('/year-month-collection', (0, reports_dues_js_1.h)(async (req, res) =
     const x = (0, reports_dues_js_1.Q)(req);
     const r = await pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS total
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid) GROUP BY 1, 2 ORDER BY 1, 2`, [x.projectId || null]);
-    const cur = new Date().getFullYear();
+    const cur = (0, business_date_js_1.businessYear)();
     const years = r.rows.map((a) => a.yr);
     const minYear = years.length ? Math.min(...years) : cur, maxYear = years.length ? Math.max(...years) : cur;
     const cell = new Map(r.rows.map((a) => [`${a.yr}-${a.mo}`, num(a.total)]));

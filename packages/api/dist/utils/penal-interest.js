@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.nextNumber = exports.persistInterest = void 0;
 const input_js_1 = require("./input.js");
+const business_date_js_1 = require("./business-date.js");
 // Saves a fresh interest calculation for one applicant: the stored 'calculated' rows are replaced (manual rows stay).
 // What was waived is never lost: the amount waived per installment comes back from the approved waivers, up to the new interest.
 // Call inside a transaction. Returns installment_index -> new penal_interests id.
@@ -22,7 +23,7 @@ exports.persistInterest = persistInterest;
 // Next number of a series such as INV/2026/00007 (one writer at a time, so two requests never get the same number)
 const nextNumber = async (c, table, column, prefix, width) => {
     await (0, input_js_1.lock)(c, 'num:' + table);
-    const year = new Date().getFullYear();
+    const year = (0, business_date_js_1.businessYear)();
     const n = (await c.query(`SELECT COALESCE(MAX(substring(${column} from '[0-9]+$')::bigint), 0) + 1 AS n FROM ${table} WHERE ${column} ~ $1`, [`^${prefix}/${year}/[0-9]+$`])).rows[0].n;
     return `${prefix}/${year}/${String(n).padStart(width, '0')}`;
 };

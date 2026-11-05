@@ -8,6 +8,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const charge_stock_js_1 = require("../utils/charge-stock.js");
 const charge_area_js_1 = require("../utils/charge-area.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // ── Access, input rules ──────────────────────────────────────────────────────
 // Reading is open to every signed-in user. Changing the charge master needs master_data; giving, editing,
@@ -406,7 +407,7 @@ router.post('/consumer', async (req, res, next) => {
         if (given !== null && given <= 0)
             throw (0, input_js_1.bad)('Amount must be more than 0');
         const remark = (0, input_js_1.text)(b.remark, 'Remark', 1000, false);
-        const effectiveDate = (0, input_js_1.day)(b.effectiveDate) || new Date().toISOString().slice(0, 10);
+        const effectiveDate = (0, input_js_1.day)(b.effectiveDate) || (0, business_date_js_1.businessToday)();
         const out = await (0, input_js_1.inTx)(async (c) => {
             await lockConsumer(c, consumerId);
             if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {

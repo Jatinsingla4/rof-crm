@@ -26,6 +26,7 @@ const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const receipt_number_js_1 = require("../utils/receipt-number.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // ---------- input rules for Booking ----------
 // Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
@@ -46,7 +47,7 @@ const T = (v, label, max) => (0, input_js_1.text)(v, label, max, false);
 const uuidOrNull = (v, label) => ((0, input_js_1.has)(v) ? (0, input_js_1.uuid)(v, label) : null);
 const bookingDay = (v, label) => {
     const d = (0, input_js_1.day)(v, label);
-    if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+    if (d && d > (0, business_date_js_1.businessTomorrow)())
         throw (0, input_js_1.bad)(`${label} cannot be in the future`);
     return d;
 };
@@ -166,7 +167,7 @@ const parseNew = (b) => {
 };
 // Generate registration number with project-based prefix and sequential numbering
 async function generateRegistrationNo(projectId, client) {
-    const year = new Date().getFullYear();
+    const year = (0, business_date_js_1.businessYear)();
     const st = await (0, project_settings_js_1.projectSettings)(client, projectId);
     // Get project name for prefix
     const projResult = await client.query('SELECT name FROM projects WHERE id = $1', [projectId]);
@@ -414,7 +415,7 @@ router.post('/', async (req, res, next) => {
          )
          RETURNING *`, [
                 consumer_id, project_id, unit_id,
-                booking_date || new Date().toISOString().split('T')[0],
+                booking_date || (0, business_date_js_1.businessToday)(),
                 booking_amount,
                 payment_mode, payment_ref, bank_name, cheque_date,
                 company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct,
@@ -439,7 +440,7 @@ router.post('/', async (req, res, next) => {
             // Resolve BASIC GST rate server-side (same pattern as PATCH /:id) and
             // derive cgst_amount/sgst_amount from the confirmed booking_amount --
             // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
-            const bookingDateForGstCreate = booking_date || new Date().toISOString().split('T')[0];
+            const bookingDateForGstCreate = booking_date || (0, business_date_js_1.businessToday)();
             const projectNameForGstCreate = (await client.query('SELECT name FROM projects WHERE id = $1', [project_id])).rows[0]?.name || project_id;
             const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
             const gstRateForBptCreate = isNriForGstCreate
@@ -802,7 +803,7 @@ router.patch('/:id', async (req, res, next) => {
             // cgst_pct/sgst_pct which came from the disconnected tax_slabs table.
             const bookingDateForGst = booking.booking_date
                 ? new Date(booking.booking_date).toISOString().split('T')[0]
-                : new Date().toISOString().split('T')[0];
+                : (0, business_date_js_1.businessToday)();
             const projectRowForGst = await client.query('SELECT name FROM projects WHERE id = $1', [booking.project_id]);
             const projectNameForGst = projectRowForGst.rows[0]?.name || booking.project_id;
             const consumerRowForGst = await client.query('SELECT nationality FROM consumers WHERE id = $1', [booking.consumer_id]);
@@ -897,7 +898,7 @@ router.patch('/:id', async (req, res, next) => {
                ORDER BY installment_index`, [booking.project_id, selectedPlanName]);
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
-                            : safeLocalDate(new Date());
+                            : safeLocalDate((0, business_date_js_1.businessDayStart)());
                         const projectRes = await client.query('SELECT name FROM projects WHERE id = $1', [booking.project_id]);
                         const projectName = projectRes.rows[0]?.name || booking.project_id;
                         const consumerRes = await client.query('SELECT nationality FROM consumers WHERE id = $1', [booking.consumer_id]);
@@ -955,7 +956,7 @@ router.patch('/:id', async (req, res, next) => {
                         const payMethod = RECEIPT_METHOD[booking.payment_mode] || 'bank_transfer';
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
-                            : safeLocalDate(new Date());
+                            : safeLocalDate((0, business_date_js_1.businessDayStart)());
                         const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client, '', booking.project_id);
                         const stepGReceiptRes = await client.query(`INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
@@ -1011,7 +1012,7 @@ router.patch('/:id', async (req, res, next) => {
                     // (inside existingAlloc === 0 guard).
                     const bookingDateStr = booking.booking_date
                         ? safeLocalDate(booking.booking_date)
-                        : safeLocalDate(new Date());
+                        : safeLocalDate((0, business_date_js_1.businessDayStart)());
                     const addonPctRows = await client.query(`SELECT DISTINCT
                pac.charge_master_id,
                acm.charge_name,
@@ -1854,7 +1855,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
         </div>
         <div style="text-align:right;">
           <div style="font-weight:700;">(1/3)</div>
-          <div>Date: ${fmtDate(new Date())}</div>
+          <div>Date: ${fmtDate((0, business_date_js_1.businessDayStart)())}</div>
         </div>
       </div>
     </div>`;
@@ -2318,7 +2319,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
       </div>
       <div style="text-align:right;">
         <div style="font-weight:700;">(2/3)</div>
-        <div>Date: ${fmtDate(new Date())}</div>
+        <div>Date: ${fmtDate((0, business_date_js_1.businessDayStart)())}</div>
       </div>
     </div>`;
     return `
@@ -2526,7 +2527,7 @@ async function buildApplicantPage3(b, consumer, settings, documentDispatches, co
           Customer ID: ${customerId}
         </div>
         <div style="text-align:center;font-weight:700;">(3/3)</div>
-        <div style="text-align:right;">Date: ${fmtDate(new Date())}</div>
+        <div style="text-align:right;">Date: ${fmtDate((0, business_date_js_1.businessDayStart)())}</div>
       </div>
     </div>`;
     return `

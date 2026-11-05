@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.responseFormatter = void 0;
 const penal_rate_js_1 = require("../utils/penal-rate.js");
+const business_date_js_1 = require("../utils/business-date.js");
 // ============================================
 // UNIT STATUS → COLOR MAPPING
 // ============================================
@@ -105,7 +106,7 @@ const formatReceipt = (receipt) => {
     return {
         ...receipt,
         // Ensure receipt has a consistent number format (e.g., REC-2026-001)
-        receipt_no: receipt.receipt_no || `REC-${new Date().getFullYear()}-${receipt.id?.substring(0, 6) || 'XXXX'}`,
+        receipt_no: receipt.receipt_no || `REC-${(0, business_date_js_1.businessYear)()}-${receipt.id?.substring(0, 6) || 'XXXX'}`,
     };
 };
 /**

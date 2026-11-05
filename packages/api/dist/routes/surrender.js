@@ -12,6 +12,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const broker_js_1 = require("../utils/broker.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'This record already exists');
 const query = (v, label, max = 100) => {
@@ -375,8 +376,8 @@ router.post('/', async (req, res, next) => {
         if (b.type !== undefined && b.type !== 'surrender' && b.type !== 'cancellation')
             throw (0, input_js_1.bad)('type must be surrender or cancellation');
         const isCancel = b.type === 'cancellation';
-        const date = (0, input_js_1.day)(b.surrenderDate, 'Surrender date') || new Date().toISOString().slice(0, 10);
-        if (date > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+        const date = (0, input_js_1.day)(b.surrenderDate, 'Surrender date') || (0, business_date_js_1.businessToday)();
+        if (date > (0, business_date_js_1.businessTomorrow)())
             throw (0, input_js_1.bad)('Surrender date cannot be in the future');
         const sType = (0, input_js_1.has)(b.surrenderType) ? String(b.surrenderType) : isCancel ? 'builder_cancellation' : 'voluntary';
         if (!SURRENDER_TYPES.includes(sType))

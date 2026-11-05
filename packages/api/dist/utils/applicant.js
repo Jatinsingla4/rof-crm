@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.likeOf = exports.INCOME_CATS = exports.LEAD_STAGES = exports.titleCase = exports.children = exports.phoneNo = exports.pinCode = exports.genderOf = exports.birthDay = exports.pastDay = exports.passportNo = exports.gstinNo = exports.aadhaarNo = exports.panNo = exports.emailAddr = exports.mobileNo = exports.gstinOk = void 0;
 // Input rules for applicants (consumers, co-applicants, additional applicants). Each helper returns a clean value (null when blank) or throws a 400 with a message for the user.
 const input_js_1 = require("./input.js");
+const business_date_js_1 = require("./business-date.js");
 const gstinOk = (g) => {
     const A = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     if (!/^(0[1-9]|[1-2][0-9]|3[0-8]|97|99)[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g))
@@ -95,7 +96,7 @@ const pastDay = (v, label) => {
         throw (0, input_js_1.bad)(`${label} must be a real date (YYYY-MM-DD)`);
     if (v < '1900-01-01')
         throw (0, input_js_1.bad)(`${label} is too far in the past`);
-    if (v > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+    if (v > (0, business_date_js_1.businessTomorrow)())
         throw (0, input_js_1.bad)(`${label} cannot be in the future`);
     return v;
 };
@@ -104,9 +105,7 @@ exports.pastDay = pastDay;
 const birthDay = (v, label = 'Date of birth', minAge = 18) => {
     const d = (0, exports.pastDay)(v, label);
     if (d && minAge) {
-        const lim = new Date();
-        lim.setFullYear(lim.getFullYear() - minAge);
-        if (d > lim.toISOString().slice(0, 10))
+        if (d > (0, business_date_js_1.addYears)((0, business_date_js_1.businessToday)(), -minAge))
             throw (0, input_js_1.bad)(`${label}: the applicant must be at least ${minAge} years old`);
     }
     return d;

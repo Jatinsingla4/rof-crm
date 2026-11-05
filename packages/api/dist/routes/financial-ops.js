@@ -15,10 +15,11 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const penal_interest_js_1 = require("../utils/penal-interest.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
 const MODES = ['cash', 'cheque', 'demand_draft', 'bank_transfer', 'neft', 'rtgs', 'upi', 'card'];
-const tomorrow = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10); // a day of grace for the browser/server clock gap
+const tomorrow = () => (0, business_date_js_1.businessTomorrow)(); // a day of grace for the browser/server clock gap
 const index = (v) => { if (!(0, input_js_1.has)(v))
     return null; if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 999)
     throw (0, input_js_1.bad)('installment_index must be a whole number from 1 to 999'); return v; };
@@ -32,7 +33,7 @@ const finLog = (c, consumerId, userId, action, value, remarks) => c.query(`INSER
 const postRefundJournal = async (c, req, consumerId, amount, remarks, madeBy) => {
     const seq = String((await c.query(`SELECT nextval('journal_entry_seq') AS n`)).rows[0].n).padStart(4, '0');
     await c.query(`INSERT INTO journal_entries (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks, status, created_by_user_id, approved_by, approved_at)
-     VALUES ($1, CURRENT_DATE, $2, $3, 0, 'Refund', $4, 'approved', $5, $6, NOW())`, [`JE/${new Date().getFullYear()}/${seq}`, consumerId, amount, remarks, madeBy || req.userId, req.userId]);
+     VALUES ($1, ${business_date_js_1.SQL_TODAY}, $2, $3, 0, 'Refund', $4, 'approved', $5, $6, NOW())`, [`JE/${(0, business_date_js_1.businessYear)()}/${seq}`, consumerId, amount, remarks, madeBy || req.userId, req.userId]);
 };
 exports.postRefundJournal = postRefundJournal;
 const consumerExists = async (c, id) => { if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [id])).rows.length)
@@ -460,7 +461,7 @@ const raiseNote = async (req, b) => {
         // Journal authentication of the invoice's project: Automatic issues the note at once (no checker); Manual (the default) leaves it pending for a checker
         const auto = ((await c.query(`SELECT journal_auth_mode FROM project_settings WHERE project_id = $1`, [inv.project_id])).rows[0]?.journal_auth_mode ?? 'Manual') === 'Automatic';
         return (await c.query(`INSERT INTO credit_debit_notes (consumer_id, invoice_id, note_number, note_type, original_invoice_no, adjustment_amount, gst_rate, gst_amount, total_amount, note_date, reason, status, created_by_user_id, approved_by, approved_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, CURRENT_DATE),$11,$12::varchar,$13,$14, CASE WHEN $12::text = 'issued' THEN NOW() END) RETURNING *`, [inv.consumer_id, inv.id, no, type, inv.invoice_no, amount, gstRate, gst, (0, input_js_1.r2)(amount + gst), noteDate, reason, auto ? 'issued' : 'pending', req.userId, auto ? req.userId : null])).rows[0];
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,COALESCE($10::date, ${business_date_js_1.SQL_TODAY}),$11,$12::varchar,$13,$14, CASE WHEN $12::text = 'issued' THEN NOW() END) RETURNING *`, [inv.consumer_id, inv.id, no, type, inv.invoice_no, amount, gstRate, gst, (0, input_js_1.r2)(amount + gst), noteDate, reason, auto ? 'issued' : 'pending', req.userId, auto ? req.userId : null])).rows[0];
     });
 };
 exports.raiseNote = raiseNote;

@@ -18,6 +18,7 @@ const holds_js_1 = require("../utils/holds.js");
 const financial_ops_js_1 = require("./financial-ops.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next, 'A broker with the same mobile or PAN already exists');
 const BROKER_STATUS = ['pending', 'active', 'inactive', 'suspended', 'rejected'];
@@ -182,9 +183,9 @@ const commissionFilter = (q) => {
         add('bc.status = ?', st);
     const from = (0, input_js_1.day)(q.dateFrom, 'dateFrom'), to = (0, input_js_1.day)(q.dateTo, 'dateTo');
     if (from)
-        add('bc.created_at::date >= ?', from);
+        add(`${(0, business_date_js_1.sqlDay)('bc.created_at')} >= ?`, from);
     if (to)
-        add('bc.created_at::date <= ?', to);
+        add(`${(0, business_date_js_1.sqlDay)('bc.created_at')} <= ?`, to);
     if (from && to && from > to)
         throw (0, input_js_1.bad)('dateFrom is after dateTo');
     return { w, params };

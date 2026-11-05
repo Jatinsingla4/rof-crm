@@ -17,6 +17,7 @@ const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const surrender_js_1 = require("./surrender.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const csvUpload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 const STATUSES = ['allotted', 'agreement_signed', 'cancelled', 'transferred', 'booked'];
@@ -39,7 +40,7 @@ const int = (v, label, min, max, dflt) => {
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v, label) => {
     const d = (0, input_js_1.day)(v, label);
-    if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+    if (d && d > (0, business_date_js_1.businessTomorrow)())
         throw (0, input_js_1.bad)(`${label} cannot be in the future`);
     return d;
 };
@@ -72,7 +73,7 @@ router.post('/', async (req, res, next) => {
             // A 'booked' unit already has an allocation from the booking: promote it. An 'available' unit gets a new one.
             let alloc;
             if (unit.status === 'booked') {
-                alloc = await c.query(`UPDATE allocations SET status = 'allotted', allotment_date = COALESCE($1::date, CURRENT_DATE), remarks = COALESCE($2, remarks), updated_at = NOW()
+                alloc = await c.query(`UPDATE allocations SET status = 'allotted', allotment_date = COALESCE($1::date, ${business_date_js_1.SQL_TODAY}), remarks = COALESCE($2, remarks), updated_at = NOW()
             WHERE consumer_id = $3 AND unit_id = $4 AND status = 'booked' RETURNING id, allocated_date, allotment_date, remarks`, [date, remarks, consumerId, unitId]);
                 if (alloc.rowCount === 0)
                     throw (0, input_js_1.bad)('No matching booked allocation found for this consumer and unit', 409);
@@ -80,7 +81,7 @@ router.post('/', async (req, res, next) => {
             else {
                 if ((await c.query(`SELECT 1 FROM allocations WHERE unit_id = $1 AND status NOT IN ('cancelled', 'transferred') LIMIT 1`, [unitId])).rows.length)
                     throw (0, input_js_1.bad)('This unit already has an active allocation', 409);
-                alloc = await c.query(`INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks) VALUES ($1, $2, $3, $4, COALESCE($5::date, CURRENT_DATE), $6)
+                alloc = await c.query(`INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks) VALUES ($1, $2, $3, $4, COALESCE($5::date, ${business_date_js_1.SQL_TODAY}), $6)
            RETURNING id, allocated_date, allotment_date, remarks`, [consumerId, unitId, projectId, req.userId, date, remarks]);
             }
             await c.query(`UPDATE units SET status = 'allotted', status_changed_at = NOW() WHERE id = $1`, [unitId]);
@@ -186,7 +187,7 @@ router.post('/:id/cancel', async (req, res, next) => {
             const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [alloc.consumer_id])).rows[0].s);
             const forfeit = Math.min(29500, received), refund = Math.round((received - forfeit) * 100) / 100;
             const done = await (0, surrender_js_1.performSurrender)(c, req, res, {
-                consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: new Date().toISOString().slice(0, 10), sType: 'allocation_cancel', mode: null,
+                consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: (0, business_date_js_1.businessToday)(), sType: 'allocation_cancel', mode: null,
                 f: { forfeit, refund, penBase: 0, penGst: 0, penTotal: 0, extra: 0, premium: 0, total: 0, gst: true, st: false, vat: false, interest: true, bankNoc: false, brokerNoc: false, reason, remark: null },
             });
             // Waitlist: the first waiting applicant who holds no unit gets it
@@ -278,7 +279,7 @@ router.post('/import-edraw', (req, res, next) => csvUpload.single('file')(req, r
                     const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [p.id])).rows[0].s);
                     if (paid > 0) {
                         await c.query(`INSERT INTO draw_refunds (consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status, created_by_user_id, company_bank_account_id)
-               VALUES ($1, $2, 'unsuccessful', $3, $3, CURRENT_DATE + INTERVAL '30 days', 'pending', $4, $5)`, [p.id, projectId, paid, req.userId, bankAccount]);
+               VALUES ($1, $2, 'unsuccessful', $3, $3, ${business_date_js_1.SQL_TODAY} + INTERVAL '30 days', 'pending', $4, $5)`, [p.id, projectId, paid, req.userId, bankAccount]);
                         await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [p.id]);
                         refundsCreated++;
                     }
@@ -302,7 +303,7 @@ router.post('/shift', (0, processPermission_js_1.requireProcess)('unit_shifting'
         if (!(0, input_js_1.has)(b.consumerId) || !(0, input_js_1.has)(b.newUnitId))
             throw (0, input_js_1.bad)('consumerId and newUnitId are required');
         const consumerId = (0, input_js_1.uuid)(b.consumerId, 'consumerId'), newUnitId = (0, input_js_1.uuid)(b.newUnitId, 'newUnitId');
-        const reason = (0, input_js_1.text)(b.reason, 'reason', 500, false), date = pastDay(b.shiftDate, 'shiftDate') || new Date().toISOString().slice(0, 10);
+        const reason = (0, input_js_1.text)(b.reason, 'reason', 500, false), date = pastDay(b.shiftDate, 'shiftDate') || (0, business_date_js_1.businessToday)();
         const out = await (0, input_js_1.inTx)(async (c) => {
             const person = (await c.query(`SELECT id, allocated_unit_id FROM consumers WHERE id = $1`, [consumerId])).rows[0];
             if (!person)
@@ -383,7 +384,7 @@ router.post('/generate-letters', async (req, res, next) => {
             const rows = await c.query(`SELECT a.id, a.consumer_id, a.unit_id, a.allotment_date FROM allocations a JOIN units u ON a.unit_id = u.id
           WHERE a.status::text = 'allotted' AND a.allotment_letter_id IS NULL AND ($1::uuid IS NULL OR u.project_id = $1) ORDER BY a.id FOR UPDATE OF a`, [projectId]);
             for (const a of rows.rows) {
-                const l = await c.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date) VALUES ($1, $2, $3, COALESCE($4, CURRENT_DATE)) RETURNING id`, [a.id, a.consumer_id, a.unit_id, a.allotment_date || null]);
+                const l = await c.query(`INSERT INTO allotment_letters (allocation_id, consumer_id, unit_id, letter_date) VALUES ($1, $2, $3, COALESCE($4, ${business_date_js_1.SQL_TODAY})) RETURNING id`, [a.id, a.consumer_id, a.unit_id, a.allotment_date || null]);
                 await c.query(`UPDATE allocations SET allotment_letter_id = $1 WHERE id = $2`, [l.rows[0].id, a.id]);
             }
             if (rows.rows.length)

@@ -7,6 +7,7 @@ const company_bank_js_1 = require("../../utils/company-bank.js");
 const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
+const business_date_js_1 = require("../../utils/business-date.js");
 // Fills ctx.mergeData for a demand letter
 async function demandLetterData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -107,7 +108,7 @@ async function demandLetterData(ctx) {
         try {
             const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates
                  WHERE project_id = $1
-                   AND effective_from <= CURRENT_DATE
+                   AND effective_from <= ${business_date_js_1.SQL_TODAY}
                  ORDER BY effective_from DESC
                  LIMIT 1`, [plan.project_id]);
             if (projRateRes.rows.length > 0) {
@@ -267,7 +268,7 @@ async function demandLetterData(ctx) {
     const totalInterestFromDB = piRes.rows.reduce((sum, r) => sum + Number(r.net_interest_inr), 0);
     // Build interest map via buildInterestRows (same logic as applicant file).
     // Uses actual receipt dates for paid demands; asOfDate for still-unpaid ones.
-    const letterAsOfDate = new Date(); // interest always
+    const letterAsOfDate = (0, business_date_js_1.businessDayStart)(); // interest always
     // uses real today -- dueDate (entered by staff) only
     // filters which installments appear on the letter,
     // never affects how much interest has accrued
@@ -603,11 +604,11 @@ async function demandLetterData(ctx) {
         allotmentDate: (0, shells_js_1.fmtDateIndia)(plan.allotment_date),
         bookingDate: (0, shells_js_1.fmtDateIndia)(plan.booking_date),
         dueDate: lastDueDate ? (0, shells_js_1.fmtDateIndia)(lastDueDate) : (dueDate ? (0, shells_js_1.fmtDateIndia)(new Date(dueDate)) : '—'),
-        invoiceDate: dueDate ? (0, shells_js_1.fmtDateIndia)(new Date(dueDate)) : (0, shells_js_1.fmtDateIndia)(new Date()),
-        currentDate: (0, shells_js_1.fmtDateIndia)(new Date()),
-        day: String(new Date().getDate()),
-        month: new Date().toLocaleString('en-IN', { month: 'long' }),
-        year: String(new Date().getFullYear()),
+        invoiceDate: dueDate ? (0, shells_js_1.fmtDateIndia)(new Date(dueDate)) : (0, shells_js_1.fmtDateIndia)((0, business_date_js_1.businessDayStart)()),
+        currentDate: (0, shells_js_1.fmtDateIndia)((0, business_date_js_1.businessDayStart)()),
+        day: String((0, business_date_js_1.businessDayStart)().getDate()),
+        month: (0, business_date_js_1.businessDayStart)().toLocaleString('en-IN', { month: 'long' }),
+        year: String((0, business_date_js_1.businessYear)()),
         // Payment plan
         planName: plan.plan_name || '—',
         totalAmount: plan.total_amount_inr ? (0, shells_js_1.fmtIndianMoneyDecimal)(parseFloat(plan.total_amount_inr)) : '—',

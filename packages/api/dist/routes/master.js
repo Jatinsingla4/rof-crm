@@ -18,6 +18,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pool_js_1 = require("../db/pool.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // ─── Access control ──────────────────────────────────────────────────────────
 // Reading masters is open to every signed-in user (booking, brokers and payments use these lists as dropdowns).
@@ -718,7 +719,7 @@ async function dispatchError(v) {
     if (v.dispatched_at != null) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v.dispatched_at)) || Number.isNaN(Date.parse(String(v.dispatched_at))))
             return 'Date dispatched must be a date like 2026-01-31';
-        if (String(v.dispatched_at) > new Date(Date.now() + 86400000).toISOString().slice(0, 10))
+        if (String(v.dispatched_at) > (0, business_date_js_1.businessTomorrow)())
             return 'Date dispatched cannot be in the future';
     }
     if (v.consumer_id != null) {
@@ -837,7 +838,7 @@ router.get('/document-dispatch', async (req, res, next) => {
         }
         if (q)
             add('(dd.document_type ILIKE ? OR dd.tracking_no ILIKE ? OR c.name ILIKE ?)', `%${String(q).replace(/[\\%_]/g, (m) => '\\' + m)}%`);
-        for (const [name, v, sql] of [['from', from, 'COALESCE(dd.dispatched_at, dd.created_at) >= ?::date'], ['to', to, 'COALESCE(dd.dispatched_at, dd.created_at) < (?::date + 1)']]) {
+        for (const [name, v, sql] of [['from', from, `COALESCE(dd.dispatched_at, dd.created_at) >= ${(0, business_date_js_1.sqlDayStart)('?')}`], ['to', to, `COALESCE(dd.dispatched_at, dd.created_at) < ${(0, business_date_js_1.sqlDayEnd)('?')}`]]) {
             if (!v)
                 continue;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(String(v))))

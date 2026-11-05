@@ -9,6 +9,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const projectOf = async (id) => {
     const p = (await index_js_1.db.query(`SELECT id, name FROM projects WHERE id = $1`, [id])).rows[0];
@@ -59,7 +60,7 @@ router.patch('/:id/complete', async (req, res, next) => {
         const description = (0, input_js_1.text)(b.description, 'description', 2000, false), links = photos(b.photosUrls), notifyAsked = (0, input_js_1.flag)(b.notifyAllottees, 'notifyAllottees');
         const actual = (0, input_js_1.day)(b.actualDate, 'actualDate');
         const out = await (0, input_js_1.inTx)(async (c) => {
-            const m = (await c.query(`SELECT m.id, m.project_id, m.milestone_name, m.status, m.notify_allottees, p.name AS project_name, (NOW() AT TIME ZONE 'Asia/Kolkata')::date::text AS today
+            const m = (await c.query(`SELECT m.id, m.project_id, m.milestone_name, m.status, m.notify_allottees, p.name AS project_name, ${business_date_js_1.SQL_TODAY}::text AS today
            FROM construction_milestones m JOIN projects p ON p.id = m.project_id WHERE m.id = $1 FOR UPDATE OF m`, [id])).rows[0];
             if (!m)
                 throw (0, input_js_1.bad)('Milestone not found', 404);

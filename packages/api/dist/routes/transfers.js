@@ -12,6 +12,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const business_date_js_1 = require("../utils/business-date.js");
 function fmtDateIndia(d) {
     if (!d)
         return '';
@@ -56,7 +57,7 @@ const money = (v, label) => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, lab
 // A date that is not in the future (one day of grace for the clock difference between browser and server)
 const pastDay = (v, label) => {
     const d = (0, input_js_1.day)(v, label);
-    if (d && d > new Date(Date.now() + 864e5).toISOString().slice(0, 10))
+    if (d && d > (0, business_date_js_1.businessTomorrow)())
         throw (0, input_js_1.bad)(`${label} cannot be in the future`);
     return d;
 };
@@ -179,7 +180,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('applicant_transfer'
            unit_id, old_consumer_id, new_consumer_id, transfer_fee_inr, admin_charges_inr, transfer_remarks, created_by_user_id,
            transfer_no, application_date, transfer_type, transfer_amount_inr, stax_amount, cgst_amount, sgst_amount, igst_amount, ugst_amount,
            basic_price, gstin, broker_company, main_broker, sales_person_name, transfer_receipt_no, seller_total_paid_inr, seller_total_due_inr, seller_balance_inr, transfer_date
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, COALESCE($26::date, CURRENT_DATE)) RETURNING id`, [unitId, oldId, newId, f.fee, f.admin, f.remarks, req.userId, f.no, f.app, f.type, f.amount, f.stax, f.cgst, f.sgst, f.igst, f.ugst, f.basic, f.gstin, f.broker, f.mainBroker, f.sales, f.receiptNo,
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25, COALESCE($26::date, ${business_date_js_1.SQL_TODAY})) RETURNING id`, [unitId, oldId, newId, f.fee, f.admin, f.remarks, req.userId, f.no, f.app, f.type, f.amount, f.stax, f.cgst, f.sgst, f.igst, f.ugst, f.basic, f.gstin, f.broker, f.mainBroker, f.sales, f.receiptNo,
                 paid, dueAmt, dueAmt - paid, f.date]);
             await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', 'ownership_transfer', t.rows[0].id, undefined, { unit_id: unitId, old_consumer_id: oldId, new_consumer_id: newId, transfer_no: f.no, transfer_fee_inr: f.fee, seller_balance_inr: dueAmt - paid });
             return t.rows[0];

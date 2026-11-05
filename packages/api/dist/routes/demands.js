@@ -12,6 +12,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const STATUSES = ['pending', 'demanded', 'paid', 'cancelled', 'raised'];
 const MAX_RAISE = 2000;
@@ -82,7 +83,7 @@ router.post('/demands/generate', async (req, res, next) => {
                 const total = Number(plan.total_amount_inr);
                 const plc = Number(plan.plc_amount || 0), other = Number(plan.other_charge_amount || 0), balcony = Number(plan.balcony_charge_amount || 0);
                 const basic = total - plc - other - balcony;
-                const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10);
+                const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : (0, business_date_js_1.businessToday)();
                 const isNri = String(plan.nationality).toLowerCase() === 'nri';
                 for (const t of templates.rows) {
                     const exists = await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND installment_index = $2`, [plan.payment_plan_id, t.installment_index]);
@@ -211,10 +212,10 @@ router.get('/demands', async (req, res, next) => {
             where += ` AND d.due_date <= ${add(to)}`;
         const rFrom = (0, input_js_1.day)(q.raisedFrom, 'raisedFrom');
         if (rFrom)
-            where += ` AND d.generated_at >= ${add(rFrom)}::date`;
+            where += ` AND d.generated_at >= ${(0, business_date_js_1.sqlDayStart)(add(rFrom))}`;
         const rTo = (0, input_js_1.day)(q.raisedTo, 'raisedTo');
         if (rTo)
-            where += ` AND d.generated_at < ${add(rTo)}::date + 1`;
+            where += ` AND d.generated_at < ${(0, business_date_js_1.sqlDayEnd)(add(rTo))}`;
         if (from && to && from > to)
             throw (0, input_js_1.bad)('from must not be after to');
         const pageSize = int(q.pageSize, 'pageSize', 1, 1000, 50);
@@ -280,7 +281,7 @@ router.patch('/demands/activate', async (req, res, next) => {
         if (!due)
             throw (0, input_js_1.bad)('installmentDate (the due date) is required');
         // One day of grace for the clock difference between the browser and the server
-        if ((await index_js_1.db.query(`SELECT $1::date < CURRENT_DATE - 1 AS past`, [due])).rows[0].past)
+        if ((await index_js_1.db.query(`SELECT $1::date < ${business_date_js_1.SQL_TODAY} - 1 AS past`, [due])).rows[0].past)
             throw (0, input_js_1.bad)('The due date cannot be in the past');
         const out = await (0, input_js_1.inTx)(async (c) => {
             // Oldest instalment first, so a batch holding stage 1 and stage 2 raises both whatever order the ids arrive in

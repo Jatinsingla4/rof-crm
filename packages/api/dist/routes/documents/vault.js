@@ -10,6 +10,7 @@ const index_js_1 = require("../../index.js");
 const auditLogger_js_1 = require("../../middleware/auditLogger.js");
 const input_js_1 = require("../../utils/input.js");
 const doc_crypto_js_1 = require("../../utils/doc-crypto.js");
+const business_date_js_1 = require("../../utils/business-date.js");
 const router = (0, express_1.Router)();
 // A stored link must be a web address or a path inside this site (a "javascript:" link would run when someone opens it)
 const fileLink = (v) => {
@@ -84,8 +85,8 @@ router.get('/edits-report', async (req, res, next) => {
             (() => { const e = (0, input_js_1.qtext)(q.editedBy, 'Edited by', 100); return e ? (0, input_js_1.likeOf)(e) : null; })(),
         ];
         const whereClause = `
-      WHERE ($1::date IS NULL OR dfo.edited_at >= $1::date)
-        AND ($2::date IS NULL OR dfo.edited_at <  ($2::date + INTERVAL '1 day'))
+      WHERE ($1::date IS NULL OR dfo.edited_at >= ${(0, business_date_js_1.sqlDayStart)('$1')})
+        AND ($2::date IS NULL OR dfo.edited_at <  ${(0, business_date_js_1.sqlDayEnd)('$2')})
         AND ($3::text IS NULL OR d.document_type = $3)
         AND ($4::uuid IS NULL OR d.consumer_id   = $4::uuid)
         AND ($5::text IS NULL OR u.name ILIKE $5 ESCAPE '\\')`;
@@ -131,9 +132,9 @@ router.get('/', async (req, res, next) => {
             add('d.document_type = ?', dt);
         const from = (0, input_js_1.day)(q.from, 'From'), to = (0, input_js_1.day)(q.to, 'To');
         if (from)
-            add('d.created_at >= ?::date', from);
+            add(`d.created_at >= ${(0, business_date_js_1.sqlDayStart)('?')}`, from);
         if (to)
-            add(`d.created_at < ?::date + interval '1 day'`, to);
+            add(`d.created_at < ${(0, business_date_js_1.sqlDayEnd)('?')}`, to);
         const result = await index_js_1.db.query(`SELECT d.id, d.document_type, d.delivery_method, d.delivery_status, d.created_at, d.sent_at, c.name as consumer_name
        FROM documents d LEFT JOIN consumers c ON d.consumer_id = c.id
        WHERE ${where.join(' AND ')} ORDER BY d.created_at DESC, d.id LIMIT ${size} OFFSET ${offset}`, params);

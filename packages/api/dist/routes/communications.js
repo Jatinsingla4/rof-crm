@@ -15,6 +15,7 @@ const pool_1 = require("../db/pool");
 const sdk_1 = __importDefault(require("@anthropic-ai/sdk"));
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const OUT = ['email', 'whatsapp', 'sms'];
 const ALL_CHANNELS = ['email', 'whatsapp', 'sms', 'instagram', 'facebook'];
@@ -29,7 +30,7 @@ const CUSTOMER_STATUS = {
 };
 const STAGES = ['enquiry', 'interested', 'application_filed', 'draw_entered', 'allotted', 'onboarded', 'cancelled', 'transferred'];
 const NOT_SENT = 'Recorded as queued. No email, WhatsApp or SMS sender is connected yet, so nothing has left the system.';
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => (0, business_date_js_1.businessToday)();
 const MAX_LIST = 2000;
 const outChannel = (v, label = 'channel') => { const c = (0, input_js_1.oneOf)(v, label, OUT); if (!c)
     throw (0, input_js_1.bad)(`${label} is required`); return c; };

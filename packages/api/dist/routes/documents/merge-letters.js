@@ -44,6 +44,7 @@ const input_js_1 = require("../../utils/input.js");
 const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
+const business_date_js_1 = require("../../utils/business-date.js");
 // Check list
 async function checkListData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -164,7 +165,7 @@ async function checkListData(ctx) {
     if (projectIdCL) {
         try {
             const projRateResCL = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates
-                 WHERE project_id = $1 AND effective_from <= CURRENT_DATE
+                 WHERE project_id = $1 AND effective_from <= ${business_date_js_1.SQL_TODAY}
                  ORDER BY effective_from DESC LIMIT 1`, [projectIdCL]);
             if (projRateResCL.rows.length > 0)
                 penalRateCL = parseFloat(projRateResCL.rows[0].rate_percent);
@@ -202,7 +203,7 @@ async function checkListData(ctx) {
     const irRowsCL = (0, payment_waterfall_js_1.buildInterestRows)(wfRcptsResCL.rows, demandsForIRCL, penalRateCL, {
         interestStartDate: planCL.interest_start_date ? new Date(String(planCL.interest_start_date)) : null,
         gracePeriodDays: parseInt(String(planCL.grace_period_days || 0)),
-        asOfDate: new Date(),
+        asOfDate: (0, business_date_js_1.businessDayStart)(),
     });
     const totalInterestCalcCL = irRowsCL.reduce((sum, ir) => sum + ir.interest_amount, 0);
     // Admin-approved interest amounts (respects waivers) take precedence, same as Demand Letter
@@ -256,14 +257,14 @@ async function checkListData(ctx) {
         consumerName: planCL.consumer_name || d?.name || '—',
         coApplicants: coApplicantsCL || '—',
         customerId: planCL.registration_no || d?.registration_no || '—',
-        printDate: (0, shells_js_1.fmtDateIndia)(new Date()),
+        printDate: (0, shells_js_1.fmtDateIndia)((0, business_date_js_1.businessDayStart)()),
         bookingDate: (0, shells_js_1.fmtDateIndia)(planCL.booking_date),
         paymentMode: planCL.booking_payment_mode || '—',
         projectName: planCL.project_name || d?.project_name || '—',
         unitNumber: planCL.unit_number || d?.unit_number || '—',
         carpetArea: planCL.carpet_area_sqft ? (0, shells_js_1.fmtIndianAreaDecimal)(parseFloat(planCL.carpet_area_sqft)) : '—',
         balconyArea: planCL.balcony_area_sqft ? (0, shells_js_1.fmtIndianAreaDecimal)(parseFloat(planCL.balcony_area_sqft)) : '0',
-        currentDate: (0, shells_js_1.fmtDateIndia)(new Date()),
+        currentDate: (0, shells_js_1.fmtDateIndia)((0, business_date_js_1.businessDayStart)()),
         companyName: settingsCL['company_name'] || 'ROF INFRATECH & HOUSING PVT. LTD.',
         companyCin: settingsCL['company_cin'] || '—',
         companyAddress: settingsCL['company_address'] || '—',
@@ -414,7 +415,7 @@ async function allotmentLetterData(ctx) {
         bankName: s2['bank_name'] || '—',
         bankBranch: s2['bank_branch'] || '—',
         // Dates
-        letterDate: (0, shells_js_1.fmtDateIndia)(new Date()),
+        letterDate: (0, shells_js_1.fmtDateIndia)((0, business_date_js_1.businessDayStart)()),
         // Consumer
         consumerFullName: al.consumer_full_name || '—',
         consumerAddress: consumerAddress,
@@ -660,10 +661,10 @@ async function buyerBuilderAgreementData(ctx) {
         booking_amount_words: (0, shells_js_1.numberToWordsIndian)(parseFloat(ats.booking_amount || 0)),
         booking_amount_pct: bookingPct3,
         application_no: ats.consumer_id?.slice(0, 8).toUpperCase() || '—',
-        agreement_date: (0, shells_js_1.fmtDateIndia)(ats.agreement_date || new Date()),
-        agreement_day: new Date(ats.agreement_date || new Date()).getDate().toString(),
-        agreement_month: new Date(ats.agreement_date || new Date()).toLocaleString('en-IN', { month: 'long' }),
-        agreement_year: new Date(ats.agreement_date || new Date()).getFullYear().toString(),
+        agreement_date: (0, shells_js_1.fmtDateIndia)(ats.agreement_date || (0, business_date_js_1.businessDayStart)()),
+        agreement_day: new Date(ats.agreement_date || (0, business_date_js_1.businessDayStart)()).getDate().toString(),
+        agreement_month: new Date(ats.agreement_date || (0, business_date_js_1.businessDayStart)()).toLocaleString('en-IN', { month: 'long' }),
+        agreement_year: new Date(ats.agreement_date || (0, business_date_js_1.businessDayStart)()).getFullYear().toString(),
         auth_signatory_name: ats.authorised_signatory_name || '—',
         board_resolution_date: (0, shells_js_1.fmtDateIndia)(ats.board_resolution_date),
         payment_plan_rows: paymentPlanRows,
@@ -718,7 +719,7 @@ async function conveyanceDeedData(ctx) {
     const cd = cdRes.rows[0];
     if (!cd)
         throw (0, input_js_1.bad)('Allocation data not found', 404);
-    const deedDate = cd.conveyance_deed_date ? new Date(cd.conveyance_deed_date) : new Date();
+    const deedDate = cd.conveyance_deed_date ? new Date(cd.conveyance_deed_date) : (0, business_date_js_1.businessDayStart)();
     const deedDay = String(deedDate.getDate());
     const deedMonthNum = deedDate.getMonth();
     const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];

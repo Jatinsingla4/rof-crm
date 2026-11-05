@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // POST /api/payments/outgoing-payments
 router.post('/outgoing-payments', async (req, res, next) => {
@@ -29,7 +30,7 @@ router.post('/outgoing-payments', async (req, res, next) => {
             throw (0, input_js_1.bad)('Bank account not found', 404);
         const result = await index_js_1.db.query(`INSERT INTO outgoing_payments
         (company_bank_account_id, amount_inr, payment_date, payee, status, reference_number, notes, created_by_user_id)
-       VALUES ($1, $2, COALESCE($3, CURRENT_DATE), $4, COALESCE($5, 'pending'), $6, $7, $8)
+       VALUES ($1, $2, COALESCE($3, ${business_date_js_1.SQL_TODAY}), $4, COALESCE($5, 'pending'), $6, $7, $8)
        RETURNING *`, [
             company_bank_account_id,
             amount_inr,

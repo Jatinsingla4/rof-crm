@@ -10,6 +10,7 @@ const processPermission_js_1 = require("../middleware/processPermission.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const tds_js_1 = require("../utils/tds.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const MAX = 1000000000;
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next, 'This already exists');
@@ -63,11 +64,11 @@ router.post('/journals', (0, processPermission_js_1.requireProcess)('jv_refund_d
             throw (0, input_js_1.bad)('Applicant not found', 404);
         const seqResult = await index_js_1.db.query(`SELECT nextval('journal_entry_seq') AS seq`);
         const seq = String(seqResult.rows[0].seq).padStart(4, '0');
-        const entryNo = `JE/${new Date().getFullYear()}/${seq}`;
+        const entryNo = `JE/${(0, business_date_js_1.businessYear)()}/${seq}`;
         const result = await index_js_1.db.query(`INSERT INTO journal_entries
          (entry_number, entry_date, consumer_id, debit_amount, credit_amount, ledger_head, remarks, status, created_by_user_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,'pending',$8)
-       RETURNING *`, [entryNo, entryDate || new Date(), resolvedConsumerId, debitAmount, creditAmount, ledgerHead, remarks, req.userId]);
+       RETURNING *`, [entryNo, entryDate || (0, business_date_js_1.businessToday)(), resolvedConsumerId, debitAmount, creditAmount, ledgerHead, remarks, req.userId]);
         res.status(201).json({ success: true, data: result.rows[0] });
     }
     catch (error) {
@@ -135,7 +136,7 @@ router.patch('/journals/:id/reject', (0, processPermission_js_1.requireProcess)(
 // Anyone with payments:view reads; only accounts_finance and super_admin add a challan, assign it or take an assignment back.
 // A challan's balance is amount - assigned_amount; assigned_amount moves only while the challan row is locked (see utils/tds.ts).
 const financeOnly = (req, res, next) => ['super_admin', 'accounts_finance'].includes(req.userRole || '') ? next() : res.status(403).json({ error: 'Only accounts and finance can add or assign TDS challans' });
-const today = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10); // a day of grace for the browser/server clock gap
+const today = () => (0, business_date_js_1.businessTomorrow)(); // a day of grace for the browser/server clock gap
 const q1 = (v, label, max = 100) => { if (Array.isArray(v))
     throw (0, input_js_1.bad)(`${label} is not valid`); return (0, input_js_1.text)(v, label, max, false); };
 const FILE_TYPES = [['application/pdf', [0x25, 0x50, 0x44, 0x46]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/jpeg', [0xff, 0xd8, 0xff]]];

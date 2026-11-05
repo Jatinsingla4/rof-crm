@@ -16,6 +16,7 @@ const reports_ageing_js_1 = __importDefault(require("./reports-ageing.js"));
 const reports_cash_js_1 = __importDefault(require("./reports-cash.js"));
 const reports_applicant_js_1 = __importDefault(require("./reports-applicant.js"));
 const report_ledger_js_1 = require("../utils/report-ledger.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 // Every filter is checked once here (400 for a bad id, date, number or a list / object where one value is expected)
 router.use((req, res, next) => {
@@ -39,7 +40,7 @@ router.get('/sales-dashboard', async (req, res, next) => {
             params.push(projectId);
         }
         if (dateFrom && dateTo) {
-            whereClause += ` AND c.created_at::date >= $${params.length + 1} AND c.created_at::date <= $${params.length + 2}`;
+            whereClause += ` AND ${(0, business_date_js_1.sqlDay)('c.created_at')} >= $${params.length + 1} AND ${(0, business_date_js_1.sqlDay)('c.created_at')} <= $${params.length + 2}`;
             params.push(dateFrom, dateTo);
         }
         // Get sales metrics

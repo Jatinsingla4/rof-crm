@@ -7,6 +7,7 @@ const input_js_1 = require("../../utils/input.js");
 const merge_demand_js_1 = require("./merge-demand.js");
 const merge_letters_js_1 = require("./merge-letters.js");
 const shells_js_1 = require("./shells.js");
+const business_date_js_1 = require("../../utils/business-date.js");
 const router = (0, express_1.Router)();
 // What the caller may send. Ids must be real, the type a plain word, figures that the caller supplies are page text (escaped) and may not carry markup.
 const DELIVERY = ['email', 'whatsapp', 'sms', 'print', 'none'];
@@ -198,10 +199,10 @@ router.post('/generate', async (req, res, next) => {
                     unitNumber: d.unit_number || '—',
                     unitCategory: d.unit_category || '—',
                     carpetArea: d.carpet_area || '0',
-                    currentDate: new Date().toLocaleDateString('en-IN'),
-                    day: new Date().getDate(),
-                    month: new Date().toLocaleString('en-IN', { month: 'long' }),
-                    year: new Date().getFullYear(),
+                    currentDate: (0, business_date_js_1.businessDayStart)().toLocaleDateString('en-IN'),
+                    day: (0, business_date_js_1.businessDayStart)().getDate(),
+                    month: (0, business_date_js_1.businessDayStart)().toLocaleString('en-IN', { month: 'long' }),
+                    year: (0, business_date_js_1.businessYear)(),
                 };
                 // Special logic for Demand Letter Rows
                 // The per-type figures are built in merge-demand.ts and merge-letters.ts

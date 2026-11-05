@@ -9,6 +9,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const VALID_CHARGE_TYPES = ['BASIC', 'PLC', 'OTHER CHARGE', 'IFMS', 'EXTRA ADD ON', 'OTHERS'];
 const VALID_GST_TYPES = ['INTER', 'INTRA', 'UT'];
@@ -532,7 +533,7 @@ router.delete('/gst-charge-mapping/:id', async (req, res, next) => {
 router.get('/resolve', async (req, res, next) => {
     try {
         const projectId = (0, input_js_1.uuid)(req.query.projectId, 'projectId'), ct = chargeType(req.query.chargeType);
-        const resolveDate = (0, input_js_1.day)(req.query.date, 'date') || new Date().toISOString().split('T')[0];
+        const resolveDate = (0, input_js_1.day)(req.query.date, 'date') || (0, business_date_js_1.businessToday)();
         const proj = (await index_js_1.db.query(`SELECT name FROM projects WHERE id = $1`, [projectId])).rows[0];
         if (!proj)
             throw notFound('Project');

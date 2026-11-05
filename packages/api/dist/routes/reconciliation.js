@@ -13,6 +13,7 @@ const index_js_1 = require("../index.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 router.use((0, rbac_js_1.requirePermission)('payments', 'create'));
 const MAX_ROWS = 5000, MAX_CSV = 2000000;
@@ -101,7 +102,7 @@ router.post('/import', async (req, res, next) => {
             if (same)
                 throw (0, input_js_1.bad)(`This statement was already imported as "${same.file_name}" on ${new Date(same.import_date).toISOString().slice(0, 10)}`, 409);
             const imp = (await c.query(`INSERT INTO bank_statement_imports (project_id, file_name, imported_by_user_id, import_date, total_transactions, total_amount_inr, file_hash, status)
-         VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, 'processing') RETURNING id`, [projectId, fileName, req.userId, rows.length, rows.reduce((s, r) => s + r.amount, 0), hash])).rows[0];
+         VALUES ($1, $2, $3, ${business_date_js_1.SQL_TODAY}, $4, $5, $6, 'processing') RETURNING id`, [projectId, fileName, req.userId, rows.length, rows.reduce((s, r) => s + r.amount, 0), hash])).rows[0];
             await c.query(`INSERT INTO bank_transactions (import_id, project_id, transaction_date, description, amount_inr, transaction_ref, bank_account, match_status)
          SELECT $1, $2, x.d::date, x.t, x.a::numeric, x.r, x.b, 'unmatched' FROM unnest($3::text[], $4::text[], $5::text[], $6::text[], $7::text[]) AS x(d, t, a, r, b)`, [imp.id, projectId, rows.map((r) => r.date), rows.map((r) => r.desc), rows.map((r) => String(r.amount)), rows.map((r) => r.ref), rows.map((r) => r.account)]);
             // A credit is matched to a receipt of the same project when the reference and the amount are the same, the receipt is live, nobody else holds it,

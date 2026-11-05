@@ -16,6 +16,7 @@ exports.interestOf = interestOf;
 const pool_js_1 = require("../db/pool.js");
 const payment_waterfall_js_1 = require("./payment-waterfall.js");
 const penal_rate_js_1 = require("./penal-rate.js");
+const business_date_js_1 = require("./business-date.js");
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 exports.r2 = r2;
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
@@ -68,7 +69,7 @@ async function loadLedger(f = {}) {
             COALESCE(bk.firm_name, bk.name, 'Direct') AS broker_name, l.self_or_loan,
             (${BASE} - COALESCE(l.dealer_adjustment_amount,0) - COALESCE(l.company_inaugural_disc,0)) AS net_basic_price,
             COALESCE(l.plc_amount,0) AS plc_amount, COALESCE(l.other_charge_amount,0) AS other_charge_amount,
-            pl.id AS plan_id, CURRENT_DATE::text AS today,
+            pl.id AS plan_id, ${business_date_js_1.SQL_TODAY}::text AS today,
             COALESCE(l.basic_rate_inr_sqft,0) AS rate,
             (COALESCE(bpt.cgst_amount,0) + COALESCE(bpt.sgst_amount,0) + CASE WHEN l.balcony_charge_amount IS NOT NULL THEN COALESCE(l.balcony_cgst_amount,0) + COALESCE(l.balcony_sgst_amount,0) ELSE 0 END) AS booking_gst,
             (SELECT MAX(a.allotment_date)::text FROM allocations a WHERE a.consumer_id = l.consumer_id AND a.unit_id = l.unit_id AND a.status <> 'cancelled') AS allotment_date

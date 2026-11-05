@@ -12,6 +12,7 @@ const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const security_js_1 = require("../utils/security.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const HEADER_TYPES = ['Computer Generated', 'Own Header'];
 const LETTER_FOR = ['All', 'Loan', 'Self'];
@@ -148,7 +149,7 @@ router.get('/log', async (req, res, next) => {
         }
         if (q)
             add('(l.ref_no ILIKE ? OR c.name ILIKE ? OR l.template_name ILIKE ?)', `%${String(q).replace(/[\\%_]/g, (m) => '\\' + m)}%`);
-        for (const [name, v, sql] of [['from', from, `l.generated_at >= ?::date`], ['to', to, `l.generated_at < (?::date + 1)`]]) {
+        for (const [name, v, sql] of [['from', from, `l.generated_at >= ${(0, business_date_js_1.sqlDayStart)('?')}`], ['to', to, `l.generated_at < ${(0, business_date_js_1.sqlDayEnd)('?')}`]]) {
             if (!v)
                 continue;
             if (!/^\d{4}-\d{2}-\d{2}$/.test(String(v)) || Number.isNaN(Date.parse(String(v))))
@@ -342,7 +343,7 @@ router.post('/:id/generate', async (req, res, next) => {
             if (meta.letter_for === 'Self' && loan)
                 return res.status(400).json({ error: 'This letter is for self-funded bookings; this booking has a loan' });
         }
-        const now = new Date();
+        const now = (0, business_date_js_1.businessDayStart)();
         const fy = financialYear(now);
         const client = await index_js_1.db.connect();
         let refNo = '', refPrefix = null, refSeq = null, duplicate = false, logId;

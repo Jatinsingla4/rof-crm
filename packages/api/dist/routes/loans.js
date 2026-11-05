@@ -5,6 +5,7 @@ const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
 /**
@@ -21,7 +22,7 @@ router.post('/', async (req, res, next) => {
         if (sanction && tpa && tpa < sanction)
             throw (0, input_js_1.bad)('The TPA cannot be signed before the sanction letter date');
         // a letter or agreement that is dated tomorrow or later has not happened yet (one day of room for the time zone)
-        const soon = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+        const soon = (0, business_date_js_1.businessTomorrow)();
         if (sanction && sanction > soon)
             throw (0, input_js_1.bad)('The sanction letter date cannot be in the future');
         if (tpa && tpa > soon)

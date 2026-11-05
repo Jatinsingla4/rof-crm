@@ -490,7 +490,7 @@ function buildEditScript(docId, token, docType) {
     if (!newDateStr) return;
     var dueDate = new Date(newDateStr);
     if (isNaN(dueDate.getTime())) return;
-    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var _ist = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()).split('-'); var today = new Date(+_ist[0], +_ist[1] - 1, +_ist[2]); // the business day, whatever the browser timezone
     var daysOverdue = Math.max(0, Math.floor((today.getTime() - dueDate.getTime()) / 86400000));
     if (daysOverdue <= 0) return;
     var penalRateEl = document.querySelector('[data-field-key="penalRate"]');

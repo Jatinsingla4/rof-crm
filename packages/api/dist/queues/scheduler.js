@@ -16,6 +16,7 @@ const node_cron_1 = __importDefault(require("node-cron"));
 const index_js_1 = require("../index.js");
 const index_js_2 = require("./index.js");
 const holds_js_1 = require("../utils/holds.js");
+const business_date_js_1 = require("../utils/business-date.js");
 /**
  * Schedule demand letter generation for 15/7/3 days before due date
  * Runs daily at 8:00 AM
@@ -27,18 +28,18 @@ function scheduleDemandLetters() {
             // Query for demands that are due in 15, 7, or 3 days
             const result = await index_js_1.db.query(`
         SELECT id, consumer_id, due_date, amount_due_inr,
-               EXTRACT(DAY FROM (due_date::date - NOW()::date))::int as days_until_due
+               EXTRACT(DAY FROM (due_date::date - ${business_date_js_1.SQL_TODAY}))::int as days_until_due
         FROM demands
         WHERE delivery_status IN ('pending', 'queued')
-          AND (EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 15
-               OR EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 7
-               OR EXTRACT(DAY FROM (due_date::date - NOW()::date))::int = 3)
+          AND (EXTRACT(DAY FROM (due_date::date - ${business_date_js_1.SQL_TODAY}))::int = 15
+               OR EXTRACT(DAY FROM (due_date::date - ${business_date_js_1.SQL_TODAY}))::int = 7
+               OR EXTRACT(DAY FROM (due_date::date - ${business_date_js_1.SQL_TODAY}))::int = 3)
       `);
             const demands = result.rows;
             console.log(`Found ${demands.length} demands with upcoming payment reminders`);
             // Add each demand to the queue
             for (const demand of demands) {
-                const daysUntilDue = Math.ceil((new Date(demand.due_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                const daysUntilDue = Math.ceil(((0, business_date_js_1.startOfBusinessDay)(demand.due_date).getTime() - (0, business_date_js_1.businessDayStart)().getTime()) / (1000 * 60 * 60 * 24));
                 await index_js_2.demandLetterQueue.add({
                     demandId: demand.id,
                     consumerId: demand.consumer_id,
@@ -73,9 +74,9 @@ function scheduleOverdueCheck() {
             // Query for overdue demands
             const result = await index_js_1.db.query(`
         SELECT d.id, d.consumer_id, d.due_date, d.amount_due_inr,
-               EXTRACT(DAY FROM (NOW()::date - d.due_date::date))::int as days_overdue
+               EXTRACT(DAY FROM (${business_date_js_1.SQL_TODAY} - d.due_date::date))::int as days_overdue
         FROM demands d
-        WHERE d.due_date < NOW()::date
+        WHERE d.due_date < ${business_date_js_1.SQL_TODAY}
           AND d.delivery_status NOT IN ('paid', 'cancelled')
       `);
             const overdues = result.rows;

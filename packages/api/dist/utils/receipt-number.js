@@ -3,12 +3,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.nextReceiptNumber = void 0;
 const input_js_1 = require("./input.js");
 const project_settings_js_1 = require("./project-settings.js");
+const business_date_js_1 = require("./business-date.js");
 // Next running receipt number, REC-<year>-00001. Numbers that already exist (old random ones) are skipped.
 const nextReceiptNumber = async (c, suffix = '', projectId) => {
     const prefix = (await (0, project_settings_js_1.projectSettings)(c, projectId)).receipt_prefix || 'REC';
     for (let i = 0; i < 50; i++) {
         const n = (await c.query(`SELECT nextval('receipt_number_seq') AS n`)).rows[0].n;
-        const num = `${prefix}-${new Date().getFullYear()}-${String(n).padStart(5, '0')}${suffix}`;
+        const num = `${prefix}-${(0, business_date_js_1.businessYear)()}-${String(n).padStart(5, '0')}${suffix}`;
         if (!(await c.query(`SELECT 1 FROM receipts WHERE receipt_number = $1`, [num])).rows.length)
             return num;
     }

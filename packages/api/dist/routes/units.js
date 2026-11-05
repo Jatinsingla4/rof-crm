@@ -13,6 +13,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const unit_type_price_js_1 = require("../utils/unit-type-price.js");
 const charge_stock_js_1 = require("../utils/charge-stock.js");
 const input_js_1 = require("../utils/input.js");
+const business_date_js_1 = require("../utils/business-date.js");
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
 const FACING_CODES = { e: 'East', w: 'West', n: 'North', s: 'South', ne: 'North-East', se: 'South-East', nw: 'North-West', sw: 'South-West' };
@@ -505,7 +506,7 @@ router.get('/tower-detail', async (req, res, next) => {
         const units = result.rows;
         const projectName = units[0]?.project_name || '';
         const towerName = units[0]?.tower_name || '';
-        const today = new Date().toLocaleDateString('en-GB');
+        const today = (0, business_date_js_1.businessDayStart)().toLocaleDateString('en-GB');
         res.json({ success: true, project_name: projectName, tower_name: towerName,
             status_group: statusGroup, date: today, units });
     }
@@ -838,7 +839,7 @@ router.get('/:id/areas/history', async (req, res, next) => {
 router.put('/:id/areas', async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Unit id'), b = (0, input_js_1.body)(req);
-        const effective = (0, input_js_1.has)(b.effectiveDate) ? (0, input_js_1.day)(b.effectiveDate, 'Effective date') : new Date().toISOString().slice(0, 10);
+        const effective = (0, input_js_1.has)(b.effectiveDate) ? (0, input_js_1.day)(b.effectiveDate, 'Effective date') : (0, business_date_js_1.businessToday)();
         const note = (0, input_js_1.has)(b.note) ? (0, input_js_1.text)(b.note, 'Note', 500, false) : null;
         const given = {};
         for (const [k, , label] of AREA_FIELDS)
