@@ -815,15 +815,24 @@ test('Employees: team with a head and members, then delete', async () => {
   await expect(smRow(emp.team)).toHaveCount(0);
 });
 
-test('Employees: only super_admin can open it (UR-001); project_manager sees "No access" and no data', async () => {
+test('Employees: only super_admin can open it (UR-001); project_manager is denied the page and the API', async () => {
   await logout();
   await login('project_manager');
   for (const tab of ['employees', 'departments']) {
     await go(`#/employees?tab=${tab}`);
-    await expect(content()).toContainText('No access');
+    // the route-level guard stops a login that is not super_admin before the screen loads
+    await expect(content()).toContainText('Access Denied');
+    await expect(content()).toContainText("You don't have permission to view this page");
     await expect(content().getByRole('button', { name: 'New employee' })).toHaveCount(0);
     await expect(content().locator('tr[data-row]')).toHaveCount(0);
   }
+  // and the server refuses the data itself, whatever the screen does
+  const statuses = await page.evaluate(async () => {
+    const out: Record<string, number> = {};
+    for (const p of ['/api/employees', '/api/employees/departments', '/api/employees/teams', '/api/employees/report']) out[p] = (await fetch(p, { headers: { authorization: 'Bearer ' + Auth.getToken() } })).status;
+    return out;
+  });
+  expect(statuses).toEqual({ '/api/employees': 403, '/api/employees/departments': 403, '/api/employees/teams': 403, '/api/employees/report': 403 });
   await logout();
   await login('sales_executive');
   await go('#/employees?tab=employees');

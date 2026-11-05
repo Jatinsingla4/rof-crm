@@ -332,9 +332,34 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
 test('GST Invoicing: reversal, cancellation, credit and debit note (fetch the invoice, then act)', async () => {
   const b = S.buyers[0];
   await go('/gst-invoicing');
-  const mk = async (amount: number) => (await must('invoice', api('POST', '/payments/gst-invoices', { consumerId: b.c, baseAmount: amount, gstRate: 5, supplyType: 'intrastate', invoiceType: 'tax_invoice' }))).invoice_number as string;
+  // Strict maker-checker: nobody, super_admin included, reverses or cancels an invoice they raised. Actor A (accounts_finance, a real login with its own token)
+  // raises the invoices; actor B (the super_admin signed in to this browser) reverses and cancels them on the screen.
+  const afToken = (await (await fetch(`${BASE}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'accounts_finance@test.local', password: PASSWORD }) })).json()).token as string;
+  expect(afToken).toBeTruthy();
+  const apiAs = async (tok: string, method: string, path: string, body?: any) => {
+    const r = await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` }, body: body === undefined ? undefined : JSON.stringify(body) });
+    let j: any = null; try { j = await r.json(); } catch {}
+    return { s: r.status, j };
+  };
+  const mk = async (amount: number) => (await must('invoice', apiAs(afToken, 'POST', '/payments/gst-invoices', { consumerId: b.c, baseAmount: amount, gstRate: 5, supplyType: 'intrastate', invoiceType: 'tax_invoice' }))).invoice_number as string;
   const toReverse = await mk(3000), toCancel = await mk(4000);
-  // reversal
+  expect(sql(`select (created_by_user_id = (select id from users where email = 'accounts_finance@test.local'))::text from gst_invoices where invoice_no = '${toReverse}'`)).toBe('true');   // the maker really is accounts_finance, not set by SQL
+  // the maker has the checker access too (granted for this check and taken away again), so the refusal below can only be the maker-checker rule
+  const afRights = `user_id = (select id from users where email = 'accounts_finance@test.local') and process_name = 'jv_refund_drcr'`;
+  const hadRights = sql(`select count(*) from user_process_permissions where ${afRights}`) !== '0';
+  sql(`insert into user_process_permissions (user_id, process_name, is_maker, is_checker) values ((select id from users where email = 'accounts_finance@test.local'), 'jv_refund_drcr', true, true) on conflict (user_id, process_name) do update set is_maker = true, is_checker = true`);
+  try {
+    for (const path of ['reverse', 'cancel']) {
+      const own = await apiAs(afToken, 'POST', `/payments/gst-invoices/${path}`, { invoiceNumber: toReverse, reason: 'own invoice' });
+      expect(own.s, `maker ${path} of their own invoice`).toBe(403);
+      expect(JSON.stringify(own.j)).toMatch(/created this yourself/);
+    }
+    expect(sql(`select status from gst_invoices where invoice_no = '${toReverse}'`)).not.toBe('cancelled');   // nothing changed
+    expect(sql(`select count(*) from credit_debit_notes where original_invoice_no = '${toReverse}'`)).toBe('0');
+  } finally {
+    if (!hadRights) sql(`delete from user_process_permissions where ${afRights}`);
+  }
+  // reversal (actor B, on the screen)
   await tab('invoice-reversal');
   await page.locator('button', { hasText: /confirm reversal/i }).click(); await expect(toast(/invoice number/i)).toBeVisible();
   await page.locator('#rev-inv-no').fill('INV/none'); await page.locator('button', { hasText: /fetch invoice details/i }).click(); await expect(page.locator('#rev-invoice-detail')).toContainText(/not found/i);
@@ -343,6 +368,7 @@ test('GST Invoicing: reversal, cancellation, credit and debit note (fetch the in
   await page.locator('#rev-reason').fill('contract change'); await page.locator('button', { hasText: /confirm reversal/i }).click();
   await expect(page.locator('#rev-result')).toContainText(/reversed/i);
   expect(sql(`select status from gst_invoices where invoice_no = '${toReverse}'`)).toBe('cancelled');
+  expect(sql(`select (cn.created_by_user_id = (select id from users where email = 'super_admin@test.local') and cn.created_by_user_id <> gi.created_by_user_id)::text from credit_debit_notes cn join gst_invoices gi on gi.invoice_no = cn.original_invoice_no where cn.original_invoice_no = '${toReverse}' and cn.status = 'issued'`)).toBe('true');   // the reversal was done by a different person than the maker
   expect(sql(`select count(*) from credit_debit_notes where original_invoice_no = '${toReverse}' and status = 'issued' and adjustment_amount = 3000`)).toBe('1');
   await page.locator('button', { hasText: /confirm reversal/i }).click(); await expect(page.locator('#rev-result')).toContainText(/already cancelled/i);
   // cancellation
