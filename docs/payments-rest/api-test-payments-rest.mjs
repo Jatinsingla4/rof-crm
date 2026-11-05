@@ -160,6 +160,7 @@ const wreq = (c, over = {}, who = AF) => who('POST', '/payments/interest-waivers
   // approving
   grant(afId, 'interest_waiver', true, true);
   r = await AF('PATCH', `/payments/interest-waivers/${w1}/approve`, {}); t('waiver approve: the maker cannot approve their own request -> 403', r.s === 403, r.s + JSON.stringify(r.j));
+  r = await AF('PATCH', `/payments/interest-waivers/${w1}/reject`, { rejection_reason: 'self' }); t('waiver reject: the maker cannot reject their own request either -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE]]) { r = await who('PATCH', `/payments/interest-waivers/${w1}/approve`, {}); t(`waiver approve: ${n} -> 403`, r.s === 403, r.s); }
   r = await A('PATCH', '/payments/interest-waivers/abc/approve', {}); t('waiver approve: id "abc" -> 400', r.s === 400, r.s); r = await A('PATCH', `/payments/interest-waivers/${NIL}/approve`, {}); t('waiver approve: unknown -> 404', r.s === 404, r.s);
   t('waiver approve: refused calls changed nothing', piWaived(c) === 0 && psql(`select status from interest_waivers where id='${w1}'`) === 'pending');
@@ -218,6 +219,7 @@ const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' w
   // approve
   grant(afId, 'jv_refund_drcr', true, true);
   r = await AF('PATCH', `/payments/refunds/${f1}/approve`, {}); t('refund approve: the maker cannot approve their own -> 403', r.s === 403, r.s);
+  r = await AF('PATCH', `/payments/refunds/${f1}/reject`, { rejection_reason: 'self' }); t('refund reject: the maker cannot reject their own request either -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE]]) { r = await who('PATCH', `/payments/refunds/${f1}/approve`, {}); t(`refund approve: ${n} -> 403`, r.s === 403, r.s); }
   r = await PM('PATCH', '/payments/refunds/abc/approve', {}); t('refund approve: id "abc" -> 400', r.s === 400, r.s); r = await PM('PATCH', `/payments/refunds/${NIL}/approve`, {}); t('refund approve: unknown -> 404', r.s === 404, r.s);
   r = await PM('PATCH', `/payments/refunds/${f1}/process`, { refund_mode: 'neft' }); t('refund process: a pending refund cannot be processed -> 409', r.s === 409, r.s);
@@ -344,6 +346,7 @@ const invs = [];
   const nn = await par(5, () => note({ note_type: 'debit', adjustment_amount: 5 })); t('note race: 5 parallel -> 5 different numbers, no 5xx', cnt(nn, 201) === 5 && new Set(nn.map(x => x.j.data.note_number)).size === 5 && no5(nn), nn.map(x => x.s).join());
   // approve / cancel
   r = await AF('PATCH', `/payments/credit-debit-notes/${n1}/approve`, {}); t('note approve: the maker cannot approve their own -> 403', r.s === 403, r.s);
+  r = await AF('PATCH', `/payments/credit-debit-notes/${n1}/cancel`, { reason: 'self' }); t('note cancel: the maker cannot cancel their own note either -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE]]) { r = await who('PATCH', `/payments/credit-debit-notes/${n1}/approve`, {}); t(`note approve: ${n} -> 403`, r.s === 403, r.s); }
   r = await PM('PATCH', '/payments/credit-debit-notes/abc/approve', {}); t('note approve: id "abc" -> 400', r.s === 400, r.s); r = await PM('PATCH', `/payments/credit-debit-notes/${NIL}/approve`, {}); t('note approve: unknown -> 404', r.s === 404, r.s);
   const ap = await par(5, () => PM('PATCH', `/payments/credit-debit-notes/${n1}/approve`, {})); t('note approve race: 5 parallel -> exactly one, no 5xx', cnt(ap, 200) === 1 && cnt(ap, 409) === 4 && no5(ap), ap.map(x => x.s).join());
@@ -370,14 +373,16 @@ const invs = [];
   r = await can(i2.invoice_no, { reason: '<b>x</b>' }); t('invoice cancel: reason with tags -> 400', r.s === 400, r.s);
   // pending notes on an invoice are withdrawn, issued credits are not credited twice
   const pend = (await note({ invoice_id: i2.id, adjustment_amount: 500, note_type: 'debit' })).j.data.id, cred = (await note({ invoice_id: i2.id, adjustment_amount: 5000 })).j.data.id; await PM('PATCH', `/payments/credit-debit-notes/${cred}/approve`, {});
+  r = await can(i2.invoice_no, {}, A); t('invoice cancel: the person who raised the invoice cannot cancel it, super_admin included -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
   const cc = await par(5, () => can(i2.invoice_no, {}, AF)); t('invoice cancel race: 5 parallel cancels -> exactly one, no 5xx', cnt(cc, 200) === 1 && cnt(cc, 409) === 4 && no5(cc), cc.map(x => x.s).join());
   const ok = cc.find(x => x.s === 200)?.j.data;
   t('invoice cancel: the credit note takes back what was left (20000 - 5000 credited = 15000, 5% tax pro rata)', ok && Number(ok.creditNote.adjustment_amount) === 15000 && Number(ok.creditNote.gst_amount) === 750 && ok.creditNote.status === 'issued' && ok.creditNoteNumber, JSON.stringify(ok));
   t('invoice cancel: invoice cancelled with reason and time, exactly one credit note was made, the waiting note withdrawn', psql(`select status||'|'||cancelled_reason||'|'||(cancelled_at is not null) from gst_invoices where id='${i2.id}'`) === 'cancelled|duplicate|true' && Number(psql(`select count(*) from credit_debit_notes where invoice_id='${i2.id}' and note_type='credit' and status='issued' and reason='duplicate'`)) === 1 && psql(`select status from credit_debit_notes where id='${pend}'`) === 'cancelled');
   r = await PM('PATCH', `/payments/credit-debit-notes/${pend}/approve`, {}); t('invoice cancel: a note on the cancelled invoice cannot be approved', r.s === 409, r.s);
   r = await note({ invoice_id: i2.id }); t('invoice cancel: no new note on a cancelled invoice -> 409', r.s === 409, r.s);
-  const i3 = await mkInv({ baseAmount: 999.99, gstRate: 18 }); r = await can(i3.invoice_no, { reason: undefined, reversalDate: '2026-01-15' }, A, 'reverse'); t('invoice reverse: same as cancel, the note carries the reversal date, tax matches the invoice', r.s === 200 && psql(`select note_date from credit_debit_notes where id='${r.j.data.creditNote.id}'`) === '2026-01-15' && Number(r.j.data.creditNote.gst_amount) === Number(i3.gst_amount) && Number(r.j.data.creditNote.total_amount) === Number(i3.total_amount), r.s + JSON.stringify(r.j).slice(0, 200));
-  r = await can(i3.invoice_no, {}, A, 'reverse'); t('invoice reverse: twice -> 409', r.s === 409, r.s); const i4 = await mkInv(); r = await can(i4.invoice_no, { reversalDate: 'abc' }, A, 'reverse'); t('invoice reverse: reversalDate "abc" -> 400', r.s === 400, r.s);
+  const i3 = await mkInv({ baseAmount: 999.99, gstRate: 18 }); r = await can(i3.invoice_no, {}, A, 'reverse'); t('invoice reverse: the person who raised the invoice cannot reverse it, super_admin included -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
+  r = await can(i3.invoice_no, { reason: undefined, reversalDate: '2026-01-15' }, AF, 'reverse'); t('invoice reverse: same as cancel, the note carries the reversal date, tax matches the invoice', r.s === 200 && psql(`select note_date from credit_debit_notes where id='${r.j.data.creditNote.id}'`) === '2026-01-15' && Number(r.j.data.creditNote.gst_amount) === Number(i3.gst_amount) && Number(r.j.data.creditNote.total_amount) === Number(i3.total_amount), r.s + JSON.stringify(r.j).slice(0, 200));
+  r = await can(i3.invoice_no, {}, AF, 'reverse'); t('invoice reverse: twice -> 409', r.s === 409, r.s); const i4 = await mkInv(); r = await can(i4.invoice_no, { reversalDate: 'abc' }, AF, 'reverse'); t('invoice reverse: reversalDate "abc" -> 400', r.s === 400, r.s);
   r = await A('GET', `/payments/gst-invoices?status=cancelled&consumerId=${c}`); t('invoice list: status=cancelled', r.s === 200 && r.j.data.length >= 2 && r.j.data.every(x => x.status === 'cancelled'), r.s);
   t('invoice: create, cancel and notes are logged', Number(psql(`select count(*) from audit_logs where resource_type in ('gst_invoice','credit_debit_note') and timestamp > now() - interval '1 hour'`)) >= 10);
   // the credit notes on one invoice never pass the invoice
@@ -389,6 +394,7 @@ const invs = [];
 // ---------- draw refunds ----------
 {
   const mk = (c, P, status = 'pending', due = later(5)) => { const id = psql(`insert into draw_refunds (consumer_id, project_id, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status) values ('${c}','${P}',10000,10000,'${due}','${status}') returning id`); extraSql.push(`delete from audit_logs where resource_id='${id}'`, `delete from draw_refunds where id='${id}'`); return id; };
+  grant(afId, 'jv_refund_drcr', true, true); // draw refunds follow the same maker/checker access as the other refunds
   const d1 = mk(S1.c, P1), dOver = mk(S2.c, P1, 'pending', later(-9)), d2 = mk(SP2.c, P2);
   const ini = (id, b = { refundReference: 'UTR-' + U }, who = A) => who('PATCH', `/payments/draw-refunds/${id}/initiate`, b), com = (id, b = {}, who = A) => who('PATCH', `/payments/draw-refunds/${id}/complete`, b);
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE], ['project_manager', PM]]) { r = await ini(d1, undefined, who); t(`draw refund: ${n} cannot initiate -> 403`, r.s === 403, r.s); r = await com(d1, {}, who); t(`draw refund: ${n} cannot complete -> 403`, r.s === 403, r.s); }
@@ -399,7 +405,8 @@ const invs = [];
   t('draw refund: refused calls changed nothing', psql(`select refund_status from draw_refunds where id='${d1}'`) === 'pending');
   const rr = await par(5, () => AF('PATCH', `/payments/draw-refunds/${d1}/initiate`, { refundReference: 'UTR-' + U })); t('draw refund race: 5 parallel initiates -> exactly one, no 5xx', cnt(rr, 200) === 1 && cnt(rr, 409) === 4 && no5(rr), rr.map(x => x.s).join());
   t('draw refund: initiated with reference and time', psql(`select refund_status||'|'||refund_reference||'|'||(refund_initiated_at is not null) from draw_refunds where id='${d1}'`) === `initiated|UTR-${U}|true`);
-  r = await com(d1, {}, AF); t('draw refund: the person who initiated cannot complete -> 403', r.s === 403, r.s);
+  r = await com(d1, {}, AF); t('draw refund: the person who initiated cannot complete -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
+  noRows(pmId); grant(pmId, 'jv_refund_drcr', false, false); r = await com(d1, {}, PM); t('draw refund: a checker without the process access cannot complete -> 403', r.s === 403 && !/yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j)); noRows(pmId);
   const cc = await par(5, () => com(d1, {}, A)); t('draw refund race: 5 parallel completes -> exactly one, no 5xx', cnt(cc, 200) === 1 && cnt(cc, 409) === 4 && no5(cc), cc.map(x => x.s).join());
   t('draw refund: completing posts a refund entry in the applicant\'s ledger', psql(`select count(*) from journal_entries where consumer_id='${S1.c}' and ledger_head='Refund' and remarks like 'Draw refund ${d1}%' and debit_amount=10000 and status='approved'`) === '1');
   r = await ini(d1); t('draw refund: initiating a completed one -> 409', r.s === 409, r.s); r = await com(d1); t('draw refund: completing twice -> 409', r.s === 409, r.s);

@@ -15,6 +15,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2 } from '../utils/input.js';
 import { nextNumber } from '../utils/penal-interest.js';
 import { SQL_TODAY, businessTomorrow, businessYear } from '../utils/business-date.js';
+import { notCreator } from '../utils/not-creator.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
@@ -22,8 +23,11 @@ const MODES = ['cash', 'cheque', 'demand_draft', 'bank_transfer', 'neft', 'rtgs'
 const tomorrow = () => businessTomorrow();   // a day of grace for the browser/server clock gap
 const index = (v: any) => { if (!has(v)) return null; if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 999) throw bad('installment_index must be a whole number from 1 to 999'); return v; };
 const optId = (v: any, label: string) => (has(v) ? uuid(v, label) : null);
-// The person who raised a request cannot approve it
-export const notOwn = (req: AuthRequest, raisedBy: string | null) => { if (req.userRole !== 'super_admin' && raisedBy && raisedBy === req.userId) throw bad('You raised this yourself, someone else has to approve it', 403); };
+// Strict maker-checker (plan 5.4, decision 5): nobody, super_admin included, approves, rejects, processes, completes or cancels what they raised,
+// and a record whose creator is unknown waits for remediation. No flag, header or role bypasses it.
+export const notOwn = (req: AuthRequest, raisedBy: string | null) => {
+  try { notCreator(req, raisedBy); } catch (e: any) { throw bad(e.message, e.http); }
+};
 const finLog = (c: any, consumerId: string, userId: string | undefined, action: string, value: object, remarks: string) =>
   c.query(`INSERT INTO financial_audit_logs (consumer_id, user_id, action_type, new_value, remarks) VALUES ($1,$2,$3,$4,$5)`, [consumerId, userId, action, JSON.stringify(value), remarks]);
 // A refund that is paid goes into the applicant's ledger as an approved journal entry (debit, head "Refund")
@@ -190,9 +194,10 @@ router.patch('/interest-waivers/:id/reject', requireProcess('interest_waiver', '
   try {
     const id = uuid(req.params.id, 'Waiver id'), reason = text(body(req).rejection_reason, 'rejection_reason', 500, true);
     await inTx(async (c) => {
-      const w = (await c.query(`SELECT status FROM interest_waivers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const w = (await c.query(`SELECT status, requested_by FROM interest_waivers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!w) throw bad('Waiver not found', 404);
       if (w.status !== 'pending') throw bad(`Waiver is already ${w.status}`, 409);
+      notOwn(req, w.requested_by);
       await c.query(`UPDATE interest_waivers SET status = 'rejected', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW() WHERE id = $3`, [req.userId, reason, id]);
     });
     await auditChange(db, req, res, 'update', 'interest_waiver', id, { status: 'pending' }, { status: 'rejected', reason });
@@ -314,11 +319,11 @@ router.patch('/refunds/:id/process', requireProcess('jv_refund_drcr', 'checker')
     const mode = oneOf(b.refund_mode, 'refund_mode', MODES), ref = text(b.refund_reference, 'refund_reference', 255, false), date = day(b.refund_date, 'refund_date');
     if (date && date > tomorrow()) throw bad('refund_date cannot be in the future');
     return { set: 'processed_by = $2, processed_at = NOW(), refund_mode = $3, refund_reference = $4, refund_date = $5,', params: [req.userId, mode, ref, date] };
-  }));
+  }, true, true));
 
 // PATCH /api/payments/refunds/:id/reject — CHECKER (a pending or approved refund that will not be paid; it frees its amount)
 router.patch('/refunds/:id/reject', requireProcess('jv_refund_drcr', 'checker'),
-  refundStep('pending|approved', 'rejected', (req) => ({ set: 'rejected_by = $2, rejected_at = NOW(), rejection_reason = $3,', params: [req.userId, text(body(req).rejection_reason, 'rejection_reason', 500, true)] }), false));
+  refundStep('pending|approved', 'rejected', (req) => ({ set: 'rejected_by = $2, rejected_at = NOW(), rejection_reason = $3,', params: [req.userId, text(body(req).rejection_reason, 'rejection_reason', 500, true)] }), false, true));
 
 // ============================================
 // CANCELLATION REFUND WORKFLOW
@@ -459,9 +464,10 @@ router.patch('/credit-debit-notes/:id/cancel', requireProcess('jv_refund_drcr', 
   try {
     const id = uuid(req.params.id, 'Note id'), reason = text(body(req).reason, 'reason', 500, true);
     const row = await inTx(async (c) => {
-      const n = (await c.query(`SELECT status FROM credit_debit_notes WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const n = (await c.query(`SELECT status, created_by_user_id FROM credit_debit_notes WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!n) throw bad('Note not found', 404);
       if (n.status === 'cancelled') throw bad('Note is already cancelled', 409);
+      notOwn(req, n.created_by_user_id);
       return (await c.query(`UPDATE credit_debit_notes SET status = 'cancelled', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW() WHERE id = $3 RETURNING *`, [req.userId, reason, id])).rows[0];
     });
     await auditChange(db, req, res, 'update', 'credit_debit_note', id, { status: 'pending/issued' }, { status: 'cancelled', reason });

@@ -256,6 +256,7 @@ const cancelInvoice = (reverse: boolean) => async (req: AuthRequest, res: Respon
       const inv = (await c.query(`SELECT * FROM gst_invoices WHERE invoice_no = $1 FOR UPDATE`, [invoiceNumber])).rows[0];
       if (!inv) throw bad('Invoice not found', 404);
       if (inv.status === 'cancelled') throw bad('This invoice is already cancelled', 409);
+      notOwn(req, inv.created_by_user_id);   // strict maker-checker: whoever raised the invoice cannot cancel or reverse it
       // Credit notes already issued on this invoice are not credited twice; notes still waiting are withdrawn
       await c.query(`UPDATE credit_debit_notes SET status = 'cancelled', rejected_by = $2, rejected_at = NOW(), rejection_reason = 'Invoice cancelled', updated_at = NOW() WHERE invoice_id = $1 AND status = 'pending'`, [inv.id, req.userId]);
       const credited = Number((await c.query(`SELECT COALESCE(SUM(adjustment_amount), 0) AS n FROM credit_debit_notes WHERE invoice_id = $1 AND note_type = 'credit' AND status = 'issued'`, [inv.id])).rows[0].n);
@@ -413,13 +414,13 @@ const drawStep = (from: string, to: string, set: (req: AuthRequest) => { sql: st
 };
 
 // PATCH /api/payments/draw-refunds/:id/initiate - Initiate draw refund (accounts and finance only)
-router.patch('/draw-refunds/:id/initiate', financeOnly, drawStep('pending', 'initiated', (req) => {
+router.patch('/draw-refunds/:id/initiate', requireProcess('jv_refund_drcr', 'maker'), financeOnly, drawStep('pending', 'initiated', (req) => {
   const b = body(req);
   return { sql: 'refund_initiated_at = NOW(), initiated_by = $4, refund_reference = $2, notes = COALESCE($3, notes),', params: [text(b.refundReference, 'refundReference', 255, true), text(b.notes, 'notes', 500, false), req.userId] };
 }));
 
 // PATCH /api/payments/draw-refunds/:id/complete - Complete draw refund (accounts and finance only)
-router.patch('/draw-refunds/:id/complete', financeOnly, drawStep('initiated', 'completed', (req) =>
+router.patch('/draw-refunds/:id/complete', requireProcess('jv_refund_drcr', 'checker'), financeOnly, drawStep('initiated', 'completed', (req) =>
   ({ sql: 'refund_completed_at = NOW(), refund_reference = COALESCE($2, refund_reference),', params: [text(body(req).refundReference, 'refundReference', 255, false)] })));
 
 /**

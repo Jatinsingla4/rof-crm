@@ -280,9 +280,10 @@ router.patch('/:id/reject', requireProcess('broker_range_entry', 'checker'), asy
     const id = uuid(req.params.id, 'Broker id');
     const notes = text(body(req).notes, 'Notes', 500, false);
     const row = await inTx(async (c) => {
-      const cur = (await c.query(`SELECT status FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const cur = (await c.query(`SELECT status, created_by FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Broker not found', 404);
       if (cur.status !== 'pending') throw bad(`Only a pending broker can be rejected (this one is ${cur.status})`, 409);
+      notOwn(req, cur.created_by);
       return (await c.query(`UPDATE brokers SET status = 'rejected', approval_notes = $2, approved_at = NOW(), approved_by = $3, updated_at = NOW() WHERE id = $1 RETURNING id, status`, [id, notes, req.userId])).rows[0];
     });
     await auditChange(db, req, res, 'update', 'broker', id, { status: 'pending' }, { status: 'rejected' });
@@ -297,8 +298,9 @@ router.patch('/:id/status', requireProcess('broker_range_entry', 'checker'), asy
     const status = oneOf(body(req).status, 'status', ['active', 'inactive', 'suspended'] as const);
     if (!status) throw bad('status is required');
     const out = await inTx(async (c) => {
-      const cur = (await c.query(`SELECT status FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const cur = (await c.query(`SELECT status, created_by FROM brokers WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Broker not found', 404);
+      notOwn(req, cur.created_by);
       if (['pending', 'rejected'].includes(cur.status)) throw bad(`A ${cur.status} broker is approved or rejected first, its status cannot be changed here`, 409);
       if (cur.status === status) throw bad(`The broker is already ${status}`, 409);
       let released = 0;

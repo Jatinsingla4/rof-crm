@@ -4,6 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
@@ -11,6 +12,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(await login('accounts_finance@test.local'));
+const A2 = call(await secondAdminToken(B, A));   // the checker: nobody approves what they created, super_admin included
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
@@ -199,7 +201,10 @@ const B1 = await buyer();
   r = await A('PATCH', `/payments/receipts/${id}/approve`, {}); t('approve: authorising twice -> 404 "already authorized"', r.s === 404, r.s);
   t('approve: audit row', Number(psql(`select count(*) from audit_logs where resource_id='${id}' and new_values::text like '%authorized%'`)) === 1);
   const six = await buyer(); const rid = (await post({ consumerId: six.c.id, amountReceivedInr: 800 })).j.data.id;
-  const ap = await Promise.all(Array.from({ length: 6 }, () => A('PATCH', `/payments/receipts/${rid}/approve`, {}))); t('approve race: 6 at once -> authorised once', ap.filter(x => x.s === 200).length === 1, JSON.stringify(ap.map(x => x.s)));
+  r = await A('PATCH', `/payments/receipts/${rid}/approve`, {}); t('approve: the person who recorded the receipt cannot authorize it, super_admin included -> 403', r.s === 403 && /yourself/.test(r.j?.error || '') && rcol(rid, 'status') === 'pending', r.s + JSON.stringify(r.j));
+  psql(`update receipts set received_by_user_id = null where id = '${rid}'`); r = await A2('PATCH', `/payments/receipts/${rid}/approve`, {}); t('approve: a receipt whose recorder is unknown waits for remediation -> 409', r.s === 409 && rcol(rid, 'status') === 'pending', r.s + JSON.stringify(r.j));
+  psql(`update receipts set received_by_user_id = (select id from users where email = 'super_admin@test.local') where id = '${rid}'`);
+  const ap = await Promise.all(Array.from({ length: 6 }, () => A2('PATCH', `/payments/receipts/${rid}/approve`, {}))); t('approve race: 6 at once -> authorised once', ap.filter(x => x.s === 200).length === 1, JSON.stringify(ap.map(x => x.s)));
   r = await A('PATCH', '/payments/receipts/abc/mark-printed', {}); t('print: id not an id -> 400', r.s === 400, r.s); r = await A('PATCH', `/payments/receipts/${NILS}/mark-printed`, {}); t('print: unknown id -> 404', r.s === 404, r.s);
   r = await A('PATCH', `/payments/receipts/${id}/mark-printed`, {}); t('print: marks printed', r.s === 200 && rcol(id, 'print_status') === 'printed' && rcol(id, 'printed_by') !== '', r.s);
   const cx = (await post({ consumerId: b.c.id, amountReceivedInr: 100 })).j.data.id; await A('POST', `/payments/receipts/${cx}/cancel`, {}); r = await A('PATCH', `/payments/receipts/${cx}/mark-printed`, {}); t('print: a cancelled receipt cannot be printed -> 409', r.s === 409, r.s);

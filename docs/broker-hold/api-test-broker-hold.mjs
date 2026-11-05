@@ -3,12 +3,14 @@
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-broker-hold.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 const login = async (email, password = 'Test#Pass1234') => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password }) })).json()).token;
 const call = (tok) => async (m, p, b, raw) => { const go = () => fetch(B + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let r; try { r = await go(); } catch { r = await go(); } /* a keep-alive socket the server just closed */ let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const A = call(await login('super_admin@test.local')), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(await login('accounts_finance@test.local')), NO = call(null);
+const A2 = call(await secondAdminToken(B, A));   // the checker: nobody approves what they created, super_admin included
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
@@ -44,7 +46,7 @@ for (const u of [afId, pmId, seId, roId]) noRows(u);
 const brokers = [], consumers = [], units = [];
 let bn = 0;
 const newBroker = async (extra = {}, who = A) => { const x = await who('POST', '/brokers', { firmName: `Firm ${++bn} ${U}`, mobile: mob(), commissionPct: 2, ...extra }); if (x.s === 201) brokers.push(x.j.data.id); return x; };
-const activeBroker = async ({ tax = true, ...extra } = {}) => { const x = await newBroker({ pan: pan(), ...extra }); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); if (tax) { const y = await A('POST', `/broker-setup/${x.j.data.id}`, { tdsRatePct: 5, gstRatePct: 18 }); if (y.s !== 200) throw new Error('tax ' + JSON.stringify(y)); } return x.j.data.id; };
+const activeBroker = async ({ tax = true, ...extra } = {}) => { const x = await newBroker({ pan: pan(), ...extra }); if (x.s !== 201) throw new Error('broker ' + JSON.stringify(x)); const a = await A2('PATCH', `/brokers/${x.j.data.id}/approve`, {}); if (a.s !== 200) throw new Error('approve ' + JSON.stringify(a)); if (tax) { const y = await A('POST', `/broker-setup/${x.j.data.id}`, { tdsRatePct: 5, gstRatePct: 18 }); if (y.s !== 200) throw new Error('tax ' + JSON.stringify(y)); } return x.j.data.id; };
 const person = async (P = P1) => { const x = await A('POST', '/consumers', { name: `Brk Buyer ${consumers.length + 1} ${U}`, mobile: mob(), project_id: P }); if (x.s >= 300) throw new Error('applicant ' + JSON.stringify(x)); consumers.push(x.j.data.id); return x.j.data.id; };
 const newUnit = async (P = P1, T = T1) => { const u = await unit(P, T); units.push(u); return u; };
 // a booking: amount 0 keeps it pending_payment (unit still available), an amount makes it active and locks the unit
@@ -99,9 +101,13 @@ r = await SE('PATCH', `/brokers/${bPM}/reject`, {}); t('SE maker only cannot rej
 r = await SE('PATCH', `/brokers/${bPM}/status`, { status: 'inactive' }); t('SE without checker cannot change status', r.s === 403, r.s);
 grant(pmId, 'broker_range_entry', true, true);
 r = await PM('PATCH', `/brokers/${bPM}/approve`, {}); t('the maker cannot approve their own broker even with checker access', r.s === 403, r.s + JSON.stringify(r.j));
-r = await A('PATCH', `/brokers/${bPM}/approve`, { notes: 'ok ' + U }); t('super_admin approves', r.s === 200 && r.j.data.status === 'active', r.s);
+r = await PM('PATCH', `/brokers/${bPM}/reject`, {}); t('the maker cannot reject their own broker either -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
+psql(`update brokers set created_by = null where id = '${bPM}'`); r = await A2('PATCH', `/brokers/${bPM}/approve`, {}); t('a broker whose creator is unknown waits for remediation -> 409', r.s === 409, r.s + JSON.stringify(r.j));
+psql(`update brokers set created_by = '${uid('project_manager@test.local')}' where id = '${bPM}'`);
+r = await A2('PATCH', `/brokers/${bPM}/approve`, { notes: 'ok ' + U }); t('super_admin approves', r.s === 200 && r.j.data.status === 'active', r.s);
 t('approval stores who and when', psql(`select approved_by is not null and approved_at is not null and approval_notes='ok ${U}' from brokers where id='${bPM}'`) === 't');
 grant(seId, 'broker_range_entry', true, true);
+{ const mine = await newBroker({ pan: pan() }); r = await A('PATCH', `/brokers/${mine.j.data.id}/approve`, {}); t('super_admin cannot approve a broker super_admin made -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j)); r = await A('PATCH', `/brokers/${mine.j.data.id}/status`, { status: 'inactive' }); t('super_admin cannot change the status of a broker super_admin made -> 403', r.s === 403, r.s); }
 r = await SE('PATCH', `/brokers/${bPM}/approve`, {}); t('approving again is refused (409)', r.s === 409, r.s);
 r = await SE('PATCH', `/brokers/${bPM}/reject`, {}); t('rejecting an active broker is refused (409)', r.s === 409, r.s);
 { // another person with checker access approves
@@ -111,7 +117,7 @@ r = await SE('PATCH', `/brokers/${bPM}/reject`, {}); t('rejecting an active brok
   r2 = await SE('PATCH', `/brokers/${id2}/reject`, { notes: 'no' }); t('a checker rejects a pending broker', r2.s === 200 && r2.j.data.status === 'rejected', r2.s);
   r2 = await SE('PATCH', `/brokers/${id2}/approve`, {}); t('a rejected broker cannot be approved later (409)', r2.s === 409, r2.s);
   r2 = await PM('PATCH', `/brokers/${id2}`, { city: 'Delhi' }); t('a rejected broker cannot be edited (409)', r2.s === 409, r2.s);
-  r2 = await A('PATCH', `/brokers/${id2}/status`, { status: 'active' }); t('a rejected broker cannot be switched to active (409)', r2.s === 409, r2.s);
+  r2 = await A2('PATCH', `/brokers/${id2}/status`, { status: 'active' }); t('a rejected broker cannot be switched to active (409)', r2.s === 409, r2.s);
 }
 // payment process
 const bkP = await activeBroker();
@@ -169,7 +175,7 @@ t('none of those made a broker', psql(`select count(*) from brokers where firm_n
   r2 = await A('POST', '/brokers', { firmName: 'Dup ' + U, mobile: m }); t('same mobile again is refused (409)', r2.s === 409, r2.s);
   r2 = await A('POST', '/brokers', { firmName: 'Dup2 ' + U, mobile: '0' + m }); t('same mobile written with a leading 0 is refused too (409)', r2.s === 409, r2.s);
   r2 = await A('POST', '/brokers', { firmName: 'Dup3 ' + U, mobile: mob(), pan: p }); t('same PAN again is refused (409)', r2.s === 409, r2.s);
-  const rj = await A('PATCH', `/brokers/${id}/reject`, {}); t('(set-up) reject it', rj.s === 200, rj.s);
+  const rj = await A2('PATCH', `/brokers/${id}/reject`, {}); t('(set-up) reject it', rj.s === 200, rj.s);
   r2 = await newBroker({ mobile: m, pan: p }); t('after a rejection the same mobile and PAN can be used again', r2.s === 201, r2.s + JSON.stringify(r2.j));
 }
 { // 5 at once with the same mobile: one wins
@@ -222,15 +228,15 @@ r = await A('PATCH', `/brokers/${E1}`, { city: 'Noida', commissionPct: 3.5, emai
 t('edit changes only the fields sent (firm, mobile, status stay)', psql(`select city='Noida' and commission_pct=3.5 and pan is null and status='active' and firm_name is not null and mobile is not null from brokers where id='${E1}'`) === 't');
 { const other = (await A('GET', `/brokers/${parent}`)).j.data.mobile; r = await A('PATCH', `/brokers/${E1}`, { mobile: other }); t('edit: a mobile that another broker has is refused (409)', r.s === 409, r.s); r = await A('PATCH', `/brokers/${E1}`, { mobile: (await A('GET', `/brokers/${E1}`)).j.data.mobile }); t('edit: keeping its own mobile is fine', r.s === 200, r.s); }
 // status
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'weird' }); t('status: unknown value is 400', r.s === 400, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'pending' }); t('status: pending cannot be set (400)', r.s === 400, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'rejected' }); t('status: rejected cannot be set here (400)', r.s === 400, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, {}); t('status: missing is 400', r.s === 400, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'active' }); t('status: active to active is 409', r.s === 409, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'suspended' }); t('status: active to suspended', r.s === 200 && r.j.data.status === 'suspended', r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'inactive' }); t('status: suspended to inactive', r.s === 200, r.s);
-r = await A('PATCH', `/brokers/${E1}/status`, { status: 'active' }); t('status: back to active', r.s === 200, r.s);
-{ const x = await newBroker(); r = await A('PATCH', `/brokers/${x.j.data.id}/status`, { status: 'active' }); t('status: a pending broker cannot skip approval (409)', r.s === 409, r.s); }
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'weird' }); t('status: unknown value is 400', r.s === 400, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'pending' }); t('status: pending cannot be set (400)', r.s === 400, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'rejected' }); t('status: rejected cannot be set here (400)', r.s === 400, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, {}); t('status: missing is 400', r.s === 400, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'active' }); t('status: active to active is 409', r.s === 409, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'suspended' }); t('status: active to suspended', r.s === 200 && r.j.data.status === 'suspended', r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'inactive' }); t('status: suspended to inactive', r.s === 200, r.s);
+r = await A2('PATCH', `/brokers/${E1}/status`, { status: 'active' }); t('status: back to active', r.s === 200, r.s);
+{ const x = await newBroker(); r = await A2('PATCH', `/brokers/${x.j.data.id}/status`, { status: 'active' }); t('status: a pending broker cannot skip approval (409)', r.s === 409, r.s); }
 // mapping
 for (const [n, b] of [['not a list', { projectIds: 'x' }], ['no body', {}], ['bad id', { projectIds: ['abc'] }], ['unknown project', { projectIds: [NIL] }], ['object', { projectIds: { a: 1 } }], ['null in list', { projectIds: [null] }], ['300 ids', { projectIds: Array.from({ length: 300 }, () => NIL) }]]) {
   r = await A('POST', `/brokers/${E1}/projects`, b); t(`mapping: ${n} is refused`, r.s === 400 || r.s === 404, r.s);
@@ -278,10 +284,10 @@ for (const [n, o, code] of [
   ['flat more than the unit price', { comm: 9000001, ctype: 'flat' }, 400], ['unknown commission type', { comm: 1, ctype: 'weird' }, 400], ['broker id not a uuid', { broker: 'abc' }, 400], ['broker does not exist', { broker: NIL }, 400],
   ['broker id as array', { broker: [BK] }, 400], ['direct booking with a broker', { type: 'direct' }, 400], ['unknown booking type', { type: 'agent' }, 400],
 ]) { const x = await book({ broker: BK, comm: 2, ctype: 'percent', amount: 0, ...o }); t(`booking with broker: ${n} is refused`, x.s === code && (x.id ? false : true), x.s + JSON.stringify(x.j)); if (x.u) { t(`  (${n}) the unit stayed available and no commission was made`, ustatus(x.u) === 'available' && psql(`select count(*) from broker_commissions where unit_id='${x.u}'`) === '0'); } }
-{ const pend = await activeBroker(), other = await newBroker(); const sus = await activeBroker(); await A('PATCH', `/brokers/${sus}/status`, { status: 'suspended' });
+{ const pend = await activeBroker(), other = await newBroker(); const sus = await activeBroker(); await A2('PATCH', `/brokers/${sus}/status`, { status: 'suspended' });
   let x = await book({ broker: other.j.data.id, amount: 0 }); t('booking: a pending broker cannot take a booking (400)', x.s === 400, x.s + JSON.stringify(x.j));
   x = await book({ broker: sus, amount: 0 }); t('booking: a suspended broker cannot take a booking (400)', x.s === 400, x.s);
-  const rj = await newBroker(); await A('PATCH', `/brokers/${rj.j.data.id}/reject`, {}); x = await book({ broker: rj.j.data.id, amount: 0 }); t('booking: a rejected broker cannot take a booking (400)', x.s === 400, x.s);
+  const rj = await newBroker(); await A2('PATCH', `/brokers/${rj.j.data.id}/reject`, {}); x = await book({ broker: rj.j.data.id, amount: 0 }); t('booking: a rejected broker cannot take a booking (400)', x.s === 400, x.s);
   x = await book({ type: 'direct', broker: undefined, amount: 0 }); t('booking: a direct booking without a broker is fine and makes no commission', x.s === 201 && psql(`select count(*) from broker_commissions where consumer_id='${x.c}'`) === '0', x.s + JSON.stringify(x.j));
   x = await book({ type: 'broker', broker: undefined, amount: 0 }); t('booking: a broker sale with no broker chosen (the form default) is accepted, no commission', x.s === 201 && psql(`select count(*) from broker_commissions where consumer_id='${x.c}'`) === '0', x.s + JSON.stringify(x.j));
 }
@@ -339,8 +345,8 @@ r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be a
 }
 // broker suspended, deactivated
 { const b = await activeBroker(); const x = await book({ broker: b, comm: 5000, ctype: 'flat', amount: 30000 }); const c = comm(x.c, x.u);
-  await A('PATCH', `/brokers/${b}/status`, { status: 'suspended' }); r = await pay(c); t('pay: a suspended broker is not paid (409)', r.s === 409, r.s + JSON.stringify(r.j));
-  await A('PATCH', `/brokers/${b}/status`, { status: 'inactive' }); r = await pay(c); t('pay: an inactive broker (left the firm) is still paid what was earned', r.s === 200, r.s + JSON.stringify(r.j)); }
+  await A2('PATCH', `/brokers/${b}/status`, { status: 'suspended' }); r = await pay(c); t('pay: a suspended broker is not paid (409)', r.s === 409, r.s + JSON.stringify(r.j));
+  await A2('PATCH', `/brokers/${b}/status`, { status: 'inactive' }); r = await pay(c); t('pay: an inactive broker (left the firm) is still paid what was earned', r.s === 200, r.s + JSON.stringify(r.j)); }
 // cancelled booking
 { const b = await activeBroker(); const x = await book({ broker: b, comm: 5000, ctype: 'flat', amount: 0 }); const c = comm(x.c, x.u);
   r = await A('POST', `/booking/${x.id}/cancel`, { reason: 'test ' + U }); t('booking cancelled before any payment', r.s === 200, r.s + JSON.stringify(r.j));
@@ -367,7 +373,7 @@ r = await pay(FLAT.id, A, { notes: 'late note' }); t('pay: a note can still be a
   r = await A('POST', `/allocations/${al?.id || NIL}/cancel`, {}); t('transfer: the new holder cancels the allotment', r.s < 300, r.s + JSON.stringify(r.j));
   t('transfer: the commission is cancelled with the booking and cannot be paid', cval(c, 'status') === 'cancelled'); r = await pay(c); t('transfer: paying it is refused (409)', r.s === 409, r.s); }
 // a broker without a PAN is cut at least 20% TDS
-{ const mk = async (cfg) => { const b = await newBroker({}).then(x => x.j.data.id); await A('PATCH', `/brokers/${b}/approve`, {}); await A('POST', `/broker-setup/${b}`, cfg || { tdsRatePct: 5, gstRatePct: 18 }); const x = await book({ broker: b, comm: 10000, ctype: 'flat', amount: 20000 }); return comm(x.c, x.u); };
+{ const mk = async (cfg) => { const b = await newBroker({}).then(x => x.j.data.id); await A2('PATCH', `/brokers/${b}/approve`, {}); await A('POST', `/broker-setup/${b}`, cfg || { tdsRatePct: 5, gstRatePct: 18 }); const x = await book({ broker: b, comm: 10000, ctype: 'flat', amount: 20000 }); return comm(x.c, x.u); };
   r = await pay(await mk(null)); t('no PAN, 5% setup: TDS 20% of 10,000 = 2,000.00, GST 1,800.00, net 9,800.00', r.s === 200 && r.j.data.tds_amount === '2000.00' && r.j.data.gst_amount === '1800.00' && r.j.data.net_amount_inr === '9800.00', JSON.stringify(r.j));
   r = await pay(await mk({ tdsRatePct: 0, gstRatePct: 18 })); t('no PAN, setup 0%: still 20%', r.s === 200 && r.j.data.tds_amount === '2000.00', JSON.stringify(r.j));
   r = await pay(await mk({ tdsRatePct: 30, gstRatePct: 18 })); t('no PAN, setup 30%: the higher 30% is used', r.s === 200 && r.j.data.tds_amount === '3000.00', JSON.stringify(r.j)); }
@@ -452,7 +458,7 @@ for (const q of ['status=nope', 'status[]=active', 'status=active&status=all', '
   r = await hold(u, H1); t('hold: a booked (locked) unit cannot be held (409)', r.s === 409, r.s + JSON.stringify(r.j)); t('hold: its status did not change', ustatus(u) === 'locked');
   const u2 = await newUnit(); psql(`update units set status='allotted' where id='${u2}' returning 1`); r = await hold(u2, H1); t('hold: an allotted unit cannot be held (409)', r.s === 409, r.s); psql(`update units set status='available' where id='${u2}' returning 1`);
   const u3 = await newUnit(); const pend = await newBroker(); r = await hold(u3, pend.j.data.id); t('hold: a pending broker cannot hold (400)', r.s === 400, r.s + JSON.stringify(r.j));
-  const sus = await activeBroker(); await A('PATCH', `/brokers/${sus}/status`, { status: 'suspended' }); r = await hold(u3, sus); t('hold: a suspended broker cannot hold (400)', r.s === 400, r.s);
+  const sus = await activeBroker(); await A2('PATCH', `/brokers/${sus}/status`, { status: 'suspended' }); r = await hold(u3, sus); t('hold: a suspended broker cannot hold (400)', r.s === 400, r.s);
   t('hold: the unit stayed available', ustatus(u3) === 'available'); }
 // race: five holds on one unit
 { const u = await newUnit(); const rs5 = await Promise.all([H1, H2, H1, H2, H1].map((b, i) => hold(u, b, { clientName: 'Race ' + i })));
@@ -498,7 +504,7 @@ for (let i = 0; i < 3; i++) { const u = await newUnit(); const c = await person(
   const st = ustatus(u); t(`race ${i + 1}: the unit status matches what won (${st})`, (h.s === 201 && st === 'held' && holdsOf(u) === 1) || (b.s === 201 && st === 'locked' && holdsOf(u) === 0), `${h.s} ${b.s} ${st} ${holdsOf(u)}`); }
 // deactivating a broker releases what it holds
 { const b = await activeBroker(); const us = [await newUnit(), await newUnit()]; for (const u of us) await hold(u, b);
-  r = await A('PATCH', `/brokers/${b}/status`, { status: 'suspended' }); t('suspending a broker releases its holds', r.s === 200 && r.j.holdsReleased === 2 && us.every(u => ustatus(u) === 'available' && holdsOf(u) === 0 && holdsOf(u, 'cancelled') === 1), r.s + JSON.stringify(r.j)); }
+  r = await A2('PATCH', `/brokers/${b}/status`, { status: 'suspended' }); t('suspending a broker releases its holds', r.s === 200 && r.j.holdsReleased === 2 && us.every(u => ustatus(u) === 'available' && holdsOf(u) === 0 && holdsOf(u, 'cancelled') === 1), r.s + JSON.stringify(r.j)); }
 // inventory counts follow the unit status
 { const P = await mkProj('C'); const T = await tw(P); const us = []; for (let i = 0; i < 4; i++) us.push(await unit(P, T)); units.push(...us);
   const cnt = async () => (await A('GET', `/units/status-counts?projectId=${P}`)).j; const before = JSON.stringify(await cnt());
@@ -549,12 +555,12 @@ r = await A('PATCH', '/users/employee-login/' + seId, { assignedProjectIds: [] }
     else if (op === 'pay' && bks.length) { const k = pick(bks); const c = comm(k.c, k.u); x = c ? await pay(c) : { s: 0 }; }
     else if (op === 'cancel' && bks.length) { const k = pick(bks); x = await A('POST', `/booking/${k.id}/cancel`, { reason: 'random ' + U }); }
     else if (op === 'tax') x = await A('POST', `/broker-setup/${b}`, pick([{ tdsRatePct: ri(0, 20) }, { gstRatePct: ri(0, 28) }, { isGstExempt: rnd() < 0.5 }]));
-    else if (op === 'status') x = await A('PATCH', `/brokers/${b}/status`, { status: pick(['active', 'active', 'active', 'inactive', 'suspended']) });
+    else if (op === 'status') x = await A2('PATCH', `/brokers/${b}/status`, { status: pick(['active', 'active', 'active', 'inactive', 'suspended']) });
     else x = await A('GET', pick(['/brokers', '/brokers/commission', '/inventory-hold?status=all', '/broker-setup']));
     tally[op + ':' + x.s] = (tally[op + ':' + x.s] || 0) + 1;
     if (x.s >= 500) { bad5++; console.log('  5xx at step ' + i + ' ' + op + ' ' + JSON.stringify(x.j)); }
   }
-  for (const b of bro) await A('PATCH', `/brokers/${b}/status`, { status: 'active' });
+  for (const b of bro) await A2('PATCH', `/brokers/${b}/status`, { status: 'active' });
   t(`random: ${steps} steps (seed ${SEED}), no 5xx`, bad5 === 0, bad5);
   if (process.env.TALLY) console.log(JSON.stringify(tally));
   const ids = units.map(x => `'${x}'`).join(',');
@@ -580,9 +586,9 @@ t('audit: brokers, holds, commissions and tax setups are logged', Number(psql(`s
   r = await setMode('Automatic'); t('broker authentication: switch the project to Automatic', r.s === 200 && r.j.data.broker_auth_mode === 'Automatic', r.s + JSON.stringify(r.j));
   r = await hold(ua, pending); t('broker authentication: on Automatic the pending broker can hold a unit of this project', r.s === 201, r.s + JSON.stringify(r.j));
   const ub = await newUnit(P2, T2); r = await hold(ub, pending); t('broker authentication: another project is still on Manual and refuses (400)', r.s === 400, r.s + JSON.stringify(r.j));
-  const sb = await activeBroker(); await A('PATCH', `/brokers/${sb}/status`, { status: 'suspended' }); const uc = await newUnit();
+  const sb = await activeBroker(); await A2('PATCH', `/brokers/${sb}/status`, { status: 'suspended' }); const uc = await newUnit();
   r = await hold(uc, sb); t('broker authentication: Automatic does not let a suspended broker hold (400)', r.s === 400, r.s + JSON.stringify(r.j));
-  const rb = await newBroker({ pan: pan() }); await A('PATCH', `/brokers/${rb.j.data.id}/reject`, { notes: 'no' }); r = await hold(uc, rb.j.data.id); t('broker authentication: nor a rejected broker (400)', r.s === 400, r.s + JSON.stringify(r.j));
+  const rb = await newBroker({ pan: pan() }); await A2('PATCH', `/brokers/${rb.j.data.id}/reject`, { notes: 'no' }); r = await hold(uc, rb.j.data.id); t('broker authentication: nor a rejected broker (400)', r.s === 400, r.s + JSON.stringify(r.j));
   t('broker authentication: a mode that is not Automatic or Manual is 400', (await setMode('Sometimes')).s === 400 && (await setMode('')).s === 400 && (await setMode(5)).s === 400 && (await setMode(null)).s === 400);
   t('broker authentication: unknown project 404, viewer and sales cannot switch, no login 401', (await setMode('Manual', '00000000-0000-0000-0000-000000000000')).s === 404 && (await setMode('Manual', P1, RO)).s === 403 && (await setMode('Manual', P1, SE)).s === 403 && (await setMode('Manual', P1, NO)).s === 401);
   r = await setMode('Manual'); t('broker authentication: back to Manual, and the other project settings are kept', r.s === 200 && r.j.data.broker_auth_mode === 'Manual' && r.j.data.receipt_number_mode === 'Automatic', JSON.stringify(r.j));

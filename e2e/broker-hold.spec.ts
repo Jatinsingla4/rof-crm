@@ -131,6 +131,8 @@ test('Application Form: a bad form is refused with a message, a good one registe
   expect(r).toBe(`pending|1.75|${PAN}|Gurugram|Haryana|122001|Ramesh Kumar|RERA-AG-${U}|123456789012|HDFC0001234|broker${U}@mail.test|first broker ${U}`);
   expect(sql(`select count(*) from broker_tax_config where broker_id = (select id from brokers where firm_name = '${S.firm}')`)).toBe('0');   // GST "Yes": default setup
   S.broker = sql(`select id from brokers where firm_name = '${S.firm}'`);
+  // strict maker-checker: the admin who approves below must not be the maker, so the broker is recorded as made by the project manager
+  sql(`update brokers set created_by = (select id from users where email = 'project_manager@test.local') where id = '${S.broker}'`);
   await expect(form.locator('[name=firm_name]')).toHaveValue('');   // the form is cleared after saving
   // the same mobile again
   await form.locator('[name=firm_name]').fill('Second ' + U); await form.locator('[name=mobile]').fill(S.bmob);
@@ -142,6 +144,7 @@ test('Application Form: a bad form is refused with a message, a good one registe
   await expect(page.locator('#brk-form-result .alert-success')).toBeVisible();
   expect(sql(`select is_gst_exempt from broker_tax_config where broker_id = (select id from brokers where firm_name = 'Second ${U}')`)).toBe('t');
   S.second = sql(`select id from brokers where firm_name = 'Second ${U}'`);
+  sql(`update brokers set created_by = (select id from users where email = 'project_manager@test.local') where id = '${S.second}'`);
   await form.locator('[name=firm_name]').fill('to be cleared'); await form.getByRole('button', { name: 'Clear' }).click();
   await expect(form.locator('[name=firm_name]')).toHaveValue('');
   await expect(form.locator('[name=gst_on_commission]')).toHaveValue('yes');
@@ -420,7 +423,7 @@ test('A held unit cannot be booked or held by someone else, the booking screen s
   // the API refuses another broker, a direct sale, and a second hold
   const c = (await must('applicant', api('POST', '/consumers', { name: `Rival Buyer ${U}`, mobile: mob(), project_id: S.project }))).id;
   const mk = (extra: any) => api('POST', '/booking', { consumer_id: c, project_id: S.project, unit_id: S.units[2], selected_plan_name: S.plan, booking_date: today, booking_amount: 20000, payment_mode: 'cash', ...extra });
-  const other = (await must('broker', api('POST', '/brokers', { firmName: `Rival Brokers ${U}`, mobile: mob() }))).id; S.other = other;
+  const other = (await must('broker', api('POST', '/brokers', { firmName: `Rival Brokers ${U}`, mobile: mob() }))).id; S.other = other; sql(`update brokers set created_by = (select id from users where email = 'project_manager@test.local') where id = '${other}'`);
   await must('approve', api('PATCH', `/brokers/${other}/approve`, {}));
   let x = await mk({ booking_type: 'broker', broker_id: other, broker_commission: 1, broker_commission_type: 'percent' }); expect(x.s, JSON.stringify(x.j)).toBe(409); expect(x.j.error).toMatch(/held by/i);
   x = await mk({ booking_type: 'direct' }); expect(x.s).toBe(409);

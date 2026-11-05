@@ -3,6 +3,7 @@
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-tds.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
@@ -10,6 +11,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local'), tokAF = await login('accounts_finance@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(tokAF);
+const A2 = call(await secondAdminToken(B, A));   // the checker: nobody approves what they created, super_admin included
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
@@ -234,8 +236,10 @@ const afId = psql(`select id from users where email='accounts_finance@test.local
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE]]) { r = await who('PATCH', `/payments/journals/${jid}/approve`, {}); t(`journal: ${n} cannot approve -> 403`, r.s === 403, r.s); }
   r = await A('PATCH', `/payments/journals/${jid}/reject`, {}); t('journal: reject without a reason -> 400', r.s === 400, r.s);
   r = await A('PATCH', '/payments/journals/abc/approve', {}); t('journal: approve id "abc" -> 400', r.s === 400, r.s);
-  r = await A('PATCH', `/payments/journals/${jid}/approve`, {}); t('journal: super_admin approves', r.s === 200 && r.j.data.status === 'approved', r.s);
-  r = await A('PATCH', `/payments/journals/${jid}/approve`, {}); t('journal: approving again -> 404', r.s === 404, r.s);
+  r = await A('PATCH', `/payments/journals/${jid}/approve`, {}); t('journal: the maker cannot approve their own entry, super_admin included -> 403', r.s === 403 && /yourself/.test(r.j?.error || ''), r.s + JSON.stringify(r.j));
+  r = await A('PATCH', `/payments/journals/${jid}/reject`, { rejection_reason: 'self' }); t('journal: the maker cannot reject their own entry either -> 403', r.s === 403, r.s);
+  r = await A2('PATCH', `/payments/journals/${jid}/approve`, {}); t('journal: a second super_admin approves', r.s === 200 && r.j.data.status === 'approved', r.s);
+  r = await A2('PATCH', `/payments/journals/${jid}/approve`, {}); t('journal: approving again -> 404', r.s === 404, r.s);
   r = await A('GET', `/payments/journals/${jid}`); t('journal: opens with the applicant name', r.s === 200 && r.j.data.consumer_name, r.s); r = await A('GET', '/payments/journals/abc'); t('journal: id "abc" -> 400', r.s === 400, r.s);
   for (const q of ['pageSize=1;drop table x', 'pageSize=0', 'pageSize=501', 'page=-1', 'consumerId=abc']) { r = await A('GET', '/payments/journals?' + q); t(`journal list: ?${q} -> 400 (it used to go into the SQL as text)`, r.s === 400, r.s); }
   r = await A('GET', `/payments/journals?consumerId=${S1.c}`); t('journal list: by applicant', r.s === 200 && r.j.data.some(x => x.id === jid), r.s);

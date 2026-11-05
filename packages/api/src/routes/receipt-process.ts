@@ -7,6 +7,7 @@ import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
 import { challanStatus } from '../utils/tds.js';
 import { businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
+import { notOwn } from './financial-ops.js';
 
 const router = Router();
 const MAX = 1_000_000_000;
@@ -98,14 +99,20 @@ router.get('/journals/:id', async (req: AuthRequest, res: Response, next: NextFu
 // PATCH /api/payments/journals/:id/approve — CHECKER
 router.patch('/journals/:id/approve', requireProcess('jv_refund_drcr', 'checker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    // Strict maker-checker: the person who made the entry cannot approve it (super_admin included); an entry with no known maker waits for remediation
+    const jid = uuid(req.params.id, 'Entry id');
     const result = await db.query(
       `UPDATE journal_entries
        SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
-       WHERE id = $2 AND status = 'pending'
+       WHERE id = $2 AND status = 'pending' AND created_by_user_id IS NOT NULL AND created_by_user_id <> $1
        RETURNING *`,
-      [req.userId, uuid(req.params.id, 'Entry id')]
+      [req.userId, jid]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Entry not found or already processed' });
+    if (!result.rows[0]) {
+      const cur = (await db.query(`SELECT status, created_by_user_id FROM journal_entries WHERE id = $1`, [jid])).rows[0];
+      if (cur && cur.status === 'pending') notOwn(req, cur.created_by_user_id);
+      return res.status(404).json({ error: 'Entry not found or already processed' });
+    }
     res.json({ success: true, data: result.rows[0] });
   } catch (error) { fail(error, res, next); }
 });
@@ -119,11 +126,15 @@ router.patch('/journals/:id/reject', requireProcess('jv_refund_drcr', 'checker')
     const result = await db.query(
       `UPDATE journal_entries
        SET status = 'rejected', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
-       WHERE id = $3 AND status = 'pending'
+       WHERE id = $3 AND status = 'pending' AND created_by_user_id IS NOT NULL AND created_by_user_id <> $1
        RETURNING *`,
       [req.userId, rejection_reason, jid]
     );
-    if (!result.rows[0]) return res.status(404).json({ error: 'Entry not found or already processed' });
+    if (!result.rows[0]) {
+      const cur = (await db.query(`SELECT status, created_by_user_id FROM journal_entries WHERE id = $1`, [jid])).rows[0];
+      if (cur && cur.status === 'pending') notOwn(req, cur.created_by_user_id);
+      return res.status(404).json({ error: 'Entry not found or already processed' });
+    }
     res.json({ success: true, data: result.rows[0] });
   } catch (error) { fail(error, res, next); }
 });

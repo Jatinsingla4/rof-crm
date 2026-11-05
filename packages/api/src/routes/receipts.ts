@@ -16,6 +16,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx } from '../utils/input.js';
 import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
+import { notOwn } from './financial-ops.js';
 
 const router = Router();
 
@@ -348,11 +349,18 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
 router.patch('/receipts/:id/approve', requireProcess('receipt', 'checker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const id = uuid(req.params.id, 'Receipt id');
+    // Strict maker-checker: whoever recorded the receipt cannot authorize it (super_admin included); a receipt with no known recorder waits for remediation.
+    // One statement, so the check and the change cannot be separated by a concurrent request.
     const r = await db.query(
       `UPDATE receipts SET status = 'authorized', authorized_by = $1, authorized_at = NOW(), updated_at = NOW()
-        WHERE id = $2 AND status = 'pending' RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]
+        WHERE id = $2 AND status = 'pending' AND received_by_user_id IS NOT NULL AND received_by_user_id <> $1
+        RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]
     );
-    if (!r.rows.length) throw bad('Pending receipt not found or already authorized', 404);
+    if (!r.rows.length) {
+      const cur = (await db.query(`SELECT status, received_by_user_id FROM receipts WHERE id = $1`, [id])).rows[0];
+      if (cur && cur.status === 'pending') notOwn(req, cur.received_by_user_id);
+      throw bad('Pending receipt not found or already authorized', 404);
+    }
     await auditChange(db, req, res, 'update', 'receipt', id, { status: 'pending' }, { status: 'authorized' });
     res.json({ success: true, data: r.rows[0], message: 'Receipt authorized successfully' });
   } catch (err) { fail(err, res, next); }
