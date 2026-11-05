@@ -60,6 +60,7 @@ import gstConfigRoutes from './routes/gst-configuration.js';
 import { requirePermission, hasPermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 import { cleanIp } from './utils/security.js';
+import { makeThrottle, refreshThrottleBackend, throttleBackend } from './utils/throttle.js';
 import { loadAppConfig } from './utils/app-config.js';
 // import { responseFormatter } from './middleware/responseFormatter.js'; // DISABLED: Using route-level transformations instead
 
@@ -380,9 +381,8 @@ app.get('/api/import/template/units', (req: Request, res: Response) => {
 
 // Compared against when the account does not exist, so response time does not reveal which emails are registered
 const DUMMY_HASH = '$2a$12$sa7LeROPXNZkq2afAye6LuncKbiuFGc0Qx7OUrtgNja4dbiffmqkC';
-const LOGIN_MAX_FAILS = 5;
-const LOGIN_LOCK_MS = 15 * 60 * 1000;
-const loginFailures = new Map<string, { count: number; until: number }>();
+// Five failures lock one address and account for 15 minutes. The counts live in the shared store when it exists (utils/throttle.ts), else per process.
+const loginThrottle = makeThrottle('login', 5, 24 * 60 * 60 * 1000, 15 * 60 * 1000);
 
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req: Request, res: Response, next: NextFunction) => { res.setHeader('Cache-Control', 'no-store'); next(); });
@@ -410,12 +410,9 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
 
   // Per account and per IP lockout on top of the per IP limiter
   const failKey = `${req.ip}|${email.toLowerCase().trim()}`;
-  const fails = loginFailures.get(failKey);
-  if (fails && fails.until > Date.now()) {
+  if ((await loginThrottle.blockedFor(failKey)) > 0) {
     return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
   }
-  if (fails && fails.until && fails.until <= Date.now()) loginFailures.delete(failKey);
-  if (loginFailures.size > 5000) loginFailures.clear();
 
   try {
     const result = await db.query(
@@ -451,14 +448,11 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     }
 
     if (!validPassword) {
-      const f = loginFailures.get(failKey) || { count: 0, until: 0 };
-      f.count += 1;
-      if (f.count >= LOGIN_MAX_FAILS) f.until = Date.now() + LOGIN_LOCK_MS;
-      loginFailures.set(failKey, f);
+      await loginThrottle.fail(failKey);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    loginFailures.delete(failKey);
+    await loginThrottle.clear(failKey);
     if (ipBlocked(await loadAuthUser(user.id), req)) {
       auditBlocked(user.id, req, 'login');
       return res.status(401).json({ error: 'Invalid email or password' });
@@ -517,6 +511,7 @@ app.get('/api/health/debug', ...adminDiagnostics, async (req: AuthRequest, res: 
     timestamp: new Date().toISOString(),
     lastMigrationLog,
     databaseUrl: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+    throttle: throttleBackend(),   // 'shared' once migration T2 is applied, else 'process-local' (a production blocker)
   });
 });
 
@@ -666,6 +661,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   // "Run migrations" workflow (.github/workflows/migrate.yml) or `npm run db:migrate`.
   lastMigrationLog = ['[STARTUP] Migrations are not run at startup; see .github/workflows/migrate.yml'];
   console.log('[STARTUP] Skipping runtime migrations (applied separately)');
+  // The sign-in throttles need the shared store (draft migration T2). Without it every instance counts on its own: say so, loudly, in production.
+  if ((await refreshThrottleBackend(true)) !== 'shared') {
+    const msg = '[SECURITY] Login and current-password throttles are PROCESS-LOCAL (table auth_throttle is missing): on a multi-instance host the limits are weaker than they look. Apply migration T2 (docs/users-roles/pending-migrations).';
+    if (appConfig.appEnv === 'production') console.error(msg); else console.warn(msg);
+  }
 
   // On Vercel the exported app is the request handler; only bind a port elsewhere
   if (!process.env.VERCEL) {

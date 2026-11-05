@@ -13,6 +13,7 @@ import { UNIT_STATUS_MAP, effectiveUnitAccess } from '../middleware/unitStatusAc
 import { cleanEmail, cleanIp, intParam, isUuid, passwordProblem } from '../utils/security.js';
 import { isSuperAdmin, requireSuperAdmin } from '../middleware/superAdmin.js';
 import { pick, withoutSecrets } from '../utils/audit-values.js';
+import { makeThrottle } from '../utils/throttle.js';
 
 const router = Router();
 
@@ -265,7 +266,7 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
     }
     await client.query('COMMIT');
     invalidateAuthUser(id);
-    if (set.password_hash !== undefined) currentPwFails.delete(id); // a new password starts with a clean current-password count
+    if (set.password_hash !== undefined) await currentPwThrottle.clear(id); // a new password starts with a clean current-password count
 
     // Old and new values of everything this request changed, never the password or its hash. The two JSON columns are shown as lists.
     const { password_hash: _hash, ...shown } = set as any;
@@ -615,39 +616,25 @@ router.patch('/:id', guard(async (req, res) => {
 // part of the login protection work (AUTH-004).
 const CURRENT_PW_MAX_FAILS = 5;
 const CURRENT_PW_WINDOW_MS = 15 * 60 * 1000;
-const currentPwFails = new Map<string, { count: number; first: number; until: number }>();
-const currentPwBlockedFor = (id: string): number => {
-  const f = currentPwFails.get(id);
-  if (!f) return 0;
-  const now = Date.now();
-  if (f.until > now) return f.until - now;
-  if (now - f.first > CURRENT_PW_WINDOW_MS || f.until) currentPwFails.delete(id);
-  return 0;
-};
-const noteCurrentPwFailure = (id: string) => {
-  const now = Date.now();
-  const f = currentPwFails.get(id);
-  const cur = f && now - f.first <= CURRENT_PW_WINDOW_MS && !f.until ? f : { count: 0, first: now, until: 0 };
-  cur.count += 1;
-  if (cur.count >= CURRENT_PW_MAX_FAILS) cur.until = now + CURRENT_PW_WINDOW_MS;
-  currentPwFails.set(id, cur);
-  if (currentPwFails.size > 5000) currentPwFails.clear();
-};
+// Shared store when it exists (utils/throttle.ts), else per process
+const currentPwThrottle = makeThrottle('curpw', CURRENT_PW_MAX_FAILS, CURRENT_PW_WINDOW_MS, CURRENT_PW_WINDOW_MS);
+const currentPwBlockedFor = (id: string): Promise<number> => currentPwThrottle.blockedFor(id);
+const noteCurrentPwFailure = (id: string): Promise<void> => currentPwThrottle.fail(id);
 
 // Proves the caller's current password (400 when missing, 429 when blocked, 401 when wrong). Used by change-password and by the edit
 // form when someone sets their own password, so there is no way to set your own password without it. A wrong answer is 401 on
 // change-password (its existing answer) but 403 on the edit form: the screens sign the user out on any 401, which a typing mistake must not do.
 async function verifyOwnPassword(res: Response, id: string, currentPassword: unknown, wrongStatus = 401): Promise<void> {
   if (!currentPassword || typeof currentPassword !== 'string') return fail(400, 'Current password is required');
-  const wait = currentPwBlockedFor(id);
+  const wait = await currentPwBlockedFor(id);
   if (wait > 0) {
     res.setHeader('Retry-After', String(Math.ceil(wait / 1000)));
     return fail(429, `Too many wrong current passwords. Try again in ${Math.ceil(wait / 60000)} minute(s).`);
   }
   const hash = (await db.query(`SELECT password_hash FROM users WHERE id = $1`, [id])).rows[0]?.password_hash;
   const ok = hash?.startsWith('$2') ? await bcrypt.compare(currentPassword, hash) : Buffer.from(currentPassword).toString('base64') === hash;
-  if (!ok) { noteCurrentPwFailure(id); return fail(wrongStatus, 'Current password is incorrect'); }
-  currentPwFails.delete(id);
+  if (!ok) { await noteCurrentPwFailure(id); return fail(wrongStatus, 'Current password is incorrect'); }
+  await currentPwThrottle.clear(id);
 }
 
 // POST /api/users/:id/change-password
@@ -666,7 +653,7 @@ router.post('/:id/change-password', guard(async (req, res) => {
     [await bcrypt.hash(newPassword, 12), id]);
   if (!r.rows[0]) return fail(404, 'User not found');
   invalidateAuthUser(id);
-  currentPwFails.delete(id);
+  await currentPwThrottle.clear(id);
   await auditChange(db, req, res, 'update', 'user', id, {}, { passwordChanged: true });
   res.json({ success: true, data: r.rows[0] });
 }));
