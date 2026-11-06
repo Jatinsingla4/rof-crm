@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Email Templates, Analytics and Help in a real browser: every filter, tab and button; the database is asked whether the screen told the truth.
 // A JavaScript error, console error, 5xx or "undefined" / "NaN" on a screen fails the test.
 import { test, expect, Page } from '@playwright/test';
@@ -34,6 +35,7 @@ test.beforeAll(async ({ browser }) => {
   S.project2 = (await api('POST', '/projects', { companyId: co, name: `Lo Two ${U}`, reraNumber: `L2-${U}`, tcpLicence: 'x' })).j.data.id;   // made before the login: the project list is read once
   page = await browser.newPage();
   page.on('dialog', (d) => d.accept());
+  await autoAsk(page);
   page.on('pageerror', (e) => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

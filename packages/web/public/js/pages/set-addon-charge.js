@@ -603,7 +603,7 @@
   }
 
   async function _deleteCharge(id) {
-    if (!window.confirm('Delete this charge?')) return;
+    if (!await Utils.ask('Delete this charge?')) return;
     const token = _token();
     try {
       const res = await fetch('/api/addon-charges/consumer/' + id + '/cancel', {

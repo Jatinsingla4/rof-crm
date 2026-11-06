@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Dashboard in a real browser: every panel shows the numbers of data made here, every button, link and fold works, and a viewer cannot approve.
 // Data is made through the API and psql; the rest is clicked, then the database is asked whether the screen told the truth.
 // A JavaScript error, console error, 5xx or "undefined" / "NaN" on a screen fails the test.
@@ -27,6 +28,7 @@ const go = async (hash: string) => { await page.evaluate((h) => { location.hash 
 const clean = async () => { expect(await content().innerText()).not.toMatch(/\bundefined\b|\bNaN\b|\[object Object\]/); };
 const watch = (p: Page) => {
   p.on('dialog', (d) => d.accept());
+  void autoAsk(p);
   p.on('pageerror', (e) => problems.push(`JavaScript error: ${e.message}`));
   p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   p.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

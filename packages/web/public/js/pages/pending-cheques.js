@@ -338,7 +338,7 @@ const PC = {
 
   async handleRelease(receiptId) {
     if (!receiptId) return;
-    if (!confirm('Release this cheque from hold?\nStatus will return to Pending.')) return;
+    if (!await Utils.ask('Release this cheque from hold?\nStatus will return to Pending.')) return;
 
     const token = pcGetToken();
     try {

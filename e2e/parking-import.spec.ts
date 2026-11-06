@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Parking, Import, Customer Folders and Unit Documents in a real browser: every tab, filter option and button.
 // Data is made through the API and psql; the rest is clicked, then the database is asked whether the screen told the truth.
 // A JavaScript error, console error, 5xx or "undefined" / "NaN" on a screen fails the test.
@@ -49,6 +50,7 @@ test.beforeAll(async ({ browser }) => {
 
   page = await browser.newPage();
   page.on('dialog', (d) => { dialogs.push(d.message()); if (d.type() === 'prompt') d.accept(promptAnswer); else d.accept(); });
+  await autoAsk(page, (m) => dialogs.push(m));
   page.on('pageerror', (e) => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

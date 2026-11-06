@@ -399,7 +399,7 @@
     async deleteInterest(rowIdx) {
       var row = this._rows[rowIdx];
       if (!row) return;
-      if (!confirm('Delete all interest for ' + row.name + '?')) return;
+      if (!await Utils.ask('Delete all interest for ' + row.name + '?')) return;
       var token = localStorage.getItem('rof-jwt') || '';
       var msgEl = document.getElementById('cwi-del-msg-' + rowIdx);
       try {

@@ -79,6 +79,10 @@ const utc = pages.filter((f) => /new Date\(\)\.toISOString\(\)\s*\.(?:slice\(0,\
 t('no screen takes today\'s date from toISOString() (use Utils.today())', utc.length === 0, utc.join(', '));
 // the email template screen has its own API; the legal letter table is not for email wording
 t('the email template screen does not use the legal letter templates', !/documents\/templates/.test(fs.readFileSync(path.join(PAGES, 'email-templates.js'), 'utf8')));
+// ---------- no native confirm() box: some tools and phones cannot answer it, so the action silently never ran (use Utils.ask or Utils.confirm, the in-page question) ----------
+const nativeAsk = pages.filter((f) => /(^|[^.\w])confirm\(|window\.confirm\(/.test(fs.readFileSync(path.join(PAGES, f), 'utf8').replace(/async confirm\(/g, ''))).map((f) => f);
+t('no screen uses the native confirm() box (use Utils.ask or Utils.confirm)', nativeAsk.length === 0, nativeAsk.join(', '));
+
 // ---------- no dead control: a button must do its job or not be shown (no "coming soon" alert or toast in a screen or in the pages the API builds) ----------
 const shipped = [...pages.map((f) => path.join(PAGES, f)), path.join(API, 'routes/booking.ts')];
 const comingSoon = shipped.filter((f) => /coming soon/i.test(fs.readFileSync(f, 'utf8'))).map((f) => path.basename(f));

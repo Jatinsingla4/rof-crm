@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Broker and Investor / Hold, clicked through the real screens in a real browser: the Broker menu (Application Form, Broker List, Commission Setup, Broker Setup,
 // Sold-Unit Report) and the Investor / Hold menu (Inventory Governance: Active Holds, Hold History, New Hold).
 // One real flow: register a broker, approve it, set its tax, book a unit through it, check the commission on screen and in the database, pay it,
@@ -51,6 +52,7 @@ test.beforeAll(async ({ browser }) => {
 
   page = await browser.newPage();
   page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+  await autoAsk(page, (m) => dialogs.push(m));
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

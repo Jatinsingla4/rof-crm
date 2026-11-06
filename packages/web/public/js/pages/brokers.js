@@ -462,7 +462,7 @@ const BrkPage = {
 
   async setStatus(id, status) {
     const word = { inactive: 'Deactivate', suspended: 'Suspend', active: 'Activate' }[status];
-    if (!confirm(`${word} this broker?${status !== 'active' ? ' Units this broker is holding will be released.' : ''}`)) return;
+    if (!await Utils.ask(`${word} this broker?${status !== 'active' ? ' Units this broker is holding will be released.' : ''}`)) return;
     try {
       await Api.patch(`/brokers/${id}/status`, { status });
       Utils.success(`Broker ${status === 'active' ? 'activated' : status === 'inactive' ? 'deactivated' : 'suspended'}`);
@@ -471,7 +471,7 @@ const BrkPage = {
   },
 
   async approve(id) {
-    if (!confirm('Approve this broker application?')) return;
+    if (!await Utils.ask('Approve this broker application?')) return;
     try {
       await Api.patch(`/brokers/${id}/approve`);
       Utils.success('Broker approved');
@@ -480,7 +480,7 @@ const BrkPage = {
   },
 
   async reject(id) {
-    if (!confirm('Reject this broker application?')) return;
+    if (!await Utils.ask('Reject this broker application?')) return;
     try {
       await Api.patch(`/brokers/${id}/reject`);
       Utils.success('Broker rejected');
@@ -538,7 +538,7 @@ const BrkPage = {
   },
 
   async markPaid(id) {
-    if (!confirm('Pay this commission? GST and TDS are worked out from the broker tax setup, and this cannot be undone.')) return;
+    if (!await Utils.ask('Pay this commission? GST and TDS are worked out from the broker tax setup, and this cannot be undone.')) return;
     try {
       await Api.patch(`/brokers/commission/${id}`, { status: 'paid' });
       Utils.success('Commission marked as paid');

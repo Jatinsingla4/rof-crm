@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Payments, the rest, clicked through the real screens in a real browser: Interest Master, Installment Interest, Interest Scheduler,
 // Customer Wise Interest (3 tabs), Grace Period, Interest Waiver (list, detail, waive off, report), GST Invoicing (every tab), Loans, Registry, Dashboard.
 // The set-up (project, plan, applicants with overdue installments) is made through the API and psql; the screens are used like a person would.
@@ -57,6 +58,7 @@ test.beforeAll(async ({ browser }) => {
 
   page = await browser.newPage();
   page.on('dialog', d => { S.lastDialog = d.message(); d.accept(); });
+  await autoAsk(page, (m) => { S.lastDialog = m; });
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

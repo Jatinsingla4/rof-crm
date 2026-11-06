@@ -1429,7 +1429,7 @@
   }
 
   async function _restore(surrenderId, type, consumerId, allocationId, unitId, bookingId) {
-    if (!window.confirm('Restore this applicant? This will reactivate their booking and lock the unit again.')) return;
+    if (!await Utils.ask('Restore this applicant? This will reactivate their booking and lock the unit again.')) return;
 
     const msgEl = document.getElementById('sur-restore-msg');
 

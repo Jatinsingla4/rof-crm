@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Documents in a real browser: every tab of the Documents screen, History "Open", template Preview, applicant document upload and download,
 // unit document upload; the database is asked whether the screen told the truth.
 // A JavaScript error, console error, 5xx or "undefined" / "NaN" on a screen fails the test.
@@ -43,6 +44,7 @@ test.beforeAll(async ({ browser }) => {
   S.doc = (await api('POST', '/documents/generate', { consumerId: S.consumer, documentType: 'check_list' })).j?.data?.documentId;
   page = await browser.newPage();
   page.on('dialog', (d) => d.accept());
+  await autoAsk(page);
   page.on('pageerror', (e) => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

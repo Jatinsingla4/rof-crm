@@ -1649,7 +1649,7 @@ const ReceiptsPage = {
   },
 
   async releaseTDS(assignmentId, challanId) {
-    if (!confirm('Take this assignment back? The amount returns to the challan balance.')) return;
+    if (!await Utils.ask('Take this assignment back? The amount returns to the challan balance.')) return;
     try {
       await Api.post(`/payments/tds/assignments/${assignmentId}/release`, { reason: 'Released by user' });
       Utils.success('Assignment released');
@@ -1957,7 +1957,7 @@ const ReceiptsPage = {
 
   async cancelReceipt(id, receiptNumber) {
     const label = receiptNumber ? `receipt ${receiptNumber}` : 'this receipt';
-    if (!confirm(`Are you sure you want to cancel ${label}?\nThis will reverse the payment record and reopen the linked demand.`)) return;
+    if (!await Utils.ask(`Are you sure you want to cancel ${label}?\nThis will reverse the payment record and reopen the linked demand.`)) return;
     try {
       const res = await Api.post(`/payments/receipts/${id}/cancel`, { reason: 'Cancelled by user' });
       const data = res.data || res || {};

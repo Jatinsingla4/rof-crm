@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Browser flow checks for the modules that have been verified one by one:
 //   Set Master: Set Up (lists, banks, locations, companies and their bank accounts and logo)
 //   Set Projects: Project Set Up (project, tower, unit type, unit, CSV upload, unit location, reminder)
@@ -32,6 +33,7 @@ let problems: string[] = [];
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
   page.on('dialog', d => d.accept()); // the old confirm() boxes
+  await autoAsk(page);
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => {
     // a 4xx the test expects shows up here as "Failed to load resource"; real script errors do not

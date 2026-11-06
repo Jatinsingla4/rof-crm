@@ -354,7 +354,7 @@
   }
 
   async function _deleteHSN(id) {
-    if (!confirm('Delete this HSN/SAC code?')) return;
+    if (!await Utils.ask('Delete this HSN/SAC code?')) return;
     try {
       const r = await _api('DELETE', '/hsn-sac-codes/' + id);
       if (!r.success) throw new Error(r.error || 'Failed');
@@ -485,7 +485,7 @@
   }
 
   async function _deleteAssign(id) {
-    if (!confirm('Delete this assignment?')) return;
+    if (!await Utils.ask('Delete this assignment?')) return;
     try {
       const r = await _api('DELETE', '/hsn-sac-assign/' + id);
       if (!r.success) throw new Error(r.error || 'Failed');
@@ -561,7 +561,7 @@
   }
 
   async function _deleteSlab(id) {
-    if (!confirm('Delete this GST slab?')) return;
+    if (!await Utils.ask('Delete this GST slab?')) return;
     try {
       const r = await _api('DELETE', '/gst-slabs/' + id);
       if (!r.success) throw new Error(r.error || 'Failed');
@@ -753,7 +753,7 @@
   }
 
   async function _deleteTax(id) {
-    if (!confirm('Delete this tax setup?')) return;
+    if (!await Utils.ask('Delete this tax setup?')) return;
     try {
       const r = await _api('DELETE', '/gst-tax-setup/' + id);
       if (!r.success) throw new Error(r.error || 'Failed');
@@ -894,7 +894,7 @@
     }
   }
   async function _deleteChargeMap(id) {
-    if (!confirm('Delete this mapping?')) return;
+    if (!await Utils.ask('Delete this mapping?')) return;
     try {
       const r = await _api('DELETE', '/gst-charge-mapping/' + id);
       if (!r.success) throw new Error(r.error || 'Failed');

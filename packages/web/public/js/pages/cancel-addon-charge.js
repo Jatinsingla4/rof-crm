@@ -351,7 +351,7 @@
   }
 
   async function _cancelCharge(id) {
-    if (!window.confirm('Cancel this charge?')) return;
+    if (!await Utils.ask('Cancel this charge?')) return;
     const token = _token();
     try {
       const res = await fetch('/api/addon-charges/consumer/' + id + '/cancel', {

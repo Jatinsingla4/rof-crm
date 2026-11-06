@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // One applicant's whole life, clicked through the real screens in a real browser:
 //   Booking form -> confirm payment -> Demand Raise -> Receipts (record, deposit, clear) -> Transfer -> Surrender -> Restore -> Allotment screens.
 // The set-up (company, project, towers, units, plan, GST) is made through the API; everything after that is done on the screens.
@@ -46,6 +47,7 @@ test.beforeAll(async ({ browser }) => {
 
   page = await browser.newPage();
   page.on('dialog', d => { dialogs.push(d.message()); d.accept(); });
+  await autoAsk(page, (m) => dialogs.push(m));
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

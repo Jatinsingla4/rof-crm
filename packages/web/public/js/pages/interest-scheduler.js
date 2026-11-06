@@ -253,7 +253,7 @@
     async deleteInterest() {
       const projectId = document.getElementById('is-project').value;
       if (!projectId) { alert('Please select a project'); return; }
-      if (!confirm('Delete all stored interest for this project? This cannot be undone.')) return;
+      if (!await Utils.ask('Delete all stored interest for this project? This cannot be undone.')) return;
 
       const towerId = document.getElementById('is-tower').value || null;
       const btn = document.getElementById('is-del-btn');

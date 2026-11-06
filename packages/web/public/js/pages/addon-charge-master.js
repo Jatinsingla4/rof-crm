@@ -304,7 +304,7 @@
     if (kind === 'percent' && !(parseFloat(_gv('acm-percent')) > 0 && parseFloat(_gv('acm-percent')) <= 100)) { _showMsg('Enter a percent more than 0 and at most 100.', false); return; }
 
     if (_editingId) {
-      const ok = window.confirm('This will update all existing consumer charges for this type and recalculate their payment schedules. Continue?');
+      const ok = await Utils.ask('This will update all existing consumer charges for this type and recalculate their payment schedules. Continue?');
       if (!ok) return;
     }
 
@@ -357,7 +357,7 @@
   }
 
   async function _deactivate(id) {
-    const ok = window.confirm('This will deactivate the charge type and cancel it for all existing consumers who currently have it, recalculating their payment schedules. Continue?');
+    const ok = await Utils.ask('This will deactivate the charge type and cancel it for all existing consumers who currently have it, recalculating their payment schedules. Continue?');
     if (!ok) return;
     const token = localStorage.getItem('rof-jwt') || '';
     try {

@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // CRM screens in a real browser: Tasks, Automation, Campaigns, Communications (all channel tabs), WhatsApp / Facebook / Instagram inbox, Calling, Leads.
 // Data is made through the API and psql; everything else is clicked on the screens, then the database is asked whether the screen told the truth.
 // A JavaScript error, a console error, a 5xx, or "undefined" / "NaN" on a screen fails the test. Texts with markup must show as text.
@@ -44,6 +45,7 @@ test.beforeAll(async ({ browser }) => {
 
   page = await browser.newPage();
   page.on('dialog', (d) => { dialogs.push(d.message()); d.accept(); });
+  await autoAsk(page, (m) => dialogs.push(m));
   page.on('pageerror', (e) => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', (r) => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

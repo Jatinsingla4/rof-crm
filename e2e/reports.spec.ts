@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Reports, clicked through in a real browser: every report screen of the Reports menu, every filter option, every button (FETCH, Export CSV, With / Without Tax, Print, drill-downs).
 // The set-up (company, bank accounts, project, plan, GST, applicants with raised, paid and late demands, a surrendered one) is made through the API and psql.
 // What the screen shows is compared with the database (psql) and with the API: totals, counts, balances.
@@ -92,6 +93,7 @@ test.beforeAll(async ({ browser }) => {
   page = await browser.newPage({ acceptDownloads: true });
   await page.addInitScript(() => { (window as any).print = () => { (window as any).__printed = ((window as any).__printed || 0) + 1; }; });
   page.on('dialog', d => { d.accept(); });
+  await autoAsk(page);
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|Blocked script execution in 'about:(srcdoc|blank)'/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

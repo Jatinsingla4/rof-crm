@@ -1158,7 +1158,7 @@ Object.assign(SPJPage, {
   },
 
   async deleteTower(btn, towerId, projectId) {
-    if (!confirm('Delete this tower?')) return;
+    if (!await Utils.ask('Delete this tower?')) return;
     try {
       await Api.delete(`/projects/${projectId}/towers/${towerId}`);
       btn.closest('tr').remove();
@@ -1380,7 +1380,7 @@ Object.assign(SPJPage, {
     if (!projectId) { Utils.warn('Choose the project at the top of this tab'); return; }
     if (!value) { Utils.warn('Enter a value, for example 5 or -2.5'); return; }
     const body = { projectId, towerId: f('spj-eu-tower').value || undefined, unitTypeId: f('spj-bp-type').value || undefined, mode: f('spj-bp-mode').value, value, preview };
-    if (!preview && !confirm('Change the price of these units now?')) return;
+    if (!preview && !await Utils.ask('Change the price of these units now?')) return;
     try {
       const r = (await Api.post('/units/bulk-price', body)).data, inr = (n) => '₹' + Number(n).toLocaleString('en-IN');
       box.innerHTML = `<div class="alert ${preview ? '' : 'alert-success'}">${preview ? '' : '✓ '}${r.units} unit(s) ${preview ? 'would change' : 'changed'}${r.sample ? `, for example ${inr(r.sample.before)} becomes ${inr(r.sample.after)}` : ''}.</div>`;
@@ -1389,7 +1389,7 @@ Object.assign(SPJPage, {
   // Only an available unit nothing else uses can be deleted; the server says why when it cannot
   async deleteUnit() {
     const id = document.getElementById('spj-eu-unit').value, no = document.getElementById('spj-eu-form').elements.unit_number.value;
-    if (!id || !confirm(`Delete unit ${no}? This cannot be undone.`)) return;
+    if (!id || !await Utils.ask(`Delete unit ${no}? This cannot be undone.`)) return;
     try {
       await Api.delete(`/units/${id}`);
       Utils.success(`Unit ${no} deleted`);
@@ -1773,7 +1773,7 @@ Object.assign(SPJPage, {
   },
 
   async deleteUnitLocation(btn, locId, projectId) {
-    if (!confirm('Delete this location?')) return;
+    if (!await Utils.ask('Delete this location?')) return;
     try {
       await Api.delete(`/projects/${projectId}/unit-locations/${locId}`);
       btn.closest('tr').remove();
@@ -1846,7 +1846,7 @@ Object.assign(SPJPage, {
   },
 
   async deleteReminder(btn, id) {
-    if (!confirm('Delete?')) return;
+    if (!await Utils.ask('Delete?')) return;
     try {
       await Api.delete(`/master/reminder-master/${id}`);
       btn.closest('tr').remove();
@@ -2061,7 +2061,7 @@ Object.assign(SPJPage, {
   async classDefaults() { try { await Api.post('/master/customer-classifications/defaults', { project_id: document.getElementById('spj-cc-project').value }); await this.loadClasses(); } catch (err) { Utils.error(err.message); } },
   async addClass(e) { e.preventDefault(); try { if (this._ccStandard) await Api.post('/master/customer-classifications/defaults', { project_id: document.getElementById('spj-cc-project').value }); /* adding to the standard list makes it this project's own list first */ await Api.post('/master/customer-classifications', { project_id: document.getElementById('spj-cc-project').value, name: document.getElementById('spj-cc-name').value }); Utils.success('Added'); await this.loadClasses(); } catch (err) { Utils.error(err.message); } },
   async renameClass(id, old) { const n = prompt('New name', old); if (!n || n === old) return; try { const r = await Api.put(`/master/customer-classifications/${id}`, { name: n }); Utils.success(r.customers_updated ? `Renamed; ${r.customers_updated} customer(s) updated` : 'Renamed'); await this.loadClasses(); } catch (err) { Utils.error(err.message); } },
-  async deleteClass(id) { if (!confirm('Delete this classification?')) return; try { await Api.delete(`/master/customer-classifications/${id}`); await this.loadClasses(); } catch (err) { Utils.error(err.message); } },
+  async deleteClass(id) { if (!await Utils.ask('Delete this classification?')) return; try { await Api.delete(`/master/customer-classifications/${id}`); await this.loadClasses(); } catch (err) { Utils.error(err.message); } },
 
   // ── Unit Address (Unit Types) ────────────────
   async loadUnitTypes() {
@@ -2134,7 +2134,7 @@ Object.assign(SPJPage, {
       if (!p.matching) { if (arguments[1]) Utils.info?.('No unit uses this type yet'); return; }
       if (!p.updatable) { Utils.warn(`${p.matching} unit(s) use this type, but all are booked, so nothing can change.`); return; }
       const price = p.price != null ? ` and the price to ₹${Number(p.price).toLocaleString('en-IN')}` : '';
-      if (!confirm(`${p.updatable} unit(s) of this type are not booked yet. Set their areas${price} from the unit type?${p.booked ? `\n${p.booked} booked unit(s) stay as they are.` : ''}`)) return;
+      if (!await Utils.ask(`${p.updatable} unit(s) of this type are not booked yet. Set their areas${price} from the unit type?${p.booked ? `\n${p.booked} booked unit(s) stay as they are.` : ''}`)) return;
       const r = (await Api.post(`/master/unit-types/${id}/apply-to-units`, {})).data;
       Utils.success(`${r.updated} unit(s) updated`);
     } catch (err) { Utils.error(err.message); }
@@ -2183,7 +2183,7 @@ Object.assign(SPJPage, {
   },
 
   async deleteUnitType(id) {
-    if (!confirm('Delete this unit type?')) return;
+    if (!await Utils.ask('Delete this unit type?')) return;
     try {
       await Api.delete(`/master/unit-types/${id}`);
       Utils.success('Deleted');

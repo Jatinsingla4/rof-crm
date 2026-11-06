@@ -266,7 +266,7 @@ const InventoryHoldPage = {
   },
 
   async unhold(id) {
-    if(!confirm('Are you sure you want to release this unit hold?')) return;
+    if(!await Utils.ask('Are you sure you want to release this unit hold?')) return;
     try {
       await Api.post(`/inventory-hold/${id}/unhold`);
       Utils.success('Hold released');

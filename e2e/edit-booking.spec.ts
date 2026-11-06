@@ -1,3 +1,4 @@
+import { autoAsk } from './_ask';
 // Edit Booking Form in a real browser: search, open a booking, change applicant and booking fields, save, bad values, cancelled booking.
 // Set-up through the API; after each save the database is asked whether it did what the screen said.
 import { test, expect, Page } from '@playwright/test';
@@ -47,6 +48,7 @@ test.beforeAll(async ({ browser }) => {
   }
   page = await browser.newPage();
   page.on('dialog', d => { S.lastDialog = d.message(); d.accept(); });
+  await autoAsk(page, (m) => { S.lastDialog = m; });
   page.on('pageerror', e => problems.push(`JavaScript error: ${e.message}`));
   page.on('console', m => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) problems.push(`Console error: ${m.text()}`); });
   page.on('response', r => { if (r.url().includes('/api/') && r.status() >= 500) problems.push(`Server error ${r.status()}: ${r.request().method()} ${r.url()}`); });

@@ -221,8 +221,41 @@ const Utils = {
 
   // ── CONFIRM ──────────────────────────────────
 
+  // An in-page question (never the browser's native confirm() box: some tools and phones cannot answer a native box, so the action
+  // silently never ran). Utils.ask(message) answers true (OK) or false (Cancel, Escape or a click outside); Utils.confirm(message, fn) runs fn on OK.
+  ask(message, opts = {}) {
+    return new Promise((resolve) => {
+      const old = document.getElementById('rof-ask');
+      if (old) old.remove();   // a second question replaces the first one (which counts as Cancel)
+      const host = document.createElement('div');
+      host.id = 'rof-ask';
+      host.setAttribute('role', 'alertdialog'); host.setAttribute('aria-modal', 'true'); host.setAttribute('aria-labelledby', 'rof-ask-msg');
+      host.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+      const box = document.createElement('div');
+      box.style.cssText = 'background:var(--surface,#fff);color:var(--text,#222);border:1px solid var(--border2,#ccc);border-radius:10px;max-width:460px;width:100%;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.3);font-size:14px;';
+      const msg = document.createElement('div');
+      msg.id = 'rof-ask-msg'; msg.setAttribute('data-ask-msg', ''); msg.style.cssText = 'white-space:pre-line;line-height:1.5;margin-bottom:18px;';
+      msg.textContent = String(message);   // text, never markup
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+      const cancel = document.createElement('button'); cancel.id = 'rof-ask-cancel'; cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = opts.cancelText || 'Cancel';
+      const ok = document.createElement('button'); ok.id = 'rof-ask-ok'; ok.type = 'button'; ok.className = 'btn btn-teal'; ok.textContent = opts.okText || 'OK';
+      row.append(cancel, ok); box.append(msg, row); host.append(box); document.body.append(host);
+      let done = false;
+      const finish = (answer) => { if (done) return; done = true; document.removeEventListener('keydown', onKey, true); host.remove(); resolve(answer); };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } else if (e.key === 'Enter' && document.activeElement !== cancel) { e.preventDefault(); finish(true); } };
+      document.addEventListener('keydown', onKey, true);
+      ok.addEventListener('click', () => finish(true));
+      cancel.addEventListener('click', () => finish(false));
+      const opened = Date.now();   // the second click of a double click lands on the backdrop: it must not dismiss the question it just opened
+      host.addEventListener('mousedown', (e) => { if (e.target === host && Date.now() - opened > 600) finish(false); });
+      new MutationObserver((_, obs) => { if (!document.body.contains(host)) { finish(false); obs.disconnect(); } }).observe(document.body, { childList: true });
+      ok.focus();
+    });
+  },
+
   confirm(message, fn) {
-    if (window.confirm(message)) fn();
+    return this.ask(message).then((yes) => { if (yes) return fn(); });
   },
 
   // ── DATE INPUT ───────────────────────────────
