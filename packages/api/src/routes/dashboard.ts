@@ -19,6 +19,12 @@ const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;
 const SALE = `br.status IN ('complete','pending_payment','active')`;               // the same rule the reports use for a sale
 const CHEQUE = `r.payment_method::text IN ('cheque','bank_transfer')`;
+// What a Daily Status number counts, written once: the card sums these and the list behind a number shows these rows.
+const SALE_DAY = `COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date)`;
+const COLLECTED = `r.status = 'cleared'
+           AND NOT (EXISTS (SELECT 1 FROM booking_records x WHERE x.consumer_id = r.consumer_id AND x.unit_id = pp.unit_id AND x.status = 'cancelled')
+                    AND NOT EXISTS (SELECT 1 FROM booking_records y WHERE y.consumer_id = r.consumer_id AND y.unit_id = pp.unit_id AND y.status IN ('complete','pending_payment','active')))`;
+const PERIOD = (col: string, period: string) => period === 'today' ? `${col} = ${TODAY}` : period === 'month' ? `date_trunc('month', ${col}) = date_trunc('month', ${TODAY})` : 'TRUE';
 const IN_FLIGHT = `r.status NOT IN ('cancelled','bounced','cleared') AND NOT COALESCE(r.is_advance, false)`;   // an advance receipt only splits money another receipt already holds             // not yet in the bank
 
 const panels = {
@@ -38,7 +44,7 @@ const panels = {
 
   // raised demands per project: letters sent and not sent for instalment 1, 2, 3 and 4+, and what is overdue
   demandStatus: () => db.query(`
-    SELECT p.name AS project,
+    SELECT p.id AS project_id, p.name AS project,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND COALESCE(d.delivery_status, '') <> 'sent')::int AS demand_unsend,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'sent')::int  AS demand_send,
            COUNT(d.id) FILTER (WHERE d.installment_index = 2 AND COALESCE(d.delivery_status, '') <> 'sent')::int AS rem1_unsend,
@@ -71,26 +77,24 @@ const panels = {
 
   // sales (live bookings) and collection (cleared receipts) per project: today, this month, in all. Two separate sums, so a booking is never counted once per receipt.
   dailyStatus: () => db.query(`
-    SELECT p.name AS project,
+    SELECT p.id AS project_id, p.name AS project,
            COALESCE(s.today, 0)::int AS sales_today, COALESCE(c.today, 0)::float AS coll_today,
            COALESCE(s.month, 0)::int AS sales_month, COALESCE(c.month, 0)::float AS coll_month,
            COALESCE(s.total, 0)::int AS sales_total, COALESCE(c.total, 0)::float AS coll_total
       FROM projects p
       LEFT JOIN (
         SELECT br.project_id,
-               COUNT(*) FILTER (WHERE COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date) = ${TODAY}) AS today,
-               COUNT(*) FILTER (WHERE date_trunc('month', COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date)) = date_trunc('month', ${TODAY})) AS month,
+               COUNT(*) FILTER (WHERE ${PERIOD(SALE_DAY, 'today')}) AS today,
+               COUNT(*) FILTER (WHERE ${PERIOD(SALE_DAY, 'month')}) AS month,
                COUNT(*) AS total
           FROM booking_records br WHERE ${SALE} GROUP BY br.project_id) s ON s.project_id = p.id
       LEFT JOIN (
         SELECT pp.project_id,
-               SUM(r.amount_received_inr) FILTER (WHERE r.received_date = ${TODAY}) AS today,
-               SUM(r.amount_received_inr) FILTER (WHERE date_trunc('month', r.received_date) = date_trunc('month', ${TODAY})) AS month,
+               SUM(r.amount_received_inr) FILTER (WHERE ${PERIOD('r.received_date', 'today')}) AS today,
+               SUM(r.amount_received_inr) FILTER (WHERE ${PERIOD('r.received_date', 'month')}) AS month,
                SUM(r.amount_received_inr) AS total
           FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id
-         WHERE r.status = 'cleared'
-           AND NOT (EXISTS (SELECT 1 FROM booking_records x WHERE x.consumer_id = r.consumer_id AND x.unit_id = pp.unit_id AND x.status = 'cancelled')
-                    AND NOT EXISTS (SELECT 1 FROM booking_records y WHERE y.consumer_id = r.consumer_id AND y.unit_id = pp.unit_id AND y.status IN ('complete','pending_payment','active')))
+         WHERE ${COLLECTED}
          GROUP BY pp.project_id) c ON c.project_id = p.id
      WHERE s.project_id IS NOT NULL OR c.project_id IS NOT NULL
      ORDER BY p.name`),
@@ -138,6 +142,67 @@ router.get('/pending-cheques', send(panels.pendingCheques, (r) => ({
     { pending: 0, deposite: 0, total: 0, pdc: 0, amount: 0, pdc_amount: 0 }),
 })));
 router.get('/demand-status', send(panels.demandStatus));
+// ---- the list behind a number on the cards ---------------------------------------------------------------------------------------------
+// projectId is a project, or "all" for the Total row. At most 500 rows are returned; "count" is the true number so the screen can say so.
+const listArgs = (q: any) => {
+  const projectId = String(q.projectId || '');
+  if (projectId !== 'all' && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)) throw Object.assign(new Error('projectId must be a project id or "all"'), { http: 400 });
+  return projectId;
+};
+const oneOf = <T extends string>(v: any, name: string, list: readonly T[]): T => { if (!list.includes(v)) throw Object.assign(new Error(`${name} must be one of ${list.join(', ')}`), { http: 400 }); return v; };
+const LIST_MAX = 500;
+const PERSON = `COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name)`;
+
+// GET /api/dashboard/demand-status/list?projectId=&bucket=demand|rem1|rem2|term&sent=sent|unsent  (the raised demands one Send or UnSend number counts)
+const BUCKETS = { demand: 'd.installment_index = 1', rem1: 'd.installment_index = 2', rem2: 'd.installment_index = 3', term: 'd.installment_index >= 4' } as const;
+router.get('/demand-status/list', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = listArgs(req.query);
+    const bucket = oneOf(req.query.bucket, 'bucket', Object.keys(BUCKETS) as (keyof typeof BUCKETS)[]);
+    const sent = oneOf(req.query.sent, 'sent', ['sent', 'unsent'] as const) === 'sent';
+    const where = `${RAISED} AND ${BUCKETS[bucket]} AND ${sent ? `d.delivery_status = 'sent'` : `COALESCE(d.delivery_status, '') <> 'sent'`} AND ($1::text = 'all' OR p.id = $1::uuid)`;
+    const base = `FROM projects p JOIN payment_plans pp ON pp.project_id = p.id JOIN demands d ON d.payment_plan_id = pp.id
+                   JOIN consumers c ON c.id = d.consumer_id LEFT JOIN units u ON u.id = pp.unit_id LEFT JOIN towers t ON t.id = u.tower_id WHERE ${where}`;
+    const [rows, n] = await Promise.all([
+      db.query(`SELECT d.id, p.name AS project, c.id AS consumer_id, c.registration_no, ${PERSON} AS name, c.mobile, t.tower_name, u.unit_number, d.installment_index,
+                       d.demand_type, d.status, d.due_date::text AS due_date, d.delivery_status, ${GROSS}::float AS amount
+                  ${base} ORDER BY p.name, c.name, d.installment_index, d.id LIMIT ${LIST_MAX}`, [projectId]),
+      db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(${GROSS}), 0)::float AS amount ${base}`, [projectId]),
+    ]);
+    res.json({ success: true, data: rows.rows, count: n.rows[0].n, amount: n.rows[0].amount, truncated: n.rows[0].n > rows.rows.length });
+  } catch (error) { failWith(error, res, next); }
+});
+
+// GET /api/dashboard/daily-status/list?projectId=&kind=sales|collection&period=today|month|total  (the bookings, or the cleared receipts, one number counts)
+router.get('/daily-status/list', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = listArgs(req.query);
+    const kind = oneOf(req.query.kind, 'kind', ['sales', 'collection'] as const);
+    const period = oneOf(req.query.period, 'period', ['today', 'month', 'total'] as const);
+    if (kind === 'sales') {
+      const base = `FROM booking_records br JOIN consumers c ON c.id = br.consumer_id LEFT JOIN units u ON u.id = br.unit_id LEFT JOIN towers t ON t.id = u.tower_id JOIN projects p ON p.id = br.project_id
+                     WHERE ${SALE} AND ${PERIOD(SALE_DAY, period)} AND ($1::text = 'all' OR br.project_id = $1::uuid)`;
+      const [rows, n] = await Promise.all([
+        db.query(`SELECT br.id, p.name AS project, c.id AS consumer_id, c.registration_no, ${PERSON} AS name, c.mobile, t.tower_name, u.unit_number, ${SALE_DAY}::text AS booking_date,
+                         br.booking_amount::float AS booking_amount, br.status
+                    ${base} ORDER BY ${SALE_DAY} DESC, br.created_at DESC, br.id LIMIT ${LIST_MAX}`, [projectId]),
+        db.query(`SELECT COUNT(*)::int AS n ${base}`, [projectId]),
+      ]);
+      return res.json({ success: true, kind, data: rows.rows, count: n.rows[0].n, amount: null, truncated: n.rows[0].n > rows.rows.length });
+    }
+    const base = `FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id JOIN projects p ON p.id = pp.project_id JOIN consumers c ON c.id = r.consumer_id
+                   LEFT JOIN units u ON u.id = pp.unit_id LEFT JOIN towers t ON t.id = u.tower_id
+                   WHERE ${COLLECTED} AND ${PERIOD('r.received_date', period)} AND ($1::text = 'all' OR pp.project_id = $1::uuid)`;
+    const [rows, n] = await Promise.all([
+      db.query(`SELECT r.id, p.name AS project, c.id AS consumer_id, c.registration_no, ${PERSON} AS name, t.tower_name, u.unit_number, r.receipt_number, r.received_date::text AS received_date,
+                       r.payment_method::text AS payment_method, r.amount_received_inr::float AS amount
+                  ${base} ORDER BY r.received_date DESC, r.created_at DESC, r.id LIMIT ${LIST_MAX}`, [projectId]),
+      db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(r.amount_received_inr), 0)::float AS amount ${base}`, [projectId]),
+    ]);
+    res.json({ success: true, kind, data: rows.rows, count: n.rows[0].n, amount: n.rows[0].amount, truncated: n.rows[0].n > rows.rows.length });
+  } catch (error) { failWith(error, res, next); }
+});
+
 router.get('/pending-approval', send(panels.pendingApproval, (r) => ({ success: true, data: r.rows, count: r.count })));
 router.get('/daily-status', send(panels.dailyStatus));
 router.get('/parking-detail', send(panels.parkingDetail));

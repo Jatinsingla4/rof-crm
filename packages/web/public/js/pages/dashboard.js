@@ -408,14 +408,14 @@ Pages.dashboard = async function() {
         <tbody>
           ${demandRows.map(r => `<tr>
             <td class="td-bold">${Utils.esc(r.project || '—')}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.demand_unsend || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.demand_send || 0}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.rem1_unsend || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.rem1_send || 0}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.rem2_unsend || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.rem2_send || 0}</td>
-            <td class="txt-right" style="color:var(--warn)">${r.term_unsend || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${r.term_send || 0}</td>
+            <td class="txt-right" style="color:var(--warn)">${DashboardPage.numLink(r.demand_unsend, 'demand', r.project_id, 'demand', 'unsent')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.demand_send, 'demand', r.project_id, 'demand', 'sent')}</td>
+            <td class="txt-right" style="color:var(--warn)">${DashboardPage.numLink(r.rem1_unsend, 'demand', r.project_id, 'rem1', 'unsent')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.rem1_send, 'demand', r.project_id, 'rem1', 'sent')}</td>
+            <td class="txt-right" style="color:var(--warn)">${DashboardPage.numLink(r.rem2_unsend, 'demand', r.project_id, 'rem2', 'unsent')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.rem2_send, 'demand', r.project_id, 'rem2', 'sent')}</td>
+            <td class="txt-right" style="color:var(--warn)">${DashboardPage.numLink(r.term_unsend, 'demand', r.project_id, 'term', 'unsent')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.term_send, 'demand', r.project_id, 'term', 'sent')}</td>
             <td class="txt-right">${r.total || 0}</td>
             <td class="txt-right" style="color:var(--red)">${Utils.currency(r.outstanding)}</td>
           </tr>`).join('')}
@@ -478,22 +478,22 @@ Pages.dashboard = async function() {
         <tbody>
           ${dailyRows.map(r => `<tr>
             <td class="td-bold">${Utils.esc(r.project || '—')}</td>
-            <td class="txt-right">${r.sales_today || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${Utils.currency(r.coll_today)}</td>
-            <td class="txt-right">${r.sales_month || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${Utils.currency(r.coll_month)}</td>
-            <td class="txt-right">${r.sales_total || 0}</td>
-            <td class="txt-right" style="color:var(--teal)">${Utils.currency(r.coll_total)}</td>
+            <td class="txt-right">${DashboardPage.numLink(r.sales_today, 'daily', r.project_id, 'sales', 'today')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.coll_today, 'daily', r.project_id, 'collection', 'today', Utils.currency(r.coll_today))}</td>
+            <td class="txt-right">${DashboardPage.numLink(r.sales_month, 'daily', r.project_id, 'sales', 'month')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.coll_month, 'daily', r.project_id, 'collection', 'month', Utils.currency(r.coll_month))}</td>
+            <td class="txt-right">${DashboardPage.numLink(r.sales_total, 'daily', r.project_id, 'sales', 'total')}</td>
+            <td class="txt-right" style="color:var(--teal)">${DashboardPage.numLink(r.coll_total, 'daily', r.project_id, 'collection', 'total', Utils.currency(r.coll_total))}</td>
           </tr>`).join('')}
         </tbody>
         <tfoot><tr class="tfoot-total">
           <td><b>Total</b></td>
-          <td class="txt-right"><b>${dailyRows.reduce((s,r)=>s+parseInt(r.sales_today||0),0)}</b></td>
-          <td class="txt-right"><b>${Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_today||0),0))}</b></td>
-          <td class="txt-right"><b>${dailyRows.reduce((s,r)=>s+parseInt(r.sales_month||0),0)}</b></td>
-          <td class="txt-right"><b>${Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_month||0),0))}</b></td>
-          <td class="txt-right"><b>${dailyRows.reduce((s,r)=>s+parseInt(r.sales_total||0),0)}</b></td>
-          <td class="txt-right"><b>${Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_total||0),0))}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseInt(r.sales_today||0),0), 'daily', 'all', 'sales', 'today')}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_today||0),0), 'daily', 'all', 'collection', 'today', Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_today||0),0)))}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseInt(r.sales_month||0),0), 'daily', 'all', 'sales', 'month')}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_month||0),0), 'daily', 'all', 'collection', 'month', Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_month||0),0)))}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseInt(r.sales_total||0),0), 'daily', 'all', 'sales', 'total')}</b></td>
+          <td class="txt-right"><b>${DashboardPage.numLink(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_total||0),0), 'daily', 'all', 'collection', 'total', Utils.currency(dailyRows.reduce((s,r)=>s+parseFloat(r.coll_total||0),0)))}</b></td>
         </tr></tfoot>
       </table></div>`;
 
@@ -551,6 +551,58 @@ Pages.dashboard = async function() {
 };
 
 const DashboardPage = {
+  // A number on the Demand Status or Daily Status card: a link to the list it counts (a zero has no list, so it stays plain text)
+  numLink(n, card, projectId, a, b, text) {
+    const shown = text !== undefined ? text : (n || 0);
+    if (!(Number(n) > 0) || !projectId) return shown;
+    return `<a href="#" class="dash-num" title="Open the list" onclick="DashboardPage.openList('${card}','${Utils.esc(projectId)}','${a}','${b}');return false">${shown}</a>`;
+  },
+
+  async openList(card, projectId, a, b) {
+    const LABEL = { demand: 'Demand', rem1: 'Reminder 1', rem2: 'Reminder 2', term: 'Termination', sales: 'Sales', collection: 'Collection', today: 'today', month: 'this month', total: 'in all', sent: 'Sent', unsent: 'UnSent' };
+    const demand = card === 'demand';
+    const title = demand ? `${LABEL[a]} letters, ${LABEL[b]}` : `${LABEL[a]}, ${LABEL[b]}`;
+    const url = demand ? `/dashboard/demand-status/list?projectId=${projectId}&bucket=${a}&sent=${b}` : `/dashboard/daily-status/list?projectId=${projectId}&kind=${a}&period=${b}`;
+    document.getElementById('dash-list-overlay')?.remove();
+    const ov = document.createElement('div');
+    ov.id = 'dash-list-overlay'; ov.className = 'overlay open';
+    ov.innerHTML = `<div class="modal" style="width:980px"><div class="modal-hdr"><div class="modal-title" id="dash-list-title">${Utils.esc(title)}</div><button class="modal-close" aria-label="Close" onclick="DashboardPage.closeList()">✕</button></div><div class="modal-body" id="dash-list-body"><div class="page-loading"><div class="spinner"></div></div></div></div>`;
+    ov.addEventListener('click', (e) => { if (e.target === ov) DashboardPage.closeList(); });
+    document.body.appendChild(ov);
+    DashboardPage._esc = (e) => { if (e.key === 'Escape') DashboardPage.closeList(); };
+    document.addEventListener('keydown', DashboardPage._esc);
+    try {
+      const res = await Api.get(url);
+      const rows = res.data || [];
+      const dash = (v) => (v === null || v === undefined || v === '' ? '—' : Utils.esc(v));
+      const who = (r) => `<a href="#" onclick="DashboardPage.closeList();Router.navigate('/consumer',{id:'${Utils.esc(r.consumer_id)}'});return false">${dash(r.name)}</a><div style="font-size:10.5px;color:var(--text3)">${dash(r.registration_no)}</div>`;
+      const unit = (r) => `${dash(r.tower_name)} / ${dash(r.unit_number)}`;
+      let head, line;
+      if (demand) {
+        head = ['Customer', 'Mobile', 'Project', 'Tower / Unit', 'Instalment', 'Due date', 'Status', 'Amount'];
+        line = (r) => [who(r), dash(r.mobile), dash(r.project), unit(r), dash(r.demand_type ? `${r.demand_type} ${r.installment_index}` : `Installment ${r.installment_index}`), r.due_date ? Utils.date(r.due_date) : '—', dash(r.status === 'raised' ? 'demanded' : r.status), Utils.currency(r.amount)];
+      } else if (a === 'sales') {
+        head = ['Customer', 'Mobile', 'Project', 'Tower / Unit', 'Booking date', 'Booking amount', 'Status'];
+        line = (r) => [who(r), dash(r.mobile), dash(r.project), unit(r), Utils.date(r.booking_date), Utils.currency(r.booking_amount), dash(r.status)];
+      } else {
+        head = ['Receipt', 'Date', 'Customer', 'Project', 'Tower / Unit', 'Mode', 'Amount'];
+        line = (r) => [dash(r.receipt_number), Utils.date(r.received_date), who(r), dash(r.project), unit(r), dash(r.payment_method), Utils.currency(r.amount)];
+      }
+      const money = head[head.length - 1] === 'Amount';
+      const summary = `${res.count} ${res.count === 1 ? 'row' : 'rows'}` + (res.amount !== null && res.amount !== undefined ? `, total ${Utils.currency(res.amount)}` : '') + (res.truncated ? ` (showing the first ${rows.length})` : '');
+      document.getElementById('dash-list-body').innerHTML = rows.length === 0
+        ? '<div class="empty-state"><div>No rows</div></div>'
+        : `<div style="font-size:12px;color:var(--text2);margin-bottom:8px">${summary}</div><div class="dash-scroll" style="max-height:60vh"><table class="dash-tbl"><thead><tr>${head.map((h, i) => `<th${money && i === head.length - 1 ? ' class="txt-right"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${line(r).map((c, i, all) => `<td${money && i === all.length - 1 ? ' class="txt-right"' : ''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    } catch (err) {
+      document.getElementById('dash-list-body').innerHTML = `<div class="empty-state"><div>Could not load the list: ${Utils.esc(err.message)}</div></div>`;
+    }
+  },
+
+  closeList() {
+    document.getElementById('dash-list-overlay')?.remove();
+    if (DashboardPage._esc) { document.removeEventListener('keydown', DashboardPage._esc); DashboardPage._esc = null; }
+  },
+
   async approveReceipt(id, btn) {
     btn.disabled = true;
     btn.textContent = '…';

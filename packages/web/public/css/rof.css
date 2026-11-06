@@ -511,6 +511,8 @@ tfoot td { padding:8px 11px; font-size:11.5px; font-weight:600; color:var(--text
 .dash-tbl th{padding:6px 8px;background:var(--surface2);color:var(--text2);font-weight:600;font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1}
 .dash-tbl td{padding:6px 8px;border-bottom:1px solid var(--border);color:var(--text);white-space:nowrap}
 .dash-tbl tbody tr:hover td{background:var(--surface2)}
+.dash-num{color:inherit;font-weight:600;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer}
+.dash-num:hover{color:var(--teal)}
 .dash-tbl tfoot .tfoot-total td{padding:7px 8px;background:var(--surface2);font-weight:700;font-size:11.5px;border-top:2px solid var(--border);color:var(--text)}
 .dash-tbl .grp-hdr{background:rgba(255,255,255,.04);border-bottom:1px solid var(--border);font-size:10px}
 .dash-tbl .sub-hdr{background:rgba(255,255,255,.02);font-size:10px;font-weight:500;color:var(--text3)}
