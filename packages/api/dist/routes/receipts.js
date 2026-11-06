@@ -105,6 +105,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
         (0, input_js_1.text)(b.remarks, 'Remarks', 1000, false);
         const p = parts(b, amount);
         const isOther = b.isOtherPayment === true, isAdjustment = b.isAdjustment === true;
+        const warnings = []; // not refusals: the receipt is recorded, the screen tells the person what happened to the money
         const out = await (0, input_js_1.inTx)(async (c) => {
             // Receipts of one customer are recorded one at a time so the instalment numbering and demand matching cannot cross
             await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${consumerId}`]);
@@ -153,10 +154,15 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
             if (planId && idx != null) {
                 const demand = (await c.query(`SELECT id, amount_due_inr, cgst_amount, sgst_amount, consumer_id FROM demands
             WHERE payment_plan_id = $1 AND installment_index = $2 AND status NOT IN ('paid', 'cancelled') ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [planId, idx])).rows[0];
+                if (!demand)
+                    warnings.push(`There is no open demand for instalment ${idx}, so this receipt is not matched to any instalment yet. It will be matched when that demand is raised.`);
                 if (demand) {
                     await c.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
                     const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [demand.id])).rows[0].s);
                     const due = parseFloat(demand.amount_due_inr) + parseFloat(demand.cgst_amount || 0) + parseFloat(demand.sgst_amount || 0);
+                    const before = paid - amount; // what the demand had received before this receipt
+                    if (paid > due + 0.005)
+                        warnings.push(`This receipt is more than what instalment ${idx} still needed (Rs ${Math.max(0, due - before).toLocaleString('en-IN')}). The extra Rs ${(paid - due).toLocaleString('en-IN')} is carried to the next instalments as an advance.`);
                     if (paid >= due) {
                         await c.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
                         if (paid - due > 0)
@@ -177,7 +183,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
             await (0, auditLogger_js_1.auditChange)(c, req, res, 'create', 'receipt', receiptId, undefined, { receipt_number: receiptNumber, consumer_id: consumerId, amount, payment_method: method, received_date: date, installment_index: idx });
             return ins.rows[0];
         });
-        res.status(201).json({ success: true, data: out });
+        res.status(201).json({ success: true, data: out, warnings });
     }
     catch (err) {
         fail(err, res, next);

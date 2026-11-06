@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resolveRate = resolveRate;
 exports.resolveGstForComponents = resolveGstForComponents;
+exports.splitGstAcrossInstalments = splitGstAcrossInstalments;
 async function resolveRate(db, projectId, projectName, chargeType, bookingDate) {
     const r = await db.query(`SELECT gts.cgst_pct, gts.sgst_pct
      FROM gst_tax_charge_mapping gcm
@@ -60,5 +61,29 @@ async function resolveGstForComponents(db, projectId, projectName, bookingDate, 
         sgstAmount += Math.round(comp.amount * sgstPct);
     }
     return { cgstAmount, sgstAmount };
+}
+// GST of every instalment of one booking, so that the instalments add up to the GST of the whole price.
+// Rounding each instalment on its own drifts by a rupee or more (half a rupee each time); here each component's GST is rounded on the running total
+// (cumulative share of the plan) and an instalment gets the difference, so the last one absorbs the leftover and the sum is exact.
+// cumShares: the running share of the plan after each instalment (0.2, 0.5, 1 for a 20/30/50 plan).
+async function splitGstAcrossInstalments(db, projectId, projectName, bookingDate, isNri, components, cumShares) {
+    const n = cumShares.length;
+    const cgst = new Array(n).fill(0), sgst = new Array(n).fill(0);
+    if (isNri)
+        return { cgst, sgst };
+    for (const comp of components) {
+        if (!comp.amount)
+            continue;
+        const { cgstPct, sgstPct } = await resolveRate(db, projectId, projectName, comp.chargeType, bookingDate);
+        let prevC = 0, prevS = 0;
+        for (let i = 0; i < n; i++) {
+            const c = Math.round(comp.amount * cgstPct * cumShares[i]), s = Math.round(comp.amount * sgstPct * cumShares[i]);
+            cgst[i] += c - prevC;
+            sgst[i] += s - prevS;
+            prevC = c;
+            prevS = s;
+        }
+    }
+    return { cgst, sgst };
 }
 //# sourceMappingURL=gst-resolver.js.map

@@ -113,6 +113,13 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
 
           const plan = planRes.rows[0] || {};
 
+          // A demand letter is a legal payment demand: it must carry the project's real RERA number. A blank or placeholder one (None, N/A, TBD, X) is refused,
+          // never printed as if it were real.
+          const reraValue = String(plan.rera_number || d?.project_rera || '').trim();
+          if (!reraValue || /(^|[^a-z0-9])(none|nil|na|n\/a|tbd|not available|x{1,3})([^a-z0-9]|$)/i.test(reraValue)) {
+            throw bad('This project has no valid RERA number, so the Demand Letter cannot be generated. Add the RERA number in Set Projects, Project Details, then try again.', 409);
+          }
+
           if (plan?.project_id) {
             try {
               const projRateRes = await db.query(
@@ -216,7 +223,9 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
               AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
           `;
-          const demandParams: any[] = [planId, projectId, planName, dueDate];
+          // With no due date given the letter lists every raised demand (an unset date used to match nothing, so the table came out empty and the letter said Rs 0)
+          const dueLimit = dueDate || '2999-12-31';
+          const demandParams: any[] = [planId, projectId, planName, dueLimit];
 
           // Fallback: only if no project could be resolved at all
           let demandsRes: any;
@@ -243,9 +252,13 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
-            demandsRes = await db.query(fallbackQuery, [consumerId, dueDate]);
+            demandsRes = await db.query(fallbackQuery, [consumerId, dueLimit]);
           } else {
             demandsRes = await db.query(demandQuery, demandParams);
+          }
+          // Nothing raised means nothing to demand: a letter with an empty table and Rs 0 payable must never reach a customer
+          if (demandsRes.rows.length === 0) {
+            throw bad('No raised demands for this consumer, so the Demand Letter cannot be generated. Raise a demand first.', 409);
           }
 
           // Count all template installments for this plan (used to decide Other Charges visibility)
@@ -653,7 +666,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
             projectName: plan.project_name || d?.project_name || '—',
             projectSector: plan.project_location || d?.project_sector || '—',
             projectLocation: plan.project_location || '—',
-            reraNo: plan.rera_number || d?.project_rera || '—',
+            reraNo: reraValue,
             // Dates
             allotmentDate: fmtDateIndia(plan.allotment_date),
             bookingDate: fmtDateIndia(plan.booking_date),

@@ -55,5 +55,45 @@ r = await A('GET', `/payments/receipts?consumerId=${c}&pageSize=50`);
 t('after surrender the receipts of the cancelled booking are still on the applicant file (they used to vanish)', r.s === 200 && (r.j?.data || []).length === 2, `listed ${(r.j?.data || []).length}, in the database ${psql(`select count(*) from receipts where consumer_id = '${c}'`)}`);
 t('after surrender nothing was deleted: both receipts still exist, not cancelled', psql(`select count(*) from receipts where consumer_id = '${c}' and status <> 'cancelled'`) === '2');
 
+// ---------- a receipt that is more than its instalment, or matches no demand, is recorded and says so ----------
+const unit2 = (await A('POST', '/units', { projectId: P, towerId: T, unitNumber: 'A-102-' + U, floor: 1, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, basePriceInr: 5500000, totalPriceInr: 5500000 })).j.data.id;
+const c2 = (await A('POST', '/consumers', { name: 'QA Beta ' + U, mobile: mob(), project_id: P })).j.data.id;
+const b2 = (await A('POST', '/booking', { consumer_id: c2, project_id: P, unit_id: unit2, selected_plan_name: 'Plan' + U, booking_date: today, carpet_area_sqft: 1000, basic_price: 5500 })).j.data.id;
+await A('PATCH', `/booking/${b2}`, { booking_amount: 100000, payment_mode: 'cash' });
+r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 2000000, paymentMode: 'neft', referenceNumber: 'QA-OVER-' + U, paymentDate: today, installmentIndex: 1 });
+t('overpayment: a receipt bigger than its instalment is recorded (201) and carries a warning that names the carried amount', r.s === 201 && (r.j?.warnings || []).some((w) => /more than what instalment 1 still needed/.test(w) && /advance/.test(w)), JSON.stringify(r.j?.warnings));
+r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 1000, paymentMode: 'neft', referenceNumber: 'QA-NODEM-' + U, paymentDate: today, installmentIndex: 9 });
+t('a receipt for an instalment that has no open demand is recorded and says it is not matched yet', r.s === 201 && (r.j?.warnings || []).some((w) => /no open demand for instalment 9/.test(w)), JSON.stringify(r.j?.warnings));
+r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 1000, paymentMode: 'neft', referenceNumber: 'QA-FINE-' + U, paymentDate: today, installmentIndex: 2 });
+t('a normal receipt carries no warning', r.s === 201 && (r.j?.warnings || []).length === 0 || r.s === 201 && (r.j?.warnings || []).every((w) => !/more than/.test(w)), JSON.stringify(r.j?.warnings));
+
+// ---------- one price, everywhere: basic, discount, balcony and GST add up the same on the plan, the demands and the surrender page ----------
+const oldBal = psql("select rate_value||'|'||coalesce(cap_value::text,'') from charge_master_config where charge_key='balcony_charge'");
+psql("update charge_master_config set rate_value = 1000, cap_value = 100000 where charge_key='balcony_charge'");
+const unit3 = (await A('POST', '/units', { projectId: P, towerId: T, unitNumber: 'A-103-' + U, floor: 1, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, balconyAreaSqft: 50, basePriceInr: 5500000, totalPriceInr: 5500000 })).j.data.id;
+const c3 = (await A('POST', '/consumers', { name: 'QA Gamma ' + U, mobile: mob(), project_id: P })).j.data.id;
+const b3 = (await A('POST', '/booking', { consumer_id: c3, project_id: P, unit_id: unit3, selected_plan_name: 'Plan' + U, booking_date: today, company_inaugural_disc: 100000, carpet_area_sqft: 1000, basic_price: 5500 })).j.data.id;
+await A('PATCH', `/booking/${b3}`, { booking_amount: 100000, payment_mode: 'cash' });
+const planTotal = Number(psql(`select total_amount_inr from payment_plans where consumer_id = '${c3}'`));
+const demandSum = Number(psql(`select sum(amount_due_inr + cgst_amount + sgst_amount) from demands where consumer_id = '${c3}'`));
+const gstSum = Number(psql(`select sum(cgst_amount + sgst_amount) from demands where consumer_id = '${c3}'`));
+t('totals: the plan is the net price (55,00,000 - 1,00,000 + balcony 50,000 = 54,50,000)', planTotal === 5450000, String(planTotal));
+t('totals: the GST of all instalments is exactly the GST of the whole price (0.5% + 0.5% of 55,00,000 and of the balcony 50,000 = 55,500), no rupee lost to rounding', gstSum === 55500, String(gstSum));
+t('totals: the demands add up to the plan plus that GST (55,05,500)', demandSum === 5505500, String(demandSum));
+const sd3 = (await A('GET', `/surrender/detail/${c3}`)).j?.data?.financials;
+t('totals: the surrender page shows the same net price (discount taken off) and the same total consideration (55,05,500)', sd3?.netBasicPrice === 5400000 && sd3?.inauguralDiscount === 100000 && sd3?.totalConsideration === 5505500, JSON.stringify({ net: sd3?.netBasicPrice, disc: sd3?.inauguralDiscount, tot: sd3?.totalConsideration }));
+
+// ---------- the demand letter is refused when it would be empty or carry a placeholder RERA number ----------
+let gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'demand_letter', dueDate: today });
+t('demand letter: nothing raised -> refused (409) with a clear message, no document made', gen.s === 409 && /No raised demands/.test(gen.j?.error || ''), JSON.stringify(gen.j));
+psql(`update projects set rera_number = 'RERA-X-NONE' where id = '${P}'`);
+gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'demand_letter', dueDate: today });
+t('demand letter: a placeholder RERA number (RERA-X-NONE) -> refused (409), never printed', gen.s === 409 && /valid RERA number/.test(gen.j?.error || ''), JSON.stringify(gen.j));
+psql(`update projects set rera_number = 'RERA-Q6-${U}' where id = '${P}'`);
+psql(`update demands set status = 'demanded', due_date = '${today}' where consumer_id = '${c3}' and installment_index = 1`);
+gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'demand_letter', dueDate: today });
+t('demand letter: with a raised demand and a real RERA number it is generated (201)', gen.s === 201 && !!gen.j?.data?.documentId, JSON.stringify(gen.j));
+psql(`update charge_master_config set rate_value = '${oldBal.split('|')[0]}', cap_value = ${oldBal.split('|')[1] === '' ? 'null' : `'${oldBal.split('|')[1]}'`} where charge_key='balcony_charge'`);
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

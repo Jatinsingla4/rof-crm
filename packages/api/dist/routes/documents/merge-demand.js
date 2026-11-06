@@ -4,6 +4,7 @@ exports.demandLetterData = demandLetterData;
 // Demand letter figures: rows per installment, waterfall of receipts, penal interest, company and bank details.
 const index_js_1 = require("../../index.js");
 const company_bank_js_1 = require("../../utils/company-bank.js");
+const input_js_1 = require("../../utils/input.js");
 const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
@@ -104,6 +105,12 @@ async function demandLetterData(ctx) {
             LIMIT 1
           `, [consumerId]);
     const plan = planRes.rows[0] || {};
+    // A demand letter is a legal payment demand: it must carry the project's real RERA number. A blank or placeholder one (None, N/A, TBD, X) is refused,
+    // never printed as if it were real.
+    const reraValue = String(plan.rera_number || d?.project_rera || '').trim();
+    if (!reraValue || /(^|[^a-z0-9])(none|nil|na|n\/a|tbd|not available|x{1,3})([^a-z0-9]|$)/i.test(reraValue)) {
+        throw (0, input_js_1.bad)('This project has no valid RERA number, so the Demand Letter cannot be generated. Add the RERA number in Set Projects, Project Details, then try again.', 409);
+    }
     if (plan?.project_id) {
         try {
             const projRateRes = await index_js_1.db.query(`SELECT rate_percent FROM project_interest_rates
@@ -198,7 +205,9 @@ async function demandLetterData(ctx) {
               AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
           `;
-    const demandParams = [planId, projectId, planName, dueDate];
+    // With no due date given the letter lists every raised demand (an unset date used to match nothing, so the table came out empty and the letter said Rs 0)
+    const dueLimit = dueDate || '2999-12-31';
+    const demandParams = [planId, projectId, planName, dueLimit];
     // Fallback: only if no project could be resolved at all
     let demandsRes;
     if (includeAllDemands) {
@@ -225,10 +234,14 @@ async function demandLetterData(ctx) {
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
-        demandsRes = await index_js_1.db.query(fallbackQuery, [consumerId, dueDate]);
+        demandsRes = await index_js_1.db.query(fallbackQuery, [consumerId, dueLimit]);
     }
     else {
         demandsRes = await index_js_1.db.query(demandQuery, demandParams);
+    }
+    // Nothing raised means nothing to demand: a letter with an empty table and Rs 0 payable must never reach a customer
+    if (demandsRes.rows.length === 0) {
+        throw (0, input_js_1.bad)('No raised demands for this consumer, so the Demand Letter cannot be generated. Raise a demand first.', 409);
     }
     // Count all template installments for this plan (used to decide Other Charges visibility)
     const planSchedCountRes = projectId && planName
@@ -599,7 +612,7 @@ async function demandLetterData(ctx) {
         projectName: plan.project_name || d?.project_name || '—',
         projectSector: plan.project_location || d?.project_sector || '—',
         projectLocation: plan.project_location || '—',
-        reraNo: plan.rera_number || d?.project_rera || '—',
+        reraNo: reraValue,
         // Dates
         allotmentDate: (0, shells_js_1.fmtDateIndia)(plan.allotment_date),
         bookingDate: (0, shells_js_1.fmtDateIndia)(plan.booking_date),

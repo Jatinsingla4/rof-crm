@@ -92,3 +92,31 @@ export async function resolveGstForComponents(
   }
   return { cgstAmount, sgstAmount };
 }
+
+// GST of every instalment of one booking, so that the instalments add up to the GST of the whole price.
+// Rounding each instalment on its own drifts by a rupee or more (half a rupee each time); here each component's GST is rounded on the running total
+// (cumulative share of the plan) and an instalment gets the difference, so the last one absorbs the leftover and the sum is exact.
+// cumShares: the running share of the plan after each instalment (0.2, 0.5, 1 for a 20/30/50 plan).
+export async function splitGstAcrossInstalments(
+  db: any,
+  projectId: string,
+  projectName: string,
+  bookingDate: string,
+  isNri: boolean,
+  components: ChargeComponent[],
+  cumShares: number[]
+): Promise<{ cgst: number[]; sgst: number[] }> {
+  const n = cumShares.length;
+  const cgst = new Array<number>(n).fill(0), sgst = new Array<number>(n).fill(0);
+  if (isNri) return { cgst, sgst };
+  for (const comp of components) {
+    if (!comp.amount) continue;
+    const { cgstPct, sgstPct } = await resolveRate(db, projectId, projectName, comp.chargeType, bookingDate);
+    let prevC = 0, prevS = 0;
+    for (let i = 0; i < n; i++) {
+      const c = Math.round(comp.amount * cgstPct * cumShares[i]), s = Math.round(comp.amount * sgstPct * cumShares[i]);
+      cgst[i] += c - prevC; sgst[i] += s - prevS; prevC = c; prevS = s;
+    }
+  }
+  return { cgst, sgst };
+}

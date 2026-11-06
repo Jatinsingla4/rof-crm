@@ -2461,9 +2461,12 @@ const BookingPage = {
     // ── Unit Information ────────────────────────────────────────
     const projectName  = qtext('[name="project_id"]');
     const unitNo       = gtext('bk-unit-select');
-    const bhkType      = qtext('[name="bhk_type"]');
-    const tower        = gtext('bk-tower') || '—';
-    const floor        = gtext('bk-floor') || '—';
+    // the tower, floor and type of the CHOSEN unit (the tower and floor boxes are only search filters and say "Any")
+    const unitRow      = this._units?.find(u => u.id === document.querySelector('[name="unit_id"]')?.value);
+    const anyOf       = s => (!s || /Any|^—/.test(s)) ? '' : s;
+    const bhkType      = unitRow?.bhk_type || qtext('[name="bhk_type"]');
+    const tower        = unitRow?.tower_name || anyOf(gtext('bk-tower')) || '—';
+    const floor        = unitRow ? Utils.floorLabel(unitRow.floor, unitRow.floor_name) : (anyOf(gtext('bk-floor')) || '—');
     const carpetAreaNum = parseFloat(gval('bk-carpet-area') || '0') || 0;
     const bookingDate  = qval('[name="booking_date"]');
     const planName     = gtext('bk-payment-plan');
@@ -2477,7 +2480,9 @@ const BookingPage = {
     const mobile     = qval('[name="mobile"]');
     const email      = qval('[name="email"]');
     const pan        = qval('[name="pan_no"]') || '—';
-    const address    = qval('[name="present_address_line1"]') || '—';
+    const address    = [qval('[name="present_address_line1"]'), qval('[name="present_address_line2"]'), qval('[name="present_city"]'), qval('[name="present_state"]'), qval('[name="present_pin"]')].filter(Boolean).join(', ') || '—';
+    const nomineeName = qval('[name="nominee_name"]'), nomineeRel = qval('[name="nominee_relation"]'), nomineeShare = qval('[name="nominee_share"]');
+    const nominee    = nomineeName ? [nomineeName, nomineeRel, nomineeShare ? nomineeShare + '%' : ''].filter(Boolean).join(' / ') : '—';
 
     // ── Payment ─────────────────────────────────────────────────
     const paymentMode = gval('bk-payment-mode') || 'cheque';
@@ -2536,7 +2541,8 @@ const BookingPage = {
     const subTotal    = basicCost + plcAmt + otherAmt;
     const cgstAmt     = subTotal * cgstPct / 100;
     const sgstAmt     = subTotal * sgstPct / 100;
-    const grandTotal  = subTotal + cgstAmt + sgstAmt + balconyInclusiveTotal;
+    const inauguralDisc = parseFloat(qval('[name="company_inaugural_disc"]') || '0') || 0;   // taken off the consideration, as the booking stores it (GST stays on the full price, as the demands bill it)
+    const grandTotal  = subTotal - inauguralDisc + cgstAmt + sgstAmt + balconyInclusiveTotal;
 
     // ── Broker / Sales ───────────────────────────────────────────
     const saleType  = document.getElementById('bk-booking-type')?.value === 'direct' ? 'Direct' : 'Broker';
@@ -2588,16 +2594,15 @@ const BookingPage = {
           row('Mobile', mobile) +
           row('Email', email) +
           row('PAN No.', pan) +
-          row('Address', address)
+          row('Address', address) +
+          row('Nominee', nominee)
         )}
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
         ${card('Booking Payment',
-          row('Booking Amount', fmt(bookingAmt)) +
-          row('Payment Mode', paymentModeLabel) +
-          row('Cheque / Ref No.', refNo) +
-          row('Bank Name', bankName)
+          row('Booking Amount', bookingAmt > 0 ? fmt(bookingAmt) : 'None now (pending payment)') +
+          (bookingAmt > 0 ? row('Payment Mode', paymentModeLabel) + row('Cheque / Ref No.', refNo) + row('Bank Name', bankName) : '')
         )}
         ${card('Broker / Sales',
           row('Sale Type', saleType) +
@@ -2613,10 +2618,11 @@ const BookingPage = {
           ${basicCost > 0 ? row('Basic Cost (' + fmt(basicPrice) + '/sqft × ' + carpetAreaNum + ' sqft)', fmt(basicCost)) : ''}
           ${hasPLC         ? row('PLC (Preferential Location)', fmt(plcAmt)) : ''}
           ${hasOther       ? row(otherDesc || 'Other Charges', fmt(otherAmt)) : ''}
-          ${balconyInclusiveTotal > 0 ? row('Balcony Charges', fmt(balconyInclusiveTotal)) : ''}
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8"><span>Sub Total</span><span>${fmt(subTotal)}</span></div>
           ${row('CGST (' + cgstPct + '%)', fmt(cgstAmt))}
           ${row('SGST (' + sgstPct + '%)', fmt(sgstAmt))}
+          ${balconyInclusiveTotal > 0 ? row('Balcony Charges (GST included)', fmt(balconyInclusiveTotal)) : ''}
+          ${inauguralDisc > 0 ? row('Inaugural Discount', '− ' + fmt(inauguralDisc)) : ''}
           <div style="display:flex;justify-content:space-between;padding:10px 0 4px;font-size:15px;font-weight:700;color:#1a3a5c;border-top:2px solid #1a3a5c;margin-top:4px">
             <span>Total Consideration</span><span>${fmt(grandTotal)}</span>
           </div>

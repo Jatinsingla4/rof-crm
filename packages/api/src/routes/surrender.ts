@@ -89,6 +89,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
            c.registration_no, c.lead_stage,
            br.id AS booking_id,
            br.booking_date, br.booking_amount,
+           br.company_inaugural_disc,
            br.selected_plan_name,
            br.basic_rate_inr_sqft,
            br.plc_amount, br.other_charge_amount, br.balcony_charge_amount,
@@ -206,9 +207,11 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
     // ── derive financials ─────────────────────────────────────────────────────
     const carpetArea      = parseFloat(row.carpet_area_sqft   || 0);
     const basicRate       = parseFloat(row.basic_rate_inr_sqft || 0);
-    const netBasicPrice   = basicRate > 0 && carpetArea > 0
+    const grossBasicPrice = basicRate > 0 && carpetArea > 0
       ? Math.round(basicRate * carpetArea)
       : parseFloat(row.booking_amount || 0);
+    const inauguralDiscount = parseFloat(row.company_inaugural_disc || 0);
+    const netBasicPrice   = grossBasicPrice - inauguralDiscount;   // the same net price the payment plan and the demand letter use (the discount used to be ignored here)
     const plcAmount       = parseFloat(row.plc_amount         || 0);
     const otherCharge     = parseFloat(row.other_charge_amount || 0);
     const addonTotal      = addonRes.rows.reduce((s: number, c: any) => s + parseFloat(c.total_amount || 0), 0);
@@ -288,6 +291,8 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
         financials: {
           carpetArea,
           basicRate,
+          grossBasicPrice,
+          inauguralDiscount,
           netBasicPrice,
           plcAmount,
           otherCharge,

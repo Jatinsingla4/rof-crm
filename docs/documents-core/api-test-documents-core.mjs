@@ -201,7 +201,7 @@ await new Promise((z) => setTimeout(z, 16000));
 const AF2 = call(await login('accounts_finance@test.local'));
 t('scope: the limited user cannot generate for an applicant of P1 (404), cannot read their documents, cannot see the vault link', (await gen(AF2, okBody)).s === 404 && (await AF2('GET', `/documents/${cid}`)).j.data.length === 0 && !(await AF2('GET', '/documents/vault')).j.data.some((x) => x.id === V) && (await AF2('POST', '/documents/vault', vp)).s === 404);
 t('scope: the limited user cannot read a file of a P1 applicant (404)', (await AF2('GET', `/documents/vault/file/${VF}`)).s === 404);
-t('scope: but can make a document for an applicant of P2', (await gen(AF2, { consumerId: S.o.c, documentType: 'demand_letter' })).s === 201);
+t('scope: but can make a document for an applicant of P2', (await gen(AF2, { consumerId: S.o.c, documentType: 'check_list' })).s === 201);
 await A('PATCH', `/users/employee-login/${afId}`, { assignedProjectIds: [] });
 
 // ---------- a random hostile run ----------

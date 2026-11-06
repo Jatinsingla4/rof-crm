@@ -18,7 +18,7 @@ import { settleHold } from '../utils/holds.js';
 import { brokerOk, flagPaidCommission } from '../utils/broker.js';
 import { pinCode, mobileNo } from '../utils/applicant.js';
 import { cleanFields, checkIdentity, personName, hasLetter, forAudit, asText, lock, sha } from '../utils/applicant-fields.js';
-import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
+import { resolveGstForComponents, resolveRate, splitGstAcrossInstalments } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
@@ -958,11 +958,19 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
               .includes(consumerRes.rows[0]?.nationality);
 
-            for (const tmpl of templates.rows) {
+            // A plan made of percentages is split on the running share, so the instalments add up to the whole price and the whole GST
+            // (rounding each instalment alone drifted by a rupee or more, and the screens then disagreed by that much).
+            const runShares: number[] = []; { let run = 0; for (const tt of templates.rows) runShares.push(Math.round((run += parseFloat(tt.percentage || 0) / 100) * 1e6) / 1e6); }
+            const byShare = templates.rows.length > 0 && templates.rows.every((tt: any) => !tt.flat_amount_inr) && Math.abs(runShares[runShares.length - 1] - 1) < 1e-6;
+            const gstSplit = byShare ? await splitGstAcrossInstalments(client, booking.project_id, projectName, bookingDateStr, isNri, [
+              { chargeType: 'BASIC', amount: basicCost }, { chargeType: 'PLC', amount: parseFloat(booking.plc_amount || 0) },
+              { chargeType: 'OTHER CHARGE', amount: parseFloat(booking.other_charge_amount || 0) }, { chargeType: 'BALCONY', amount: balconyChargeAmount },
+            ], runShares) : null;
+            for (const [ti, tmpl] of templates.rows.entries()) {
               const pct = parseFloat(tmpl.percentage || 0) / 100;
               const amountDue = tmpl.flat_amount_inr
                 ? parseInt(tmpl.flat_amount_inr)
-                : Math.round(totalAmount * pct);
+                : byShare ? Math.round(totalAmount * runShares[ti]) - Math.round(totalAmount * (ti ? runShares[ti - 1] : 0)) : Math.round(totalAmount * pct);
               const basicPortion = tmpl.flat_amount_inr
                 ? amountDue
                 : Math.round(basicCost * pct);
@@ -975,7 +983,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               const balconyPortion = tmpl.flat_amount_inr
                 ? 0
                 : Math.round(balconyChargeAmount * pct);
-              const { cgstAmount, sgstAmount } = await resolveGstForComponents(
+              const { cgstAmount, sgstAmount } = gstSplit ? { cgstAmount: gstSplit.cgst[ti], sgstAmount: gstSplit.sgst[ti] } : await resolveGstForComponents(
                 client,
                 booking.project_id,
                 projectName,
