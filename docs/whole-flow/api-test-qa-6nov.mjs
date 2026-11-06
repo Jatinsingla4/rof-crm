@@ -137,5 +137,30 @@ t('receipt list: the advance receipts that an overpayment makes exist in the dat
 r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50&includeAdvance=true`);
 t('receipt list: includeAdvance=true shows them', (r.j?.data || []).some((x) => x.is_advance === true));
 
+// ---------- cycle 2 add-on: receipts to the rupee with their own GST, cheques with a number, the unraise search by registration number ----------
+const unit6 = (await A('POST', '/units', { projectId: P, towerId: T, unitNumber: 'A-106-' + U, floor: 1, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, basePriceInr: 5500000, totalPriceInr: 5500000 })).j.data.id;
+const c6 = (await A('POST', '/consumers', { name: 'QA Delta ' + U, mobile: mob(), project_id: P })).j.data.id;
+const b6 = (await A('POST', '/booking', { consumer_id: c6, project_id: P, unit_id: unit6, selected_plan_name: 'Plan' + U, booking_date: today, carpet_area_sqft: 1000, basic_price: 5500 })).j.data.id;
+await A('PATCH', `/booking/${b6}`, { booking_amount: 20000, payment_mode: 'cash' });
+r = await A('POST', '/payments/receipts', { consumerId: c6, amountReceivedInr: 100000.5, paymentMode: 'neft', referenceNumber: 'QA-PAISE-' + U, paymentDate: today, installmentIndex: 1 });
+t('receipt: paise are refused (400) instead of being rounded up silently', r.s === 400 && /whole number/.test(r.j?.error || ''), JSON.stringify(r.j));
+r = await A('PATCH', `/booking/${b6}`, { booking_amount: 10000.5, payment_mode: 'cash' });
+t('booking payment: 10,000.50 is refused (400) instead of becoming 10,001', r.s === 400 && /whole rupees/.test(r.j?.error || ''), JSON.stringify(r.j));
+r = await A('POST', '/payments/receipts', { consumerId: c6, amountReceivedInr: 100000, paymentMode: 'cheque', paymentDate: today, installmentIndex: 1 });
+t('receipt: a cheque without a cheque number is refused (400)', r.s === 400 && /cheque or draft number/.test(r.j?.error || ''), JSON.stringify(r.j));
+r = await A('PATCH', `/booking/${b6}`, { booking_amount: 10000, payment_mode: 'cheque' });
+t('booking payment: a cheque without a number is refused (400)', r.s === 400 && /cheque or draft number/.test(r.j?.error || ''), JSON.stringify(r.j));
+r = await A('POST', '/payments/receipts', { consumerId: c6, amountReceivedInr: 100000, paymentMode: 'cheque', chequeNo: 'QC' + U, bankName: 'HDFC', paymentDate: today, installmentIndex: 1 });
+const rid6 = r.j?.data?.id;
+t('receipt: with a cheque number it is recorded (201)', r.s === 201 && !!rid6, JSON.stringify(r.j).slice(0, 150));
+const stCgst = Number(psql(`select cgst_amount from receipts where id = '${rid6}'`)), demCgst = Number(psql(`select cgst_amount from demands where consumer_id = '${c6}' and installment_index = 1`));
+const page = await fetch(B + `/payments/receipts/${rid6}/html`, { headers: { authorization: 'Bearer ' + tok } }).then((x) => x.text());
+const txt6 = page.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+t('printed receipt: the CGST printed is the GST of this part payment (about ' + Math.round(stCgst) + '), not the whole instalment GST (' + demCgst + ')', stCgst > 0 && stCgst < demCgst && txt6.includes(Math.round(stCgst).toLocaleString('en-IN') + '.00') && !txt6.includes(demCgst.toLocaleString('en-IN') + '.00'), `stored ${stCgst}, demand ${demCgst}`);
+psql(`update demands set status = 'demanded', due_date = '${today}' where consumer_id = '${c6}' and installment_index = 1`);
+const reg6 = psql(`select registration_no from booking_records where id = '${b6}'`);
+r = await A('GET', `/payments/demands?status=demanded&name=${encodeURIComponent(reg6)}&pageSize=50`);
+t('demand unraise: the "Consumer / Reg No." box finds the demand by registration number', (r.j?.data || []).some((d) => d.consumer_id === c6), `reg ${reg6} rows ${(r.j?.data || []).length}`);
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

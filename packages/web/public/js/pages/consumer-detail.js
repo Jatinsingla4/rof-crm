@@ -134,8 +134,12 @@ Pages.consumerDetail = async function(params = {}) {
                   <span style="color:var(--text3)">PLC (Preferential Location)</span>
                   <span id="plc-val" style="font-weight:600">₹0</span>
                 </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+                  <span style="color:var(--text3)">Balcony, add-ons and discount (net)</span>
+                  <span id="other-val" style="font-weight:600">—</span>
+                </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border2)">
-                  <span style="color:var(--text3)">CGST (5%) + SGST (5%)</span>
+                  <span id="gst-label" style="color:var(--text3)">CGST + SGST</span>
                   <span id="gst-val" style="font-weight:600;color:var(--warn)">₹0</span>
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px">
@@ -219,8 +223,8 @@ Pages.consumerDetail = async function(params = {}) {
             <div class="sp-grid">
               <div class="fg"><label class="fl">Channel</label>
                 <select class="fc" id="remark-channel">
-                  <option value="internal">Internal Note</option><option value="whatsapp">WhatsApp</option>
-                  <option value="email">Email</option><option value="sms">SMS</option><option value="phone">Phone Call</option>
+                  <option value="other">Internal Note</option><option value="whatsapp">WhatsApp</option>
+                  <option value="email">Email</option><option value="sms">SMS</option><option value="call">Phone Call</option><option value="meeting">Meeting</option><option value="site_visit">Site Visit</option>
                 </select>
               </div>
               <div class="fg"><label class="fl">Subject</label>
@@ -309,6 +313,14 @@ const ConsumerDetailPage = {
       // what the plan asks for in all: every installment with its GST and add-on charges
       const totalAmount = demands.reduce((s, d) => s + ['amount_due_inr', 'cgst_amount', 'sgst_amount', 'addon_charge_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((t, k) => t + parseFloat(d[k] || 0), 0), 0);
       const balance = Math.max(0, totalAmount - totalPaid);
+      // the pricing card shows the same total as this summary: what the instalments ask for, with the GST as billed, the balcony and add-ons in and the discount out
+      { const gstBilled = demands.reduce((s, d) => s + ['cgst_amount', 'sgst_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((t, k) => t + (parseFloat(d[k]) || 0), 0), 0);
+        const baseOf = (k) => parseFloat(document.getElementById(k)?.dataset?.v || 0);
+        const g = document.getElementById('gst-val'), tc = document.getElementById('total-cons-val'), gl = document.getElementById('gst-label'), ov = document.getElementById('other-val');
+        if (g && totalAmount > 0) { g.textContent = Utils.currency(gstBilled); if (gl) gl.textContent = 'GST (CGST + SGST, as billed on the instalments)'; }
+        if (tc && totalAmount > 0) tc.textContent = Utils.currency(totalAmount);
+        const basicNow = parseFloat((document.getElementById('basic-cost-val')?.textContent || '0').replace(/[^0-9.]/g, '')) || 0, plcNow = parseFloat((document.getElementById('plc-val')?.textContent || '0').replace(/[^0-9.]/g, '')) || 0;
+        if (ov && totalAmount > 0) { const net = totalAmount - gstBilled - basicNow - plcNow; ov.textContent = (net < 0 ? '− ' : '') + Utils.currency(Math.abs(net)); } }
       const pct = totalAmount > 0 ? Math.min((totalPaid / totalAmount) * 100, 100) : 0;
       const pctCls = pct >= 100 ? 'pf-green' : pct < 30 ? 'pf-warn' : 'pf-teal';
 
@@ -497,7 +509,7 @@ const ConsumerDetailPage = {
     try {
       await Api.post('/communications/remarks', {
         consumerId,
-        channel: document.getElementById('remark-channel')?.value || 'internal',
+        channel: document.getElementById('remark-channel')?.value || 'other',
         subject: document.getElementById('remark-subject')?.value || '',
         notes,
         followUpDate: document.getElementById('remark-followup')?.value || undefined,

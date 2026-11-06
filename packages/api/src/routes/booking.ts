@@ -90,6 +90,7 @@ const parseNew = (b: any) => {
   o.selected_plan_name = T(b.selected_plan_name, 'Payment plan', 255)!;
   o.booking_date = bookingDay(b.booking_date, 'booking_date');
   o.booking_amount = money(b.booking_amount, 'booking_amount');
+  if (!Number.isInteger(o.booking_amount)) throw bad('Enter the booking amount in whole rupees. Receipts are recorded to the rupee, and 1,00,000.50 used to become 1,00,001.');
   o.payment_mode = mode(b.payment_mode, false);
   if (o.booking_amount > 0 && !o.payment_mode) throw bad('payment_mode is required when a booking amount is entered');
   if (o.booking_amount === 0 && o.payment_mode) throw bad('booking_amount must be more than 0 when a payment mode is chosen');
@@ -674,6 +675,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     const rb = body(req);
     if (!has(rb.booking_amount) || money(rb.booking_amount, 'booking_amount') === 0) return res.status(400).json({ error: 'booking_amount must be greater than zero' });
     const booking_amount = money(rb.booking_amount, 'booking_amount');
+    if (!Number.isInteger(booking_amount)) return res.status(400).json({ error: 'Enter the booking amount in whole rupees. Receipts are recorded to the rupee, and 1,00,000.50 used to become 1,00,001.' });
     const payment_mode = mode(rb.payment_mode, true)!;
     const payment_ref = T(rb.payment_ref, 'payment_ref', 100), bank_name = T(rb.bank_name, 'bank_name', 200), bank_branch = T(rb.bank_branch, 'bank_branch', 255);
     const cheque_date = bookingDay(rb.cheque_date, 'cheque_date');
@@ -684,6 +686,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     const tds_challan_id = uuidOrNull(rb.tds_challan_id, 'tds_challan_id');
     const s_tax_pct = pct(rb.s_tax_pct, 's_tax_pct'), gst_interest_pct = pct(rb.gst_interest_pct, 'gst_interest_pct'), tds_amount = calc(rb.tds_amount, 'tds_amount');
     const companyBankAccountId = uuidOrNull(rb.companyBankAccountId, 'companyBankAccountId');
+    // A cheque or demand draft is recorded with its number and bank: a payment that cannot be traced to an instrument is refused
+    if (['cheque', 'draft', 'demand_draft'].includes(payment_mode) && !payment_ref) return res.status(400).json({ error: 'Enter the cheque or draft number' });
 
     // Duplicate cheque/reference check (excluding current booking, cancelled bookings and bounced/cancelled receipts)
     if (payment_ref && payment_mode !== 'cash') {

@@ -188,7 +188,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
     const reg = query(q.registrationNo, 'registrationNo');
     if (reg) where += ` AND br.registration_no ILIKE ${add(likeOf(reg))}`;
     const name = query(q.name, 'name');
-    if (name) where += ` AND c.name ILIKE ${add(likeOf(name))}`;
+    if (name) { const n = add(likeOf(name)); where += ` AND (c.name ILIKE ${n} OR br.registration_no ILIKE ${n})`; }   // the one "Consumer / Reg No." box of Demand Unraise sends it as the name
     const unit = query(q.unitAddress, 'unitAddress');
     if (unit) where += ` AND lower(u.unit_number) = lower(${add(unit)})`;
     const status = statusOf(q.status, 'status');

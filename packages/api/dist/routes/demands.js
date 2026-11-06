@@ -193,8 +193,10 @@ router.get('/demands', async (req, res, next) => {
         if (reg)
             where += ` AND br.registration_no ILIKE ${add((0, applicant_js_1.likeOf)(reg))}`;
         const name = query(q.name, 'name');
-        if (name)
-            where += ` AND c.name ILIKE ${add((0, applicant_js_1.likeOf)(name))}`;
+        if (name) {
+            const n = add((0, applicant_js_1.likeOf)(name));
+            where += ` AND (c.name ILIKE ${n} OR br.registration_no ILIKE ${n})`;
+        } // the one "Consumer / Reg No." box of Demand Unraise sends it as the name
         const unit = query(q.unitAddress, 'unitAddress');
         if (unit)
             where += ` AND lower(u.unit_number) = lower(${add(unit)})`;

@@ -87,6 +87,9 @@ t('no screen uses the native confirm() box (use Utils.ask or Utils.confirm)', na
 const jsonOnHtml = pages.filter((f) => /Api\.get\([^)]*\/html/.test(fs.readFileSync(path.join(PAGES, f), 'utf8')));
 t('no screen reads a document or receipt web page through Api.get (it reads JSON)', jsonOnHtml.length === 0, jsonOnHtml.join(', '));
 
+// ---------- the channels offered on the applicant screen are the ones the server accepts (Internal Note and Phone Call were refused) ----------
+{ const src = fs.readFileSync(path.join(PAGES, 'consumer-detail.js'), 'utf8'); const sel = (src.match(/id="remark-channel">([\s\S]*?)<\/select>/) || [])[1] || ''; const vals = [...sel.matchAll(/value="([^"]+)"/g)].map((m) => m[1]); const ok = ['call', 'email', 'whatsapp', 'sms', 'meeting', 'site_visit', 'other']; t('the applicant communication channels are all accepted by the server', vals.length > 0 && vals.every((v) => ok.includes(v)), vals.join(',')); }
+
 // ---------- no dead control: a button must do its job or not be shown (no "coming soon" alert or toast in a screen or in the pages the API builds) ----------
 const shipped = [...pages.map((f) => path.join(PAGES, f)), path.join(API, 'routes/booking.ts')];
 const comingSoon = shipped.filter((f) => /coming soon/i.test(fs.readFileSync(f, 'utf8'))).map((f) => path.basename(f));

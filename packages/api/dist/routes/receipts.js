@@ -101,6 +101,8 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
         const branch = (0, input_js_1.text)(b.branch, 'Branch', 255, false);
         const chequeNo = (0, input_js_1.text)(b.chequeNo ?? b.cheque_no, 'Cheque number', 50, false);
         const chequeDate = (0, input_js_1.day)(b.chequeDate ?? b.cheque_date, 'Cheque date'); // a post-dated cheque is fine
+        if (['cheque', 'demand_draft'].includes(method) && !chequeNo)
+            throw (0, input_js_1.bad)('Enter the cheque or draft number. A cheque is recorded with its number so it can be traced and cleared.');
         const bankAccount = (0, input_js_1.has)(b.companyBankAccountId) ? (0, input_js_1.uuid)(b.companyBankAccountId, 'companyBankAccountId') : null;
         (0, input_js_1.text)(b.remarks, 'Remarks', 1000, false);
         const p = parts(b, amount);

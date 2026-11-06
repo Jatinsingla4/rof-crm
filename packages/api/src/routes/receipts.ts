@@ -93,6 +93,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
     const branch = text(b.branch, 'Branch', 255, false);
     const chequeNo = text(b.chequeNo ?? b.cheque_no, 'Cheque number', 50, false);
     const chequeDate = day(b.chequeDate ?? b.cheque_date, 'Cheque date');   // a post-dated cheque is fine
+    if (['cheque', 'demand_draft'].includes(method) && !chequeNo) throw bad('Enter the cheque or draft number. A cheque is recorded with its number so it can be traced and cleared.');
     const bankAccount = has(b.companyBankAccountId) ? uuid(b.companyBankAccountId, 'companyBankAccountId') : null;
     text(b.remarks, 'Remarks', 1000, false);
     const p = parts(b, amount);

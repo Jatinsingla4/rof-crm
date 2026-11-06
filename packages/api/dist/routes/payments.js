@@ -868,15 +868,18 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
         const cgstFrac = demandGross > 0 ? demandCgst / demandGross : 0;
         const sgstFrac = demandGross > 0 ? demandSgst / demandGross : 0;
         const pct = parseFloat(currentInst.percentage || 0);
+        // A part payment pays a part of the instalment: its balcony, GST and basic shares are that part of the whole, never the whole instalment GST on a smaller amount
+        const share = demandGross > 0 && basicGross < demandGross ? basicGross / demandGross : 1;
         if (hasBalcony && pct > 0) {
-            const balconyInstGross = Math.round(totalBalconyCharge * pct / 100);
-            const balcCgst = Math.round(parseFloat(r.balcony_cgst_amount || 0) * pct / 100);
-            const balcSgst = Math.round(parseFloat(r.balcony_sgst_amount || 0) * pct / 100);
+            const balconyInstGross = Math.round(totalBalconyCharge * pct / 100 * share);
+            const balcCgstFull = Math.round(parseFloat(r.balcony_cgst_amount || 0) * pct / 100), balcSgstFull = Math.round(parseFloat(r.balcony_sgst_amount || 0) * pct / 100);
+            const balcCgst = Math.round(balcCgstFull * share);
+            const balcSgst = Math.round(balcSgstFull * share);
             const basicInstGross = Math.max(0, basicGross - balconyInstGross - balcCgst - balcSgst);
             if (basicInstGross > 0) {
                 sNo++;
-                const instCgst = demandCgst - balcCgst;
-                const instSgst = demandSgst - balcSgst;
+                const instCgst = Math.round((demandCgst - balcCgstFull) * share);
+                const instSgst = Math.round((demandSgst - balcSgstFull) * share);
                 const instNet = basicInstGross - instCgst - instSgst;
                 sumNet += instNet;
                 sumCgst += instCgst;
@@ -1260,8 +1263,9 @@ router.get('/receipts/:id/html', printDownload_js_1.requirePrint, async (req, re
           u.balcony_area_sqft, u.balcony_rate_inr_sqft, u.balcony_rate_cap_inr,
           br.balcony_charge_amount, br.balcony_cgst_amount, br.balcony_sgst_amount,
           pp.total_amount_inr AS plan_total_inr,
-          COALESCE(d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
-          COALESCE(d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
+          -- the GST of THIS receipt (stored when it was made, the same figure the Receipt List shows); the demand's whole GST only when none is stored
+          COALESCE(NULLIF(r.cgst_amount, 0), d.cgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE gtax.cgst_paise / 100.0 END) AS cgst_amount,
+          COALESCE(NULLIF(r.sgst_amount, 0), d.sgst_amount, CASE WHEN LOWER(COALESCE(c.nationality,'')) IN ('nri','oci','pio') THEN 0 ELSE (ttax.total_tax_paise - gtax.cgst_paise) / 100.0 END) AS sgst_amount
         FROM receipts r
         JOIN consumers c ON c.id = r.consumer_id
         LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id

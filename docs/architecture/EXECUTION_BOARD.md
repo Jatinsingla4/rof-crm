@@ -104,3 +104,15 @@ Verification: all 58 API scripts pass; Playwright 252 of 252 pass on one clean r
 - Overpayment warnings are a box that stays until read. Advance (split) receipts are kept out of the receipt list, approval queue and totals (`includeAdvance=true` shows them); the receipts themselves are still created, as before.
 - Open: the Edit/Delete matrix findings (a missing delete button, silent failures) need the exact rows from the report.
 Verification: 58 of 58 API scripts, Playwright 254 of 254.
+
+## Field / tab / button inventory (cycle 2 add-on, D1-D27): fixed so far
+- Printed receipt: a part payment printed the whole instalment's GST on the smaller amount; the table now splits in proportion to what was paid.
+- Booking payment: paise (1,00,000.50) are refused instead of being rounded up to 1,00,001; a cheque or draft needs its number (booking payment and receipt).
+- Customer Wise counts cleared money only; the Receipt List footer leaves out cancelled, bounced and advance receipts; the fake "SMS Triggered" button is gone.
+- Applicant communications: the channel list now matches what the server accepts.
+- Demand Unraise finds a demand by registration number in the "Consumer / Reg No." box.
+- Consumer pricing card: the same total as the payment summary, GST as billed, a line for balcony, add-ons and discount; the hard-coded "(5%) + (5%)" is gone.
+- Confirmation box: the safe answer (Cancel) has the focus and Enter no longer confirms from anywhere.
+- D1 (a booking "Allotted" in one place and "Cancelled" in another): in the code a booking can only be cancelled by Surrender (which changes allocation, unit and applicant together) or by the draft-booking cancel (refused for a complete booking), so the mix looks like a stale tab or a Surrender run from another tab. The Audit Log around 15:20-15:30 IST shows which.
+- Not done: D6-D8, D11, D12, D15-D23, D25-D27 (need the live data or are cosmetic).
+Verification: 58 API scripts (three re-run after test updates), Playwright 254 of 254.

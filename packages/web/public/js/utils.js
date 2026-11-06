@@ -243,14 +243,15 @@ const Utils = {
       row.append(cancel, ok); box.append(msg, row); host.append(box); document.body.append(host);
       let done = false;
       const finish = (answer) => { if (done) return; done = true; document.removeEventListener('keydown', onKey, true); host.remove(); resolve(answer); };
-      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } else if (e.key === 'Enter' && document.activeElement !== cancel) { e.preventDefault(); finish(true); } };
+      // Only Escape is handled here; Enter acts on the button that has the focus (Cancel at first), so an Enter typed into a form cannot confirm a destructive action
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
       document.addEventListener('keydown', onKey, true);
       ok.addEventListener('click', () => finish(true));
       cancel.addEventListener('click', () => finish(false));
       const opened = Date.now();   // the second click of a double click lands on the backdrop: it must not dismiss the question it just opened
       host.addEventListener('mousedown', (e) => { if (e.target === host && Date.now() - opened > 600) finish(false); });
       new MutationObserver((_, obs) => { if (!document.body.contains(host)) { finish(false); obs.disconnect(); } }).observe(document.body, { childList: true });
-      ok.focus();
+      cancel.focus();   // the safe answer is the one that has the focus
     });
   },
 

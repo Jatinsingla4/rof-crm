@@ -983,7 +983,10 @@ const ReceiptsPage = {
       const res = await Api.get('/payments/receipts', { params });
       const list = res.data || res || [];
 
-      const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
+      // the total is money that stands: cancelled, bounced and rejected receipts (still listed) and advance splits are left out of it
+      const counts = r => !r.is_advance && !['cancelled', 'bounced', 'rejected'].includes(String(r.status || '').toLowerCase());
+      const totalAmt = list.filter(counts).reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
+      const leftOut = list.length - list.filter(counts).length;
 
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><div class="empty-icon">🧾</div><h3>No receipts found</h3></div>'
@@ -1010,7 +1013,6 @@ const ReceiptsPage = {
                 <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
                 <td style="display:flex;gap:4px">
                   <button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print</button>
-                  <button class="btn btn-ghost btn-sm" onclick="Utils.info('SMS Triggered')">SMS</button>
                 </td>
               </tr>`}).join('')}
             </tbody>
@@ -1018,7 +1020,7 @@ const ReceiptsPage = {
               <tr class="tfoot-total">
                 <td colspan="2"><strong>Total</strong></td>
                 <td style="font-weight:700;color:var(--teal)">${Utils.currency(totalAmt)}</td>
-                <td colspan="5">${list.length} receipts</td>
+                <td colspan="5">${list.length - leftOut} receipts counted${leftOut ? ` (${leftOut} cancelled or bounced receipt(s) listed above are not in the total)` : ''}</td>
               </tr>
             </tfoot>
           </table>`;

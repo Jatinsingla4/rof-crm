@@ -29,18 +29,18 @@ test('the question is a box in the page, with the message and two buttons, and n
   await expect(box).toBeVisible();
   await expect(box.locator('[data-ask-msg]')).toContainText('Cancel this allotment?');
   await expect(box.locator('[data-ask-msg]')).toContainText('This cannot be undone.');
-  await expect(page.locator('#rof-ask-ok')).toBeFocused();
+  await expect(page.locator('#rof-ask-cancel')).toBeFocused();   // the safe answer has the focus
   await page.locator('#rof-ask-ok').click();
   await expect(box).toHaveCount(0);
   expect(await answer()).toBe(true);
   expect(native).toEqual([]);
 });
 
-test('Cancel, Escape and a click outside the box answer no; Enter answers yes', async () => {
+test('Cancel, Escape and a click outside the box answer no; Tab then Enter on OK answers yes', async () => {
   await ask('one'); await page.locator('#rof-ask-cancel').click(); await expect(page.locator('#rof-ask')).toHaveCount(0); expect(await answer()).toBe(false);
   await ask('two'); await page.keyboard.press('Escape'); await expect(page.locator('#rof-ask')).toHaveCount(0); expect(await answer()).toBe(false);
   await ask('three'); await page.waitForTimeout(700); await page.locator('#rof-ask').click({ position: { x: 5, y: 5 } }); await expect(page.locator('#rof-ask')).toHaveCount(0); expect(await answer()).toBe(false);
-  await ask('four'); await page.keyboard.press('Enter'); await expect(page.locator('#rof-ask')).toHaveCount(0); expect(await answer()).toBe(true);
+  await ask('four'); await page.keyboard.press('Tab'); await page.keyboard.press('Enter'); await expect(page.locator('#rof-ask')).toHaveCount(0); expect(await answer()).toBe(true);
   expect(native).toEqual([]);
 });
 

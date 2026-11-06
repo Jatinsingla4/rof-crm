@@ -436,7 +436,8 @@ const ReportsPage = {
       const demands  = dRes.value?.data || dRes.value || [];
 
       // Money that counts: a cancelled, bounced or rejected receipt is not collected, a cancelled demand is not due, and a due amount carries its GST like the receipt does.
-      const liveReceipts = receipts.filter(r => !r.is_advance && !['cancelled','bounced','rejected'].includes(String(r.status||'').toLowerCase()) && String(r.approval_status||'').toLowerCase() !== 'rejected');
+      // paid = money in the bank (cleared), the same rule as Customer Balance, the profile and the dashboard; a pending or authorized receipt is not yet collected
+      const liveReceipts = receipts.filter(r => !r.is_advance && String(r.status||'').toLowerCase() === 'cleared');
       const liveDemands  = demands.filter(d => String(d.status||'').toLowerCase() !== 'cancelled');
       const amtOf = r => parseFloat(r.amount_received_inr||r.amount||0);
       const dueOf = d => parseFloat(d.amount_due_inr||d.amount||0) + parseFloat(d.cgst_amount||0) + parseFloat(d.sgst_amount||0);
