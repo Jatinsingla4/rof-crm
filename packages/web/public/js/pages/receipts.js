@@ -270,7 +270,7 @@ Pages.receipts = async function(params = {}) {
         <div class="tbl-hdr">
           <div class="tbl-title">All Receipts</div>
           <div class="tbl-actions">
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('Export coming soon')">Export Excel</button>
+            
           </div>
         </div>
         <div id="receipt-list-body"><div class="page-loading"><div class="spinner"></div></div></div>
@@ -552,10 +552,7 @@ Pages.receipts = async function(params = {}) {
           </div>
 
           <div id="je-transfer-container" style="display:none;margin-top:4px;">
-            <button id="je-transfer-btn" onclick="Utils.info('Transfer feature coming soon')"
-              style="background:#e91e63;color:#fff;border:none;border-radius:6px;padding:10px 32px;font-weight:700;font-size:14px;cursor:pointer;letter-spacing:.5px;">
-              TRANSFER
-            </button>
+            <span style="color:var(--text3);font-size:12px;">Switched off until the owner approves the accounting rule for journal and debit/credit entries (Finance Part B).</span>
           </div>
           <button id="je-back-btn" onclick="ReceiptsPage.jeGoStep(2)"
             style="background:#6b7280;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-weight:600;cursor:pointer;margin-top:12px;">
@@ -601,7 +598,7 @@ Pages.receipts = async function(params = {}) {
                 <textarea class="fc" id="dc-reason" rows="2" placeholder="Reason for adjustment" style="resize:vertical;"></textarea>
               </div>
             </div>
-            <button class="btn btn-fetch" style="margin-top:15px;background:var(--teal);" onclick="Utils.info('Feature coming soon')">POST DEBIT/CREDIT</button>
+            <span style="color:var(--text3);font-size:12px;">Switched off until the owner approves the accounting rule for journal and debit/credit entries (Finance Part B).</span>
           </div>
         </div>
         <div class="tbl-wrap" style="margin-top:20px">
@@ -642,8 +639,7 @@ Pages.receipts = async function(params = {}) {
               </div>
             </div>
             <div style="display:flex;gap:10px;margin-top:15px;">
-              <button class="btn btn-fetch" onclick="Utils.info('Feature coming soon')">FETCH</button>
-              <button class="btn" style="background:#fff;border:1px solid var(--teal);color:var(--teal);" onclick="Utils.info('Feature coming soon')">Export CSV</button>
+              <span style="color:var(--text3);font-size:12px;">Switched off until the owner approves the accounting rule for journal and debit/credit entries (Finance Part B).</span>
             </div>
           </div>
         </div>
@@ -696,7 +692,7 @@ Pages.receipts = async function(params = {}) {
                 <input type="date" class="fc" id="rv-from-date">
               </div>
             </div>
-            <button class="btn btn-fetch" style="margin-top:15px;" onclick="Utils.info('Feature coming soon')">FETCH ENTRIES</button>
+            <span style="color:var(--text3);font-size:12px;">Switched off until the owner approves the accounting rule for journal and debit/credit entries (Finance Part B).</span>
           </div>
         </div>
         <div class="tbl-wrap" style="margin-top:20px">

@@ -235,7 +235,7 @@ Pages.documents = async function(params = {}) {
           </div>
           <div style="margin-top:10px;display:flex;gap:8px">
             <button class="btn btn-teal btn-lg" onclick="DocsPage.generateUserLetter()">Generate & Download</button>
-            <button class="btn btn-ghost" onclick="DocsPage.saveLetterTemplate()">Save as Template</button>
+            
           </div>
           <div id="ul-result" style="margin-top:12px"></div>
         </div>
@@ -424,7 +424,6 @@ const DocsPage = {
           </div>
           <div style="margin-top:12px;display:flex;gap:8px">
             <button class="btn btn-teal btn-lg" onclick="DocsPage.generate('${prefix}')">Generate Document</button>
-            <button class="btn btn-ghost" onclick="DocsPage.preview('${prefix}')">Preview</button>
           </div>
           <div id="${prefix}-result" style="margin-top:12px"></div>
         </div>
@@ -515,12 +514,6 @@ const DocsPage = {
     }
   },
 
-  async preview(prefix) {
-    const docType = document.getElementById(`${prefix}-doc-type`)?.value;
-    if (!docType) { Utils.warn('Select a document type first'); return; }
-    Utils.info(`PDF preview for ${docType.replace(/_/g,' ')} — coming soon`);
-  },
-
   async generateUserLetter() {
     const consumerId = document.getElementById('ul-consumer')?.value;
     const body = document.getElementById('ul-body')?.value;
@@ -546,13 +539,6 @@ const DocsPage = {
     } catch (err) {
       result.innerHTML = `<div class="alert alert-error">Error: ${err.message}</div>`;
     }
-  },
-
-  async saveLetterTemplate() {
-    const name = document.getElementById('ul-name')?.value;
-    const body = document.getElementById('ul-body')?.value;
-    if (!name || !body) { Utils.warn('Please fill in both name and letter body'); return; }
-    Utils.info('Template save coming soon — contact admin');
   },
 
   async previewLabels() {
@@ -682,7 +668,6 @@ const DocsPage = {
                 <td style="font-size:10.5px">${(t.variables||[]).join(', ')||'—'}</td>
                 <td style="font-size:10.5px">${Utils.date(t.updated_at||t.created_at)}</td>
                 <td><div style="display:flex;gap:4px">
-                  <button class="btn btn-ghost btn-sm" onclick="DocsPage.editTemplate('${t.id}')">Edit</button>
                   <button class="btn btn-ghost btn-sm" onclick="DocsPage.previewTemplate('${t.id}')">Preview</button>
                 </div></td>
               </tr>`).join('')}
@@ -780,7 +765,6 @@ const DocsPage = {
   },
 
   createTemplate()  { Utils.info('Template editor — contact admin to add custom templates'); },
-  editTemplate(id)  { Utils.info('Template editor coming soon'); },
   async fetchATS() {
     const el = document.getElementById('ats-results-body');
     if (!el) return;
@@ -1046,7 +1030,7 @@ const DocsPage = {
         <span><i style="background:#A5D6A7;border:1px solid #388E3C"></i>Cancellation Letter</span>
         <span><i style="background:#EF9A9A;border:1px solid #C62828"></i>Final Opportunity Letter</span>
         <button class="dpr-ico" onclick="window.print()">🖨️</button>
-        <button class="dpr-ico" onclick="DocsPage.dprExport()">⬇️</button>
+        
       </div>
       <div class="dpr-card">
         <div style="overflow-x:auto;">
@@ -1191,7 +1175,6 @@ const DocsPage = {
     if(!this._dprSelected.size){Utils.warn('Select at least one consumer using the checkboxes');return;}
     for(const id of this._dprSelected)await this.dprGenerateLetter(id);
   },
-  dprExport(){Utils.info('Excel export coming soon');},
   _authHeader(){const t=Auth?.getToken()||localStorage.getItem('rof-jwt')||'';return{'Authorization':`Bearer ${t}`,'Content-Type':'application/json'};},
 
 };

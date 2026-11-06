@@ -218,19 +218,19 @@ test('Receipts: Receipt Print finds the receipt by registration number and by re
   await page.locator('#rp-receipt-no').fill('');
 });
 
-test('Receipts: Journal Entry tabs open, FETCH works, placeholder buttons say so', async () => {
+test('Receipts: Journal Entry tabs open, FETCH works, the unbuilt posting screens say they are switched off', async () => {
   await tab('journal');
   for (const t of ['dc', 'report', 'reversal', 'entry']) { await page.locator(`#je-tab-${t}`).click(); await settle(); await clean(); }
   await page.locator('#je-reg-filter').fill(S.reg);
   await page.locator('#je-fetch-btn').click();
   await expect(page.locator('#je-results-container')).toBeVisible();
   await clean();
+  // the debit/credit and register screens have no accounting rule yet (Finance Part B): they say so and carry no dead button
   await page.locator('#je-tab-dc').click();
-  await page.getByRole('button', { name: /POST DEBIT\/CREDIT/ }).click();
-  await expect(toast(/coming soon/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /POST DEBIT\/CREDIT/ })).toHaveCount(0);
+  await expect(page.locator('span:visible', { hasText: /Switched off until the owner approves/ }).first()).toBeVisible();
   await page.locator('#je-tab-report').click();
-  await page.getByRole('button', { name: 'FETCH' }).last().click();
-  await expect(toast(/coming soon/i).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'FETCH', exact: true })).toHaveCount(0);
   await page.locator('#je-tab-entry').click();
 });
 

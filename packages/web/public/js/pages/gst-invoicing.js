@@ -153,7 +153,7 @@ Pages.gstInvoicing = async function(params = {}) {
           </div>
           <div style="margin-top:12px;display:flex;gap:8px">
             <button class="btn btn-teal btn-lg" onclick="GSTPage.generateInvoice('gen')">Generate Invoice</button>
-            <button class="btn btn-ghost" onclick="GSTPage.previewInvoice('gen')">Preview PDF</button>
+
           </div>
           <div id="gst-gen-result" style="margin-top:12px"></div>
         </div>
@@ -669,11 +669,6 @@ const GSTPage = {
       a.href = URL.createObjectURL(await res.blob()); a.download = `${type}-${month}.csv`; a.click();
     } catch (err) { Utils.error(err.message); }
   },
-
-  previewInvoice(prefix) {
-    Utils.info('Invoice PDF preview coming soon');
-  },
-
   async fetchInvoice(prefix) {
     const invNo = document.getElementById(`${prefix}-inv-no`)?.value?.trim() || document.getElementById(`${prefix}-orig-inv`)?.value?.trim();
     if (!invNo) { Utils.warn('Please enter an invoice number'); return; }

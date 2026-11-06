@@ -32,14 +32,16 @@ const rateInput = (b: any, cur?: any) => {
 export const plcAmount = (rateType: string, value: number, carpet: number | null) => (rateType === 'flat' ? r2(value) : r2(value * (carpet || 0)));
 
 // GET /api/plc-charges?projectId= : the rates of a project, with the number of units at each location
-router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = uuid(req.query.projectId, 'projectId');
+    const params: any[] = [projectId];
+    const grant = grantClause(req.unitStatusFilter, 'u.status', params);   // the unit count follows the grant (U-C): zero for none
     const rows = (await db.query(
       `SELECT pc.id, pc.project_id, pc.unit_location_id, ul.name AS location_name, pc.rate_type, pc.rate_value, pc.is_active,
-              (SELECT count(*)::int FROM units u WHERE u.unit_location_id = pc.unit_location_id) AS unit_count
+              (SELECT count(*)::int FROM units u WHERE u.unit_location_id = pc.unit_location_id${grant}) AS unit_count
          FROM plc_charges pc JOIN unit_locations ul ON ul.id = pc.unit_location_id
-        WHERE pc.project_id = $1 ORDER BY ul.name`, [projectId])).rows;
+        WHERE pc.project_id = $1 ORDER BY ul.name`, params)).rows;
     res.json({ success: true, data: rows });
   } catch (err) { fail(err, res, next); }
 });

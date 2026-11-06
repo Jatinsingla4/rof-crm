@@ -158,6 +158,9 @@ t('unit shift to a BOOKED unit: 400 "not available" for every login (the status 
 // One project with a known mix of statuses (7 units on floor 3 of one tower), read by every kind of login.
 const P2_STATUSES = ['available', 'available', 'booked', 'allotted', 'held', 'locked', 'temp_surrender'];
 const p2 = []; for (const st of P2_STATUSES) { const x = must(await A('POST', '/units', { projectId: P2.id, towerId: T2.id, floor: 3, unitNumber: `Q${++un}-${U}`, bhkType: '3BHK', carpetAreaSqft: 900 }), 'unit'); if (st !== 'available') sql(`UPDATE units SET status = '${st}' WHERE id = '${x.id}'`); p2.push({ id: x.id, status: st }); }
+const PLCLOC = must(await A('POST', `/projects/${P2.id}/unit-locations`, { name: 'FL loc ' + U }), 'loc').id;
+must(await A('POST', '/plc-charges', { projectId: P2.id, unitLocationId: PLCLOC, rateType: 'flat', rateValue: 1000 }), 'plc rate');
+sql(`UPDATE units SET unit_location_id = '${PLCLOC}' WHERE project_id = '${P2.id}'`);   // every unit of P2 sits at this location
 const IDKEYS = 'id,project_id,project_name,tower,tower_id,tower_name,unit_number';
 const IDONLY = [none, nul, weird, empty];
 const n2 = (u) => p2.filter((x) => covers(u, x.status)).length, c2 = (u, st) => p2.filter((x) => x.status === st && covers(u, x.status)).length;
@@ -173,6 +176,8 @@ for (const u of USERS) {
     for (const q of ['status=booked', 'status=available', 'bhkType=3BHK', 'consumerName=zzz', 'registrationNo=zzz']) { const f = await raw(u.tok, 'GET', `/units/lookup?projectId=${P2.id}&pageSize=50&${q}`); if (!(f.s === 200 && (f.j?.data || []).length === 7)) P.lookupFilter.push(`${u.name} ?${q}: ${f.s} rows=${(f.j?.data || []).length}`); }
   }
   // U-P: the PLC unit list follows the grant (none: no unit)
+  r = await raw(u.tok, 'GET', `/plc-charges?projectId=${P2.id}`);   // the rate list: its unit_count follows the grant too
+  if (!(r.s === 200 && Number(r.j?.data?.find((x) => x.unit_location_id === PLCLOC)?.unit_count) === n)) P.plc.push(`${u.name}: rate unit_count ${r.s} ${r.j?.data?.[0]?.unit_count} want ${n}`);
   r = await raw(u.tok, 'GET', `/plc-charges/units?projectId=${P2.id}`); rows = r.j?.data || [];
   if (!(r.s === 200 && rows.length === n && rows.every((x) => covers(u, x.status)))) P.plc.push(`${u.name}: ${r.s} rows=${rows.length} want ${n}`);
   // U-C: project list row, project detail towers, tower list, one tower, floors, per-floor counts: counted over the covered units only (zero for none)

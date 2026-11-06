@@ -184,7 +184,7 @@ test('Campaigns: Launch queues the draft with the right number of people and the
   await expect(toast(/queued/i)).toBeVisible();
   expect(psql(`select status||'|'||total_recipients from broadcast_campaigns where name='Festival ${U}'`)).toBe('queued|2');   // Asha and Chand are enquiries with a mobile
   await settle(); await expect(row.getByRole('button', { name: 'Launch' })).toHaveCount(0);
-  await row.getByRole('button', { name: 'Details' }).click(); await clean();
+  await expect(row.getByRole('button', { name: 'Details' })).toHaveCount(0);   // the details view does not exist: no dead button
 });
 
 // ---------------- Communications ----------------

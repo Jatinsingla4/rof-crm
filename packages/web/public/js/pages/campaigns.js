@@ -161,7 +161,7 @@ const CampaignsPage = {
                   <td>${Utils.chip(c.status||'draft')}</td>
                   <td style="font-size:10.5px">${Utils.date(c.created_at||c.createdAt)}</td>
                   <td><div style="display:flex;gap:4px">
-                    <button class="btn btn-ghost btn-sm" onclick="CampaignsPage.view('${c.id}')">Details</button>
+
                     ${c.status==='draft' ? `<button class="btn btn-teal btn-sm" onclick="CampaignsPage.launch('${c.id}')">Launch</button>` : ''}
                   </div></td>
                 </tr>`;
@@ -198,10 +198,6 @@ const CampaignsPage = {
       document.getElementById('camp-modal').style.display = 'none';
       await this.load();
     } catch (err) { Utils.error(err.message); }
-  },
-
-  view(id) {
-    Utils.info(`Campaign details view coming soon — Campaign ID: ${id.slice(0,8)}`);
   },
 
   async launch(id) {

@@ -2650,19 +2650,19 @@ async function buildApplicantFileHtml(b, consumer, coApplicants, settings, alloc
               <td style="padding:8px;border:1px solid #ccc;text-align:center;">2</td>
               <td style="padding:8px;border:1px solid #ccc;">Reminder 1</td>
               <td style="padding:8px;border:1px solid #ccc;text-align:center;"><input type="date" id="date-reminder1" style="border:1px solid #ccc;padding:3px;font-size:11px;"></td>
-              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><a href="#" onclick="printLetter('reminder_1',document.getElementById('date-reminder1').value);return false;" style="color:#1a3c5e;font-weight:bold;text-decoration:none;">Print</a></td>
+              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><span title="This letter needs a template from the owner" style="color:#888;">Not set up</span></td>
             </tr>
             <tr>
               <td style="padding:8px;border:1px solid #ccc;text-align:center;">3</td>
               <td style="padding:8px;border:1px solid #ccc;">Reminder 2</td>
               <td style="padding:8px;border:1px solid #ccc;text-align:center;"><input type="date" id="date-reminder2" style="border:1px solid #ccc;padding:3px;font-size:11px;"></td>
-              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><a href="#" onclick="printLetter('reminder_2',document.getElementById('date-reminder2').value);return false;" style="color:#1a3c5e;font-weight:bold;text-decoration:none;">Print</a></td>
+              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><span title="This letter needs a template from the owner" style="color:#888;">Not set up</span></td>
             </tr>
             <tr>
               <td style="padding:8px;border:1px solid #ccc;text-align:center;">4</td>
               <td style="padding:8px;border:1px solid #ccc;">Termination</td>
               <td style="padding:8px;border:1px solid #ccc;text-align:center;"><input type="date" id="date-termination" style="border:1px solid #ccc;padding:3px;font-size:11px;"></td>
-              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><a href="#" onclick="printLetter('termination',document.getElementById('date-termination').value);return false;" style="color:#1a3c5e;font-weight:bold;text-decoration:none;">Print</a></td>
+              <td style="padding:8px;border:1px solid #ccc;text-align:center;"><span title="This letter needs a template from the owner" style="color:#888;">Not set up</span></td>
             </tr>
           </tbody>
         </table>
@@ -2718,10 +2718,7 @@ async function buildApplicantFileHtml(b, consumer, coApplicants, settings, alloc
     });
 
     async function printLetter(documentType, dueDate) {
-      if (documentType !== 'demand_letter') {
-        alert(documentType.replace(/_/g, ' ') + ' template coming soon');
-        return;
-      }
+      if (documentType !== 'demand_letter') return;   // the other letters have no template yet (their rows say so)
       if (!dueDate || dueDate.trim() === '') {
         alert('Please enter a Due Date before printing the Demand Letter.');
         return;
@@ -2902,16 +2899,11 @@ async function buildApplicantFileHtml(b, consumer, coApplicants, settings, alloc
 
   <div class="no-print action-bar">
     <button class="action-btn" onclick="openNewReceiptForm(CONSUMER_ID)">RECEIPT</button>
-    <button class="action-btn" onclick="alert('Lock feature coming soon')">LOCK</button>
     <button class="action-btn" onclick="window.print()">PRINT</button>
-    <button class="action-btn" onclick="alert('Document upload coming soon')">DOCUMENT</button>
     <button class="action-btn" onclick="document.getElementById('page3')&&document.getElementById('page3').scrollIntoView({behavior:'smooth'})">PRINTED DOCUMENT</button>
-    <button class="action-btn action-btn-warning" onclick="alert('Reset Interest coming soon')">RESET INTEREST</button>
     <button class="action-btn action-btn-primary" onclick="openLetterModal()">LETTER</button>
-    <button class="action-btn" onclick="alert('History coming soon')">HISTORY</button>
     <button class="action-btn" onclick="openReceiptDetailPage(CONSUMER_ID)">RECEIPT DETAIL</button>
     <button class="action-btn" onclick="openTaxDetail()">TAX DETAIL</button>
-    <button class="action-btn" onclick="alert('Invoice coming soon')">INVOICE</button>
   </div>
 </body>
 </html>`;

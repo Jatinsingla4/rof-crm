@@ -59,7 +59,7 @@ Pages.demands = async function(params = {}) {
           <div class="tbl-actions">
             <button class="btn btn-accent btn-sm" onclick="Router.navigate('/demand-raise')">Raise New Demand</button>
             <button class="btn btn-ghost btn-sm" onclick="DemandsPage.sendAllUnsent()">Send All Unsent</button>
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('Export coming soon')">Export Excel</button>
+            
           </div>
         </div>
         <div id="demands-tbl-body"><div class="page-loading"><div class="spinner"></div> Loading…</div></div>
@@ -118,7 +118,7 @@ Pages.demands = async function(params = {}) {
         <div class="tbl-hdr">
           <div class="tbl-title">Demand Status Report</div>
           <div class="tbl-actions">
-            <button class="btn btn-ghost btn-sm" onclick="Utils.info('Export coming soon')">Export Excel</button>
+            
           </div>
         </div>
         <div id="ds-body"><div class="page-loading"><div class="spinner"></div></div></div>

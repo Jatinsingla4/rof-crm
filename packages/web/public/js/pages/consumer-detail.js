@@ -363,7 +363,7 @@ const ConsumerDetailPage = {
                   <td class="td-mono">${r.transaction_ref || '—'}</td>
                   <td>${Utils.date(r.received_date || r.created_at)}</td>
                   <td>${Utils.chip(r.status || r.approval_status || 'pending')}</td>
-                  <td><button class="btn btn-ghost btn-sm" onclick="Utils.info('PDF coming soon')">Print</button></td>
+                  <td><button class="btn btn-ghost btn-sm" onclick="ReceiptsPage.printReceipt('${r.id}')">Print</button></td>
                 </tr>`).join('')}
           </tbody>
         </table>`;

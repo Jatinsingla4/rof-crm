@@ -810,7 +810,7 @@
               <button class="gstc-btn-save" onclick="GSTConfig.fetchChargeMap()">FETCH</button>
             </div>
             <div class="gstc-field" style="justify-content:flex-end">
-              <button class="gstc-btn-track" onclick="GSTConfig.openAddonConfig()">GST ADDON CONFIGURATION</button>
+
             </div>
             <div class="gstc-field" style="justify-content:flex-end">
               <button class="gstc-btn-track">TRACK</button>
@@ -893,11 +893,6 @@
       alert('Error: ' + e.message);
     }
   }
-
-  function _openAddonConfig() {
-    alert('GST Addon Configuration — coming soon.');
-  }
-
   async function _deleteChargeMap(id) {
     if (!confirm('Delete this mapping?')) return;
     try {
@@ -1204,7 +1199,6 @@
     editTax:             _editTax,
     deleteTax:           _deleteTax,
     fetchChargeMap:      _fetchChargeMap,
-    openAddonConfig:     _openAddonConfig,
     deleteChargeMap:     _deleteChargeMap,
     onMapSlabChange:     _onMapSlabChange,
     saveChargeMap:       _saveChargeMap,
