@@ -152,6 +152,10 @@ jobs:
           echo "Running: $(echo $scripts | wc -w) test scripts"
           .github/scripts/run-api-tests.sh $scripts
 
+      - name: Keep fuzz test names readable for the browser tests
+        # See the header of the SQL file: a random run can leave a project or person literally named "NaN", which the browser tests reject.
+        run: psql -v ON_ERROR_STOP=1 -f .github/scripts/neutralise-fuzz-names.sql
+
       - name: Install the browser for the flow tests
         working-directory: e2e
         run: |
