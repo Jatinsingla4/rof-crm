@@ -194,7 +194,9 @@ router.get('/receipts', async (req, res, next) => {
             const id = add((0, input_js_1.uuid)(q.consumerId, 'consumerId'));
             where += ` AND r.consumer_id = ${id} AND r.payment_plan_id = (
         SELECT pp2.id FROM payment_plans pp2 WHERE pp2.consumer_id = ${id}
-           AND pp2.unit_id = (SELECT b2.unit_id FROM booking_records b2 WHERE b2.consumer_id = ${id} AND b2.status IN ('complete','pending_payment','active') ORDER BY b2.created_at DESC LIMIT 1)
+           AND pp2.unit_id = COALESCE(
+             (SELECT b2.unit_id FROM booking_records b2 WHERE b2.consumer_id = ${id} AND b2.status IN ('complete','pending_payment','active') ORDER BY b2.created_at DESC LIMIT 1),
+             (SELECT b3.unit_id FROM booking_records b3 WHERE b3.consumer_id = ${id} ORDER BY b3.created_at DESC LIMIT 1))   -- a surrendered or cancelled booking keeps its receipts on the applicant file
          ORDER BY pp2.created_at DESC LIMIT 1)`;
         }
         if ((0, input_js_1.has)(q.projectId))
@@ -246,6 +248,7 @@ router.get('/receipts', async (req, res, next) => {
         const result = await index_js_1.db.query(`SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index, r.consumer_id, r.amount_received_inr, r.payment_method, r.cgst_amount, r.sgst_amount,
               r.transaction_ref, r.received_date, r.created_at, r.status, r.approval_status, r.bank_name, r.print_status, r.printed_at,
               r.plc_amount, r.edc_amount, r.idc_amount, r.other_charge_amount, r.other_charge_desc, r.interest_amount,
+              COALESCE(r.is_advance, false) AS is_advance,
               c.name AS consumer_name, c.mobile, c.registration_no, c.first_name, c.last_name,
               pp.project_id, p.name AS project_name, u.unit_number, t.id::text AS tower_id, t.tower_name,
               u_creator.name AS generated_by_name, u_printer.name AS printed_by_name,

@@ -443,7 +443,7 @@
       ${_renderProjectSection(u, t, p, br, bk, al, addons)}
       ${_renderFinancialSection(fin, interestBalance)}
       ${_renderPaymentSchedule(demands, sched, fin, receipts)}
-      ${_renderReceiptSection(receipts)}
+      ${_renderReceiptSection(receipts, d.unclearedReceipts || [])}
       ${_renderInterestCalcSection(demands, receipts)}
       ${_renderRemarksSection(dispatches)}
       ${_renderActionForm(fin, addons)}
@@ -712,7 +712,7 @@
   }
 
   // ── SECTION 5: RECEIPT INFORMATION ────────────────────────────────────────
-  function _renderReceiptSection(receipts) {
+  function _renderReceiptSection(receipts, uncleared = []) {
     let totAmt = 0, totST = 0, totCGST = 0, totSGST = 0, totITC = 0, totInt = 0, totNet = 0;
 
     const rows = receipts.map((r, i) => {
@@ -751,6 +751,7 @@
     return `
       <div class="sur-section">
         <div class="sur-section-title">RECEIPT INFORMATION</div>
+        ${uncleared.length ? `<div style="margin:6px 14px;padding:8px 12px;background:#fff3cd;border:1px solid #e0b84a;font-size:12px">${uncleared.length} receipt(s) totalling ${_fmt(uncleared.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0))} are not cleared yet (${uncleared.map((r) => _v(r.receipt_number) + ' ' + _v(r.status)).join(', ')}). They are not counted as received below and are not part of the refund until they clear.</div>` : ''}
         <div style="text-align:right;padding:4px 14px;font-size:11px">
           <span style="display:inline-flex;align-items:center;gap:4px;margin-right:14px"><span style="display:inline-block;width:14px;height:14px;background:#c00;border:1px solid #aaa"></span> Bounce cheque</span>
           <span style="display:inline-flex;align-items:center;gap:4px"><span style="display:inline-block;width:14px;height:14px;background:#fffbe6;border:1px solid #aaa"></span> Pending cheque</span>

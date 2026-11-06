@@ -79,7 +79,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
 
     const [
       mainRes, coAppRes, receiptsRes, demandsRes,
-      scheduleRes, waiverRes, addonRes, dispatchRes, penalRes,
+      scheduleRes, waiverRes, addonRes, dispatchRes, penalRes, unclearedRes,
     ] = await Promise.all([
       db.query(
         `SELECT
@@ -187,6 +187,14 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
          WHERE pi.consumer_id = $1`,
         [consumerId],
       ),
+      // money on receipts that are not in the bank yet (pending, authorized, deposited, on hold): shown, but never counted as received
+      db.query(
+        `SELECT r.id, r.receipt_number, r.received_date, r.payment_method, r.amount_received_inr, r.status
+           FROM receipts r
+          WHERE r.consumer_id = $1 AND r.status NOT IN ('cleared', 'cancelled', 'bounced') AND NOT COALESCE(r.is_advance, false)
+          ORDER BY r.received_date ASC`,
+        [consumerId],
+      ),
     ]);
 
     if (mainRes.rows.length === 0) {
@@ -272,6 +280,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
           agreement_execute_date: row.agreement_execute_date,
         },
         receipts:          receiptsRes.rows,
+        unclearedReceipts: unclearedRes.rows,
         demands:           demandsRes.rows,
         scheduleTemplates: scheduleRes.rows,
         addonCharges:      addonRes.rows,
@@ -293,6 +302,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
           totalReceived,
           totalInterestPaid,
           balance,
+          unclearedTotal: unclearedRes.rows.reduce((s: number, r: any) => s + parseFloat(r.amount_received_inr || 0), 0),
         },
       },
     });

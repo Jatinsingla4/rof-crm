@@ -1099,8 +1099,8 @@ const ReceiptsPage = {
         byHead[head].receipts.push(r);
       });
 
-      // a cancelled, bounced or rejected receipt is not money collected: the total and the counts leave it out
-      const live = list.filter(r => !['cancelled', 'bounced', 'rejected'].includes(String(r.status || '').toLowerCase()) && String(r.approval_status || '').toLowerCase() !== 'rejected');
+      // a cancelled, bounced or rejected receipt is not money collected, and an advance receipt only splits money another receipt already holds: the total and the counts leave them out
+      const live = list.filter(r => !r.is_advance && !['cancelled', 'bounced', 'rejected'].includes(String(r.status || '').toLowerCase()) && String(r.approval_status || '').toLowerCase() !== 'rejected');
       const grandTotal = live.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
       const approved = live.filter(r => String(r.approval_status || '').toLowerCase() === 'approved');
       const pending = live.filter(r => String(r.status || '').toLowerCase() === 'pending');

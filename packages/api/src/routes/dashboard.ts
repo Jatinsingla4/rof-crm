@@ -19,7 +19,7 @@ const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;
 const SALE = `br.status IN ('complete','pending_payment','active')`;               // the same rule the reports use for a sale
 const CHEQUE = `r.payment_method::text IN ('cheque','bank_transfer')`;
-const IN_FLIGHT = `r.status NOT IN ('cancelled','bounced','cleared')`;             // not yet in the bank
+const IN_FLIGHT = `r.status NOT IN ('cancelled','bounced','cleared') AND NOT COALESCE(r.is_advance, false)`;   // an advance receipt only splits money another receipt already holds             // not yet in the bank
 
 const panels = {
   // cheques and demand drafts that are not in the bank yet, per project

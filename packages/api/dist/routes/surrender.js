@@ -83,7 +83,7 @@ router.get('/consumers', async (req, res, next) => {
 router.get('/detail/:consumerId', async (req, res, next) => {
     try {
         const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'Applicant id');
-        const [mainRes, coAppRes, receiptsRes, demandsRes, scheduleRes, waiverRes, addonRes, dispatchRes, penalRes,] = await Promise.all([
+        const [mainRes, coAppRes, receiptsRes, demandsRes, scheduleRes, waiverRes, addonRes, dispatchRes, penalRes, unclearedRes,] = await Promise.all([
             index_js_1.db.query(`SELECT
            c.id, c.first_name, c.last_name, c.salutation, c.father_name,
            c.present_address, c.present_city, c.present_state, c.present_pin,
@@ -166,6 +166,11 @@ router.get('/detail/:consumerId', async (req, res, next) => {
             index_js_1.db.query(`SELECT COALESCE(SUM(pi.amount_inr), 0) AS total_interest
          FROM penal_interests pi
          WHERE pi.consumer_id = $1`, [consumerId]),
+            // money on receipts that are not in the bank yet (pending, authorized, deposited, on hold): shown, but never counted as received
+            index_js_1.db.query(`SELECT r.id, r.receipt_number, r.received_date, r.payment_method, r.amount_received_inr, r.status
+           FROM receipts r
+          WHERE r.consumer_id = $1 AND r.status NOT IN ('cleared', 'cancelled', 'bounced') AND NOT COALESCE(r.is_advance, false)
+          ORDER BY r.received_date ASC`, [consumerId]),
         ]);
         if (mainRes.rows.length === 0) {
             throw (0, input_js_1.bad)('Consumer not found or no active booking', 404);
@@ -247,6 +252,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
                     agreement_execute_date: row.agreement_execute_date,
                 },
                 receipts: receiptsRes.rows,
+                unclearedReceipts: unclearedRes.rows,
                 demands: demandsRes.rows,
                 scheduleTemplates: scheduleRes.rows,
                 addonCharges: addonRes.rows,
@@ -268,6 +274,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
                     totalReceived,
                     totalInterestPaid,
                     balance,
+                    unclearedTotal: unclearedRes.rows.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0),
                 },
             },
         });
