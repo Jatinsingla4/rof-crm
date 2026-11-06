@@ -44,6 +44,7 @@ const PROCESSES = [
     { name: 'jv_refund_drcr', label: 'JV/Refund/DrCr', has_maker: true, has_checker: true },
     { name: 'broker_range_entry', label: 'Broker Range Entry', has_maker: true, has_checker: true },
     { name: 'broker_payment_entry', label: 'Broker Payment Entry', has_maker: true, has_checker: false },
+    { name: 'company_rebate', label: 'Company Rebate', has_maker: false, has_checker: true },
 ];
 const HOME_PAGE_WIDGETS = [
     { key: 'enquiry', label: 'Enquiry' },

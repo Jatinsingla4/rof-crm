@@ -67,7 +67,7 @@ async function loadLedger(f = {}) {
             c.mobile, c.email, c.customer_classification AS classification,
             l.booking_date::text AS booking_date, l.selected_plan_name AS plan_name, l.main_broker_id AS broker_id,
             COALESCE(bk.firm_name, bk.name, 'Direct') AS broker_name, l.self_or_loan,
-            (${BASE} - COALESCE(l.dealer_adjustment_amount,0) - COALESCE(l.company_inaugural_disc,0)) AS net_basic_price,
+            (${BASE} - COALESCE(l.dealer_adjustment_amount,0) - COALESCE(l.company_inaugural_disc,0) - COALESCE(l.approved_rebate_amount,0)) AS net_basic_price,
             COALESCE(l.plc_amount,0) AS plc_amount, COALESCE(l.other_charge_amount,0) AS other_charge_amount,
             pl.id AS plan_id, ${business_date_js_1.SQL_TODAY}::text AS today,
             COALESCE(l.basic_rate_inr_sqft,0) AS rate,

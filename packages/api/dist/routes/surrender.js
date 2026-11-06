@@ -93,7 +93,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
            br.booking_date, br.booking_amount,
            br.company_inaugural_disc,
            br.selected_plan_name,
-           br.basic_rate_inr_sqft,
+           br.basic_rate_inr_sqft, br.approved_rebate_amount,
            br.plc_amount, br.other_charge_amount, br.balcony_charge_amount,
            br.other_charge_desc,
            br.booking_type,
@@ -184,7 +184,8 @@ router.get('/detail/:consumerId', async (req, res, next) => {
             ? Math.round(basicRate * carpetArea)
             : parseFloat(row.booking_amount || 0);
         const inauguralDiscount = parseFloat(row.company_inaugural_disc || 0);
-        const netBasicPrice = grossBasicPrice - inauguralDiscount; // the same net price the payment plan and the demand letter use (the discount used to be ignored here)
+        const approvedRebate = parseFloat(row.approved_rebate_amount || 0); // an approved company rebate comes off the basic price too (QA-007)
+        const netBasicPrice = grossBasicPrice - inauguralDiscount - approvedRebate; // the same net price the payment plan and the demand letter use
         const plcAmount = parseFloat(row.plc_amount || 0);
         const otherCharge = parseFloat(row.other_charge_amount || 0);
         const addonTotal = addonRes.rows.reduce((s, c) => s + parseFloat(c.total_amount || 0), 0);

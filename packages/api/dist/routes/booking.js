@@ -14,6 +14,8 @@ const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
+const processPermission_js_1 = require("../middleware/processPermission.js");
+const rebate_js_1 = require("../utils/rebate.js");
 const input_js_1 = require("../utils/input.js");
 const holds_js_1 = require("../utils/holds.js");
 const broker_js_1 = require("../utils/broker.js");
@@ -79,6 +81,8 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
+    if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path))
+        return next(); // decided by the company_rebate checker permission, checked on the route
     const confirmStep = req.method === 'PATCH' && /^\/[^/]+$/.test(req.path);
     const need = req.method === 'POST' && req.path === '/' ? 'create' : 'edit';
     if ((0, rbac_js_1.hasPermission)(req.userRole, 'consumers', need) || (confirmStep && (0, rbac_js_1.hasPermission)(req.userRole, 'payments', 'edit')))
@@ -123,6 +127,7 @@ const parseNew = (b) => {
         o[k] = calc(b[k], k.replace(/_/g, ' '));
     for (const k of ['company_rebate_pct', 'broker_rebate_pct', 's_tax_pct', 'cgst_pct', 'sgst_pct', 'gst_interest_pct'])
         o[k] = pct(b[k], k.replace(/_/g, ' '));
+    (0, rebate_js_1.rebateMethodOf)(o.company_rebate_rs, o.company_rebate_sqft, o.company_rebate_pct); // one method only (owner decision Q10)
     o.booking_type = (0, input_js_1.has)(b.booking_type) ? b.booking_type : 'direct';
     if (!['direct', 'broker'].includes(o.booking_type))
         throw (0, input_js_1.bad)('booking_type must be direct or broker');
@@ -346,6 +351,7 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
                 throw (0, input_js_1.bad)('This unit has no price. Set its Base Price in Set Projects, or enter a rate and make sure the unit has a carpet area, before booking it.');
             if (company_inaugural_disc > basicEstimate && basicEstimate > 0)
                 throw (0, input_js_1.bad)('The inaugural discount is more than the basic price of the unit');
+            const rebate = (0, rebate_js_1.checkRebate)(company_rebate_rs, company_rebate_sqft, company_rebate_pct, basicEstimate, unit, company_inaugural_disc);
             if (estimate > 0 && booking_amount > estimate * AMOUNT_ROOM)
                 throw (0, input_js_1.bad)(`The booking amount is far more than the price of this unit (about Rs ${estimate.toLocaleString('en-IN')}). Please check it.`);
             if (booking_type === 'broker' && broker_id && broker_commission_type === 'flat' && basicEstimate > 0 && broker_commission > basicEstimate)
@@ -442,6 +448,11 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
                 basic_price > 0 ? basic_price : null,
                 carpet_area_sqft > 0 ? carpet_area_sqft : null,
             ]);
+            // A rebate typed on the form is only a request: pending until another authorised user approves it, and until then it changes no price (Q11)
+            if (rebate.method !== 'none') {
+                await client.query(`UPDATE booking_records SET company_rebate_status = 'pending', rebate_requested_by = $2, rebate_requested_at = NOW() WHERE id = $1`, [result.rows[0].id, req.userId]);
+                result.rows[0].company_rebate_status = 'pending';
+            }
             // Resolve BASIC GST rate server-side (same pattern as PATCH /:id) and
             // derive cgst_amount/sgst_amount from the confirmed booking_amount --
             // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
@@ -494,6 +505,8 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
            VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)`, [broker_id, consumer_id, project_id, unit_id, commission, req.userId, result.rows[0].id]);
             }
             await client.query('COMMIT');
+            if (rebate.method !== 'none')
+                await (0, auditLogger_js_1.logAudit)(index_js_1.db, req.userId || null, 'create', 'booking_rebate', result.rows[0].id, undefined, { status: 'pending', method: rebate.method, entered: rebate.value, calculated_amount: rebate.amount });
             res.status(201).json({ success: true, data: { ...result.rows[0], registration_no: registrationNo, form_no: formNo } });
         }
         catch (err) {
@@ -675,6 +688,27 @@ router.patch('/:id/edit', async (req, res, next) => {
                 if ((bk.company_inaugural_disc ?? cur.company_inaugural_disc) > basic && basic > 0)
                     throw (0, input_js_1.bad)('The inaugural discount is more than the basic price of the unit');
             }
+            // Company rebate: one method only, within the basic price. Changing it (or what it is calculated from) after approval sends it back to pending
+            // and takes it out of the price again (Q10, Q11). A legacy or rejected rebate is sent for approval again with resubmit_rebate.
+            const extra = {};
+            let rebateEvent = null;
+            {
+                const REB = ['company_rebate_rs', 'company_rebate_sqft', 'company_rebate_pct'];
+                const eff = (k) => (bk[k] !== undefined ? bk[k] : cur[k]);
+                const touched = REB.some(k => bkChanged.includes(k)) || (cur.company_rebate_status === 'approved' && ['basic_rate_inr_sqft', 'carpet_area_sqft', 'company_inaugural_disc'].some(k => bkChanged.includes(k)));
+                const resubmit = b.resubmit_rebate === true && ['legacy', 'rejected'].includes(cur.company_rebate_status);
+                if (touched || resubmit) {
+                    const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                    const basic = (0, rebate_js_1.basicPriceOf)(eff('basic_rate_inr_sqft'), u);
+                    const rb = (0, rebate_js_1.checkRebate)(eff('company_rebate_rs'), eff('company_rebate_sqft'), eff('company_rebate_pct'), basic, u, eff('company_inaugural_disc'));
+                    const was = cur.company_rebate_status;
+                    const next = rb.method === 'none' ? 'none' : 'pending';
+                    Object.assign(extra, { company_rebate_status: next, approved_rebate_amount: 0, rebate_requested_by: next === 'pending' ? req.userId : null, rebate_requested_at: next === 'pending' ? new Date() : null, rebate_decided_by: null, rebate_decided_at: null, rebate_decision_reason: null });
+                    if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete')
+                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: 0 });
+                    rebateEvent = { was, next, method: rb.method, entered: rb.value, calculated_amount: rb.amount };
+                }
+            }
             // applicant part
             if (cons.first_name !== undefined || cons.last_name !== undefined) {
                 const nm = (0, applicant_fields_js_1.personName)(undefined, cons.first_name ?? consCur.first_name, cons.last_name ?? consCur.last_name, cons.applicant_type ?? consCur.applicant_type);
@@ -689,14 +723,16 @@ router.patch('/:id/edit', async (req, res, next) => {
                 await (0, applicant_fields_js_1.lock)(c, `consumer:${consCur.project_id || ''}:${cons.mobile ?? consCur.mobile}`);
             if (cons.mobile !== undefined || cons.pan_no)
                 await (0, applicant_fields_js_1.checkIdentity)(c, consCur.project_id, consCur.id, cons.mobile && cons.mobile !== consCur.mobile ? cons.mobile : null, cons.pan_no && String(cons.pan_no).toUpperCase() !== String(consCur.pan_no || '').toUpperCase() ? cons.pan_no : null);
-            const bkRow = bkChanged.length ? (await setCols(c, 'booking_records', id, Object.fromEntries(bkChanged.map(k => [k, bk[k]])), '*')).rows[0] : cur;
+            const bkRow = (bkChanged.length || Object.keys(extra).length) ? (await setCols(c, 'booking_records', id, { ...Object.fromEntries(bkChanged.map(k => [k, bk[k]])), ...extra }, '*')).rows[0] : cur;
             const cRow = (await (consChanged.length ? setCols(c, 'consumers', consCur.id, Object.fromEntries(consChanged.map(k => [k, cons[k]])), CONSUMER_SHOWN) : c.query(`SELECT ${CONSUMER_SHOWN} FROM consumers WHERE id = $1`, [consCur.id]))).rows[0];
-            return { cur, bkRow, cRow, bkChanged, consChanged, consCur, bk, cons };
+            return { cur, bkRow, cRow, bkChanged, consChanged, consCur, bk, cons, rebateEvent };
         });
         const hide = (k) => !k.endsWith('_hash');
         if (out.bkChanged.length || out.consChanged.length) {
             await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'booking', id, (0, applicant_fields_js_1.forAudit)({ ...Object.fromEntries(out.bkChanged.map(k => [k, out.cur[k] instanceof Date ? (0, applicant_fields_js_1.asText)(out.cur[k]) : out.cur[k] ?? null])), ...Object.fromEntries(out.consChanged.filter(hide).map(k => ['applicant_' + k, out.consCur[k] instanceof Date ? (0, applicant_fields_js_1.asText)(out.consCur[k]) : out.consCur[k] ?? null])) }), (0, applicant_fields_js_1.forAudit)({ ...Object.fromEntries(out.bkChanged.map(k => [k, out.bk[k]])), ...Object.fromEntries(out.consChanged.filter(hide).map(k => ['applicant_' + k, out.cons[k]])) }));
         }
+        if (out.rebateEvent)
+            await (0, auditLogger_js_1.logAudit)(index_js_1.db, req.userId || null, 'update', 'booking_rebate', id, { status: out.rebateEvent.was, approved_rebate_amount: out.cur.approved_rebate_amount }, { status: out.rebateEvent.next, method: out.rebateEvent.method, entered: out.rebateEvent.entered, calculated_amount: out.rebateEvent.calculated_amount, approved_rebate_amount: 0 });
         res.locals.auditLogged = true;
         res.json({ success: true, data: { booking: out.bkRow, consumer: out.cRow }, changed: [...out.bkChanged, ...out.consChanged.filter(hide).map(k => 'applicant_' + k)] });
     }
@@ -882,6 +918,7 @@ router.patch('/:id', async (req, res, next) => {
                         + parseFloat(booking.plc_amount || 0)
                         + parseFloat(booking.other_charge_amount || 0)
                         - parseFloat(booking.company_inaugural_disc || 0)
+                        - parseFloat(booking.approved_rebate_amount || 0)
                         + balconyChargeAmount;
                     await client.query(`SELECT id FROM consumers WHERE id = $1 FOR UPDATE`, [booking.consumer_id]);
                     if (await holds(client, booking.consumer_id, booking.unit_id))
@@ -1077,8 +1114,8 @@ router.patch('/:id', async (req, res, next) => {
                     const qtyMap = new Map((await client.query('SELECT charge_master_id, quantity FROM unit_addon_charges WHERE unit_id = $1', [booking.unit_id])).rows.map((r) => [r.charge_master_id, Number(r.quantity)]));
                     const qtyOf = (r) => qtyMap.get(r.charge_master_id) ?? 1;
                     // A "% of basic" charge is a share of the unit's basic price, less this booking's discounts when the charge says so
-                    const discRow = (await client.query(`SELECT company_inaugural_disc, dealer_adjustment_amount FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1`, [booking.consumer_id, booking.unit_id])).rows[0] || {};
-                    const bookingDisc = { inaugural: discRow.company_inaugural_disc, dealer: discRow.dealer_adjustment_amount };
+                    const discRow = (await client.query(`SELECT company_inaugural_disc, dealer_adjustment_amount, approved_rebate_amount FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 AND status != 'cancelled' ORDER BY created_at DESC LIMIT 1`, [booking.consumer_id, booking.unit_id])).rows[0] || {};
+                    const bookingDisc = { inaugural: Number(discRow.company_inaugural_disc || 0) + Number(discRow.approved_rebate_amount || 0), dealer: discRow.dealer_adjustment_amount }; // an approved company rebate is part of the discount
                     for (const row of addonPctRows.rows) {
                         // Skip if already exists (idempotency guard)
                         const existing = await client.query(`SELECT id FROM consumer_addon_charges
@@ -3230,6 +3267,42 @@ router.post('/:id/cancel', async (req, res, next) => {
         fail(err, res, next);
     }
 });
+// POST /api/booking/:id/rebate/approve | /reject  (owner decision Q11)
+// Only a user with the company_rebate checker permission (or a super admin), and never the user who entered the rebate. Approving applies the
+// rupee amount to the price; rejecting keeps the reason. Both are logged. The permission is enforced here, not in the screen.
+const rebateDecision = (approve) => async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const reason = (0, input_js_1.text)((0, input_js_1.body)(req).reason, 'reason', 500, !approve);
+        const out = await (0, input_js_1.inTx)(async (c) => {
+            const cur = (await c.query(`SELECT * FROM booking_records WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            if (!cur)
+                throw (0, input_js_1.bad)('Booking not found', 404);
+            if (cur.status === 'cancelled')
+                throw conflict('This booking is cancelled.');
+            if (cur.company_rebate_status !== 'pending')
+                throw conflict(`This rebate is "${cur.company_rebate_status}", it is not waiting for a decision.`);
+            if (cur.rebate_requested_by && cur.rebate_requested_by === req.userId)
+                throw (0, input_js_1.bad)('You entered this rebate yourself, so someone else has to decide it.', 403);
+            const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+            const rb = (0, rebate_js_1.checkRebate)(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, (0, rebate_js_1.basicPriceOf)(cur.basic_rate_inr_sqft, u), u, cur.company_inaugural_disc);
+            if (rb.method === 'none')
+                throw conflict('There is no rebate on this booking.');
+            const amount = approve ? rb.amount : 0;
+            if (approve)
+                await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: amount });
+            const row = (await c.query(`UPDATE booking_records SET company_rebate_status = $2, approved_rebate_amount = $3, rebate_decided_by = $4, rebate_decided_at = NOW(), rebate_decision_reason = $5 WHERE id = $1 RETURNING *`, [id, approve ? 'approved' : 'rejected', amount, req.userId, reason])).rows[0];
+            return { row, rb, requestedBy: cur.rebate_requested_by };
+        });
+        await (0, auditLogger_js_1.logAudit)(index_js_1.db, req.userId || null, 'update', 'booking_rebate', id, { status: 'pending', requested_by: out.requestedBy }, { status: approve ? 'approved' : 'rejected', method: out.rb.method, entered: out.rb.value, calculated_amount: out.rb.amount, approved_rebate_amount: out.row.approved_rebate_amount, reason });
+        res.json({ success: true, data: { id, company_rebate_status: out.row.company_rebate_status, approved_rebate_amount: out.row.approved_rebate_amount } });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+};
+router.post('/:id/rebate/approve', (0, processPermission_js_1.requireProcess)('company_rebate', 'checker'), rebateDecision(true));
+router.post('/:id/rebate/reject', (0, processPermission_js_1.requireProcess)('company_rebate', 'checker'), rebateDecision(false));
 // GET /api/booking/:id
 router.get('/:id', async (req, res, next) => {
     try {

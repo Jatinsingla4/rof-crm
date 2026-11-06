@@ -9,6 +9,6 @@ exports.chargeAreaSql = chargeAreaSql;
 exports.PERCENT_BASES = ['basic', 'after_discount'];
 const percentChargeBase = (basic, inaugural, dealer, basis) => Math.max(0, Number(basic || 0) - (basis === 'after_discount' ? Number(inaugural || 0) + Number(dealer || 0) : 0));
 exports.percentChargeBase = percentChargeBase;
-const percentChargeSql = (acm, unit, booking) => `ROUND(${acm}.percent_value / 100 * GREATEST(0, COALESCE(${unit}.base_price_inr, 0) - CASE WHEN ${acm}.percent_basis = 'after_discount' THEN COALESCE(${booking}.company_inaugural_disc, 0) + COALESCE(${booking}.dealer_adjustment_amount, 0) ELSE 0 END), 2)`;
+const percentChargeSql = (acm, unit, booking) => `ROUND(${acm}.percent_value / 100 * GREATEST(0, COALESCE(${unit}.base_price_inr, 0) - CASE WHEN ${acm}.percent_basis = 'after_discount' THEN COALESCE(${booking}.company_inaugural_disc, 0) + COALESCE(${booking}.approved_rebate_amount, 0) + COALESCE(${booking}.dealer_adjustment_amount, 0) ELSE 0 END), 2)`;
 exports.percentChargeSql = percentChargeSql;
 //# sourceMappingURL=charge-area.js.map

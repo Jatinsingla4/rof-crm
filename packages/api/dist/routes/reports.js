@@ -585,7 +585,7 @@ router.get('/tower-floor-sales', async (req, res, next) => {
         const brJoin = `
       LEFT JOIN LATERAL (
         SELECT b.consumer_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
-               b.company_inaugural_disc, b.plc_amount, b.other_charge_amount
+               b.company_inaugural_disc, b.approved_rebate_amount, b.plc_amount, b.other_charge_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status IN ('complete','pending_payment','active')
         ORDER BY b.created_at DESC
@@ -596,6 +596,7 @@ router.get('/tower-floor-sales', async (req, res, next) => {
         const totalUnitCostExpr = `(${unitCostBase}
         - COALESCE(br.dealer_adjustment_amount, 0)
         - COALESCE(br.company_inaugural_disc, 0)
+        - COALESCE(br.approved_rebate_amount, 0)
         + COALESCE(br.plc_amount, 0)
         + COALESCE(br.other_charge_amount, 0))`;
         const receivedJoin = `
@@ -1266,6 +1267,7 @@ router.get('/stock-report', async (req, res, next) => {
             ${(0, report_ledger_js_1.baseCostSql)('br', 'u')}
             - COALESCE(br.dealer_adjustment_amount, 0)
             - COALESCE(br.company_inaugural_disc, 0)
+            - COALESCE(br.approved_rebate_amount, 0)
           ELSE 0 END
         ), 0)                                                                   AS sold_stock_value,
         COUNT(u.id) FILTER (WHERE u.status = 'available')                       AS unsold_stock_unit,
@@ -1275,7 +1277,7 @@ router.get('/stock-report', async (req, res, next) => {
       JOIN companies c ON c.id = pr.company_id
       JOIN units u ON u.project_id = pr.id
       LEFT JOIN LATERAL (
-        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc
+        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status != 'cancelled'
         ORDER BY b.created_at DESC
