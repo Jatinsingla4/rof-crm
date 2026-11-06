@@ -948,7 +948,8 @@ const ReceiptsPage = {
     try {
       const saved = await Api.post('/payments/receipts', body);
       Utils.success('Receipt saved successfully');
-      (saved?.warnings || []).forEach((w) => Utils.warn(w));   // an extra amount or a missing demand is said out loud, the receipt itself is recorded
+      // an extra amount or a missing demand is said in a box that stays until it is read; the receipt itself is recorded
+      if ((saved?.warnings || []).length) await Utils.ask('Receipt saved.\n\n' + saved.warnings.join('\n\n'), { okText: 'OK, understood', cancelText: 'Close' });
       this.reset();
     } catch (err) { Utils.error(err.message); }
   },

@@ -195,6 +195,9 @@ router.get('/receipts', async (req: AuthRequest, res: Response, next: NextFuncti
              (SELECT b3.unit_id FROM booking_records b3 WHERE b3.consumer_id = ${id} ORDER BY b3.created_at DESC LIMIT 1))   -- a surrendered or cancelled booking keeps its receipts on the applicant file
          ORDER BY pp2.created_at DESC LIMIT 1)`;
     }
+    // An advance receipt only splits the extra money of another receipt over the next instalments (the same cash is already on that receipt):
+    // it is kept out of every receipt list, total and approval queue unless asked for (includeAdvance=true).
+    if (q.includeAdvance !== 'true') where += ' AND NOT COALESCE(r.is_advance, false)';
     if (has(q.projectId)) where += ` AND pp.project_id = ${add(uuid(q.projectId, 'projectId'))}`;
     if (has(q.towerId)) where += ` AND t.id = ${add(uuid(q.towerId, 'towerId'))}`;
     if (has(q.brokerId)) where += ` AND b.id = ${add(uuid(q.brokerId, 'brokerId'))}`;

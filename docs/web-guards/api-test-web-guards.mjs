@@ -83,6 +83,10 @@ t('the email template screen does not use the legal letter templates', !/documen
 const nativeAsk = pages.filter((f) => /(^|[^.\w])confirm\(|window\.confirm\(/.test(fs.readFileSync(path.join(PAGES, f), 'utf8').replace(/async confirm\(/g, ''))).map((f) => f);
 t('no screen uses the native confirm() box (use Utils.ask or Utils.confirm)', nativeAsk.length === 0, nativeAsk.join(', '));
 
+// ---------- a letter or receipt page is read as text: Api.get reads JSON, so the Demands print said "No HTML content returned" every time ----------
+const jsonOnHtml = pages.filter((f) => /Api\.get\([^)]*\/html/.test(fs.readFileSync(path.join(PAGES, f), 'utf8')));
+t('no screen reads a document or receipt web page through Api.get (it reads JSON)', jsonOnHtml.length === 0, jsonOnHtml.join(', '));
+
 // ---------- no dead control: a button must do its job or not be shown (no "coming soon" alert or toast in a screen or in the pages the API builds) ----------
 const shipped = [...pages.map((f) => path.join(PAGES, f)), path.join(API, 'routes/booking.ts')];
 const comingSoon = shipped.filter((f) => /coming soon/i.test(fs.readFileSync(f, 'utf8'))).map((f) => path.basename(f));

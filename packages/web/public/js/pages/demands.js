@@ -482,8 +482,10 @@ const DemandsPage = {
       const documentId = genRes.data?.documentId || genRes.documentId;
       if (!documentId) throw new Error('Document ID missing from response');
 
-      const htmlRes = await Api.get(`/documents/${documentId}/html`);
-      const html = htmlRes.data;
+      // the letter comes back as a web page, not as JSON (Api.get reads JSON, so it always saw "no content")
+      const htmlRes = await fetch(`/api/documents/${documentId}/html`, { headers: { Authorization: 'Bearer ' + Auth.getToken() } });
+      if (!htmlRes.ok) { const e = await htmlRes.json().catch(() => ({})); throw new Error(e.error || `The letter could not be opened (${htmlRes.status})`); }
+      const html = await htmlRes.text();
       if (!html) throw new Error('No HTML content returned');
 
       const blob = new Blob([html], { type: 'text/html;charset=utf-8' });

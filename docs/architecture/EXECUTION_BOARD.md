@@ -97,3 +97,10 @@ Verification: all 58 API scripts pass; the browser suite passed 234 of 249 on a 
 - Not bugs: loan and GST invoice sanity rules already exist (the live rows came from older code); broker commission is a percentage of the unit price, not of the booking amount.
 - Not checked: slow live pages (needs the Vercel and Neon regions compared), live file imports.
 Verification: all 58 API scripts pass; Playwright 252 of 252 pass on one clean run.
+
+## QA cycle 2 (new project, 53 minutes): fixed
+- Demands screen "Print" always said "No HTML content returned": the screen read the letter page as JSON. It now reads it as text (browser test `e2e/demand-print.spec.ts`, guard in web-guards).
+- Applicant file after a surrender came out empty: it looked only for a live booking. It now falls back to the latest booking. Its price block now takes the inaugural discount off like the plan, demands and Surrender page.
+- Overpayment warnings are a box that stays until read. Advance (split) receipts are kept out of the receipt list, approval queue and totals (`includeAdvance=true` shows them); the receipts themselves are still created, as before.
+- Open: the Edit/Delete matrix findings (a missing delete button, silent failures) need the exact rows from the report.
+Verification: 58 of 58 API scripts, Playwright 254 of 254.

@@ -122,5 +122,20 @@ t('templates: a Possession Letter template can be created (201)', r.s === 201, J
 gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'noc' });
 t('templates: the NOC is then generated (201) instead of "no template is set up yet"', gen.s === 201 && !!gen.j?.data?.documentId, JSON.stringify(gen.j).slice(0, 200));
 
+// ---------- cycle 2: the applicant file keeps the deal after a surrender and takes the discount off; advance receipts stay out of the receipt list ----------
+const af = async (id) => { const r = await fetch(B + `/consumers/${id}/applicant-file`, { headers: { authorization: 'Bearer ' + tok } }); return { s: r.status, h: await r.text() }; };
+let f = await af(c);   // c was surrendered and then restored above; surrender it again in a scratch copy is not needed: use c5 (allotment cancelled) too
+t('applicant file: the restored booking shows its unit', f.s === 200 && f.h.includes('A-101-' + U), `status ${f.s}`);
+f = await af(c3);
+t('applicant file: the total takes the inaugural discount off (55,05,500 for the discounted balcony booking)', f.s === 200 && f.h.includes('55,05,500'), `status ${f.s}`);
+await A('POST', '/surrender', { consumerId: c3, allocationId: psql(`select id from allocations where consumer_id = '${c3}' order by created_at desc limit 1`), bookingId: b3, unitId: unit3, projectId: P, type: 'surrender', surrenderDate: today });
+f = await af(c3);
+t('applicant file after a surrender: it still shows the unit and the price (it used to come out empty)', f.s === 200 && f.h.includes('A-103-' + U) && f.h.includes('55,05,500'), `status ${f.s} unit ${f.h.includes('A-103-' + U)}`);
+r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50`);
+const advRows = Number(psql(`select count(*) from receipts where consumer_id = '${c2}' and is_advance`));
+t('receipt list: the advance receipts that an overpayment makes exist in the database but are not in the list', advRows >= 1 && (r.j?.data || []).every((x) => x.is_advance === false), `advance rows ${advRows}, listed ${(r.j?.data || []).length}`);
+r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50&includeAdvance=true`);
+t('receipt list: includeAdvance=true shows them', (r.j?.data || []).some((x) => x.is_advance === true));
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -617,9 +617,11 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
             ) rr
           ), '[]'::json) AS installment_payments
         FROM consumers c
-        LEFT JOIN booking_records br
-          ON br.consumer_id = c.id
-          AND br.status IN ('complete','pending_payment','active')
+        -- the live booking; with none (surrendered or cancelled) the latest booking, so the file still shows the deal and its money
+        LEFT JOIN LATERAL (
+          SELECT b0.* FROM booking_records b0 WHERE b0.consumer_id = c.id
+          ORDER BY (b0.status IN ('complete','pending_payment','active')) DESC, b0.created_at DESC LIMIT 1
+        ) br ON true
         LEFT JOIN units u ON u.id = br.unit_id
         LEFT JOIN towers t ON t.id = u.tower_id
         LEFT JOIN projects p ON p.id = br.project_id

@@ -1492,7 +1492,8 @@ function buildApplicantPage1(
   const interest      = parseFloat(b.interest_amount   || 0);
   const bookingAmt    = parseFloat(b.booking_amount    || 0);
 
-  const netBasicPrice      = basePrice;
+  const inauguralDisc      = parseFloat(b.company_inaugural_disc || 0);
+  const netBasicPrice      = basePrice - inauguralDisc;   // the price after the inaugural discount, the same net price the plan, the demands and the Surrender page use (GST stays on the full price, as the demands bill it)
   const addonTotal         = addonCharges.reduce((sum: number, c: any) => sum + parseFloat(c.total_amount || 0), 0);
   const agreementValue     = netBasicPrice + plcAmount + otherCharge + balconyChargeAmount;
   const totalConsideration = agreementValue + addonTotal;
