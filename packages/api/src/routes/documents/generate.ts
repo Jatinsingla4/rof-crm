@@ -176,7 +176,7 @@ router.post('/generate', requirePrint, async (req: AuthRequest, res: Response, n
     // 2. Read template HTML directly from database
     let htmlContent = template.body_html || '';
 
-    if (!htmlContent || htmlContent.length < 100) {
+    if (!String(htmlContent).trim()) {   // only an empty template is refused; a short letter is a letter
       console.error(
         `[TEMPLATE] Empty or invalid template. DocumentType: ${documentType}, ` +
         `TemplateId: ${templateId}, Length: ${htmlContent?.length}`

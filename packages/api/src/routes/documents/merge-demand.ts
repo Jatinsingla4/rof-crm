@@ -747,6 +747,14 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
           }
 
           // Advance Payment Adjustment section removed — not shown in letter
+  // What nobody wrote is left out instead of printed as an empty line: no Important Notes heading when no note is set, no empty bullet for a missing note, no
+  // "Registered Office:" line without an address.
+  if (typeof htmlContent === 'string') {
+    const notesSet = [1, 2, 3, 4].filter((i) => String(mergeData[`demandNote${i}`] || '').trim());
+    if (!notesSet.length) htmlContent = htmlContent.replace(/<div class="notes-section">[\s\S]*?<\/ol>\s*<\/div>/, '');
+    else for (const i of [1, 2, 3, 4]) if (!notesSet.includes(i)) htmlContent = htmlContent.replace(new RegExp(`<li>\\{\\{demandNote${i}\\}\\}<\\/li>\\s*`), '');
+    if (!String(mergeData.companyRegAddr || '').trim()) htmlContent = htmlContent.replace(/\s*Registered Office: \{\{companyRegAddr\}\}<br\/>/, '');
+  }
   ctx.mergeData = mergeData;
   ctx.htmlContent = htmlContent;
 }

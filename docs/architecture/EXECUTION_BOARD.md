@@ -89,3 +89,11 @@ The live site is behind this branch (28 local commits are not pushed, among them
 | Overpayment accepted silently | no warning | the receipt is recorded and answers with warnings (extra amount carried as advance, or no open demand for the instalment); the screen shows them |
 | Receipts vanished from the profile after a surrender; advance receipts counted twice | Receipt list followed only the live booking; advance receipts are splits of money another receipt holds | receipts of a cancelled booking stay on the applicant file; `is_advance` flag; totals, Customer Wise and dashboard leave advance receipts out; the Surrender page lists uncleared receipts and never counts them as received |
 Verification: all 58 API scripts pass; the browser suite passed 234 of 249 on a loaded machine and the failing tests (Sold-Unit Report, Analytics list, Calling filters, Project Wise Dues, one Communications check) passed again when rerun, so they are timing or leftover-data failures, not caused by these changes; the GitHub pipeline runs both suites before any deploy.
+
+## Third QA pass: remaining items
+- Cancel Allotment and Surrender Restore were run over the real routes with the QA shape (a booking holding only an uncleared 50,000 receipt): both succeed, the unit is released, the receipts stay, the audit entry is written (`docs/whole-flow/api-test-qa-6nov.mjs`). The browser actions use the in-page question and are clicked through by Playwright.
+- Templates: the Generate screen offered NOC, Possession, Cancellation and Welcome letters but no template of those types could be created (the server refused the types and the New Template button said "contact admin"). Documents > Templates now has a real editor, the server accepts all ten types, and a short template is no longer called corrupted. The letter text itself must come from the owner.
+- Demand letter: no empty Important Notes bullets, no Registered Office line without an address. Parking report footer says it counts allotted slots only.
+- Not bugs: loan and GST invoice sanity rules already exist (the live rows came from older code); broker commission is a percentage of the unit price, not of the booking amount.
+- Not checked: slow live pages (needs the Vercel and Neon regions compared), live file imports.
+Verification: all 58 API scripts pass; Playwright 252 of 252 pass on one clean run.

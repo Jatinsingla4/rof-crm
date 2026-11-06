@@ -649,7 +649,7 @@ const ParkingPage = {
           <tfoot class="tfoot-total">
             <tr>
               <td colspan="6"><strong>TOTAL: ${slots.length} slots</strong></td>
-              <td style="color:var(--teal)"><strong>${Utils.currency(revenue)}</strong></td>
+              <td style="color:var(--teal)" title="Only the slots that are allotted add to this figure; the Price column above lists the price of every slot"><strong>${Utils.currency(revenue)}</strong><div style="font-size:10px;font-weight:400">allotted slots only</div></td>
               <td colspan="3"></td>
             </tr>
           </tfoot>

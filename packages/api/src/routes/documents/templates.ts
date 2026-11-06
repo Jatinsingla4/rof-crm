@@ -10,7 +10,7 @@ const router = Router();
 
 // Legal letter templates (allotment letter, receipt, agreement, conveyance deed). The generator picks the newest template of a type, so only project
 // managers and admins may create or change one, the type must be a real letter type, and email wording lives in /api/email-templates instead.
-const LETTER_TYPES = ['allotment_letter', 'payment_receipt', 'buyer_builder_agreement', 'conveyance_deed', 'demand_letter', 'check_list'] as const;
+const LETTER_TYPES = ['allotment_letter', 'payment_receipt', 'buyer_builder_agreement', 'conveyance_deed', 'demand_letter', 'check_list', 'possession_letter', 'noc', 'cancellation_letter', 'welcome_letter'] as const;   // every type the Generate screen offers can have a template
 const letterBody = (v: any, required: boolean): string | null => {
   if (!has(v)) { if (required) throw bad('The template body is required'); return null; }
   if (typeof v !== 'string' || !v.trim()) throw bad('The template body must be text');

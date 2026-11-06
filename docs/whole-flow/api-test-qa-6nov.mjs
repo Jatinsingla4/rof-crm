@@ -95,5 +95,32 @@ gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'de
 t('demand letter: with a raised demand and a real RERA number it is generated (201)', gen.s === 201 && !!gen.j?.data?.documentId, JSON.stringify(gen.j));
 psql(`update charge_master_config set rate_value = '${oldBal.split('|')[0]}', cap_value = ${oldBal.split('|')[1] === '' ? 'null' : `'${oldBal.split('|')[1]}'`} where charge_key='balcony_charge'`);
 
+// ---------- the QA TestBeta / TestAlpha steps over the real routes: cancel an allotment that holds only uncleared money, and restore a surrender ----------
+const unit5 = (await A('POST', '/units', { projectId: P, towerId: T, unitNumber: 'A-105-' + U, floor: 1, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, basePriceInr: 5500000, totalPriceInr: 5500000 })).j.data.id;
+const c5 = (await A('POST', '/consumers', { name: 'QA Beta2 ' + U, mobile: mob(), project_id: P })).j.data.id;
+const b5 = (await A('POST', '/booking', { consumer_id: c5, project_id: P, unit_id: unit5, selected_plan_name: 'Plan' + U, booking_date: today, carpet_area_sqft: 1000, basic_price: 5500 })).j.data.id;
+await A('PATCH', `/booking/${b5}`, { booking_amount: 50000, payment_mode: 'online', payment_ref: 'QA-BETA-' + U, bank_name: 'HDFC', bank_branch: 'x' });
+r = await A('POST', '/allocations', { consumerId: c5, unitId: unit5, projectId: P });
+const alloc5 = r.j?.data?.id;
+t('cancel allotment set-up: the booked unit is allotted (201) with only an uncleared 50,000 receipt on the file', r.s === 201 && !!alloc5 && psql(`select status from units where id = '${unit5}'`) === 'allotted', JSON.stringify(r.j).slice(0, 150));
+r = await A('POST', `/allocations/${alloc5}/cancel`, { reason: 'Voluntary Surrender' });
+t('cancel allotment: done (200), not a silent no-op', r.s === 200, JSON.stringify(r.j).slice(0, 200));
+t('cancel allotment: the allocation is cancelled and the unit is available again', psql(`select status from allocations where id = '${alloc5}'`) === 'cancelled' && psql(`select status from units where id = '${unit5}'`) === 'available', psql(`select status from allocations where id = '${alloc5}'`) + '/' + psql(`select status from units where id = '${unit5}'`));
+t('cancel allotment: it is in the audit log', Number(psql(`select count(*) from audit_logs where resource_id = '${alloc5}' or (new_values::text like '%${alloc5}%' and action in ('update','create','delete'))`)) >= 1);
+const sid = psql(`select id from surrender_applications where consumer_id = '${c}' order by created_at desc limit 1`);
+r = await A('POST', '/surrender/restore', { surrenderId: sid, type: 'surrender', consumerId: c, allocationId: al, unitId: unit, bookingId: bid });
+t('restore after surrender: done (200), not a silent no-op', r.s === 200, JSON.stringify(r.j).slice(0, 200));
+t('restore: the booking is live again, the applicant is back on the unit and the receipts are still there', psql(`select lead_stage from consumers where id = '${c}'`) !== 'cancelled' && psql(`select status from booking_records where id = '${bid}'`) !== 'cancelled' && psql(`select count(*) from receipts where consumer_id = '${c}' and status <> 'cancelled'`) === '2', psql(`select lead_stage from consumers where id = '${c}'`) + '/' + psql(`select status from booking_records where id = '${bid}'`));
+r = await A('GET', `/payments/receipts?consumerId=${c}&pageSize=50`);
+t('restore: the receipts are listed on the applicant file', (r.j?.data || []).length === 2, String((r.j?.data || []).length));
+
+// ---------- every letter type the Generate screen offers can have a template (NOC and Possession could not be created before) ----------
+r = await A('POST', '/documents/templates', { name: 'QA NOC ' + U, documentType: 'noc', bodyHtml: '<p>NOC for {{consumerName}}, unit {{unitNumber}}</p>' });
+t('templates: a NOC template can be created (201)', r.s === 201, JSON.stringify(r.j).slice(0, 150));
+r = await A('POST', '/documents/templates', { name: 'QA Possession ' + U, documentType: 'possession_letter', bodyHtml: '<p>Possession {{unitNumber}}</p>' });
+t('templates: a Possession Letter template can be created (201)', r.s === 201, JSON.stringify(r.j).slice(0, 150));
+gen = await A('POST', '/documents/generate', { consumerId: c3, documentType: 'noc' });
+t('templates: the NOC is then generated (201) instead of "no template is set up yet"', gen.s === 201 && !!gen.j?.data?.documentId, JSON.stringify(gen.j).slice(0, 200));
+
 console.log(`\nRESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -669,6 +669,7 @@ const DocsPage = {
                 <td style="font-size:10.5px">${Utils.date(t.updated_at||t.created_at)}</td>
                 <td><div style="display:flex;gap:4px">
                   <button class="btn btn-ghost btn-sm" onclick="DocsPage.previewTemplate('${t.id}')">Preview</button>
+                  <button class="btn btn-ghost btn-sm" onclick="DocsPage.editTemplate('${t.id}')">Edit</button>
                 </div></td>
               </tr>`).join('')}
             </tbody>
@@ -764,7 +765,49 @@ const DocsPage = {
     btn.disabled = false;
   },
 
-  createTemplate()  { Utils.info('Template editor — contact admin to add custom templates'); },
+  // ── Template editor: a letter template is a name, a type and the letter text with {{fields}} that are filled for each applicant ──
+  _tplTypes: [['allotment_letter', 'Allotment Letter'], ['buyer_builder_agreement', 'Buyer-Builder Agreement (BBA)'], ['possession_letter', 'Possession Letter'], ['noc', 'NOC'], ['cancellation_letter', 'Cancellation Letter'], ['welcome_letter', 'Welcome Letter'], ['payment_receipt', 'Payment Receipt'], ['conveyance_deed', 'Conveyance Deed'], ['check_list', 'Checklist']],
+  _tplFields: ['consumerName', 'fatherName', 'address', 'mobile', 'email', 'customerId', 'projectName', 'projectSector', 'reraNo', 'unitNumber', 'unitCategory', 'carpetArea', 'currentDate', 'day', 'month', 'year'],
+
+  async createTemplate() { return this._openTemplate(null); },
+  async editTemplate(id) {
+    try { const res = await Api.get(`/documents/templates/${id}`); return this._openTemplate(res.data || res); }
+    catch (err) { Utils.error(err.message); }
+  },
+  _openTemplate(t) {
+    document.getElementById('tpl-overlay')?.remove();
+    const esc = Utils.esc;
+    const opts = this._tplTypes.map(([v, l]) => `<option value="${v}"${t && t.document_type === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="tpl-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99998;display:flex;align-items:center;justify-content:center;padding:16px">
+        <div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:10px;width:100%;max-width:820px;max-height:92vh;overflow:auto;padding:20px 22px">
+          <div style="font-size:16px;font-weight:700;margin-bottom:12px">${t ? 'Edit template' : 'New template'}</div>
+          <div class="fg"><label class="fl">Template name</label><input class="fc" id="tpl-name" maxlength="255" value="${esc(t?.name || '')}"></div>
+          <div class="fg"><label class="fl">Letter type</label><select class="fc" id="tpl-type" ${t ? 'disabled' : ''}>${opts}</select></div>
+          <div class="fg"><label class="fl">Letter text (HTML)</label><textarea class="fc" id="tpl-body" rows="14" style="font-family:monospace;font-size:12px">${esc(t?.body_html || '')}</textarea></div>
+          <div style="font-size:11px;color:var(--text3);margin:4px 0 12px">Fields filled for each applicant: ${this._tplFields.map((f) => `<code>{{${f}}}</code>`).join(' ')}. The newest template of a type is the one used to generate that letter.</div>
+          <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn btn-ghost" onclick="document.getElementById('tpl-overlay').remove()">Cancel</button>
+            <button class="btn btn-teal" id="tpl-save">Save template</button>
+          </div>
+        </div>
+      </div>`);
+    document.getElementById('tpl-save').addEventListener('click', () => this._saveTemplate(t?.id || null));
+  },
+  async _saveTemplate(id) {
+    const name = document.getElementById('tpl-name').value.trim();
+    const bodyHtml = document.getElementById('tpl-body').value;
+    if (!name) return Utils.warn('Enter a template name');
+    if (!bodyHtml.trim()) return Utils.warn('Enter the letter text');
+    const btn = document.getElementById('tpl-save'); btn.disabled = true;
+    try {
+      if (id) await Api.patch(`/documents/templates/${id}`, { name, bodyHtml });
+      else await Api.post('/documents/templates', { name, documentType: document.getElementById('tpl-type').value, bodyHtml });
+      document.getElementById('tpl-overlay')?.remove();
+      Utils.success('Template saved');
+      this.loadTemplates();
+    } catch (err) { Utils.error(err.message); btn.disabled = false; }
+  },
   async fetchATS() {
     const el = document.getElementById('ats-results-body');
     if (!el) return;

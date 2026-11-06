@@ -9,7 +9,7 @@ const input_js_1 = require("../../utils/input.js");
 const router = (0, express_1.Router)();
 // Legal letter templates (allotment letter, receipt, agreement, conveyance deed). The generator picks the newest template of a type, so only project
 // managers and admins may create or change one, the type must be a real letter type, and email wording lives in /api/email-templates instead.
-const LETTER_TYPES = ['allotment_letter', 'payment_receipt', 'buyer_builder_agreement', 'conveyance_deed', 'demand_letter', 'check_list'];
+const LETTER_TYPES = ['allotment_letter', 'payment_receipt', 'buyer_builder_agreement', 'conveyance_deed', 'demand_letter', 'check_list', 'possession_letter', 'noc', 'cancellation_letter', 'welcome_letter']; // every type the Generate screen offers can have a template
 const letterBody = (v, required) => {
     if (!(0, input_js_1.has)(v)) {
         if (required)
