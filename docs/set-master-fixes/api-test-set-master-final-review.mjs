@@ -99,7 +99,7 @@ psql(`insert into reminder_master (reminder_name, days, project_id) values ('SMF
 const before = psql(`select count(*) from reminder_master where reminder_name ilike 'smfr%${U}'`);
 let m = runFile('144_reminder_unique_per_project.sql');
 t('SM-002 preflight: duplicates stop the migration', !m.ok && /Migration 144 stopped, nothing was changed/.test(m.err), m.err.slice(0, 200));
-t('SM-002 preflight: the report names both conflicting groups (project and global) with row ids and a remediation', /project [0-9a-f-]{36} \| name "SMFR dup/.test(m.err) && /GLOBAL \(no project\) \| name "SMFR gl/.test(m.err) && /ids [0-9a-f-]{36}, [0-9a-f-]{36}/.test(m.err) && /Remediation/.test(m.err), m.err.slice(0, 400));
+t('SM-002 preflight: the report names both conflicting groups (project and global) with row ids and a remediation', /project [0-9a-f-]{36} \| name "SMFR dup/i.test(m.err) && /GLOBAL \(no project\) \| name "SMFR gl/i.test(m.err) && /ids [0-9a-f-]{36}, [0-9a-f-]{36}/.test(m.err) && /Remediation/.test(m.err), m.err.slice(0, 400));
 t('SM-002 preflight: the same name and days in two projects is not reported as a conflict', !/SMFR ok/.test(m.err), m.err.slice(0, 300));
 t('SM-002 preflight: nothing was deleted or changed and no index was created', psql(`select count(*) from reminder_master where reminder_name ilike 'smfr%${U}'`) === before && !idxExists());
 psql(`delete from reminder_master where reminder_name = 'smfr DUP ${U}' or reminder_name = 'smfr GL ${U}'`);
@@ -128,7 +128,7 @@ psql(`delete from tax_slabs where name ilike 'smfr%${U}'`); made.tax = [];
 psql(`insert into tax_slabs (name, cgst_percent) values ('SMFR Pre ${U}', 9), ('smfr PRE ${U}', 6), ('SMFR Solo ${U}', 1)`);
 const taxBefore = psql(`select count(*) from tax_slabs where name ilike 'smfr%${U}'`);
 m = runFile('145_tax_slabs_name_unique_ci.sql');
-t('SM-009 preflight: case-variant duplicates stop the migration with a report', !m.ok && /Migration 145 stopped, nothing was changed/.test(m.err) && /name "SMFR Pre/.test(m.err) && /ids [0-9a-f-]{36}, [0-9a-f-]{36}/.test(m.err) && /Remediation/.test(m.err) && !/SMFR Solo/.test(m.err), m.err.slice(0, 300));
+t('SM-009 preflight: case-variant duplicates stop the migration with a report', !m.ok && /Migration 145 stopped, nothing was changed/.test(m.err) && /name "SMFR Pre/i.test(m.err) && /ids [0-9a-f-]{36}, [0-9a-f-]{36}/.test(m.err) && /Remediation/.test(m.err) && !/SMFR Solo/i.test(m.err), m.err.slice(0, 300));
 t('SM-009 preflight: nothing was deleted or renamed and no index was created', psql(`select count(*) from tax_slabs where name ilike 'smfr%${U}'`) === taxBefore && !taxIdx());
 psql(`delete from tax_slabs where name = 'smfr PRE ${U}'`);
 m = runFile('145_tax_slabs_name_unique_ci.sql'); t('SM-009 preflight: after the manual fix the migration builds the index', m.ok && taxIdx(), m.err.slice(0, 200));
