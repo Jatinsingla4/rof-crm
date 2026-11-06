@@ -32,6 +32,7 @@ jobs:
         image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
+          TZ: Asia/Kolkata
         ports:
           - 5432:5432
         options: >-
@@ -41,6 +42,11 @@ jobs:
           --health-retries 12
 
     env:
+      # The CRM runs on the India business calendar (Asia/Kolkata) and its tests are written for it. A runner is in UTC, so between
+      # 18:30 and 24:00 UTC the UTC date and the India date differ and date checks (late interest, "today" filters) failed for no
+      # reason in the code. The runner, psql, the API and the test scripts all use India time; the database is set below.
+      TZ: Asia/Kolkata
+      PGTZ: Asia/Kolkata
       # psql reads these; the test scripts and make-test-db.sh use psql
       PGHOST: localhost
       PGPORT: 5432
@@ -105,6 +111,14 @@ jobs:
       - name: Fresh test database from the baseline
         working-directory: packages/api
         run: scripts/make-test-db.sh rof_ci
+
+      - name: Database time zone is India time
+        # The API's connections get the database default, so it is set on the database itself and checked on a new connection.
+        run: |
+          psql -d postgres -qc "ALTER DATABASE rof_ci SET timezone TO 'Asia/Kolkata'"
+          tz=$(env -u PGTZ psql -qAt -c "show timezone")
+          if [ "$tz" != "Asia/Kolkata" ]; then echo "::error title=Database time zone::Expected Asia/Kolkata, the database says $tz"; exit 1; fi
+          echo "database time zone: $tz"
 
       - name: Migrations after the baseline (096 onward), run twice
         working-directory: packages/api
