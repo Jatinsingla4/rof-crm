@@ -109,10 +109,10 @@ test('Email Templates: opening a saved template loads it; Edit saves the change;
   expect(await page.locator('#et-preview img').count()).toBe(0);
   await page.getByRole('button', { name: 'Save Template' }).click();
   await expect(toast('Template saved')).toBeVisible();
-  expect(psql(`select body from email_templates where name = 'Mine ${U}'`)).toContain('flat {{unit_number}}');
+  await expect.poll(() => psql(`select body from email_templates where name = 'Mine ${U}'`)).toContain('flat {{unit_number}}');
   await page.locator('#et-active').uncheck(); await page.getByRole('button', { name: 'Save Template' }).click();
   await expect(toast('Template saved')).toBeVisible();
-  expect(psql(`select is_active from email_templates where name = 'Mine ${U}'`)).toBe('f');
+  await expect.poll(() => psql(`select is_active from email_templates where name = 'Mine ${U}'`)).toBe('f');   // the first save's toast may still be on screen, so wait for the data
   await expect(page.locator('.et-item', { hasText: `Mine ${U}` }).getByText('Inactive')).toBeVisible();
   await page.getByRole('button', { name: 'Refresh' }).click(); await settle();
   await expect(page.locator('.et-item', { hasText: `Mine ${U}` })).toHaveCount(1);
