@@ -25,7 +25,7 @@ const panels = {
   // cheques and demand drafts that are not in the bank yet, per project
   pendingCheques: () => db.query(`
     SELECT p.id AS project_id, p.name AS project,
-           COUNT(r.id) FILTER (WHERE ${CHEQUE} AND r.status = 'pending')::int   AS pending,
+           COUNT(r.id) FILTER (WHERE ${CHEQUE} AND r.status <> 'deposited')::int AS pending,   -- not yet deposited (pending or authorized), so pending + deposited = total
            COUNT(r.id) FILTER (WHERE ${CHEQUE} AND r.status = 'deposited')::int AS deposite,
            COUNT(r.id) FILTER (WHERE ${CHEQUE})::int                            AS total,
            COUNT(r.id) FILTER (WHERE r.payment_method::text = 'demand_draft')::int AS pdc,

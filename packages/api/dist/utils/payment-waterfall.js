@@ -18,6 +18,7 @@ exports.recomputeBookingPaymentTaxes = recomputeBookingPaymentTaxes;
 exports.checkAndAutoRaiseInstallment1 = checkAndAutoRaiseInstallment1;
 exports.reverseInstallment1IfNoValidReceipt = reverseInstallment1IfNoValidReceipt;
 exports.cascadeOverpaymentExcess = cascadeOverpaymentExcess;
+const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("./gst-receipt-split.js");
@@ -451,6 +452,7 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
        RETURNING id`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
             method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate]);
         const advanceReceiptId = advanceReceiptRes.rows[0].id;
+        await (0, auditLogger_js_1.logAudit)(client, userId, 'create', 'receipt', advanceReceiptId, undefined, { receipt_number: advanceNum, consumer_id: consumerId, amount: excess, payment_method: method, source: 'overpayment carried to the next instalment as an advance', advance_from_demand_id: sourceId, source_receipt_id: sourceReceiptId });
         await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);
         const planProjectRes = await client.query(`SELECT project_id FROM payment_plans WHERE id = $1`, [paymentPlanId]);
         const advanceProjectId = planProjectRes.rows[0]?.project_id || null;

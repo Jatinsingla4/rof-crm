@@ -1099,12 +1099,14 @@ const ReceiptsPage = {
         byHead[head].receipts.push(r);
       });
 
-      const grandTotal = list.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
-      const approved = list.filter(r => (r.status||r.approval_status) === 'approved');
-      const pending = list.filter(r => (r.status||r.approval_status) === 'pending');
+      // a cancelled, bounced or rejected receipt is not money collected: the total and the counts leave it out
+      const live = list.filter(r => !['cancelled', 'bounced', 'rejected'].includes(String(r.status || '').toLowerCase()) && String(r.approval_status || '').toLowerCase() !== 'rejected');
+      const grandTotal = live.reduce((s,r) => s + parseFloat(r.amount_received_inr ?? r.amount ?? 0), 0);
+      const approved = live.filter(r => String(r.approval_status || '').toLowerCase() === 'approved');
+      const pending = live.filter(r => String(r.status || '').toLowerCase() === 'pending');
 
       if (kpiEl) kpiEl.innerHTML = `
-        <div class="kpi c-teal"><div class="kpi-lbl">Total Collection</div><div class="kpi-val">${Utils.currency(grandTotal)}</div><div class="kpi-sub">${list.length} receipts</div></div>
+        <div class="kpi c-teal"><div class="kpi-lbl">Total Collection</div><div class="kpi-val">${Utils.currency(grandTotal)}</div><div class="kpi-sub">${live.length} receipts${live.length !== list.length ? ` (${list.length - live.length} cancelled or rejected left out)` : ''}</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">Approved</div><div class="kpi-val">${Utils.currency(approved.reduce((s,r)=>s+parseFloat(r.amount||0),0))}</div><div class="kpi-sub">${approved.length} receipts</div></div>
         <div class="kpi c-warn"><div class="kpi-lbl">Pending Approval</div><div class="kpi-val">${Utils.currency(pending.reduce((s,r)=>s+parseFloat(r.amount||0),0))}</div><div class="kpi-sub">${pending.length} receipts</div></div>
         <div class="kpi c-accent"><div class="kpi-lbl">Payment Heads</div><div class="kpi-val">${Object.keys(byHead).length}</div><div class="kpi-sub">Modes used</div></div>

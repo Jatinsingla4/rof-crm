@@ -12,7 +12,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { hasPermission } from '../middleware/rbac.js';
-import { auditChange } from '../middleware/auditLogger.js';
+import { auditChange, logAudit } from '../middleware/auditLogger.js';
 import { bad, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
 import { settleHold } from '../utils/holds.js';
 import { brokerOk, flagPaidCommission } from '../utils/broker.js';
@@ -1051,6 +1051,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               ]
             );
             const stepGReceiptId = stepGReceiptRes.rows[0].id;
+            await logAudit(client, req.userId || null, 'create', 'receipt', stepGReceiptId, undefined, { receipt_number: receiptNum, consumer_id: booking.consumer_id, amount: bookingAmt, payment_method: payMethod, source: 'booking payment' });
 
             const stepGGstSplit = await computeReceiptGstSplit(client, bookingAmt, booking.project_id, bookingDateStr);
             await client.query(

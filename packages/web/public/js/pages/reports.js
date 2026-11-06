@@ -419,7 +419,7 @@ const ReportsPage = {
     const consumerId = this._f('consumer');
     const projectId = this._f('project');
     try {
-      const params = { pageSize: 200 };
+      const params = { pageSize: 1000 };   // the server allows up to 1000 rows; 200 cut a larger project short without saying so
       if (projectId) params.projectId = projectId;
       if (consumerId) params.consumerId = consumerId;
 
@@ -435,22 +435,29 @@ const ReportsPage = {
       const receipts = rRes.value?.data || rRes.value || [];
       const demands  = dRes.value?.data || dRes.value || [];
 
-      const totalPaid = receipts.reduce((s,r) => s + parseFloat(r.amount_received_inr||r.amount||0), 0);
-      const totalDue  = demands.reduce((s,d) => s + parseFloat(d.amount_due_inr||d.amount||0), 0);
+      // Money that counts: a cancelled, bounced or rejected receipt is not collected, a cancelled demand is not due, and a due amount carries its GST like the receipt does.
+      const liveReceipts = receipts.filter(r => !['cancelled','bounced','rejected'].includes(String(r.status||'').toLowerCase()) && String(r.approval_status||'').toLowerCase() !== 'rejected');
+      const liveDemands  = demands.filter(d => String(d.status||'').toLowerCase() !== 'cancelled');
+      const amtOf = r => parseFloat(r.amount_received_inr||r.amount||0);
+      const dueOf = d => parseFloat(d.amount_due_inr||d.amount||0) + parseFloat(d.cgst_amount||0) + parseFloat(d.sgst_amount||0);
+      const rowsOf = consumers.map(c => {
+        const paid = liveReceipts.filter(r=>r.consumer_id===c.id||consumerId===c.id).reduce((s,r)=>s+amtOf(r),0);
+        const due  = liveDemands.filter(d=>d.consumer_id===c.id||consumerId===c.id).reduce((s,d)=>s+dueOf(d),0);
+        const cancelled = String(c.lead_stage||'').toLowerCase() === 'cancelled';   // a cancelled booking owes nothing
+        return { c, paid, out: cancelled ? 0 : Math.max(0, due-paid) };
+      });
+      const totalPaid = rowsOf.reduce((s,x)=>s+x.paid,0);
+      const totalOut  = rowsOf.reduce((s,x)=>s+x.out,0);   // the footer is the sum of the rows (an overpaid customer does not reduce what the others owe)
 
       this._kpis([
         { label:'Consumers',       value: consumers.length },
         { label:'Total Collected', value: Utils.currency(totalPaid), color:'var(--green)' },
-        { label:'Total Outstanding',value: Utils.currency(Math.max(0,totalDue-totalPaid)), color:'var(--red)' },
+        { label:'Total Outstanding',value: Utils.currency(totalOut), color:'var(--red)' },
       ]);
 
       this._table(
         ['#','Consumer','Mobile','Unit','Lead Stage','Total Paid','Outstanding','Action'],
-        consumers.map((c,i) => {
-          const paid = receipts.filter(r=>r.consumer_id===c.id||consumerId===c.id)
-                               .reduce((s,r)=>s+parseFloat(r.amount_received_inr||r.amount||0),0);
-          const due  = demands.filter(d=>d.consumer_id===c.id||consumerId===c.id)
-                              .reduce((s,d)=>s+parseFloat(d.amount_due_inr||d.amount||0),0);
+        rowsOf.map(({c, paid, out}, i) => {
           return `<tr>
             <td style="color:var(--text3)">${i+1}</td>
             <td class="td-bold">${Utils.esc(c.name||c.first_name+' '+(c.last_name||'')||'—')}</td>
@@ -458,13 +465,13 @@ const ReportsPage = {
             <td>${Utils.esc(c.unit_number||c.unitNumber||'—')}</td>
             <td>${Utils.chip(c.lead_stage||'enquiry')}</td>
             <td style="color:var(--green);font-weight:600">${Utils.currency(paid)}</td>
-            <td style="color:var(--red);font-weight:600">${Utils.currency(Math.max(0,due-paid))}</td>
+            <td style="color:var(--red);font-weight:600">${Utils.currency(out)}</td>
             <td><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${c.id}'})">View</button></td>
           </tr>`;
         }),
         `<td colspan="5"><strong>TOTAL</strong></td>
          <td style="color:var(--green)"><strong>${Utils.currency(totalPaid)}</strong></td>
-         <td style="color:var(--red)"><strong>${Utils.currency(Math.max(0,totalDue-totalPaid))}</strong></td>
+         <td style="color:var(--red)"><strong>${Utils.currency(totalOut)}</strong></td>
          <td></td>`
       );
     } catch (err) {

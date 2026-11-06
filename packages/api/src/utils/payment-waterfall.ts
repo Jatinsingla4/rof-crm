@@ -9,6 +9,7 @@
  * demand and do not enter the advance pool.
  */
 
+import { logAudit } from '../middleware/auditLogger.js';
 import { resolveRate } from './gst-resolver.js';
 import { computeInclusiveGstSplit } from './gst-backward-derive.js';
 import { computeReceiptGstSplit } from './gst-receipt-split.js';
@@ -668,6 +669,7 @@ export async function cascadeOverpaymentExcess(
        method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate]
     );
     const advanceReceiptId = advanceReceiptRes.rows[0].id;
+    await logAudit(client, userId, 'create', 'receipt', advanceReceiptId, undefined, { receipt_number: advanceNum, consumer_id: consumerId, amount: excess, payment_method: method, source: 'overpayment carried to the next instalment as an advance', advance_from_demand_id: sourceId, source_receipt_id: sourceReceiptId });
     await client.query(
       `UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`,
       [excess, paymentPlanId]

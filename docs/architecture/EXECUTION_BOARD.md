@@ -60,3 +60,20 @@ Finance Part B (journal, debit/credit, receipt returns); notification provider a
 - API: web-guards 9, booking 276, receipts 283, demands 189, gst-configuration 271, surrender 183, documents-core 153, crm 285, unit-status 46, unit-status-flows 25 (now also checks the PLC rate-list `unit_count` per grant), plc 92: all 0 failed.
 - Playwright, full run after the change: 240 passed, 3 timed out, 2 not run. The two journal/campaign tests that encoded the old "coming soon" behaviour were updated to the new behaviour and pass. The 3 timeouts (two `reports.spec.ts` screens, `SM-001`) are 90-second and longer waits while the machine was swapping; the same tests pass when run alone (5 of 5), although that rerun also took 17 minutes of wall time, so a clean full run on a quiet machine is still owed. The report endpoints themselves answer in about 40 ms.
 - Independent read-only review of `1687881` (separate reviewer agent, code reading only): no critical or high issue; one low gap, the PLC rate list `unit_count` was not under the grant, now fixed under U-C and tested.
+
+## Owner QA report of 6 Nov 2026 (live site) triaged against this branch
+The live site is behind this branch (28 local commits are not pushed, among them the business calendar), so each finding was checked in the code here.
+| Finding | Verdict | Action |
+|---|---|---|
+| Cancel Receipt, Cancel Allotment, Surrender Restore "do nothing" | Same cause for all three: each asks with the browser's native `confirm()` box (`receipts.js:1958`, `allotment.js:718` via `Utils.confirm`, `surrender.js:1432`). A test browser that cannot answer native boxes sees no dialog and no action. The server routes work (183 surrender, 201 allocation, 283 receipt checks). Not yet proven in a normal browser | an in-page confirm box would fix it for every tool; touches about 35 call sites and many browser tests, awaiting approval |
+| Unexplained receipt `REC-...-ADV` ₹3,24,220 | By design: an overpayment is carried to the next instalment as an advance receipt (`payment-waterfall.ts`). The figure is the two receipts minus the booking demand: 5,00,000 + 1,00,000 - 2,75,780. It had no audit entry | fixed: advance receipts now write a create entry saying where the money came from |
+| Receipts made by Booking Payment have no create entry | Confirmed (`booking.ts`, step-G receipt) | fixed: create entry added |
+| Receipt List total includes a cancelled receipt | Confirmed (`receipts.js`) | fixed: cancelled, bounced and rejected receipts leave the total and counts |
+| Customer Wise footer off by a constant | Confirmed: the footer netted an overpaid customer's credit against others, the screen counted cancelled receipts, left GST out of what is due and cut data at 200 rows | fixed: footer is the sum of the rows, cancelled receipts and demands left out, GST included, 1000 rows, a cancelled booking owes nothing |
+| Dashboard Pending Cheques 7 but amount and total say 8 | Confirmed: "pending" counted only status `pending`, the total also counted `authorized` | fixed: pending means not yet deposited, so pending + deposited = total (test updated) |
+| Demand letter dated 05/11 (UTC) | Already fixed in this branch (business calendar, IST); live is behind | none, needs the push |
+| Cheque deposit and clear "not found" | The Pending Cheques screen has Clear, Hold and Bounce (covered by tests); only the menu path was missed | none |
+| Booking > discount over price shows no message | Server refuses with a clear message and the screen shows it as a toast; the toast is short and the save took 18-25 s on live | not changed |
+| Five totals for one booking, surrender zeroing the profile, GST invoice ₹30 crore, loan ₹99.99 crore, parking footer, broker commission 39% | Not reproduced here; several look like test data without limits | open, need a local repro with the same data |
+| Allotment, BBA, NOC, Possession templates missing | Data setup on live (the Documents list holds one template) | owner to add templates |
+| Slow pages and saves on live (10-50 s) | Hosting and database latency, not code | not changed |

@@ -82,7 +82,7 @@ t('demand status: overdue is only the raised unpaid demand past its due date (30
 r = await A('GET', '/dashboard/forthcoming-due'); d = row(r.j.data, 'project_name', N1);
 t('forthcoming due: today, 1-7, 8-14, 15-21 days from raised demands only', d && d.today_dues === 1 && d.days_1_7 === 1 && d.days_8_14 === 1 && d.days_15_21 === 1 && d.days_22_28 === 0, d);
 r = await A('GET', '/dashboard/pending-cheques'); d = row(r.j.data, 'project', N1);
-t('pending cheques: pending, deposited and the rest of cheques in flight; cancelled, bounced and cleared are not', d && d.pending === 1 && d.deposite === 1 && d.total === 3 && d.amount === 7600, d);
+t('pending cheques: not yet deposited (pending or authorized) and deposited add up to the total of cheques in flight; cancelled, bounced and cleared are not', d && d.pending === 2 && d.deposite === 1 && d.total === 3 && d.pending + d.deposite === d.total && d.amount === 7600, d);
 t('pending cheques: demand drafts are counted apart', d && d.pdc === 1 && d.pdc_amount === 2500, d);
 t('pending cheques: the totals add up the rows', r.j.totals && r.j.totals.pending === r.j.data.reduce((s, x) => s + x.pending, 0) && r.j.totals.amount === r.j.data.reduce((s, x) => s + x.amount, 0), r.j.totals);
 r = await A('GET', '/dashboard/pending-approval'); const mine = r.j.data.filter((x) => x.project_name === N1);

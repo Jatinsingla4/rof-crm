@@ -984,6 +984,7 @@ router.patch('/:id', async (req, res, next) => {
                             companyBankAccountId || null,
                         ]);
                         const stepGReceiptId = stepGReceiptRes.rows[0].id;
+                        await (0, auditLogger_js_1.logAudit)(client, req.userId || null, 'create', 'receipt', stepGReceiptId, undefined, { receipt_number: receiptNum, consumer_id: booking.consumer_id, amount: bookingAmt, payment_method: payMethod, source: 'booking payment' });
                         const stepGGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, bookingAmt, booking.project_id, bookingDateStr);
                         await client.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [stepGGstSplit.cgstAmount, stepGGstSplit.sgstAmount, stepGReceiptId]);
                         // Auto-raise installment 1 from this Step-G receipt, same as a
