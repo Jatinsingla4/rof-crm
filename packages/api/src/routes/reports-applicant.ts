@@ -79,17 +79,21 @@ router.get('/applicant-payment-file', h(async (req, res) => {
         COALESCE(br.basic_rate_inr_sqft, 0)                                     AS rate_per_sqft,
         COALESCE(br.dealer_adjustment_amount, 0)                               AS dealer_discount,
         COALESCE(br.company_inaugural_disc, 0)                                 AS inaugural_discount,
+        COALESCE(br.approved_rebate_amount, 0)                                 AS company_rebate,
         COALESCE(br.dealer_adjustment_amount, 0)
-          + COALESCE(br.company_inaugural_disc, 0)                             AS total_discount,
+          + COALESCE(br.company_inaugural_disc, 0)
+          + COALESCE(br.approved_rebate_amount, 0)                             AS total_discount,
         ${unitCostBase}
           - COALESCE(br.dealer_adjustment_amount, 0)
-          - COALESCE(br.company_inaugural_disc, 0)                             AS net_basic_price,
+          - COALESCE(br.company_inaugural_disc, 0)
+          - COALESCE(br.approved_rebate_amount, 0)                             AS net_basic_price,
         COALESCE(br.plc_amount, 0)                                             AS plc_amount,
         COALESCE(br.other_charge_amount, 0)                                    AS other_charge_amount,
         COALESCE(br.other_charge_desc, '')                                     AS other_charge_desc,
         (${unitCostBase}
           - COALESCE(br.dealer_adjustment_amount, 0)
           - COALESCE(br.company_inaugural_disc, 0)
+          - COALESCE(br.approved_rebate_amount, 0)
           + COALESCE(br.plc_amount, 0)
           + COALESCE(br.other_charge_amount, 0))                               AS total_unit_cost,
         br.status                                                              AS booking_status,
@@ -119,6 +123,7 @@ router.get('/applicant-payment-file', h(async (req, res) => {
         ((${unitCostBase}
           - COALESCE(br.dealer_adjustment_amount, 0)
           - COALESCE(br.company_inaugural_disc, 0)
+          - COALESCE(br.approved_rebate_amount, 0)
           + COALESCE(br.plc_amount, 0)
           + COALESCE(br.other_charge_amount, 0))
           - COALESCE((
@@ -135,6 +140,7 @@ router.get('/applicant-payment-file', h(async (req, res) => {
         (${unitCostBase}
           - COALESCE(br.dealer_adjustment_amount, 0)
           - COALESCE(br.company_inaugural_disc, 0)
+          - COALESCE(br.approved_rebate_amount, 0)
           + COALESCE(br.plc_amount, 0)
           + COALESCE(br.other_charge_amount, 0)
           + COALESCE(bpt.cgst_amount, 0)
@@ -151,7 +157,7 @@ router.get('/applicant-payment-file', h(async (req, res) => {
   const byKey = new Map(ledger.map((p) => [`${p.consumer_id}:${p.unit_id}`, p]));
   const ictx = await loadInterestCtx(ledger);
   const num = (v: any) => parseFloat(v ?? '0') || 0;
-  const NUM = ['loan_amount','rate_per_sqft','dealer_discount','inaugural_discount','total_discount','net_basic_price','base_price_inr','total_price_inr','carpet_area_sqft','super_area_sqft','plc_amount','other_charge_amount','total_unit_cost',
+  const NUM = ['loan_amount','rate_per_sqft','dealer_discount','inaugural_discount','company_rebate','total_discount','net_basic_price','base_price_inr','total_price_inr','carpet_area_sqft','super_area_sqft','plc_amount','other_charge_amount','total_unit_cost',
     'ifms_amount','extra_addon_amount','unit_cost_less_addon','cost_cgst_pct','cost_sgst_pct','cost_cgst_amount','cost_sgst_amount','s_tax_pct','total_cost_with_gst'];
   const out = rows.map((r: any) => {
     const o: any = { ...r };
@@ -185,9 +191,9 @@ router.get('/summary-report', h(async (req, res) => {
            COUNT(u.id) FILTER (WHERE u.status = 'available')::int AS balance_unit, COALESCE(SUM(u.carpet_area_sqft) FILTER (WHERE u.status = 'available'), 0) AS balance_area,
            COALESCE(SUM(CASE WHEN u.status != 'available' THEN
              ${baseCostSql('b', 'u')}
-             - COALESCE(b.dealer_adjustment_amount, 0) - COALESCE(b.company_inaugural_disc, 0) ELSE 0 END), 0) AS sold_value
+             - COALESCE(b.dealer_adjustment_amount, 0) - COALESCE(b.company_inaugural_disc, 0) - COALESCE(b.approved_rebate_amount, 0) ELSE 0 END), 0) AS sold_value
       FROM projects pr JOIN companies comp ON comp.id = pr.company_id JOIN units u ON u.project_id = pr.id
-      LEFT JOIN LATERAL (SELECT bb.basic_rate_inr_sqft, bb.balcony_charge_amount, bb.dealer_adjustment_amount, bb.company_inaugural_disc FROM booking_records bb
+      LEFT JOIN LATERAL (SELECT bb.basic_rate_inr_sqft, bb.balcony_charge_amount, bb.dealer_adjustment_amount, bb.company_inaugural_disc, bb.approved_rebate_amount FROM booking_records bb
                           WHERE bb.unit_id = u.id AND bb.status != 'cancelled' ORDER BY bb.created_at DESC LIMIT 1) b ON TRUE
      WHERE ($1::uuid IS NULL OR comp.id = $1::uuid)
      GROUP BY comp.id, comp.name, pr.id, pr.name ORDER BY comp.name, pr.name`, [cid])).rows;

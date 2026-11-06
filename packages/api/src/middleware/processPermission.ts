@@ -11,7 +11,8 @@ export type ProcessName =
   | 'interest_waiver'
   | 'jv_refund_drcr'
   | 'broker_range_entry'
-  | 'broker_payment_entry';
+  | 'broker_payment_entry'
+  | 'company_rebate';
 
 export type PermissionRole = 'maker' | 'checker' | 'approver';
 

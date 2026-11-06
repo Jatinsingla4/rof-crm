@@ -8,4 +8,4 @@ export const PERCENT_BASES = ['basic', 'after_discount'] as const;
 export const percentChargeBase = (basic: any, inaugural: any, dealer: any, basis: string) =>
   Math.max(0, Number(basic || 0) - (basis === 'after_discount' ? Number(inaugural || 0) + Number(dealer || 0) : 0));
 export const percentChargeSql = (acm: string, unit: string, booking: string) =>
-  `ROUND(${acm}.percent_value / 100 * GREATEST(0, COALESCE(${unit}.base_price_inr, 0) - CASE WHEN ${acm}.percent_basis = 'after_discount' THEN COALESCE(${booking}.company_inaugural_disc, 0) + COALESCE(${booking}.dealer_adjustment_amount, 0) ELSE 0 END), 2)`;
+  `ROUND(${acm}.percent_value / 100 * GREATEST(0, COALESCE(${unit}.base_price_inr, 0) - CASE WHEN ${acm}.percent_basis = 'after_discount' THEN COALESCE(${booking}.company_inaugural_disc, 0) + COALESCE(${booking}.approved_rebate_amount, 0) + COALESCE(${booking}.dealer_adjustment_amount, 0) ELSE 0 END), 2)`;

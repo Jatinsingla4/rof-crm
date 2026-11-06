@@ -349,6 +349,7 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
           <input type="number" id="eb-rebate-pct" class="eb-fc"
                  value="${_val(b.company_rebate_pct)}" min="0" step="0.01">
         </div>
+        <div id="eb-rebate-box" style="grid-column:1/-1"></div>
       </div>
     </div>
   </div>
@@ -743,6 +744,7 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
       _view         = 'edit';
 
       container.innerHTML = _renderPage();
+      _paintRebate();
     } catch(e) {
       container.innerHTML = EB_STYLES
         + '<div style="padding:20px;color:var(--red);font-size:13px">Error loading data: '
@@ -858,6 +860,7 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
       // Refresh local cache so re-render is current
       _bookingData  = data.data.booking;
       _consumerData = Object.assign({}, _consumerData, data.data.consumer);
+      _paintRebate();
     } catch(e) {
       if (banner) {
         banner.className   = 'eb-banner eb-banner-err';
@@ -865,6 +868,43 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
       }
     }
   }
+
+  // Company rebate approval: status, and the buttons the API allows (it refuses anyone who may not, and the person who entered the rebate)
+  function _paintRebate() {
+    var box = document.getElementById('eb-rebate-box');
+    if (!box || !_bookingData) return;
+    var b = _bookingData, st = b.company_rebate_status || 'none';
+    var label = { none: 'No rebate', pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected', legacy: 'Typed before approval existed, not applied' }[st] || st;
+    var h = '<div style="font-size:12px;margin-top:4px"><b>Rebate status:</b> ' + _esc(label);
+    if (st === 'approved') h += ' (Rs. ' + Number(b.approved_rebate_amount).toLocaleString('en-IN') + ' is taken off the basic price)';
+    if (st === 'rejected' && b.rebate_decision_reason) h += '. Reason: ' + _esc(b.rebate_decision_reason);
+    h += '</div><div style="font-size:11px;color:var(--text2);margin:3px 0 6px">Use only one rebate box. A rebate changes the price only after another authorised user approves it, and a later change needs a new approval.</div>';
+    if (st === 'pending') h += '<button type="button" class="eb-btn" onclick="EditBooking.decideRebate(true)">Approve rebate</button> <button type="button" class="eb-btn-sec" onclick="EditBooking.decideRebate(false)">Reject rebate</button>';
+    if (st === 'legacy' || st === 'rejected') h += '<button type="button" class="eb-btn-sec" onclick="EditBooking.resubmitRebate()">Send for approval</button>';
+    box.innerHTML = h;
+  }
+
+  async function _rebateCall(url, method, payload) {
+    var banner = document.getElementById('eb-banner');
+    try {
+      var res = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (localStorage.getItem('rof-jwt') || '') }, body: JSON.stringify(payload) });
+      var data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed');
+      await _loadEdit(_bookingId, _consumerId);
+      banner = document.getElementById('eb-banner');
+      if (banner) { banner.className = 'eb-banner eb-banner-ok'; banner.textContent = 'Rebate updated.'; }
+    } catch (e) {
+      if (banner) { banner.className = 'eb-banner eb-banner-err'; banner.textContent = 'Error: ' + e.message; banner.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    }
+  }
+
+  function _decideRebate(approve) {
+    var reason = '';
+    if (!approve) { reason = (window.prompt('Reason for rejecting this rebate (required):') || '').trim(); if (!reason) return; }
+    return _rebateCall('/api/booking/' + _bookingId + '/rebate/' + (approve ? 'approve' : 'reject'), 'POST', { reason: reason });
+  }
+
+  function _resubmitRebate() { return _rebateCall('/api/booking/' + _bookingId + '/edit', 'PATCH', { resubmit_rebate: true }); }
 
   function _back() {
     _view         = 'search';
@@ -881,6 +921,8 @@ table.eb-tbl tbody tr:hover td { background: var(--surface2); }
     fetch:          _fetch,
     loadEdit:       _loadEdit,
     save:           _save,
+    decideRebate:   _decideRebate,
+    resubmitRebate: _resubmitRebate,
     back:           _back,
     setBookingType: _setBookingType
   };

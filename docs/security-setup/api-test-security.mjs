@@ -72,7 +72,7 @@ const rvPages = sys(await A('GET', '/roles/read_only_viewer/pages')); t('default
 const CO = (await A('POST', '/companies', { name: 'Sec Co ' + U })).j.data.id;
 await A('POST', '/projects', { companyId: CO, name: 'Sec-' + U, reraNumber: 'SEC-' + U, tcpLicence: 'x' });
 const form = (await A('GET', '/users/employee-login/form-data')).j.data;
-t('form data: roles include the custom role, processes match the API', form.roles.some(x => x.value === rn) && form.processes.length === 9 && form.projects.length >= 1, JSON.stringify(form.roles.map(x => x.value)));
+t('form data: roles include the custom role, processes match the API', form.roles.some(x => x.value === rn) && form.processes.length === 10 && form.processes.some(x => x.name === 'company_rebate' && x.has_checker && !x.has_maker) && form.projects.length >= 1, JSON.stringify(form.roles.map(x => x.value)));
 r = await SE('GET', '/users/employee-login/form-data'); t('logins: sales_executive cannot open the login form -> 403', r.s === 403, r.s);
 const email = `Mixed.Case.${U}@Example.com`, username = 'user_' + U;
 const base = { username, email, password: PW, confirmPassword: PW, role: 'sales_executive' };

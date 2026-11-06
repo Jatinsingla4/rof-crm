@@ -171,6 +171,9 @@ Pages.booking = async function(params = {}) {
             <label class="fl">Rebate (%)</label>
             <input type="number" step="0.01" class="fc" name="company_rebate_pct" placeholder="0">
           </div>
+          <div class="fg" style="grid-column:1/-1;font-size:11px;color:var(--text2)">
+            Use only one rebate box (₹, per sq. ft. or %). A rebate is a request: it changes the price only after another authorised user approves it.
+          </div>
         </div>
       </div>
     </div>
