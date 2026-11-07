@@ -910,16 +910,17 @@ Object.assign(SPJPage, {
     el.innerHTML = this._projects.length === 0
       ? `<div class="empty-state"><div class="empty-icon">🏗</div><div>No projects found</div></div>`
       : `<div class="spjn-list" style="max-width:980px;margin:0 auto"><div class="spjn-list-h"><div class="spjn-list-t">All Projects</div><span class="chip chip-blue">${this._projects.length} total</span></div><div class="spjn-tscroll"><table class="dash-tbl spjn-tbl">
-          <thead><tr><th>Project</th><th>RERA No.</th><th>Location</th><th>Company</th><th class="txt-right">Units</th><th class="txt-right">Available</th><th class="txt-right">Allotted</th><th>Action</th></tr></thead>
+          <thead><tr><th>Project</th><th>RERA No.</th><th>Location</th><th>Company</th><th class="txt-right">Units</th><th class="txt-right">Available</th><th class="txt-right">Allotted</th><th class="txt-right" title="Booked, locked, surrendered or any other status">Other</th><th>Action</th></tr></thead>
           <tbody>
             ${this._projects.map(p => `<tr>
               <td class="td-bold">${p.name}</td>
-              <td class="td-mono">${p.rera_number||'—'}</td>
+              <td class="td-mono">${/(^|[-\s/])(X{3,}|NONE|TBD|NIL)([-\s/]|$)|(^|[-\s/])X([-\s/]|$)|^\s*(N\/?A|NOT AVAILABLE|X+)\s*$/i.test(p.rera_number||'') ? '<span style="color:#b91c1c">Missing (placeholder)</span>' : (p.rera_number||'—')}</td>
               <td>${p.location||'—'}</td>
               <td>${p.company_name||'—'}</td>
               <td class="txt-right">${p.unit_count||0}</td>
               <td class="txt-right" style="color:var(--green)">${p.available_units||0}</td>
               <td class="txt-right" style="color:var(--blue)">${p.allotted_units||0}</td>
+              <td class="txt-right">${p.other_units||0}</td>
               <td><button class="btn btn-ghost btn-sm" onclick="SPJPage.prepareEditProject('${p.id}')">Edit</button></td>
             </tr>`).join('')}
           </tbody>

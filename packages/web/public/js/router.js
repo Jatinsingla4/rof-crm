@@ -37,8 +37,8 @@ const Router = {
     const handler = this.routes[path];
     if (!handler) {
       console.warn('No route for:', path);
-      // Redirect to dashboard if unknown route
-      if (path !== '/dashboard') this.navigate('/dashboard');
+      // Redirect to dashboard if unknown route, and say so instead of changing page silently
+      if (path !== '/dashboard') { Utils.warn('That page does not exist, so the dashboard is shown.'); this.navigate('/dashboard'); }
       return;
     }
 
@@ -67,7 +67,24 @@ const Router = {
   },
 
   init() {
-    window.addEventListener('hashchange', () => this.dispatch());
+    // A form marked data-warn-unsaved asks before it is left with edits in it (leaving by the menu, the back button or a link)
+    let lastHash = window.location.hash, undoing = false;
+    document.addEventListener('input', (e) => {
+      const f = e.target && e.target.closest ? e.target.closest('form[data-warn-unsaved]') : null;
+      if (f) f.dataset.dirty = '1';
+    });
+    window.addEventListener('beforeunload', (e) => {
+      if (document.querySelector('form[data-warn-unsaved][data-dirty="1"]')) { e.preventDefault(); e.returnValue = ''; }
+    });
+    window.addEventListener('hashchange', () => {
+      if (undoing) { undoing = false; return; }
+      if (document.querySelector('form[data-warn-unsaved][data-dirty="1"]') &&
+          !window.confirm('You have unsaved changes on this form. Leave this page and lose them?')) {
+        undoing = true; window.location.hash = lastHash; return;
+      }
+      lastHash = window.location.hash;
+      this.dispatch();
+    });
     // Initial dispatch
     if (!window.location.hash || window.location.hash === '#') {
       this.navigate('/dashboard');

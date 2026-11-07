@@ -15,7 +15,7 @@ import { runTimelyDiscounts } from '../utils/timely-discount.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { applyUnitStatusFilter } from '../middleware/unitStatusAccess.js';
 import { grantClause } from '../utils/unit-grant.js';
-import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas, oneOf as inOneOf, failWith } from '../utils/input.js';
+import { text as inText, day as inDay, num as inNum, uuid as inUuid, has as inHas, oneOf as inOneOf, failWith, isPlaceholderRera } from '../utils/input.js';
 
 const router = Router();
 
@@ -33,7 +33,8 @@ router.get('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, n
               COUNT(DISTINCT t.id) as tower_count,
               COUNT(DISTINCT u.id) as unit_count,
               COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'available') as available_units,
-              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'allotted') as allotted_units
+              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'allotted') as allotted_units,
+              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text NOT IN ('available', 'allotted')) as other_units
        FROM projects p
        LEFT JOIN companies comp ON comp.id = p.company_id
        LEFT JOIN towers t ON p.id = t.project_id
@@ -62,6 +63,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
     if ('error' in cleaned) return res.status(400).json({ error: cleaned.error });
     const { name, reraNumber, tcpLicence, location } = cleaned.values;
 
+    if (isPlaceholderRera(reraNumber)) return res.status(400).json({ error: 'RERA number looks like a placeholder; enter the real registration number' });
     if (!name || !reraNumber || !tcpLicence) {
       return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
     }
@@ -680,6 +682,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
     if (inHas(rb.companyId)) { vb.companyId = inUuid(rb.companyId, 'companyId'); if (!(await db.query('SELECT 1 FROM companies WHERE id = $1', [vb.companyId])).rows.length) throw bad('This company does not exist'); }
     // RERA and licence are required on a new project, so a blank edit is refused (a field left out keeps its value); RERA stays unique
     for (const [k, label] of [['reraNumber', 'RERA number'], ['tcpLicence', 'TCP licence']] as const) if (k in rb) { vb[k] = inText(rb[k], label, 100, true); }
+    if (isPlaceholderRera(vb.reraNumber)) throw bad('RERA number looks like a placeholder; enter the real registration number');
     if (vb.reraNumber && (await db.query('SELECT 1 FROM projects WHERE lower(rera_number) = lower($1) AND id::text <> $2', [vb.reraNumber, id])).rows.length) return res.status(409).json({ error: 'Another project already has this RERA number' });
     if (inHas(rb.landAreaSqft)) vb.landAreaSqft = inNum(rb.landAreaSqft, 'Land area', 10_000_000_000, 4);
     if (inHas(rb.possessionDate)) vb.possessionDate = inDay(rb.possessionDate, 'Possession date');

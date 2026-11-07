@@ -817,6 +817,7 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
                 r.deposit_date, r.clearing_date, r.hold_remark,
                 r.cgst_amount AS cgst_amount,
                 r.sgst_amount AS sgst_amount,
+                COALESCE(r.is_advance, false) AS is_advance,
                 COALESCE(d.demand_type, NULLIF(TRIM(r.other_charge_desc), ''), 'Booking') AS on_account_of
          FROM receipts r
          LEFT JOIN demands d ON d.id = r.demand_id

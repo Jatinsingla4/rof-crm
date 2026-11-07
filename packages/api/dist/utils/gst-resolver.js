@@ -31,7 +31,7 @@ async function resolveRate(db, projectId, projectName, chargeType, bookingDate) 
             if (fallback) {
                 console.warn(`[GST] No mapping for charge type "${chargeType}" on project "${projectName}" ` +
                     `— falling back to BASIC rate (${fallback.cgst_pct}% CGST). ` +
-                    `Configure OTHER CHARGE mapping in Set Master -> GST Configuration.`);
+                    `Configure OTHER CHARGE mapping in Set Master > Set Up > GST Configuration.`);
                 return {
                     cgstPct: parseFloat(fallback.cgst_pct) / 100,
                     sgstPct: parseFloat(fallback.sgst_pct) / 100,
@@ -40,7 +40,7 @@ async function resolveRate(db, projectId, projectName, chargeType, bookingDate) 
         }
         throw Object.assign(new Error(`No GST mapping found for project "${projectName}" (${projectId}), ` +
             `charge type "${chargeType}", as of ${bookingDate}. ` +
-            `Please configure this in Set Master -> GST Configuration -> GST TAX CHARGE MAPPING before completing this booking.`), { http: 422 });
+            `Please configure this in Set Master > Set Up > GST Configuration > GST TAX CHARGE MAPPING before completing this booking.`), { http: 422 });
     }
     return {
         cgstPct: parseFloat(r.rows[0].cgst_pct) / 100,

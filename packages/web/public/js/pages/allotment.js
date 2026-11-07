@@ -510,6 +510,8 @@ const AllotmentPage = {
                      <th>REGISTRATION NO</th>
                      <th>FIRST APPLICANT NAME</th>
                      <th>SECOND APPLICANT NAME</th>
+                     <th>PROJECT</th>
+                     <th>TOWER</th>
                      <th>UNIT ADDRESS</th>
                      <th>BROKER COMPANY</th>
                      <th>UNIT TYPE</th>
@@ -533,6 +535,8 @@ const AllotmentPage = {
                          </a>
                        </td>
                        <td style="color:var(--text2)">${a.co_applicant_name||'N/A'}</td>
+                       <td>${a.project_name||'—'}</td>
+                       <td>${a.tower_name||'—'}</td>
                        <td>${a.unit_number||'—'}</td>
                        <td>${a.broker_company||'Direct'}</td>
                        <td>${a.bhk_type||'N/A'}</td>

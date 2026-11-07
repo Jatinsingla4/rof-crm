@@ -145,7 +145,7 @@ const loadAuthUser = async (userId) => {
     const hit = authUserCache.get(userId);
     if (hit && Date.now() - hit.at < AUTH_CACHE_MS)
         return hit.user;
-    const r = await pool_1.db.query(`SELECT u.role,
+    const r = await pool_1.db.query(`SELECT u.name, u.role,
             -- UR-001: only a login whose own role is super_admin gets the super_admin bypass; a custom role whose base role is
             -- super_admin resolves to null (unknown role, refused by rbac) and never to super_admin
             CASE WHEN u.role = 'super_admin' THEN 'super_admin'
@@ -230,7 +230,7 @@ const authenticateToken = async (req, res, next) => {
             return res.status(401).json({ error: 'Authentication required' });
         }
         req.userId = decoded.userId;
-        req.userName = decoded.name || decoded.email || 'Unknown';
+        req.userName = decoded.name || decoded.email || user.name || 'Unknown';
         req.userRole = user.eff_role ?? undefined;
         req.roleName = user.role;
         req.companyIds = user.eff_role !== 'super_admin' && user.company_ids && user.company_ids.length ? user.company_ids : null;
@@ -326,8 +326,10 @@ app.post('/api/auth/link-token', exports.authenticateToken, (req, res) => {
     const path = (req.body || {}).path;
     if (typeof path !== 'string' || !/^\/api\/[A-Za-z0-9/_.\-]+$/.test(path) || path.includes('..'))
         return res.status(400).json({ error: 'path is not valid' });
-    const { iat, exp, purpose, p, ...claims } = jsonwebtoken_1.default.decode(req.headers['authorization'].split(' ')[1]);
-    res.json({ token: jsonwebtoken_1.default.sign({ ...claims, purpose: 'link', p: path }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '2m' }) });
+    // The address is read by logs, history and bookmarks, so the link token carries only who (userId) and which session version (tv), never the email, name, role or permissions;
+    // the server loads those from the database on every request.
+    const { userId, tv } = jsonwebtoken_1.default.decode(req.headers['authorization'].split(' ')[1]);
+    res.json({ token: jsonwebtoken_1.default.sign({ userId, tv, purpose: 'link', p: path }, JWT_SECRET, { algorithm: 'HS256', expiresIn: '2m' }) });
 });
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     const { email, password } = req.body;
