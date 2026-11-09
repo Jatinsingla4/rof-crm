@@ -1,0 +1,2111 @@
+{
+  "Alpha-like: discount 1,00,000, 9-row plan (file rows from stored demands)": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "demandRows": {
+        "1": {
+          "amt": 273000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        "2": {
+          "amt": 1092000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        "3": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "4": {
+          "amt": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "5": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "6": {
+          "amt": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "7": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "8": {
+          "amt": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "9": {
+          "amt": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      }
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 273000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 273000,
+          "cgst": 1365,
+          "sgst": 1365
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5460,
+          "sgst": 5460
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 273000,
+          "balconyInst": 3000,
+          "instCgst": 1390,
+          "instSgst": 1390,
+          "netDue": 275780
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1092000,
+          "balconyInst": 12000,
+          "instCgst": 5560,
+          "instSgst": 5560,
+          "netDue": 1103120
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 689448
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 689448
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 689448
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "Alpha-like: same, no stored demands (file falls back to its own arithmetic)": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 273000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 273000,
+          "cgst": 1365,
+          "sgst": 1365
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5460,
+          "sgst": 5460
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 275000,
+          "balconyInst": 3000,
+          "instCgst": 1375,
+          "instSgst": 1375,
+          "netDue": 277750
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1100000,
+          "balconyInst": 12000,
+          "instCgst": 5500,
+          "instSgst": 5500,
+          "netDue": 1111000
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "Beta-like: no discount, total 55,60,000": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5560000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "demandRows": {
+        "1": {
+          "amt": 278000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        "2": {
+          "amt": 1112000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        "3": {
+          "amt": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "4": {
+          "amt": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "5": {
+          "amt": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "6": {
+          "amt": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "7": {
+          "amt": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "8": {
+          "amt": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        "9": {
+          "amt": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      }
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 278000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        {
+          "amountDue": 1112000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3474,
+          "sgst": 3474
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 278000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        {
+          "amountDue": 1112000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 695000,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 278000,
+          "balconyInst": 3000,
+          "instCgst": 1390,
+          "instSgst": 1390,
+          "netDue": 280780
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1112000,
+          "balconyInst": 12000,
+          "instCgst": 5560,
+          "instSgst": 5560,
+          "netDue": 1123120
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 701952
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 701948
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 701952
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 701948
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 701952
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 695000,
+          "balconyInst": 7500,
+          "instCgst": 3474,
+          "instSgst": 3474,
+          "netDue": 701948
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "plan adds to 95%, so no running-share split": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 15
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "demandRows": {
+        "1": {
+          "amt": 273000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        "2": {
+          "amt": 819000,
+          "cgst": 4170,
+          "sgst": 4170
+        },
+        "3": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "4": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "5": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "6": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "7": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "8": {
+          "amt": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        "9": {
+          "amt": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      }
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 273000,
+          "cgst": 1390,
+          "sgst": 1390
+        },
+        {
+          "amountDue": 819000,
+          "cgst": 4170,
+          "sgst": 4170
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 273000,
+          "cgst": 1365,
+          "sgst": 1365
+        },
+        {
+          "amountDue": 819000,
+          "cgst": 4095,
+          "sgst": 4095
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 273000,
+          "balconyInst": 3000,
+          "instCgst": 1390,
+          "instSgst": 1390,
+          "netDue": 275780
+        },
+        {
+          "netBsp": 825000,
+          "otherInst": 0,
+          "instAmt": 819000,
+          "balconyInst": 9000,
+          "instCgst": 4170,
+          "instSgst": 4170,
+          "netDue": 827340
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 682500,
+          "balconyInst": 7500,
+          "instCgst": 3476,
+          "instSgst": 3476,
+          "netDue": 689452
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "flat amount instalment present": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 0,
+          "flat_amount_inr": 100000
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 100000,
+          "cgst": 500,
+          "sgst": 500
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5560,
+          "sgst": 5560
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3476,
+          "sgst": 3476
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5460,
+          "sgst": 5460
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1100000,
+          "balconyInst": 12000,
+          "instCgst": 5500,
+          "instSgst": 5500,
+          "netDue": 1111000
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "PLC and other charge present": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5830000,
+      "basicCost": 5500000,
+      "plc": 250000,
+      "other": 120000,
+      "balconyCharge": 60000,
+      "isNri": false,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "demandRows": {
+        "1": {
+          "amt": 291500,
+          "cgst": 1993,
+          "sgst": 1993
+        },
+        "2": {
+          "amt": 1166000,
+          "cgst": 7970,
+          "sgst": 7970
+        },
+        "3": {
+          "amt": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        "4": {
+          "amt": 728750,
+          "cgst": 4980,
+          "sgst": 4980
+        },
+        "5": {
+          "amt": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        "6": {
+          "amt": 728750,
+          "cgst": 4981,
+          "sgst": 4981
+        },
+        "7": {
+          "amt": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        "8": {
+          "amt": 728750,
+          "cgst": 4980,
+          "sgst": 4980
+        },
+        "9": {
+          "amt": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      }
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 291500,
+          "cgst": 1993,
+          "sgst": 1993
+        },
+        {
+          "amountDue": 1166000,
+          "cgst": 7970,
+          "sgst": 7970
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4980,
+          "sgst": 4980
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4981,
+          "sgst": 4981
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4982,
+          "sgst": 4982
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4980,
+          "sgst": 4980
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 291500,
+          "cgst": 1968,
+          "sgst": 1968
+        },
+        {
+          "amountDue": 1166000,
+          "cgst": 7870,
+          "sgst": 7870
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 728750,
+          "cgst": 4919,
+          "sgst": 4919
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 18500,
+          "instAmt": 291500,
+          "balconyInst": 3000,
+          "instCgst": 1993,
+          "instSgst": 1993,
+          "netDue": 295486
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 74000,
+          "instAmt": 1166000,
+          "balconyInst": 12000,
+          "instCgst": 7970,
+          "instSgst": 7970,
+          "netDue": 1181940
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4982,
+          "instSgst": 4982,
+          "netDue": 738714
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4980,
+          "instSgst": 4980,
+          "netDue": 738710
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4982,
+          "instSgst": 4982,
+          "netDue": 738714
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4981,
+          "instSgst": 4981,
+          "netDue": 738712
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4982,
+          "instSgst": 4982,
+          "netDue": 738714
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 46250,
+          "instAmt": 728750,
+          "balconyInst": 7500,
+          "instCgst": 4980,
+          "instSgst": 4980,
+          "netDue": 738710
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "OCI consumer (save and file zero GST, manual path taxes)": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": true,
+      "manualNri": false,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 273000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 273000,
+          "cgst": 1365,
+          "sgst": 1365
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 5460,
+          "sgst": 5460
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 3413,
+          "sgst": 3413
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 275000,
+          "balconyInst": 3000,
+          "instCgst": 1375,
+          "instSgst": 1375,
+          "netDue": 277750
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1100000,
+          "balconyInst": 12000,
+          "instCgst": 5500,
+          "instSgst": 5500,
+          "netDue": 1111000
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  },
+  "NRI consumer (all paths zero GST)": {
+    "input": {
+      "templates": [
+        {
+          "percentage": 5
+        },
+        {
+          "percentage": 20
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 12.5
+        },
+        {
+          "percentage": 0
+        }
+      ],
+      "totalAmount": 5460000,
+      "basicCost": 5500000,
+      "plc": 0,
+      "other": 0,
+      "balconyCharge": 60000,
+      "isNri": true,
+      "manualNri": true,
+      "rates": {
+        "BASIC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "PLC": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        },
+        "OTHER CHARGE": {
+          "cgstPct": 9,
+          "sgstPct": 9
+        },
+        "BALCONY": {
+          "cgstPct": 0.5,
+          "sgstPct": 0.5
+        }
+      },
+      "basePrice": 5500000,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5
+    },
+    "expected": {
+      "save": [
+        {
+          "amountDue": 273000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "manual": [
+        {
+          "amountDue": 273000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 1092000,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 682500,
+          "cgst": 0,
+          "sgst": 0
+        },
+        {
+          "amountDue": 0,
+          "cgst": 0,
+          "sgst": 0
+        }
+      ],
+      "file": [
+        {
+          "netBsp": 275000,
+          "otherInst": 0,
+          "instAmt": 275000,
+          "balconyInst": 3000,
+          "instCgst": 1375,
+          "instSgst": 1375,
+          "netDue": 277750
+        },
+        {
+          "netBsp": 1100000,
+          "otherInst": 0,
+          "instAmt": 1100000,
+          "balconyInst": 12000,
+          "instCgst": 5500,
+          "instSgst": 5500,
+          "netDue": 1111000
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 687500,
+          "otherInst": 0,
+          "instAmt": 687500,
+          "balconyInst": 7500,
+          "instCgst": 3437.5,
+          "instSgst": 3437.5,
+          "netDue": 694375
+        },
+        {
+          "netBsp": 0,
+          "otherInst": 0,
+          "instAmt": 0,
+          "balconyInst": 0,
+          "instCgst": 0,
+          "instSgst": 0,
+          "netDue": 0
+        }
+      ]
+    }
+  }
+}

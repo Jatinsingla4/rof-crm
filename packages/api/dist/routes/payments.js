@@ -581,8 +581,21 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
             await client.query('ROLLBACK');
             return res.status(403).json({ error: 'Cannot cancel an approved receipt. Please use the formal reversal workflow.' });
         }
+        // The advance parts this receipt's overpayment created go with it, or the same money would stay counted against the next instalments.
+        // Parts that are already approved, cleared or bounced have been dealt with on their own and block the cancellation instead.
+        const lockedParts = await client.query(`SELECT receipt_number FROM receipts WHERE advance_source_receipt_id = $1 AND status != 'cancelled' AND (approval_status = 'approved' OR status IN ('cleared', 'bounced'))`, [id]);
+        if (lockedParts.rows.length) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: `Part of this receipt's overpayment (${lockedParts.rows.map((r) => r.receipt_number).join(', ')}) has already been approved or cleared. Reverse that first.` });
+        }
         // Step 1: Cancel the receipt
         await client.query(`UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [id]);
+        const goneParts = await client.query(`UPDATE receipts SET status = 'cancelled', updated_at = NOW()
+       WHERE advance_source_receipt_id = $1 AND status != 'cancelled'
+       RETURNING payment_plan_id, amount_received_inr`, [id]);
+        for (const part of goneParts.rows) {
+            await client.query(`UPDATE payment_plans SET advance_amount = GREATEST(0, COALESCE(advance_amount, 0) - $1), updated_at = NOW() WHERE id = $2`, [part.amount_received_inr, part.payment_plan_id]);
+        }
         await (0, tds_js_1.releaseTdsForReceipt)(client, id, 'Receipt cancelled');
         // Step 2: A plan with helper -ADV rows (an overpayment passed on) is allocated again from the receipts still valid: that reopens every demand this
         // receipt paid, the ones its excess reached included, and cancels the helper rows. Otherwise only the linked demand and the waterfall check below apply.

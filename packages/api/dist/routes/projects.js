@@ -30,7 +30,8 @@ router.get('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, ne
               COUNT(DISTINCT t.id) as tower_count,
               COUNT(DISTINCT u.id) as unit_count,
               COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'available') as available_units,
-              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'allotted') as allotted_units
+              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text = 'allotted') as allotted_units,
+              COUNT(DISTINCT u.id) FILTER (WHERE u.status::text NOT IN ('available', 'allotted')) as other_units
        FROM projects p
        LEFT JOIN companies comp ON comp.id = p.company_id
        LEFT JOIN towers t ON p.id = t.project_id
@@ -59,6 +60,8 @@ router.post('/', async (req, res, next) => {
         if ('error' in cleaned)
             return res.status(400).json({ error: cleaned.error });
         const { name, reraNumber, tcpLicence, location } = cleaned.values;
+        if ((0, input_js_1.isPlaceholderRera)(reraNumber))
+            return res.status(400).json({ error: 'RERA number looks like a placeholder; enter the real registration number' });
         if (!name || !reraNumber || !tcpLicence) {
             return res.status(400).json({ error: 'name, reraNumber, and tcpLicence are required' });
         }
@@ -765,6 +768,8 @@ router.patch('/:id', async (req, res, next) => {
             if (k in rb) {
                 vb[k] = (0, input_js_1.text)(rb[k], label, 100, true);
             }
+        if ((0, input_js_1.isPlaceholderRera)(vb.reraNumber))
+            throw bad('RERA number looks like a placeholder; enter the real registration number');
         if (vb.reraNumber && (await index_js_1.db.query('SELECT 1 FROM projects WHERE lower(rera_number) = lower($1) AND id::text <> $2', [vb.reraNumber, id])).rows.length)
             return res.status(409).json({ error: 'Another project already has this RERA number' });
         if ((0, input_js_1.has)(rb.landAreaSqft))

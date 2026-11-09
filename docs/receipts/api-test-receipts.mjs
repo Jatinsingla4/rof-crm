@@ -144,6 +144,20 @@ const B1 = await buyer();
   t('match: paying more than instalment 3 asks for is accepted and marks it paid', r.s === 201 && psql(`select status from demands where id='${d3}'`) === 'paid', JSON.stringify(r.j));
   r = await post({ consumerId: b.c.id, amountReceivedInr: 700, installmentIndex: 9 }); t('match: an instalment with no demand yet is accepted, unlinked', r.s === 201 && rcol(r.j.data.id, 'demand_id') === '', JSON.stringify(r.j));
   const adv = psql(`select count(*) from receipts where consumer_id='${b.c.id}' and is_advance and receipt_number ~ '^REC-[0-9]{4}-[0-9]{5}-ADV$'`); t('match: an advance receipt that follows an excess uses a running number with -ADV (or none was needed)', Number(adv) >= 0);
+  // an overpayment's advance parts remember their source receipt and go with it when it is cancelled (migration 148)
+  {
+    const e = await buyer(); const [e1, e2] = e.d;
+    r = await post({ consumerId: e.c.id, amountReceivedInr: Math.ceil(due(e1) + 5000), installmentIndex: 1 });
+    const src = r.j?.data?.id;
+    const parts = () => Number(psql(`select count(*) from receipts where advance_source_receipt_id='${src}' and status <> 'cancelled'`));
+    t('advance: paying more than instalment 1 asks for makes advance parts that name their source receipt', r.s === 201 && parts() >= 1, JSON.stringify(r.j) + ' parts=' + (src ? parts() : 'n/a'));
+    const advBefore = Number(psql(`select coalesce(advance_amount,0) from payment_plans where consumer_id='${e.c.id}' order by created_at desc limit 1`));
+    r2 = await A('POST', `/payments/receipts/${src}/cancel`, { reason: 'test' });
+    t('advance: cancelling the paying receipt is accepted', r2.s === 200, JSON.stringify(r2.j));
+    t('advance: its advance parts are cancelled with it', parts() === 0 && Number(psql(`select count(*) from receipts where advance_source_receipt_id='${src}'`)) >= 1, 'parts=' + parts());
+    t('advance: the plan advance amount goes down by what was cancelled', Number(psql(`select coalesce(advance_amount,0) from payment_plans where consumer_id='${e.c.id}' order by created_at desc limit 1`)) < advBefore || advBefore === 0, 'before=' + advBefore);
+    t('advance: the next instalment is no longer covered by the cancelled money', psql(`select status from demands where id='${e2}'`) !== 'paid', psql(`select status from demands where id='${e2}'`));
+  }
   // raise stage 1 by its first receipt
   const c = await buyer(); psql(`delete from receipts where consumer_id='${c.c.id}'`); psql(`update demands set due_date = null, demand_type = 'installment' where id='${c.d[0]}'`);
   r = await post({ consumerId: c.c.id, amountReceivedInr: 5000, installmentIndex: 1 }); t('match: the first receipt against instalment 1 raises that demand', r.s === 201 && ['demanded', 'paid'].includes(psql(`select status from demands where id='${c.d[0]}'`)), JSON.stringify(r.j) + psql(`select status from demands where id='${c.d[0]}'`));

@@ -1056,7 +1056,9 @@ test('Search Allotment: every filter, wrong values, the date range', async () =>
   await set('searchUnitAddress', `L2-${U}`); await expect(body).toContainText(ALT_A);
   // the applicant-file link must not show the login token (right-click, Copy link address) and must still open the file
   await expect(body.locator('a[href*="token="]')).toHaveCount(0);
-  const rate = await body.locator('tbody tr').first().locator('td').nth(8).innerText();   // RATE is per sq.ft, not the unit price
+  const rateAt = await body.locator('thead th').evaluateAll(hs => hs.findIndex(h => /^RATE$/i.test((h.textContent || '').trim())));   // found by name: columns were added before it
+  expect(rateAt, 'RATE column exists').toBeGreaterThan(-1);
+  const rate = await body.locator('tbody tr').first().locator('td').nth(rateAt).innerText();   // RATE is per sq.ft, not the unit price
   expect(Number(rate.replace(/,/g, '')) < 100000 || rate === 'N/A', `RATE column shows ${rate}`).toBe(true);
   await set('searchUnitAddress', `L4-${U}`); await expect(body).toContainText(/No allotments found/); await set('searchUnitAddress', "x' or '1'='1"); await expect(body).toContainText(/No allotments found/);
   await set('searchUnitAddress', ''); await set('searchFirstName', `Alt${'A'}${U}`); await expect(body).toContainText(ALT_A);

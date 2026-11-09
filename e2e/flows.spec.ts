@@ -91,7 +91,7 @@ test('Set Master menu has four groups and every entry opens', async () => {
   const groups = await nav.locator('.dd > .dd-link.has-sub').evaluateAll(els => els.map(e => (e.childNodes[0].textContent || '').trim()));
   expect(groups).toEqual(['Set Up', 'Employees', 'Documents', 'Security']);
   const links = await nav.locator('a.dd-link').evaluateAll(els => els.map(e => ({ label: (e.textContent || '').trim(), onclick: e.getAttribute('onclick') || '' })));
-  expect(links.length).toBe(19);
+  expect(links.length).toBe(20);   // 19 plus GST Configuration, which is now also under Set Up (it was only four levels down in Set Projects)
   for (const link of links) {
     const standalone = link.onclick.match(/window\.location\.href='([^']+)'/);
     if (standalone) {

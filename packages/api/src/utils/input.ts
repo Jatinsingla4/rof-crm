@@ -73,3 +73,7 @@ export const pos = (v: any, label: string, decimals = 2): number => { const n = 
 export const likeOf = (s: string) => '%' + s.replace(/[\\%_]/g, '\\$&') + '%';
 // A text value that will be put into HTML as page text
 export const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// A placeholder such as RERA-X-NONE or RERA/GGM/2024/XXXX is never a real registration number. Print the fallback instead.
+export const isPlaceholderRera = (v: any) => typeof v === 'string' && /(^|[-\s/])(X{3,}|NONE|TBD|NIL)([-\s/]|$)|(^|[-\s/])X([-\s/]|$)|^\s*(N\/?A|NOT AVAILABLE|X+)\s*$/i.test(v.trim());
+export const realRera = (v: any, fallback = 'N/A') => (has(v) && !isPlaceholderRera(v) ? String(v) : fallback);

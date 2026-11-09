@@ -1,0 +1,795 @@
+{
+  "cycle3-like: cap 60600, discount 1,00,000, balcony fetch OK": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 100000,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5516206.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5460600
+      },
+      "file": {
+        "netBasicPrice": 5400000,
+        "agreementValue": 5460600,
+        "totalConsideration": 5460600,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": 5516206
+      }
+    }
+  },
+  "cycle3-like: balcony preview fetch failed (silent 0), save still has balcony": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 0,
+        "cgst": 0,
+        "sgst": 0
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 100000,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 0,
+        "grandTotal": 5455000.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5460600
+      },
+      "file": {
+        "netBasicPrice": 5400000,
+        "agreementValue": 5460600,
+        "totalConsideration": 5460600,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": 5516206
+      }
+    }
+  },
+  "cap 60000 variant (the Alpha/Beta file figure)": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60000,
+        "cgst": 300,
+        "sgst": 300
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 100000,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60000,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 60600,
+        "grandTotal": 5515600.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60000,
+        "balconyCgstAmount": 300,
+        "balconySgstAmount": 300,
+        "totalAmount": 5460000
+      },
+      "file": {
+        "netBasicPrice": 5400000,
+        "agreementValue": 5460000,
+        "totalConsideration": 5460000,
+        "cgst": 27800,
+        "sgst": 27800,
+        "totalTax": 55600,
+        "totalWithTax": 5515600
+      }
+    }
+  },
+  "no balcony area": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 0,
+        "cgst": 0,
+        "sgst": 0
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 0,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 0,
+        "grandTotal": 5555000.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 0,
+        "balconyCgstAmount": 0,
+        "balconySgstAmount": 0,
+        "totalAmount": 5500000
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5500000,
+        "totalConsideration": 5500000,
+        "cgst": 27500,
+        "sgst": 27500,
+        "totalTax": 55000,
+        "totalWithTax": 5555000
+      }
+    }
+  },
+  "PLC + other charge, no discount": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 250000,
+      "other": 120000,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5870000.1220703125,
+        "cgst": 29350.000610351562,
+        "sgst": 29350.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5989906.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5930600
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5930600,
+        "totalConsideration": 5930600,
+        "cgst": 39853,
+        "sgst": 39853,
+        "totalTax": 79706,
+        "totalWithTax": 6010306
+      }
+    }
+  },
+  "rebate and discount together": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 100000,
+      "approvedRebate": 25000,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5516206.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5435600
+      },
+      "file": {
+        "netBasicPrice": 5400000,
+        "agreementValue": 5460600,
+        "totalConsideration": 5460600,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": 5516206
+      }
+    }
+  },
+  "discount bigger than basic price (negative total)": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 6000000,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": -383793.8767089844
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": -439400
+      },
+      "file": {
+        "netBasicPrice": -500000,
+        "agreementValue": -439400,
+        "totalConsideration": -439400,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": -383794
+      }
+    }
+  },
+  "rate 0: unit price fallback, fractional price (parseInt vs parseFloat)": {
+    "input": {
+      "formBasicRate": 0,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 0,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000.75,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 0,
+        "subTotal": 0,
+        "cgst": 0,
+        "sgst": 0,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 61206
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5560600
+      },
+      "file": {
+        "netBasicPrice": 5500000.75,
+        "agreementValue": 5560600.75,
+        "totalConsideration": 5560600.75,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": 5616206.75
+      }
+    }
+  },
+  "NRI GST exempt in file; preview and save still tax": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": true,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5616206.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5560600
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5560600,
+        "totalConsideration": 5560600,
+        "cgst": 0,
+        "sgst": 0,
+        "totalTax": 0,
+        "totalWithTax": 5560600
+      }
+    }
+  },
+  "file uses demand sums when within 1000": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 27800,
+      "activeDemandSgstSum": 27800,
+      "activeDemandCount": 3
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5616206.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5560600
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5560600,
+        "totalConsideration": 5560600,
+        "cgst": 27800,
+        "sgst": 27800,
+        "totalTax": 55600,
+        "totalWithTax": 5616200
+      }
+    }
+  },
+  "file ignores demand sums when more than 1000 away": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 40000,
+      "activeDemandSgstSum": 40000,
+      "activeDemandCount": 3
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5616206.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5560600
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5560600,
+        "totalConsideration": 5560600,
+        "cgst": 27803,
+        "sgst": 27803,
+        "totalTax": 55606,
+        "totalWithTax": 5616206
+      }
+    }
+  },
+  "add-on charges present": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 60600,
+        "cgst": 303,
+        "sgst": 303
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 50000,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 15000,
+      "balconyRate": 1300,
+      "balconyCap": 60600,
+      "balconyMaxArea": null,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5550000.1220703125,
+        "cgst": 27750.000610351562,
+        "sgst": 27750.000610351562,
+        "balconyInclusiveTotal": 61206,
+        "grandTotal": 5666706.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 60600,
+        "balconyCgstAmount": 303,
+        "balconySgstAmount": 303,
+        "totalAmount": 5610600
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5610600,
+        "totalConsideration": 5625600,
+        "cgst": 32303,
+        "sgst": 32303,
+        "totalTax": 64606,
+        "totalWithTax": 5690206
+      }
+    }
+  },
+  "balcony max chargeable area limited to 40 sqft": {
+    "input": {
+      "formBasicRate": 7333.33349609375,
+      "formCarpetArea": 750,
+      "formCgstPct": 0.5,
+      "formSgstPct": 0.5,
+      "previewBalcony": {
+        "charge": 52000,
+        "cgst": 260,
+        "sgst": 260
+      },
+      "bookingRate": 7333.33349609375,
+      "trueCarpetArea": 750,
+      "unitBasePrice": 5500000,
+      "trueBalconyArea": 100,
+      "plc": 0,
+      "other": 0,
+      "inauguralDiscount": 0,
+      "approvedRebate": 0,
+      "addonTotal": 0,
+      "balconyRate": 1300,
+      "balconyCap": null,
+      "balconyMaxArea": 40,
+      "basicCgstFraction": 0.005,
+      "basicSgstFraction": 0.005,
+      "fileCgstPct": 0.5,
+      "fileSgstPct": 0.5,
+      "otherChargeCgstPct": 9,
+      "otherChargeSgstPct": 9,
+      "isGstExempt": false,
+      "activeDemandCgstSum": 0,
+      "activeDemandSgstSum": 0,
+      "activeDemandCount": 0
+    },
+    "expected": {
+      "preview": {
+        "basicCost": 5500000.1220703125,
+        "subTotal": 5500000.1220703125,
+        "cgst": 27500.000610351562,
+        "sgst": 27500.000610351562,
+        "balconyInclusiveTotal": 52520,
+        "grandTotal": 5607520.123291016
+      },
+      "save": {
+        "basicCost": 5500000,
+        "balconyChargeAmount": 52000,
+        "balconyCgstAmount": 260,
+        "balconySgstAmount": 260,
+        "totalAmount": 5552000
+      },
+      "file": {
+        "netBasicPrice": 5500000,
+        "agreementValue": 5552000,
+        "totalConsideration": 5552000,
+        "cgst": 27760,
+        "sgst": 27760,
+        "totalTax": 55520,
+        "totalWithTax": 5607520
+      }
+    }
+  }
+}

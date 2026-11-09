@@ -448,10 +448,10 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
          (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
           payment_method, received_date, received_by_user_id, receipt_number,
           plc_amount, status, approval_status, print_status,
-          is_advance, advance_from_demand_id, company_bank_account_id)
-       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, ${business_date_js_1.SQL_TODAY}),$7,$8,0,'pending','pending','not_printed',true,$9,$10)
+          is_advance, advance_from_demand_id, company_bank_account_id, advance_source_receipt_id)
+       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, ${business_date_js_1.SQL_TODAY}),$7,$8,0,'pending','pending','not_printed',true,$9,$10,$12)
        RETURNING id`, [consumerId, paymentPlanId, nextId, nextIdx, excess,
-            method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate]);
+            method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate, sourceReceiptId]);
         const advanceReceiptId = advanceReceiptRes.rows[0].id;
         await (0, auditLogger_js_1.logAudit)(client, userId, 'create', 'receipt', advanceReceiptId, undefined, { receipt_number: advanceNum, consumer_id: consumerId, amount: excess, payment_method: method, source: 'overpayment carried to the next instalment as an advance', advance_from_demand_id: sourceId, source_receipt_id: sourceReceiptId });
         await client.query(`UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`, [excess, paymentPlanId]);

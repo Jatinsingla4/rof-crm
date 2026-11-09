@@ -90,7 +90,9 @@ const Utils = {
   // ── STATUS CHIP ──────────────────────────────
 
   chip(status) {
-    const map = ROF.STATUS_CHIP[status] || { cls:'ch-gray', label: status || '—' };
+    // one spelling on every screen: the lookup ignores case, and an unknown status is shown as words with a capital ("authorized" -> "Authorized")
+    const words = String(status || '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase());
+    const map = ROF.STATUS_CHIP[status] || ROF.STATUS_CHIP[String(status || '').toLowerCase()] || { cls:'ch-gray', label: words || '—' };
     return `<span class="chip ${map.cls}">${map.label}</span>`;
   },
 

@@ -56,7 +56,7 @@ Pages.booking = async function(params = {}) {
       .bkn .btn-lg { padding:10px 26px; font-size:13px; border-radius:8px }
       #bk-addl-modal-overlay .modal { border-radius:14px; border:1px solid var(--border2); box-shadow:0 20px 60px rgba(0,0,0,.4) }
     </style>
-    <form id="booking-form" class="bkn" onsubmit="BookingPage.preview(event)">
+    <form id="booking-form" class="bkn" data-warn-unsaved onsubmit="BookingPage.preview(event)">
 
     <!-- ── SECTION 1: UNIT INFORMATION ──────────────────────── -->
     <div class="sp" style="margin-bottom:14px">
@@ -1522,6 +1522,8 @@ const BookingPage = {
       }
     } catch (e) {
       console.warn('GST rate fetch failed:', e.message);
+      // the form keeps its fallback percentages until a rate is set up; say so instead of letting them pass as the project's rate
+      Utils.error('GST rate not found for this project, so the tax shown is only a placeholder. ' + e.message);
     }
   },
 
@@ -2534,6 +2536,8 @@ const BookingPage = {
         balconySgstAmount   = parseFloat(bd.balconySgstAmount || 0) || 0;
       } catch (err) {
         console.warn('Balcony charge preview fetch failed:', err.message);
+        // without this the preview total silently leaves out the balcony charge
+        Utils.error('The balcony charge could not be worked out, so this preview does not include it. ' + err.message);
       }
     }
     const balconyInclusiveTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
@@ -2546,6 +2550,11 @@ const BookingPage = {
     const sgstAmt     = subTotal * sgstPct / 100;
     const inauguralDisc = parseFloat(qval('[name="company_inaugural_disc"]') || '0') || 0;   // taken off the consideration, as the booking stores it (GST stays on the full price, as the demands bill it)
     const grandTotal  = subTotal - inauguralDisc + cgstAmt + sgstAmt + balconyInclusiveTotal;
+    // the server refuses a discount above the basic price when the booking is saved; say so here instead of offering Save on a negative total
+    if (basicCost > 0 && inauguralDisc > basicCost) {
+      Utils.error('The inaugural discount (' + inauguralDisc.toLocaleString('en-IN') + ') is more than the basic price (' + basicCost.toLocaleString('en-IN') + '). Reduce the discount to continue.');
+      return;
+    }
 
     // ── Broker / Sales ───────────────────────────────────────────
     const saleType  = document.getElementById('bk-booking-type')?.value === 'direct' ? 'Direct' : 'Broker';
@@ -3062,7 +3071,8 @@ const BookingPage = {
         }
       }
 
-      // Navigate to payment page (Step 2)
+      // Navigate to payment page (Step 2); the form is saved, so leaving it is not a loss
+      const savedForm = document.getElementById('booking-form'); if (savedForm) savedForm.dataset.dirty = '';
       Router.navigate('/booking-payment', { id: bookingRecordId, reg: registrationNo });
     } catch (err) {
       const errCode = err.response?.data?.code || err.data?.code;

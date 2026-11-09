@@ -1425,9 +1425,10 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const fullName = [consumer.salutation, consumer.first_name,
         consumer.middle_name || '', consumer.last_name].filter(Boolean).join(' ').trim() || '—';
     const customerId = esc(consumer.form_no || consumer.registration_no || '—');
-    const presentAddr = [consumer.present_address, consumer.present_city,
-        consumer.present_state, consumer.present_pin ? `- ${consumer.present_pin}` : '']
-        .filter(Boolean).join(', ');
+    // the address line sometimes already holds the city, state and PIN (the booking form joins them); do not print them twice
+    const presentAddr = [consumer.present_address, consumer.present_city, consumer.present_state, consumer.present_pin ? `- ${consumer.present_pin}` : '']
+        .filter((part, i) => part && (i === 0 || !String(consumer.present_address || '').toLowerCase().includes(String(part).replace(/^- /, '').toLowerCase())))
+        .join(', ');
     const carpetArea = parseFloat(b.carpet_area_sqft || 0);
     const superArea = parseFloat(b.super_area_sqft || 0);
     const balconyArea = parseFloat(b.balcony_area_sqft || 0);
@@ -1481,6 +1482,9 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const paidPct = totalReceivables > 0
         ? (lessReceipt / totalReceivables * 100).toFixed(2) : '0.00';
     const balance = totalReceivables - lessReceipt;
+    // A cheque or transfer that is listed but not yet cleared is not money received, so it is not deducted; show it so the listed receipts reconcile with this table
+    const awaitingClearance = (receiptRows || []).filter((r) => !r.is_advance && !['cleared', 'cancelled', 'bounced'].includes(String(r.status || '').toLowerCase()))
+        .reduce((sum, r) => sum + parseFloat(r.amount_received_inr || 0), 0);
     const allotmentDate = fmtDate(allocation?.allotment_date || b.allotment_date);
     const agreementDate = fmtDate(b.agreement_date);
     const completionDate = fmtDate(b.completion_date);
@@ -1554,8 +1558,8 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
         ['Unit Type', wrap('bhkType', 'Unit Type', esc(b.bhk_type || 'N/A'), 'text', 'unit_info')],
         ['Location', wrap('projectLocation', 'Location', esc(b.project_location || 'N/A'), 'text', 'unit_info')],
         ['Facing', wrap('facing', 'Facing', esc(b.unit_facing || b.facing || 'N/A'), 'text', 'unit_info')],
-        ['Gender', wrap('gender', 'Gender', esc(consumer.gender || 'N/A'), 'text', 'consumer_info')],
-        ['Marital Status', wrap('maritalStatus', 'Marital Status', esc(consumer.marital_status || 'N/A'), 'text', 'consumer_info')],
+        ['Gender', wrap('gender', 'Gender', esc(capitalize(String(consumer.gender || 'N/A').replace(/_/g, ' '))), 'text', 'consumer_info')],
+        ['Marital Status', wrap('maritalStatus', 'Marital Status', esc(capitalize(String(consumer.marital_status || 'N/A').replace(/_/g, ' '))), 'text', 'consumer_info')],
         ['Nationality', wrap('nationality', 'Nationality', esc(consumer.nationality || 'N/A'), 'text', 'consumer_info')],
         ['Reg. No.', wrap('registrationNo', 'Registration Number', esc(b.registration_no || 'N/A'), 'text', 'consumer_info')],
         ['Booking Date', wrap('bookingDate', 'Booking Date', fmtDate(b.booking_date), 'date', 'booking_details')],
@@ -1661,6 +1665,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       ${pRow('', fmtIndianCurrency(interest - interestWaived))}
       ${pRow('Total Receivables', `<span data-field-key="totalReceivables" data-field-label="Total Receivables" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalReceivables)}</span>`, true)}
       ${pRow(`Less Receipt (Rs.) (${paidPct} % Paid Amount)`, fmtIndianCurrency(lessReceipt))}
+      ${awaitingClearance > 0 ? pRow('Receipts awaiting clearance (not deducted)', fmtIndianCurrency(awaitingClearance)) : ''}
       ${pRow('Balance (Rs.) (To be Paid)', fmtIndianCurrency(balance), true)}
     </table>`;
     const pricingSection = `
@@ -2537,7 +2542,7 @@ async function buildApplicantPage3(b, consumer, settings, documentDispatches, co
         ['Form No.', esc(consumer.form_no || '—')],
         ['Booking Date', fmtDate(b.booking_date)],
         ['Booking Type', capitalize(b.booking_type || 'direct')],
-        ['RERA No.', esc(b.rera_number || 'N/A')],
+        ['RERA No.', esc((0, input_js_1.realRera)(b.rera_number))],
         ['Status', capitalize(b.status || 'active')],
         ['Allotment Date', wrapP3('allotmentDate', 'Allotment Date', fmtDate(b.allotment_date) !== '—' ? fmtDate(b.allotment_date) : 'Not yet allotted', 'date')],
         ['Agreement Date', wrapP3('agreementDate', 'Agreement Date', fmtDate(b.agreement_date) !== '—' ? fmtDate(b.agreement_date) : 'Not yet signed', 'date')],

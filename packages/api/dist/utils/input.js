@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.BIDI = exports.failWith = exports.bad = void 0;
+exports.realRera = exports.isPlaceholderRera = exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.BIDI = exports.failWith = exports.bad = void 0;
 const index_js_1 = require("../index.js");
 const bad = (message, http = 400) => Object.assign(new Error(message), { http });
 exports.bad = bad;
@@ -126,4 +126,9 @@ exports.likeOf = likeOf;
 // A text value that will be put into HTML as page text
 const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 exports.escHtml = escHtml;
+// A placeholder such as RERA-X-NONE or RERA/GGM/2024/XXXX is never a real registration number. Print the fallback instead.
+const isPlaceholderRera = (v) => typeof v === 'string' && /(^|[-\s/])(X{3,}|NONE|TBD|NIL)([-\s/]|$)|(^|[-\s/])X([-\s/]|$)|^\s*(N\/?A|NOT AVAILABLE|X+)\s*$/i.test(v.trim());
+exports.isPlaceholderRera = isPlaceholderRera;
+const realRera = (v, fallback = 'N/A') => ((0, exports.has)(v) && !(0, exports.isPlaceholderRera)(v) ? String(v) : fallback);
+exports.realRera = realRera;
 //# sourceMappingURL=input.js.map

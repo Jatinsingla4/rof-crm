@@ -56,5 +56,14 @@ r = await book(Y, { registration_no: 'IGNORED-2' }); t('registration: an Automat
 for (const [n, b] of [['unknown mode', { receipt_number_mode: 'Both' }], ['size 2', { registration_number_size: 2 }], ['size 9', { registration_number_size: 9 }], ['size 4.5', { registration_number_size: 4.5 }], ['prefix with a space', { receipt_prefix: 'A B' }], ['prefix 11 chars', { registration_prefix: 'ABCDEFGHIJK' }], ['prefix markup', { receipt_prefix: '<x>' }]]) t(`settings: ${n} is 400`, (await S(X.P, b)).s === 400, n);
 t('settings: unknown project is 404, bad id 400', (await S(NIL, { receipt_prefix: 'A' })).s === 404 && (await S('zzz', {})).s === 400);
 t('settings: viewer and sales cannot write, no login is 401', (await RO('PUT', `/projects/${X.P}/settings`, { receipt_prefix: 'Z' })).s === 403 && (await SE('PUT', `/projects/${X.P}/settings`, { receipt_prefix: 'Z' })).s === 403 && (await NO('GET', `/projects/${X.P}/settings`)).s === 401);
+// RERA placeholder guard: a placeholder is refused, a real number that only looks similar is accepted
+{
+  let pr = await A('POST', '/projects', { name: `Rera X ${U}`, reraNumber: 'RERA-X-NONE', tcpLicence: 'x', companyId: co });
+  t('RERA: the placeholder RERA-X-NONE is refused on a new project -> 400', pr.s === 400, JSON.stringify(pr.j));
+  pr = await A('POST', '/projects', { name: `Rera Z ${U}`, reraNumber: `RERA/GGM/2024/XXXX`, tcpLicence: 'x', companyId: co });
+  t('RERA: the template text RERA/GGM/2024/XXXX is refused -> 400', pr.s === 400, JSON.stringify(pr.j));
+  pr = await A('POST', '/projects', { name: `Rera Y ${U}`, reraNumber: `NA-REAL-${U}`, tcpLicence: 'x', companyId: co });
+  t('RERA: a real number that only starts with NA is accepted -> 201', pr.s === 201, JSON.stringify(pr.j));
+}
 console.log(`RESULT: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

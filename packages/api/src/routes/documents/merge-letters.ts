@@ -1,7 +1,7 @@
 // Figures for the check list and the three legal letters (allotment, agreement for sale, conveyance deed).
 import { db } from '../../index.js';
 import { companyBankCols } from '../../utils/company-bank.js';
-import { bad } from '../../utils/input.js';
+import { bad, realRera } from '../../utils/input.js';
 import { applyRecalc, extractFieldValue, buildEditScript } from '../../utils/document-recalc.js';
 import { writebackField, WritebackContext } from '../../utils/document-writeback.js';
 import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } from '../../utils/payment-waterfall.js';
@@ -461,7 +461,7 @@ export async function allotmentLetterData(ctx: GenCtx): Promise<void> {
             // Project
             projectName:             al.project_name      || '—',
             projectLocation:         al.project_location  || 'N/A',
-            hareraNo:                al.rera_number       || 'N/A',
+            hareraNo:                realRera(al.rera_number),
             hareraDate:              'N/A',
             natureOfProject:         'N/A',
             proposedCompletionDate:  'N/A',
@@ -659,7 +659,7 @@ export async function buyerBuilderAgreementData(ctx: GenCtx): Promise<void> {
             promoter_pan: ats.company_pan || '—',
             promoter_address: ats.promoter_address || '—',
             project_name: (ats.project_name || '—').replace(/_TEST$/i, '').trim() || '—',
-            harera_reg_no: ats.rera_number || '—',
+            harera_reg_no: realRera(ats.rera_number, '—'),
             license_no: ats.license_no || '—',
             license_date: fmtDateIndia(ats.license_date),
             village_name: ats.village_name || '—',
@@ -795,7 +795,7 @@ export async function conveyanceDeedData(ctx: GenCtx): Promise<void> {
             e_stamp_no: '—',
             project_name: (cd.project_name || '—').replace(/_TEST$/i, '').trim() || '—',
             license_no: cd.license_no || '—',
-            harera_reg_no: cd.rera_number || '—',
+            harera_reg_no: realRera(cd.rera_number, '—'),
             village_name: cd.village_name || '—',
             sector_name: cd.sector_name || '—',
             khasra_details: cd.khasra_details || '—',
