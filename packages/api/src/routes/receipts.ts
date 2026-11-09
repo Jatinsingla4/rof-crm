@@ -6,7 +6,8 @@
 import { Router, Response, NextFunction } from 'express';
 import { db, AuthRequest } from '../index.js';
 import { requireProcess } from '../middleware/processPermission.js';
-import { cascadeOverpaymentExcess, checkAndAutoRaiseInstallment1 } from '../utils/payment-waterfall.js';
+import { checkAndAutoRaiseInstallment1 } from '../utils/payment-waterfall.js';
+import { recomputePlan } from '../utils/money-basis.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
 import { projectSettings } from '../utils/project-settings.js';
@@ -121,10 +122,17 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       if (planId && idx == null && !isOther) {
         // The receipt goes to the first instalment that is still open (the screen sends none). Counting receipts instead (the old rule) skipped a
         // demand whenever one instalment took two receipts, and left the paid / pending marks of the demands disagreeing with the money received.
-        const open = (await c.query(`SELECT MIN(installment_index) AS n, COUNT(*) AS total FROM demands WHERE payment_plan_id = $1 AND status NOT IN ('paid', 'cancelled')`, [planId])).rows[0];
-        if (open.n != null) idx = open.n;
+        // "Open" here only decides where a new receipt is directed: the first instalment that the money recorded so far (cleared or not) does not yet cover.
+        // It says nothing about what is paid; a demand is paid only by cleared money (utils/money-basis.ts).
+        const open = (await c.query(
+          `SELECT d.installment_index AS n FROM demands d
+            WHERE d.payment_plan_id = $1 AND d.status <> 'cancelled'
+              AND COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.demand_id = d.id AND r.status NOT IN ('cancelled', 'bounced') AND r.is_advance IS NOT TRUE), 0)
+                  < d.amount_due_inr + COALESCE(d.cgst_amount, 0) + COALESCE(d.sgst_amount, 0) + COALESCE(d.addon_charge_amount, 0) + COALESCE(d.addon_cgst_amount, 0) + COALESCE(d.addon_sgst_amount, 0) - 0.005
+            ORDER BY d.installment_index ASC, d.created_at ASC LIMIT 1`, [planId])).rows[0];
+        if (open) idx = open.n;
         else if (!(await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled' LIMIT 1`, [planId])).rows.length) idx = 1;   // nothing raised yet: the first receipt belongs to instalment 1
-        else warnings.push('Every instalment raised so far is already paid, so this receipt is recorded as an advance and is not matched to an instalment.');
+        else warnings.push('Every instalment raised so far is already covered by the money recorded, so this receipt is not matched to an instalment. Once it clears it stays as customer credit until it is allocated.');
       }
 
       // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
@@ -157,16 +165,11 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         if (!demand) warnings.push(`There is no open demand for instalment ${idx}, so this receipt is not matched to any instalment yet. It will be matched when that demand is raised.`);
         if (demand) {
           await c.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
-          const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced')`, [demand.id])).rows[0].s);
+          // Recording a receipt never marks a demand paid or partial: only cleared money does (Q13). The screen is only told about an excess.
+          const live = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced') AND is_advance IS NOT TRUE`, [demand.id])).rows[0].s);
           const due = parseFloat(demand.amount_due_inr) + parseFloat(demand.cgst_amount || 0) + parseFloat(demand.sgst_amount || 0);
-          const before = paid - amount;   // what the demand had received before this receipt
-          if (paid > due + 0.005) warnings.push(`This receipt is more than what instalment ${idx} still needed (Rs ${Math.max(0, due - before).toLocaleString('en-IN')}). The extra Rs ${(paid - due).toLocaleString('en-IN')} is carried to the next instalments as an advance.`);
-          if (paid >= due) {
-            await c.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [demand.id]);
-            if (paid - due > 0) await cascadeOverpaymentExcess(c, demand.consumer_id, planId, demand.id, paid - due, method, req.userId || null, receiptId);
-          } else {
-            await c.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [demand.id]);
-          }
+          const before = live - amount;   // what the demand had received before this receipt
+          if (live > due + 0.005) warnings.push(`This receipt is more than what instalment ${idx} still needed (Rs ${Math.max(0, due - before).toLocaleString('en-IN')}). Once it clears, the extra Rs ${(live - due).toLocaleString('en-IN')} stays as customer credit and is not applied to other instalments until it is allocated.`);
         }
       }
 
@@ -404,7 +407,10 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
     const id = uuid(req.params.id, 'Receipt id');
     const set = o.set(body(req));
     const data = await inTx(async (c) => {
-      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      // Clearing changes what is money: the same consumer lock as recording a receipt, a return or an allocation, taken before the receipt row
+      const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
+      if (pre && o.to === 'cleared') await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
+      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
       // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
       if (o.checker) notOwn(req, cur.received_by_user_id);
@@ -415,6 +421,8 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
          RETURNING id, receipt_number, status, amount_received_inr, deposit_date, clearing_date, clearing_bank_id, hold_remark`, [...set.values, id]
       );
       await auditChange(c, req, res, 'update', 'receipt', id, { status: cur.status }, { status: o.to });
+      // Clearing is what makes money count: the demands of the plan follow it in the same transaction (Q13)
+      if (o.to === 'cleared') await recomputePlan(c, cur.payment_plan_id, req.userId || null);
       return r.rows[0];
     });
     // A cheque that clears may complete an installment paid in time: raise its timely-discount credit note (never allowed to fail the clearing itself)

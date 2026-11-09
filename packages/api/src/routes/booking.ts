@@ -25,7 +25,7 @@ import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { recomputeAddonDemands } from './addon-charges.js';
-import { checkAndAutoRaiseInstallment1, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
+import { checkAndAutoRaiseInstallment1 } from '../utils/payment-waterfall.js';
 import { nextReceiptNumber } from '../utils/receipt-number.js';
 import { businessDayStart, businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
@@ -1125,28 +1125,16 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             // manual receipt would via POST /payments/receipts.
             await checkAndAutoRaiseInstallment1(client, paymentPlanId, stepGReceiptId, bookingDateStr, req.userId || null);
 
-            // If the Step-G amount exceeds installment 1's net due, cascade
-            // the excess forward the same way a manual receipt's overpayment
-            // already does.
-            const inst1Res = await client.query(
-              `SELECT id, amount_due_inr, cgst_amount, sgst_amount FROM demands
-               WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking')
-               ORDER BY created_at ASC LIMIT 1`,
-              [paymentPlanId]
+            // The booking amount belongs to instalment 1. It is linked to that demand here when the auto-raise above did not already do it (the demand
+            // had a due date), so cleared booking money is paid money for instalment 1 and nothing else. Any excess stays customer credit (Q13): it is
+            // never passed on to later instalments.
+            await client.query(
+              `UPDATE receipts SET demand_id = d.id, updated_at = NOW()
+                 FROM (SELECT id FROM demands WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking') AND status <> 'cancelled'
+                        ORDER BY created_at ASC LIMIT 1) d
+                WHERE receipts.id = $2 AND receipts.demand_id IS NULL`,
+              [paymentPlanId, stepGReceiptId]
             );
-            if (inst1Res.rows.length > 0) {
-              const inst1 = inst1Res.rows[0];
-              const inst1NetDue = parseFloat(inst1.amount_due_inr)
-                + parseFloat(inst1.cgst_amount || 0)
-                + parseFloat(inst1.sgst_amount || 0);
-              const stepGExcess = bookingAmt - inst1NetDue;
-              if (stepGExcess > 0) {
-                await cascadeOverpaymentExcess(
-                  client, booking.consumer_id, paymentPlanId, inst1.id,
-                  stepGExcess, payMethod, req.userId || null, stepGReceiptId
-                );
-              }
-            }
           }
 
           // Step H: Auto-apply plan-level addon
@@ -1983,7 +1971,7 @@ function buildApplicantPage1(
 
   // ── SECTION 9 — TAX DETAILS ───────────────
   // Compute cleared receipt totals (also used by Payment Contribution below)
-  const clearedReceipts  = (receiptRows || []).filter((r: any) => r.status === 'cleared');
+  const clearedReceipts  = (receiptRows || []).filter((r: any) => r.status === 'cleared' && !r.is_advance);
   // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
   const clearedBase      = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
   const clearedCgst      = clearedReceipts.reduce((sum: number, r: any) => sum + parseFloat(r.cgst_amount || 0), 0);
@@ -2380,14 +2368,14 @@ function buildApplicantPage2(
       }).join('')
     : `<tr><td ${rtdC} colspan="21" style="${rFont}padding:4px;text-align:center;">No receipts recorded.</td></tr>`;
 
-  const rReceivedRows  = receiptRows.filter((r: any) => ['pending','deposited','cleared','on_hold'].includes(r.status));
+  const rReceivedRows  = receiptRows.filter((r: any) => r.status === 'cleared' && !r.is_advance);   // received = cleared money only (Q13); pending and deposited show in the pending line
   const rReceivedGross = rReceivedRows.reduce((s: number, r: any) => s + parseFloat(r.amount_received_inr || 0), 0);
   const rReceivedCgst  = rReceivedRows.reduce((s: number, r: any) => s + parseFloat(r.cgst_amount || 0), 0);
   const rReceivedSgst  = rReceivedRows.reduce((s: number, r: any) => s + parseFloat(r.sgst_amount || 0), 0);
   const rReceivedInt   = rReceivedRows.reduce((s: number, r: any) => s + parseFloat(r.interest_amount || 0), 0);
   const rReceivedNet   = rReceivedGross - rReceivedCgst - rReceivedSgst;
   const rPendingGross  = receiptRows.filter((r: any) => ['pending','deposited','on_hold'].includes(r.status)).reduce((s: number, r: any) => s + parseFloat(r.amount_received_inr || 0), 0);
-  const rClearedGross  = receiptRows.filter((r: any) => r.status === 'cleared').reduce((s: number, r: any) => s + parseFloat(r.amount_received_inr || 0), 0);
+  const rClearedGross  = receiptRows.filter((r: any) => r.status === 'cleared' && !r.is_advance).reduce((s: number, r: any) => s + parseFloat(r.amount_received_inr || 0), 0);
 
   const receiptSection = `
     <div ${sectionHd}>RECEIPT INFORMATION</div>

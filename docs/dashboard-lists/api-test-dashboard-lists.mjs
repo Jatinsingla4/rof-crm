@@ -74,7 +74,7 @@ for (const row of cardDemand) for (const [bucket, col] of BUCKETS) for (const se
   const ok = r.s === 200 && r.j.count === want && r.j.data.length === Math.min(want, 500);
   demandChecked++; if (want > 0) demandNonZero++;
   t(`demand card: ${row.project.split(' ')[1]} ${bucket} ${sent} = ${want} and the list has ${r.j?.count} rows`, ok, r.s + ' ' + JSON.stringify(r.j).slice(0, 200));
-  if (want > 0) t(`demand list ${bucket} ${sent}: every row is a raised demand of that kind and that project, with a customer and an amount`, r.j.data.every((d) => ['demanded', 'raised'].includes(d.status) && d.project === row.project && d.name && Number(d.amount) > 0 && (sent === 'sent' ? d.delivery_status === 'sent' : d.delivery_status !== 'sent') && (bucket === 'term' ? d.installment_index >= 4 : d.installment_index === ({ demand: 1, rem1: 2, rem2: 3 })[bucket])), JSON.stringify(r.j.data[0]));
+  if (want > 0) t(`demand list ${bucket} ${sent}: every row is a raised demand of that kind and that project, with a customer and an amount`, r.j.data.every((d) => ['demanded', 'raised', 'partial'].includes(d.status) && d.project === row.project && d.name && Number(d.amount) > 0 && (sent === 'sent' ? d.delivery_status === 'sent' : d.delivery_status !== 'sent') && (bucket === 'term' ? d.installment_index >= 4 : d.installment_index === ({ demand: 1, rem1: 2, rem2: 3 })[bucket])), JSON.stringify(r.j.data[0]));
 }
 t('demand card: the checks covered numbers that are not zero in several buckets', demandChecked === 16 && demandNonZero >= 6, `${demandChecked} checked, ${demandNonZero} not zero`);
 for (const [bucket, col] of BUCKETS) for (const sent of ['sent', 'unsent']) {

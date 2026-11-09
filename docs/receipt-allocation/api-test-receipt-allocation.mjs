@@ -2,42 +2,45 @@
 // shows the stored GST to the paisa, and a GST invoice made for a receipt is that receipt's own tax.
 import { env, project, booking, receipt, psql, t, tally, today, paise, rupees } from './lib.mjs';
 
-// ---- t3d_alloc_undo.mjs ----
+// ---- t3d_alloc_undo.mjs (rewritten for the cleared payment basis, Q13) ----
 {
-// TA-03 / TA-04: instalment allocation and the undo of a bounced / cancelled receipt, against an independent oracle (apply the valid real money to the instalments in order).
+// Only cleared money pays an instalment. A receipt is directed to the first instalment that the money recorded so far does not cover, and once cleared it pays that
+// instalment up to its total; the excess is customer credit and never moves to another instalment by itself. Checked against an independent oracle.
 const E = await env(); const P = await project(E, { tag: 'AU' });
 const state = (c) => psql(`select coalesce(string_agg(installment_index||':'||status,' ' order by installment_index),'') from demands where consumer_id='${c}'`);
-const live = (c) => psql(`select count(*) from receipts where consumer_id='${c}' and is_advance and status not in ('cancelled','bounced')`);
-const oracle = (c) => { // real money = valid receipts that are not helper rows; booking payment included (it is a real receipt)
-  const money = Number(psql(`select coalesce(sum(amount_received_inr),0) from receipts where consumer_id='${c}' and not is_advance and status not in ('cancelled','bounced')`));
-  const ds = psql(`select installment_index||','||(amount_due_inr+coalesce(cgst_amount,0)+coalesce(sgst_amount,0)) from demands where consumer_id='${c}' and status<>'cancelled' order by installment_index`).split('\n').filter(Boolean).map((x) => x.split(',')).map(([i, d]) => [i, Number(d)]);
-  let cum = 0, left = money; return ds.map(([i, d]) => { const ok = left >= d - 0.005; if (ok) left -= d; return `${i}:${ok ? 'paid' : 'X'}`; }).join(' ');
-};
+const advRows = (c) => Number(psql(`select count(*) from receipts where consumer_id='${c}' and is_advance`));
+const oracle = (c) => psql(`select coalesce(string_agg(installment_index||':'||case when p >= tot - 0.005 then 'paid' when p > 0.005 then 'partial' else 'X' end, ' ' order by installment_index), '')
+  from (select d.installment_index, d.amount_due_inr + coalesce(d.cgst_amount,0) + coalesce(d.sgst_amount,0) + coalesce(d.addon_charge_amount,0) + coalesce(d.addon_cgst_amount,0) + coalesce(d.addon_sgst_amount,0) tot,
+               coalesce((select sum(r.amount_received_inr) from receipts r where r.status = 'cleared' and not coalesce(r.is_advance, false) and (r.demand_id = d.id or (r.demand_id is null and r.consumer_id = d.consumer_id and r.installment_index = d.installment_index))), 0) p
+          from demands d where d.consumer_id = '${c}' and d.status <> 'cancelled') x`);
 const norm = (s) => s.replace(/:(pending|demanded|queued)/g, ':X');
-// A. 10,00,000 then 25,00,000 against a 31,50,000 bill
+// A. 10,00,000 then 25,00,000 against a 31,50,000 bill, both cleared
 const b = await booking(E, P, { price: 3000000 });
 await receipt(E, b, 1000000); await receipt(E, b, 2500000);
-t(`A: after 35,00,000 on a 31,50,000 bill every instalment is paid (${state(b.c)})`, norm(state(b.c)) === oracle(b.c) && !/X/.test(norm(state(b.c))), state(b.c) + ' | oracle ' + oracle(b.c));
-// B. bounce the 25,00,000
-const second = psql(`select id from receipts where consumer_id='${b.c}' and not is_advance and amount_received_inr=2500000`);
-const bo = await E.C('PATCH', `/payments/receipts/${second}/bounce`, {});
-t(`B: bounce answers 200 (${bo.s})`, bo.s === 200, JSON.stringify(bo.j));
-t(`B: after the bounce the instalments match the money still held (${state(b.c)}), no helper row from it is live (${live(b.c)})`, norm(state(b.c)) === oracle(b.c), state(b.c) + ' | oracle ' + oracle(b.c));
-const adv = psql(`select coalesce(sum(amount_received_inr),0) from receipts where consumer_id='${b.c}' and is_advance and status not in ('cancelled','bounced')`), plan = psql(`select coalesce(advance_amount,0) from payment_plans where consumer_id='${b.c}'`);
-t(`B: plan advance_amount (${plan}) equals live helper money (${adv})`, Number(plan) === Number(adv), '');
-// C. a second receipt after the bounce lands on the first open instalment, bounced money is not counted
+t(`A: cleared 35,00,000 pays instalments 1 and 2 only; the excess is credit and no advance row is made (${state(b.c)})`, norm(state(b.c)) === oracle(b.c) && norm(state(b.c)) === '1:paid 2:paid 3:X 4:X' && advRows(b.c) === 0, state(b.c) + ' | oracle ' + oracle(b.c) + ' | adv ' + advRows(b.c));
+// B. a cheque that bounces before it clears changes nothing; a cleared receipt cannot be bounced
+const before = state(b.c);
+const ck = await E.A('POST', '/payments/receipts', { consumerId: b.c, bookingId: b.id, amountReceivedInr: 2500000, paymentMode: 'cheque', chequeNo: 'CQ' + Date.now().toString(36), bankName: 'Test Bank', chequeDate: today(), referenceNumber: 'CKR' + Date.now().toString(36), paymentDate: today() });
+await E.C('PATCH', `/payments/receipts/${ck.j.data.id}/approve`, {}); await E.C('PATCH', `/payments/receipts/${ck.j.data.id}/deposit`, { deposit_date: today() });
+t(`B: while the cheque is only deposited the instalments do not move (${state(b.c)})`, state(b.c) === before, state(b.c) + ' vs ' + before);
+const bo = await E.C('PATCH', `/payments/receipts/${ck.j.data.id}/bounce`, {});
+t(`B: the deposited cheque bounces (${bo.s}) and the instalments are as before (${state(b.c)})`, bo.s === 200 && state(b.c) === before && norm(state(b.c)) === oracle(b.c), state(b.c) + ' | oracle ' + oracle(b.c));
+const clearedId = psql(`select id from receipts where consumer_id='${b.c}' and status='cleared' and amount_received_inr=2500000`);
+const bo2 = await E.C('PATCH', `/payments/receipts/${clearedId}/bounce`, {});
+t(`B: a cleared receipt cannot be bounced (${bo2.s}) and the instalments stay (${state(b.c)})`, bo2.s === 409 && state(b.c) === before, JSON.stringify(bo2.j));
+// C. a new receipt after the bounce is directed to the first instalment the recorded money does not cover
 await receipt(E, b, 500000);
 t(`C: a new receipt after the bounce is allocated like the oracle (${state(b.c)})`, norm(state(b.c)) === oracle(b.c), state(b.c) + ' | oracle ' + oracle(b.c));
 // D. cancel of a not yet approved receipt restores the exact earlier state
 const b2 = await booking(E, P, { price: 3000000 }); await receipt(E, b2, 1000000);
-const before = state(b2.c), advBefore = live(b2.c);
+const before2 = state(b2.c);
 const r = await receipt(E, b2, 2500000, { clear: false });
 const cn = await E.A('POST', `/payments/receipts/${r.j.data.id}/cancel`, { reason: 'test' });
-t(`D: cancel answers 200 (${cn.s}); instalments and helper rows are back to what they were (${state(b2.c)} / ${live(b2.c)})`, cn.s === 200 && state(b2.c) === before && live(b2.c) === advBefore, `${before}/${advBefore} -> ${state(b2.c)}/${live(b2.c)}`);
-// E. five receipts of 1,00,000 in a row land on instalments in order with none skipped
+t(`D: cancel answers 200 (${cn.s}); instalments are back to what they were (${state(b2.c)}) and no advance row exists (${advRows(b2.c)})`, cn.s === 200 && state(b2.c) === before2 && advRows(b2.c) === 0, `${before2} -> ${state(b2.c)}`);
+// E. five cleared receipts of 1,00,000 in a row: the first four go to instalment 1 (covered at 3,15,000), the fifth to instalment 2
 const b3 = await booking(E, P, { price: 3000000 });
 for (let i = 0; i < 5; i++) await receipt(E, b3, 100000);
-t(`E: five receipts of 1,00,000 give the oracle's allocation (${state(b3.c)})`, norm(state(b3.c)) === oracle(b3.c), state(b3.c) + ' | oracle ' + oracle(b3.c));
+t(`E: five receipts of 1,00,000 give the oracle's allocation (${state(b3.c)})`, norm(state(b3.c)) === oracle(b3.c) && norm(state(b3.c)) === '1:paid 2:partial 3:X 4:X', state(b3.c) + ' | oracle ' + oracle(b3.c));
 }
 
 // ---- t9_print.mjs ----

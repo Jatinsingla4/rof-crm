@@ -9,6 +9,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const input_js_1 = require("../utils/input.js");
 const penal_interest_js_1 = require("../utils/penal-interest.js");
@@ -129,7 +130,7 @@ router.get('/dashboard', async (req, res, next) => {
         const result = await index_js_1.db.query(`SELECT
          COALESCE((SELECT SUM(total_amount_inr) FROM payment_plans WHERE $1::uuid IS NULL OR project_id = $1), 0) AS total_receivables,
          COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
-                    WHERE r.status NOT IN ('cancelled', 'bounced') AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
+                    WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
          (SELECT COUNT(*) FROM demands d JOIN payment_plans p ON p.id = d.payment_plan_id
            WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled') AND ($1::uuid IS NULL OR p.project_id = $1)) AS overdue_count`, [projectId]);
         const totalReceivables = Number(result.rows[0].total_receivables), totalCollected = Number(result.rows[0].total_collected), overdueCount = Number(result.rows[0].overdue_count);
@@ -487,6 +488,9 @@ router.patch('/receipts/:id/bounce', (0, processPermission_js_1.requireProcess)(
         const reason = (0, input_js_1.text)(b.reason, 'reason', 200, false);
         const penaltyAmount = (0, input_js_1.has)(b.penaltyAmount) ? (0, input_js_1.num)(b.penaltyAmount, 'penaltyAmount', 1000000, 0) : 500;
         await client.query('BEGIN');
+        const pre = (await client.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
+        if (pre)
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]); // same consumer lock as every money path
         // 1. Get receipt details
         const receiptRes = await client.query(`SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index, status, received_by_user_id
        FROM receipts WHERE id = $1 FOR UPDATE`, [id]);
@@ -498,6 +502,9 @@ router.patch('/receipts/:id/bounce', (0, processPermission_js_1.requireProcess)(
         (0, financial_ops_js_1.notOwn)(req, receiptRes.rows[0].received_by_user_id); // owner decision (Q16): the person who recorded a receipt does not also bounce it
         if (receiptRes.rows[0].status === 'bounced' || receiptRes.rows[0].status === 'cancelled')
             throw (0, input_js_1.bad)(`Receipt is already ${receiptRes.rows[0].status}`, 409);
+        // A cleared receipt is a posted event: it is never bounced. A bank return after clearing goes through the return workflow (owner decision 3).
+        if (receiptRes.rows[0].status === 'cleared')
+            throw (0, input_js_1.bad)('A cleared receipt cannot be bounced. A bank return after clearing is recorded through the receipt return workflow.', 409);
         // 1b. If receipt has no payment_plan_id, fall back to linked demand's plan
         if (!payment_plan_id && demand_id) {
             const demandPlan = await client.query(`SELECT payment_plan_id, installment_index FROM demands WHERE id = $1`, [demand_id]);
@@ -511,33 +518,13 @@ router.patch('/receipts/:id/bounce', (0, processPermission_js_1.requireProcess)(
         // 2. Update receipt status
         await client.query(`UPDATE receipts SET status = 'bounced', updated_at = NOW() WHERE id = $1`, [id]);
         await (0, tds_js_1.releaseTdsForReceipt)(client, id, 'Receipt bounced');
-        // 3. Re-open the demand if linked, but only if no other valid receipt still covers it
-        if (demand_id) {
-            const stillValid = await client.query(`SELECT id FROM receipts WHERE demand_id = $1
-         AND status NOT IN ('bounced', 'cancelled') LIMIT 1`, [demand_id]);
-            if (stillValid.rows.length === 0) {
-                await client.query(`UPDATE demands SET status = 'pending',
-           delivery_status = 'queued', updated_at = NOW()
-           WHERE id = $1`, [demand_id]);
-            }
-        }
-        // 3a. Demands this receipt paid by passing its excess on (helper -ADV rows) are reopened too
-        if (payment_plan_id && (await client.query(`SELECT 1 FROM receipts WHERE payment_plan_id = $1 AND is_advance LIMIT 1`, [payment_plan_id])).rows.length) {
-            await (0, payment_waterfall_js_1.reallocatePlan)(client, payment_plan_id, 'pending', req.userId || null);
-        }
+        // 3. The demands of the plan follow the cleared money again (Q13, D1). raised_at and due_date are never cleared by a bounce (D8).
+        await (0, money_basis_js_1.recomputePlan)(client, payment_plan_id, req.userId || null);
         // 3b. Recompute booking_amount for the specific booking this receipt applies to
         const bounceScope = await (0, payment_waterfall_js_1.resolveBookingScope)(client, { payment_plan_id, demand_id });
         if (bounceScope) {
             await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, consumer_id, bounceScope.unitId, bounceScope.projectId, bounceScope.paymentPlanId);
             await (0, payment_waterfall_js_1.recomputeBookingPaymentTaxes)(client, consumer_id, bounceScope.unitId, bounceScope.projectId);
-        }
-        // 3c. Reverse installment-1 auto-raise if no valid idx1 receipt remains.
-        // Also covers Step-G receipts (installment_index NULL, so the check above
-        // never matches them directly) by checking whether THIS receipt is the one
-        // recorded as having triggered the original auto-raise.
-        const bounceWasTrigger = await client.query(`SELECT 1 FROM audit_logs WHERE action = 'DEMAND_RAISE' AND new_values->>'trigger_receipt_id' = $1 LIMIT 1`, [id]);
-        if ((installment_index === 1 || bounceWasTrigger.rows.length > 0) && payment_plan_id) {
-            await (0, payment_waterfall_js_1.reverseInstallment1IfNoValidReceipt)(client, payment_plan_id);
         }
         // 4. Log the bounce
         await client.query(`INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
@@ -561,6 +548,9 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         const reason = (0, input_js_1.text)((0, input_js_1.body)(req).reason, 'reason', 200, false) || 'Cancelled by user';
         await client.query('BEGIN');
+        const pre = (await client.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
+        if (pre)
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]); // same consumer lock as every money path
         const receiptResult = await client.query(`SELECT id, receipt_number, status, approval_status,
               demand_id, payment_plan_id, amount_received_inr, consumer_id, installment_index
        FROM receipts WHERE id = $1 FOR UPDATE`, [id]);
@@ -576,6 +566,10 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         if (receipt.status === 'bounced') {
             await client.query('ROLLBACK');
             return res.status(409).json({ error: 'A bounced receipt has already been taken out of the account and cannot be cancelled' });
+        }
+        if (receipt.status === 'cleared') {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: 'A cleared receipt cannot be cancelled. A bank return after clearing is recorded through the receipt return workflow.' });
         }
         if (receipt.approval_status === 'approved') {
             await client.query('ROLLBACK');
@@ -597,65 +591,13 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
             await client.query(`UPDATE payment_plans SET advance_amount = GREATEST(0, COALESCE(advance_amount, 0) - $1), updated_at = NOW() WHERE id = $2`, [part.amount_received_inr, part.payment_plan_id]);
         }
         await (0, tds_js_1.releaseTdsForReceipt)(client, id, 'Receipt cancelled');
-        // Step 2: A plan with helper -ADV rows (an overpayment passed on) is allocated again from the receipts still valid: that reopens every demand this
-        // receipt paid, the ones its excess reached included, and cancels the helper rows. Otherwise only the linked demand and the waterfall check below apply.
-        const replayed = !!receipt.payment_plan_id && (await client.query(`SELECT 1 FROM receipts WHERE payment_plan_id = $1 AND is_advance LIMIT 1`, [receipt.payment_plan_id])).rows.length > 0;
-        if (replayed)
-            await (0, payment_waterfall_js_1.reallocatePlan)(client, receipt.payment_plan_id, 'pending', req.userId || null);
-        if (!replayed && receipt.demand_id) {
-            await client.query(`UPDATE demands
-         SET status = 'demanded', delivery_status = 'queued', updated_at = NOW()
-         WHERE id = $1 AND delivery_status = 'paid'`, [receipt.demand_id]);
-        }
-        // Step 2b: Waterfall recheck — revert any demands no longer covered after cancellation
-        const [wfRcpts, wfDemands] = await Promise.all([
-            client.query(`SELECT id, amount_received_inr, demand_id, installment_index, status
-         FROM receipts
-         WHERE consumer_id = $1 AND status != 'cancelled'`, [receipt.consumer_id]),
-            client.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
-                addon_charge_amount, addon_cgst_amount, addon_sgst_amount,
-                status, delivery_status
-         FROM demands
-         WHERE consumer_id = $1`, [receipt.consumer_id]),
-        ]);
-        const wfResults = (0, payment_waterfall_js_1.applyWaterfall)(wfRcpts.rows, wfDemands.rows);
-        for (const wf of replayed ? [] : wfResults) {
-            if (!wf.fully_covered) {
-                const dbDemand = wfDemands.rows.find((d) => d.id === wf.demand_id);
-                if (dbDemand && (dbDemand.status === 'paid' || dbDemand.delivery_status === 'paid')) {
-                    await client.query(`UPDATE demands SET status = 'demanded', delivery_status = 'queued', updated_at = NOW()
-             WHERE id = $1`, [wf.demand_id]);
-                    try {
-                        await client.query(`INSERT INTO financial_audit_logs
-                 (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`, [
-                            receipt.consumer_id,
-                            receipt.payment_plan_id,
-                            req.userId || null,
-                            'demand_revert_on_cancel',
-                            JSON.stringify({ status: dbDemand.status, delivery_status: dbDemand.delivery_status }),
-                            JSON.stringify({ status: 'demanded', delivery_status: 'queued' }),
-                            `Demand reverted: covering advance receipt cancelled. Receipt: ${receipt.receipt_number}`,
-                        ]);
-                    }
-                    catch (auditErr) {
-                        console.error('Audit log failed (non-fatal):', auditErr.message);
-                    }
-                }
-            }
-        }
+        // Step 2: the demands of the plan follow the cleared money again (Q13, D1). raised_at and due_date are never cleared by a cancellation (D8).
+        await (0, money_basis_js_1.recomputePlan)(client, receipt.payment_plan_id, req.userId || null);
         // Step 2c: Recompute booking_amount for the specific booking this receipt applies to
         const cancelScope = await (0, payment_waterfall_js_1.resolveBookingScope)(client, receipt);
         if (cancelScope) {
             await (0, payment_waterfall_js_1.recomputeBookingAmount)(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId, cancelScope.paymentPlanId);
             await (0, payment_waterfall_js_1.recomputeBookingPaymentTaxes)(client, receipt.consumer_id, cancelScope.unitId, cancelScope.projectId);
-        }
-        // Step 2d: Reverse installment-1 auto-raise if no valid idx1 receipt remains.
-        // Also covers Step-G receipts (installment_index NULL) by checking whether
-        // THIS receipt is the one recorded as having triggered the original raise.
-        const cancelWasTrigger = await client.query(`SELECT 1 FROM audit_logs WHERE action = 'DEMAND_RAISE' AND new_values->>'trigger_receipt_id' = $1 LIMIT 1`, [id]);
-        if ((receipt.installment_index === 1 || cancelWasTrigger.rows.length > 0) && receipt.payment_plan_id) {
-            await (0, payment_waterfall_js_1.reverseInstallment1IfNoValidReceipt)(client, receipt.payment_plan_id);
         }
         // Step 3: Write audit log (non-fatal)
         try {
@@ -1915,7 +1857,7 @@ router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (
         FROM demands WHERE consumer_id = c.id AND status <> 'cancelled') dl ON TRUE
       LEFT JOIN LATERAL (
         SELECT SUM(amount_received_inr) AS paid FROM receipts
-        WHERE consumer_id = c.id AND status NOT IN ('cancelled', 'bounced') AND NOT COALESCE(is_advance, false)) rc ON TRUE
+        WHERE consumer_id = c.id AND status = 'cleared' AND NOT COALESCE(is_advance, false)) rc ON TRUE
       WHERE c.id = $1
         AND u.id IS NOT NULL
       ORDER BY COALESCE(br.created_at, pp.created_at) DESC

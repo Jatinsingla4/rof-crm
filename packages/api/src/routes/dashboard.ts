@@ -14,14 +14,14 @@ import { SQL_TODAY } from '../utils/business-date.js';
 const router = Router();
 
 const TODAY = SQL_TODAY; // the business day (Asia/Kolkata), shared with every other module
-const RAISED = `d.status IN ('demanded','raised')`;                                // a demand that was raised (pending = not yet raised, paid / cancelled are done)
+const RAISED = `(d.status IN ('demanded','raised') OR (d.status = 'partial' AND d.raised_at IS NOT NULL))`;                                // a demand that was raised (pending = not yet raised, paid / cancelled are done)
 const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;
 const SALE = `br.status IN ('complete','pending_payment','active')`;               // the same rule the reports use for a sale
 const CHEQUE = `r.payment_method::text IN ('cheque','bank_transfer')`;
 // What a Daily Status number counts, written once: the card sums these and the list behind a number shows these rows.
 const SALE_DAY = `COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date)`;
-const COLLECTED = `r.status = 'cleared'
+const COLLECTED = `r.status = 'cleared' AND r.is_advance IS NOT TRUE
            AND NOT (EXISTS (SELECT 1 FROM booking_records x WHERE x.consumer_id = r.consumer_id AND x.unit_id = pp.unit_id AND x.status = 'cancelled')
                     AND NOT EXISTS (SELECT 1 FROM booking_records y WHERE y.consumer_id = r.consumer_id AND y.unit_id = pp.unit_id AND y.status IN ('complete','pending_payment','active')))`;
 const PERIOD = (col: string, period: string) => period === 'today' ? `${col} = ${TODAY}` : period === 'month' ? `date_trunc('month', ${col}) = date_trunc('month', ${TODAY})` : 'TRUE';

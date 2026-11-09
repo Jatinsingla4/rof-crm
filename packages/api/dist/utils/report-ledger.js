@@ -15,6 +15,7 @@ exports.interestOf = interestOf;
 //  - Received (cash) = cleared receipts of the plan that are not the synthetic "advance" copies of an overpayment (those would count the money twice).
 const pool_js_1 = require("../db/pool.js");
 const payment_waterfall_js_1 = require("./payment-waterfall.js");
+const money_basis_js_1 = require("./money-basis.js");
 const penal_rate_js_1 = require("./penal-rate.js");
 const business_date_js_1 = require("./business-date.js");
 const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -88,16 +89,19 @@ async function loadLedger(f = {}) {
         return [];
     const planIds = plans.map((p) => p.plan_id).filter(Boolean);
     const [dRes, rRes] = planIds.length ? await Promise.all([
-        pool_js_1.db.query(`SELECT d.id, d.payment_plan_id, d.installment_index, d.demand_type, d.status, d.due_date::text AS due_date,
+        pool_js_1.db.query(`SELECT d.id, d.payment_plan_id, d.installment_index, d.demand_type, d.status, (d.raised_at IS NOT NULL) AS raised_flag, d.due_date::text AS due_date,
               d.amount_due_inr, COALESCE(d.cgst_amount,0) AS cgst_amount, COALESCE(d.sgst_amount,0) AS sgst_amount,
               COALESCE(d.addon_charge_amount,0) AS addon_charge_amount, COALESCE(d.addon_cgst_amount,0) AS addon_cgst_amount, COALESCE(d.addon_sgst_amount,0) AS addon_sgst_amount
          FROM demands d WHERE d.payment_plan_id = ANY($1::uuid[]) AND d.status <> 'cancelled'
         ORDER BY d.installment_index, d.created_at`, [planIds]),
-        pool_js_1.db.query(`SELECT id, payment_plan_id, amount_received_inr, demand_id, installment_index, status, received_date, received_date::text AS received_date_text, created_at, is_advance,
+        pool_js_1.db.query(`SELECT id, payment_plan_id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, received_date, received_date::text AS received_date_text, created_at, is_advance,
               COALESCE(cgst_amount,0) AS cgst_amount, COALESCE(sgst_amount,0) AS sgst_amount, COALESCE(interest_amount,0) AS interest_amount
          FROM receipts WHERE payment_plan_id = ANY($1::uuid[]) AND status IN ('cleared','pending','authorized','deposited','on_hold')
         ORDER BY received_date, created_at`, [planIds]),
     ]) : [{ rows: [] }, { rows: [] }];
+    // credit allocated to a demand (approved, not reversed) pays it like cleared money does
+    const alRows = planIds.length ? (await pool_js_1.db.query(`SELECT demand_id, SUM(amount) AS amount FROM credit_allocations WHERE payment_plan_id = ANY($1::uuid[]) AND status = 'approved' GROUP BY demand_id`, [planIds])).rows : [];
+    const alByDemand = new Map(alRows.map((r) => [String(r.demand_id), num(r.amount)]));
     const dByPlan = new Map(), rByPlan = new Map();
     for (const d of dRes.rows) {
         if (!dByPlan.has(d.payment_plan_id))
@@ -113,7 +117,7 @@ async function loadLedger(f = {}) {
         const ds = dByPlan.get(p.plan_id) || [];
         const rs = rByPlan.get(p.plan_id) || [];
         const cleared = rs.filter((r) => r.status === 'cleared');
-        const wf = new Map((0, payment_waterfall_js_1.applyWaterfall)(cleared, ds).map((w) => [String(w.demand_id), w.paid]));
+        const wf = (0, money_basis_js_1.allocateEligible)(cleared, ds);
         const cash = cleared.filter((r) => r.is_advance !== true);
         const open = rs.filter((r) => r.status !== 'cleared' && r.is_advance !== true);
         return {
@@ -133,8 +137,8 @@ async function loadLedger(f = {}) {
                 // cgst / sgst here include the GST on the add-on charge
                 const base = num(d.amount_due_inr), cgst = (0, exports.r2)(num(d.cgst_amount) + num(d.addon_cgst_amount)), sgst = (0, exports.r2)(num(d.sgst_amount) + num(d.addon_sgst_amount));
                 const addon = num(d.addon_charge_amount);
-                const total = (0, exports.r2)(base + cgst + sgst + addon), paid = (0, exports.r2)(wf.get(String(d.id)) || 0);
-                return { id: d.id, index: d.installment_index, type: d.demand_type, status: d.status, raised: exports.RAISED.has(d.status), due_date: d.due_date,
+                const total = (0, exports.r2)(base + cgst + sgst + addon), paid = (0, exports.r2)(Math.min(total, (wf.get(String(d.id)) || 0) + (alByDemand.get(String(d.id)) || 0)));
+                return { id: d.id, index: d.installment_index, type: d.demand_type, status: d.status, raised: exports.RAISED.has(d.status) || (d.status === 'partial' && !!d.raised_flag), due_date: d.due_date,
                     base, cgst, sgst, addon, total, paid, balance: (0, exports.r2)(Math.max(0, total - paid)) };
             }),
             received: (0, exports.r2)(cash.reduce((s, r) => s + num(r.amount_received_inr), 0)),

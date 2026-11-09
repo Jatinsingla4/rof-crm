@@ -281,7 +281,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const paymentResult = await db.query(
       `SELECT
         SUM(total_amount_inr) as total_due,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared') as collected
+        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE) as collected
        FROM payment_plans WHERE consumer_id = $1`,
       [id]
     );
@@ -612,7 +612,7 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
                      SUM(amount_received_inr) AS total_paid
               FROM receipts
               WHERE consumer_id = c.id
-                AND status = 'cleared'
+                AND status = 'cleared' AND is_advance IS NOT TRUE
               GROUP BY installment_index
             ) rr
           ), '[]'::json) AS installment_payments
@@ -810,7 +810,7 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
     // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
       db.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at, cgst_amount, sgst_amount
+        `SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

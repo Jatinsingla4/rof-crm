@@ -327,7 +327,7 @@ router.get('/:id', async (req, res, next) => {
         // Fetch payment summary
         const paymentResult = await index_js_1.db.query(`SELECT
         SUM(total_amount_inr) as total_due,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared') as collected
+        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE) as collected
        FROM payment_plans WHERE consumer_id = $1`, [id]);
         res.json({
             success: true,
@@ -716,7 +716,7 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
                      SUM(amount_received_inr) AS total_paid
               FROM receipts
               WHERE consumer_id = c.id
-                AND status = 'cleared'
+                AND status = 'cleared' AND is_advance IS NOT TRUE
               GROUP BY installment_index
             ) rr
           ), '[]'::json) AS installment_payments
@@ -882,7 +882,7 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at, cgst_amount, sgst_amount
+            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

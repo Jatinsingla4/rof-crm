@@ -334,7 +334,7 @@ const performSurrender = async (c, req, res, p) => {
     if (booking && booking.status === 'cancelled')
         throw (0, input_js_1.bad)('This booking is already cancelled', 409);
     // What the applicant has paid (cleared receipts, as the account screen shows it): forfeiture and refund together cannot exceed it
-    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId])).rows[0].s);
+    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [consumerId])).rows[0].s);
     if (f.forfeit > received + 0.005)
         throw (0, input_js_1.bad)(`The forfeiture (${f.forfeit}) is more than the amount received (${received})`);
     if (f.forfeit + f.refund > received + 1)
@@ -342,7 +342,7 @@ const performSurrender = async (c, req, res, p) => {
     // What this changes, kept so a restore can put it back
     const commissions = booking
         ? (await c.query(`SELECT id FROM broker_commissions WHERE booking_id = $1 AND status = 'pending'`, [booking.id])).rows.map((r) => r.id) : [];
-    const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
+    const demands = (await c.query(`SELECT id, status FROM demands WHERE consumer_id = $1 AND status IN ('pending', 'overdue', 'demanded', 'partial') AND payment_plan_id IN (SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2)`, [consumerId, alloc.unit_id])).rows;
     const snapshot = JSON.stringify(demands.map((r) => ({ demand_id: r.id, previous_status: r.status })));
     const preState = JSON.stringify({ booking_status: booking?.status ?? null, allocation_status: alloc.status, lead_stage: person.lead_stage, allocated_unit_id: person.allocated_unit_id, commission_ids: commissions });
     let surrenderId;

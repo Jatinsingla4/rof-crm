@@ -147,7 +147,7 @@ const demandRow = (p, d) => ({
     paid_amount: d.paid, balance_amount: d.balance,
     days_overdue: d.raised && d.balance > 0 && d.due_date && d.due_date < p.today ? (0, report_ledger_js_1.daysBetween)(d.due_date, p.today) : 0,
 });
-const DEMAND_STATUS = ['demanded', 'pending', 'paid', 'raised'];
+const DEMAND_STATUS = ['demanded', 'pending', 'partial', 'paid', 'raised'];
 const statusOk = (d, s) => !s || (s === 'demanded' ? d.status === 'demanded' || d.status === 'raised' : d.status === s);
 router.get('/due-report', (0, exports.h)(async (req, res) => {
     const x = (0, exports.Q)(req);

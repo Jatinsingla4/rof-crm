@@ -222,7 +222,7 @@ const REFUND_SELECT = `
 const refundRoom = async (c: any, consumerId: string, receiptId: string | null, exceptId: string | null) => {
   const open = `status IN ('pending','approved','processed') AND id IS DISTINCT FROM $2`;
   const all = (await c.query(
-    `SELECT COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')), 0) AS paid,
+    `SELECT COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE), 0) AS paid,
             COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE consumer_id = $1 AND ${open}), 0) AS taken`, [consumerId, exceptId])).rows[0];
   let room = Number(all.paid) - Number(all.taken), what = 'what the applicant has paid';
   if (receiptId) {

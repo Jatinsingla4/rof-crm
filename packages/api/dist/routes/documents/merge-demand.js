@@ -160,7 +160,7 @@ async function demandLetterData(ctx) {
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
-                 WHERE r.demand_id = d.id AND r.status = 'cleared'), 0
+                 WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
             FROM demands d
@@ -190,7 +190,7 @@ async function demandLetterData(ctx) {
               d.due_date,
               COALESCE(
                 (SELECT SUM(r.amount_received_inr) FROM receipts r
-                 WHERE r.demand_id = d.id AND r.status = 'cleared'),
+                 WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),
                 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
@@ -200,7 +200,7 @@ async function demandLetterData(ctx) {
               AND pst.plan_name = $3
               AND pst.installment_index = d.installment_index
             WHERE d.payment_plan_id = $1
-              AND d.status IN ('demanded', 'paid')
+              AND (d.status IN ('demanded', 'paid') OR (d.status = 'partial' AND d.raised_at IS NOT NULL))
               AND d.due_date IS NOT NULL
               AND d.due_date <= $4::date
             ORDER BY pst.installment_index ASC
@@ -220,7 +220,7 @@ async function demandLetterData(ctx) {
                 d.amount_due_inr, d.cgst_amount, d.sgst_amount, d.due_date,
                 COALESCE(
                   (SELECT SUM(amount_received_inr) FROM receipts
-                   WHERE demand_id = d.id AND status = 'cleared'), 0
+                   WHERE demand_id = d.id AND status = 'cleared' AND is_advance IS NOT TRUE), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
                 COALESCE(pst2.percentage, 0) AS percentage,
@@ -230,7 +230,7 @@ async function demandLetterData(ctx) {
               LEFT JOIN plan_schedule_templates pst2
                 ON pst2.project_id = pp2.project_id AND pst2.installment_index = d.installment_index
               WHERE d.consumer_id = $1
-                AND d.status IN ('demanded', 'paid')
+                AND (d.status IN ('demanded', 'paid') OR (d.status = 'partial' AND d.raised_at IS NOT NULL))
                 AND d.due_date IS NOT NULL
                 AND d.due_date <= $2::date
               ORDER BY d.installment_index ASC`;
@@ -250,7 +250,7 @@ async function demandLetterData(ctx) {
     const totalPlanInstallments = parseInt(planSchedCountRes.rows[0]?.count || '0');
     // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
+        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
         index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,

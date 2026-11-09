@@ -54,6 +54,8 @@ const transfers_js_1 = __importDefault(require("./routes/transfers.js"));
 const registry_js_1 = __importDefault(require("./routes/registry.js"));
 const loans_js_1 = __importDefault(require("./routes/loans.js"));
 const receipt_process_js_1 = __importDefault(require("./routes/receipt-process.js"));
+const receipt_returns_js_1 = __importDefault(require("./routes/receipt-returns.js"));
+const credit_allocations_js_1 = __importDefault(require("./routes/credit-allocations.js"));
 const financial_ops_js_1 = __importDefault(require("./routes/financial-ops.js"));
 const outgoing_payments_js_1 = __importDefault(require("./routes/outgoing-payments.js"));
 const test_data_import_js_1 = __importDefault(require("./routes/test-data-import.js"));
@@ -529,6 +531,8 @@ app.use('/api/transfers', exports.authenticateToken, rbac('allocations'), transf
 app.use('/api/registry', exports.authenticateToken, rbac('allocations'), registry_js_1.default);
 app.use('/api/loans', exports.authenticateToken, rbac('consumers'), loans_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_process_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), receipt_returns_js_1.default);
+app.use('/api/payments', exports.authenticateToken, rbac('payments'), credit_allocations_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), financial_ops_js_1.default);
 app.use('/api/payments', exports.authenticateToken, rbac('payments'), outgoing_payments_js_1.default);
 // Leftover read-only check of the test data import: it lists customers and projects, super_admin only

@@ -322,7 +322,7 @@ router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: Ne
          -- money against THIS unit: receipts on its payment plan; a receipt with no plan counts only when the customer has one unit
          SELECT COALESCE(SUM(r.amount_received_inr), 0) as received
          FROM receipts r
-         WHERE COALESCE(r.status, '') NOT IN ('cancelled', 'bounced')
+         WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE
            AND (r.payment_plan_id IN (SELECT pp.id FROM payment_plans pp WHERE pp.unit_id = u.id)
                 OR (r.payment_plan_id IS NULL
                     AND r.consumer_id IN (SELECT a.consumer_id FROM allocations a WHERE a.unit_id = u.id AND a.status = 'allotted')

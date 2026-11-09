@@ -962,6 +962,7 @@ router.get('/:id/payment-plans', async (req, res, next) => {
        LEFT JOIN (
          SELECT payment_plan_id, SUM(amount_received_inr) AS total_paid
          FROM receipts
+         WHERE status = 'cleared' AND is_advance IS NOT TRUE
          GROUP BY payment_plan_id
        ) paid ON paid.payment_plan_id = pp.id
        WHERE pp.project_id = $1

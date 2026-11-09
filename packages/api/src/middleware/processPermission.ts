@@ -12,7 +12,8 @@ export type ProcessName =
   | 'jv_refund_drcr'
   | 'broker_range_entry'
   | 'broker_payment_entry'
-  | 'company_rebate';
+  | 'company_rebate'
+  | 'credit_allocation';
 
 export type PermissionRole = 'maker' | 'checker' | 'approver';
 

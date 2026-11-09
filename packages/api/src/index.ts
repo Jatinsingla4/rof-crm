@@ -50,6 +50,8 @@ import transfersRoutes from './routes/transfers.js';
 import registryRoutes from './routes/registry.js';
 import loansRoutes from './routes/loans.js';
 import receiptProcessRoutes from './routes/receipt-process.js';
+import receiptReturnRoutes from './routes/receipt-returns.js';
+import creditAllocationRoutes from './routes/credit-allocations.js';
 import financialOpsRoutes from './routes/financial-ops.js';
 import outgoingPaymentsRoutes from './routes/outgoing-payments.js';
 import testDataImportRoutes from './routes/test-data-import.js';
@@ -619,6 +621,8 @@ app.use('/api/transfers', authenticateToken, rbac('allocations'), transfersRoute
 app.use('/api/registry', authenticateToken, rbac('allocations'), registryRoutes);
 app.use('/api/loans', authenticateToken, rbac('consumers'), loansRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), receiptProcessRoutes);
+app.use('/api/payments', authenticateToken, rbac('payments'), receiptReturnRoutes);
+app.use('/api/payments', authenticateToken, rbac('payments'), creditAllocationRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), financialOpsRoutes);
 app.use('/api/payments', authenticateToken, rbac('payments'), outgoingPaymentsRoutes);
 // Leftover read-only check of the test data import: it lists customers and projects, super_admin only

@@ -158,7 +158,7 @@ router.post('/', (0, processPermission_js_1.requireProcess)('applicant_transfer'
                 throw (0, input_js_1.bad)(`Transfer number "${f.no}" is already used`, 409);
             // What the seller has paid and owes on this unit (cancelled / bounced receipts and cancelled demands left out), before anything moves
             const plans = `SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2`;
-            const snap = (await c.query(`SELECT COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.payment_plan_id IN (${plans}) AND r.status NOT IN ('cancelled', 'bounced')), 0) AS paid,
+            const snap = (await c.query(`SELECT COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.payment_plan_id IN (${plans}) AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0) AS paid,
                 COALESCE((SELECT SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))
                            FROM demands d WHERE d.payment_plan_id IN (${plans}) AND d.status <> 'cancelled'), 0) AS due`, [oldId, unitId])).rows[0];
             const paid = parseFloat(snap.paid), dueAmt = parseFloat(snap.due);
