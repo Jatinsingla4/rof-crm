@@ -2,12 +2,14 @@
 // Run: PGHOST=.. BASE=http://localhost:3010/api node docs/set-projects-parity/api-test-timely-discount.mjs   (psql must reach the same database)
 import { execFileSync } from 'node:child_process';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + (typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 300))); };
 const call = (tok) => async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b === undefined ? undefined : JSON.stringify(b) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const login = async (e) => (await call()('POST', '/auth/login', { email: e, password: 'Test#Pass1234' })).j?.token;
 const A = call(await login('super_admin@test.local')), RO = call(await login('read_only_viewer@test.local')), SE = call(await login('sales_executive@test.local')), NO = call();
+const CK = call(await secondAdminToken(B, A));   // clears receipts: whoever recorded a receipt does not clear it
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim();
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000', today = bizToday();
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');
@@ -35,7 +37,7 @@ const total2 = (c) => Number(psql(`select amount_due_inr + coalesce(cgst_amount,
 const setDue = (c, offset) => psql(`update demands set due_date = current_date + (${offset}), status = 'raised' where consumer_id = '${c}' and installment_index = 2 returning 1`);
 let rno = 0; const pay = (c, amount, date = today) => A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: amount, paymentMode: 'neft', referenceNumber: `TD${U}${++rno}`, paymentDate: date, installmentIndex: 2 });
 // money counts once it is cleared: the transfer is received on `date` and cleared by the bank today
-const clearAll = async (c) => { for (const id of psql(`select id from receipts where consumer_id = '${c}' and installment_index = 2 and status = 'pending'`).split('\n').filter(Boolean)) { const x = await A('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); } };
+const clearAll = async (c) => { for (const id of psql(`select id from receipts where consumer_id = '${c}' and installment_index = 2 and status = 'pending'`).split('\n').filter(Boolean)) { const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); } };
 const run = (b = {}, who = A, P = X.P) => who('POST', `/projects/${P}/timely-discount/run`, b);
 const tdList = async () => (await A('GET', `/projects/${X.P}/timely-discount`)).j;
 

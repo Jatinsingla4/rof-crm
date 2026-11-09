@@ -24,12 +24,13 @@ exports.LIVE = `('complete','pending_payment','active')`;
 exports.RAISED = new Set(['demanded', 'raised', 'paid']);
 // Basic price of a booking, the same rule Booking uses when it confirms the payment: rate x carpet area (plus the balcony charge it stored);
 // a booking with no rate (made through the API or imported) is priced at the unit's base price. b = booking alias, u = unit alias.
-const baseCostSql = (b, u) => `CASE
+// Owner decision (TA-06): money is in whole rupees (plan, demands, receipts), so the price is rounded to the rupee here exactly as Booking rounds it when it makes the plan.
+const baseCostSql = (b, u) => `ROUND((CASE
     WHEN COALESCE(${b}.basic_rate_inr_sqft,0) > 0 AND COALESCE(${u}.carpet_area_sqft,0) > 0 THEN
       CASE WHEN ${b}.balcony_charge_amount IS NOT NULL
         THEN ${b}.basic_rate_inr_sqft * ${u}.carpet_area_sqft + COALESCE(${b}.balcony_charge_amount,0)
         ELSE ${b}.basic_rate_inr_sqft * (${u}.carpet_area_sqft + COALESCE(${u}.balcony_area_sqft,0)) END
-    ELSE COALESCE(${u}.base_price_inr,0) + COALESCE(${b}.balcony_charge_amount,0) END`;
+    ELSE COALESCE(${u}.base_price_inr,0) + COALESCE(${b}.balcony_charge_amount,0) END)::numeric, 0)`;
 exports.baseCostSql = baseCostSql;
 const BASE = (0, exports.baseCostSql)('l', 'u');
 async function loadLedger(f = {}) {

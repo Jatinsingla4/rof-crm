@@ -119,7 +119,12 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
 
       let idx: number | null = idxGiven ?? null;
       if (planId && idx == null && !isOther) {
-        idx = (await c.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 AS n FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [planId])).rows[0].n;
+        // The receipt goes to the first instalment that is still open (the screen sends none). Counting receipts instead (the old rule) skipped a
+        // demand whenever one instalment took two receipts, and left the paid / pending marks of the demands disagreeing with the money received.
+        const open = (await c.query(`SELECT MIN(installment_index) AS n, COUNT(*) AS total FROM demands WHERE payment_plan_id = $1 AND status NOT IN ('paid', 'cancelled')`, [planId])).rows[0];
+        if (open.n != null) idx = open.n;
+        else if (!(await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled' LIMIT 1`, [planId])).rows.length) idx = 1;   // nothing raised yet: the first receipt belongs to instalment 1
+        else warnings.push('Every instalment raised so far is already paid, so this receipt is recorded as an advance and is not matched to an instalment.');
       }
 
       // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
@@ -152,7 +157,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         if (!demand) warnings.push(`There is no open demand for instalment ${idx}, so this receipt is not matched to any instalment yet. It will be matched when that demand is raised.`);
         if (demand) {
           await c.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
-          const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [demand.id])).rows[0].s);
+          const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced')`, [demand.id])).rows[0].s);
           const due = parseFloat(demand.amount_due_inr) + parseFloat(demand.cgst_amount || 0) + parseFloat(demand.sgst_amount || 0);
           const before = paid - amount;   // what the demand had received before this receipt
           if (paid > due + 0.005) warnings.push(`This receipt is more than what instalment ${idx} still needed (Rs ${Math.max(0, due - before).toLocaleString('en-IN')}). The extra Rs ${(paid - due).toLocaleString('en-IN')} is carried to the next instalments as an advance.`);
@@ -393,14 +398,16 @@ router.patch('/receipts/:id/mark-printed', requirePrint, async (req: AuthRequest
 
 // Moves a receipt to a new status when it is in one of the allowed ones; the row is locked so two clicks cannot both win
 const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
-  from: string[]; to: string; set: (b: any) => { sql: string; values: any[] }; action: string; verb: string; message: string;
+  from: string[]; to: string; checker?: boolean; set: (b: any) => { sql: string; values: any[] }; action: string; verb: string; message: string;
 }) => {
   try {
     const id = uuid(req.params.id, 'Receipt id');
     const set = o.set(body(req));
     const data = await inTx(async (c) => {
-      const cur = (await c.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
+      // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
+      if (o.checker) notOwn(req, cur.received_by_user_id);
       if (!INSTRUMENTS.includes(cur.payment_method)) throw bad(`This payment mode cannot be ${o.verb}`);
       if (!o.from.includes(cur.status)) throw bad(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
       const r = await c.query(
@@ -421,22 +428,22 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
   } catch (err) { fail(err, res, next); }
 };
 
-router.patch('/receipts/:id/deposit', (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
+router.patch('/receipts/:id/deposit', requireProcess('receipt', 'checker'), (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
   from: ['pending', 'authorized'], to: 'deposited', action: 'deposit', verb: 'deposited', message: 'Cheque marked as deposited',
   set: (b) => { const d = pastDay(b.deposit_date, 'deposit_date'); if (!d) throw bad('deposit_date is required'); return { sql: 'deposit_date = $1', values: [d] }; },
 }));
-router.patch('/receipts/:id/clear', (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
-  from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'cleared', action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
+router.patch('/receipts/:id/clear', requireProcess('receipt', 'checker'), (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
+  from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'cleared', checker: true, action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
   set: (b) => {
     const d = pastDay(b.clearing_date, 'clearing_date'); if (!d) throw bad('clearing_date is required');
     return { sql: 'clearing_date = $1, clearing_bank_id = $2', values: [d, has(b.clearing_bank_id) ? uuid(b.clearing_bank_id, 'clearing_bank_id') : null] };
   },
 }));
-router.patch('/receipts/:id/hold', (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
+router.patch('/receipts/:id/hold', requireProcess('receipt', 'checker'), (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
   from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'on_hold', action: 'hold', verb: 'put on hold', message: 'Cheque put on hold',
   set: (b) => ({ sql: 'hold_remark = $1', values: [text(b.hold_remark, 'hold_remark', 500, true)] }),
 }));
-router.patch('/receipts/:id/release-hold', (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
+router.patch('/receipts/:id/release-hold', requireProcess('receipt', 'checker'), (req: AuthRequest, res: Response, next: NextFunction) => move(req, res, next, {
   from: ['on_hold'], to: 'pending', action: 'release', verb: 'released from hold', message: 'Cheque released from hold',
   set: () => ({ sql: 'hold_remark = NULL', values: [] }),
 }));

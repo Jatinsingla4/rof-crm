@@ -18,6 +18,7 @@ exports.recomputeBookingPaymentTaxes = recomputeBookingPaymentTaxes;
 exports.checkAndAutoRaiseInstallment1 = checkAndAutoRaiseInstallment1;
 exports.reverseInstallment1IfNoValidReceipt = reverseInstallment1IfNoValidReceipt;
 exports.cascadeOverpaymentExcess = cascadeOverpaymentExcess;
+exports.reallocatePlan = reallocatePlan;
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
@@ -460,7 +461,7 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
         const advanceGstSplit = await (0, gst_receipt_split_js_1.computeReceiptGstSplit)(client, excess, advanceProjectId, advanceReceivedDate);
         await client.query(`UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`, [advanceGstSplit.cgstAmount, advanceGstSplit.sgstAmount, advanceReceiptId]);
         const nextPaidResult = await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
-       FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [nextId]);
+       FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced')`, [nextId]);
         const nextTotalPaid = parseFloat(nextPaidResult.rows[0].total_paid);
         const nextAmountDue = parseFloat(nextDemand.rows[0].amount_due_inr)
             + parseFloat(nextDemand.rows[0].cgst_amount || 0)
@@ -474,6 +475,42 @@ async function cascadeOverpaymentExcess(client, consumerId, paymentPlanId, sourc
         else {
             await client.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [nextId]);
             excess = 0;
+        }
+    }
+}
+/**
+ * Undoes what a bounced or cancelled receipt paid, to the last demand it reached.
+ * A receipt that overpaid a demand passed the excess on through helper "-ADV" receipts and marked the next demands paid. Reopening only
+ * the demand the receipt was filed under (the old rule) left those later demands "paid" and the helper rows live, so money that was
+ * never received still showed as paid. Here every helper row of the plan is cancelled and the plan is allocated again from the
+ * receipts that are still valid, in instalment order, by the same cascade a new receipt uses. Call it after the receipt's own status is set.
+ */
+async function reallocatePlan(client, paymentPlanId, reopenStatus, userId) {
+    const live = `status NOT IN ('cancelled', 'bounced')`;
+    await client.query(`UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE payment_plan_id = $1 AND is_advance AND ${live}`, [paymentPlanId]);
+    await client.query(`UPDATE payment_plans SET advance_amount = 0, updated_at = NOW() WHERE id = $1`, [paymentPlanId]);
+    const demands = (await client.query(`SELECT id, consumer_id, installment_index, status, delivery_status, amount_due_inr, cgst_amount, sgst_amount FROM demands
+      WHERE payment_plan_id = $1 AND status <> 'cancelled' ORDER BY installment_index ASC FOR UPDATE`, [paymentPlanId])).rows;
+    // Start every demand open; the receipts that are still valid close them again below
+    for (const d of demands)
+        if (d.status === 'paid')
+            await client.query(`UPDATE demands SET status = $2, delivery_status = 'queued', updated_at = NOW() WHERE id = $1`, [d.id, reopenStatus]);
+    for (const d of demands) {
+        const st = (await client.query(`SELECT status FROM demands WHERE id = $1`, [d.id])).rows[0].status;
+        const direct = (await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND NOT is_advance AND ${live}`, [d.id])).rows[0].s;
+        const total = (await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND ${live}`, [d.id])).rows[0].s;
+        const due = parseFloat(d.amount_due_inr) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0);
+        if (parseFloat(total) >= due) {
+            if (st !== 'paid')
+                await client.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [d.id]);
+            // Excess of a demand that no earlier helper row reached starts a new cascade; one that a helper row reached was already passed on by that cascade
+            if (parseFloat(direct) === parseFloat(total) && parseFloat(total) > due) {
+                const src = (await client.query(`SELECT id, payment_method FROM receipts WHERE demand_id = $1 AND NOT is_advance AND ${live} ORDER BY created_at DESC LIMIT 1`, [d.id])).rows[0];
+                await cascadeOverpaymentExcess(client, d.consumer_id, paymentPlanId, d.id, parseFloat(total) - due, src.payment_method, userId, src.id);
+            }
+        }
+        else if (parseFloat(total) > 0) {
+            await client.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [d.id]);
         }
     }
 }

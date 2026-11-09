@@ -156,7 +156,7 @@ t('receipt: with a cheque number it is recorded (201)', r.s === 201 && !!rid6, J
 const stCgst = Number(psql(`select cgst_amount from receipts where id = '${rid6}'`)), demCgst = Number(psql(`select cgst_amount from demands where consumer_id = '${c6}' and installment_index = 1`));
 const page = await fetch(B + `/payments/receipts/${rid6}/html`, { headers: { authorization: 'Bearer ' + tok } }).then((x) => x.text());
 const txt6 = page.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-t('printed receipt: the CGST printed is the GST of this part payment (about ' + Math.round(stCgst) + '), not the whole instalment GST (' + demCgst + ')', stCgst > 0 && stCgst < demCgst && txt6.includes(Math.round(stCgst).toLocaleString('en-IN') + '.00') && !txt6.includes(demCgst.toLocaleString('en-IN') + '.00'), `stored ${stCgst}, demand ${demCgst}`);
+t('printed receipt: the CGST printed is the GST of this part payment (about ' + Math.round(stCgst) + '), not the whole instalment GST (' + demCgst + ')', stCgst > 0 && stCgst < demCgst && txt6.includes(stCgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) && !txt6.includes(demCgst.toLocaleString('en-IN') + '.00'), `stored ${stCgst}, demand ${demCgst}`);
 psql(`update demands set status = 'demanded', due_date = '${today}' where consumer_id = '${c6}' and installment_index = 1`);
 const reg6 = psql(`select registration_no from booking_records where id = '${b6}'`);
 r = await A('GET', `/payments/demands?status=demanded&name=${encodeURIComponent(reg6)}&pageSize=50`);

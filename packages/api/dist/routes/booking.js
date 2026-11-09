@@ -193,25 +193,34 @@ async function generateRegistrationNo(projectId, client) {
         .toUpperCase()
         .substring(0, 4) // Take first 4 letters
         .padEnd(4, 'X'); // Pad if shorter
-    // Increment counter atomically
-    let counterResult = await client.query(`UPDATE booking_counters
+    // The counter is per project but the prefix is the first four letters of the name, so two projects whose names start alike ("Greens Phase 1",
+    // "Greens Phase 2") would hand out the same number. The prefix is locked and a number that is already used by any booking is skipped.
+    const prefix = st.registration_prefix || projectName;
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`reg-prefix:${prefix}-${year}`]);
+    for (let tries = 0; tries < 1000; tries++) {
+        // Increment counter atomically
+        let counterResult = await client.query(`UPDATE booking_counters
      SET last_number = last_number + 1,
          updated_at = NOW()
      WHERE project_id = $1
      RETURNING last_number`, [projectId]);
-    if (counterResult.rowCount === 0) {
-        // Insert if not exists (race condition safety)
-        await client.query(`INSERT INTO booking_counters (project_id, last_number)
+        if (counterResult.rowCount === 0) {
+            // Insert if not exists (race condition safety)
+            await client.query(`INSERT INTO booking_counters (project_id, last_number)
        VALUES ($1, 1)
        ON CONFLICT (project_id)
        DO UPDATE SET
          last_number = booking_counters.last_number + 1,
          updated_at = NOW()`, [projectId]);
-        // Fetch the updated value
-        counterResult = await client.query('SELECT last_number FROM booking_counters WHERE project_id = $1', [projectId]);
+            // Fetch the updated value
+            counterResult = await client.query('SELECT last_number FROM booking_counters WHERE project_id = $1', [projectId]);
+        }
+        const num = counterResult.rows[0].last_number;
+        const candidate = `${prefix}-${year}-${String(num).padStart(st.registration_number_size, '0')}`;
+        if (!(await client.query(`SELECT 1 FROM booking_records WHERE registration_no = $1 LIMIT 1`, [candidate])).rows.length)
+            return candidate;
     }
-    const num = counterResult.rows[0].last_number;
-    return `${st.registration_prefix || projectName}-${year}-${String(num).padStart(st.registration_number_size, '0')}`;
+    throw new Error('Could not find a free registration number');
 }
 // GET /api/booking/check-cheque?ref=XXXX[&exclude_id=UUID]
 // Returns whether a cheque/reference number already exists in booking_records or receipts.
@@ -334,6 +343,12 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
                 throw (0, input_js_1.bad)('Applicant not found', 404);
             if (await holds(client, consumer_id, unit_id))
                 throw conflict('This applicant already holds another unit. Surrender or transfer that unit first, or create a new applicant.');
+            // Owner decision (TA-10): one applicant has one unfinished booking at a time. Otherwise one person could lock any number of units without paying;
+            // the "already holds a unit" rule above only looks at confirmed bookings. The applicant is locked so two requests at once cannot both pass.
+            await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`booking-applicant:${consumer_id}`]);
+            const other = (await client.query(`SELECT registration_no FROM booking_records WHERE consumer_id = $1 AND unit_id IS DISTINCT FROM $2 AND status IN ('pending_payment', 'active') LIMIT 1`, [consumer_id, unit_id])).rows[0];
+            if (other)
+                throw conflict(`This applicant already has an unfinished booking (${other.registration_no}). Confirm or cancel it before booking another unit.`);
             if (consumerRow.project_id && consumerRow.project_id !== project_id) {
                 throw conflict('This applicant belongs to another project. Create a new applicant for this project to book this unit.');
             }
@@ -461,7 +476,7 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
             const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
             const gstRateForBptCreate = isNriForGstCreate
                 ? { cgstPct: 0, sgstPct: 0 }
-                : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, project_id, projectNameForGstCreate, 'BASIC', bookingDateForGstCreate);
+                : await (0, gst_resolver_js_1.resolveRate)(client, project_id, projectNameForGstCreate, 'BASIC', bookingDateForGstCreate);
             const cgstPctForBptCreate = gstRateForBptCreate.cgstPct * 100;
             const sgstPctForBptCreate = gstRateForBptCreate.sgstPct * 100;
             const gstSplitCreate = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(booking_amount, cgstPctForBptCreate, sgstPctForBptCreate);
@@ -506,7 +521,7 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
             }
             await client.query('COMMIT');
             if (rebate.method !== 'none')
-                await (0, auditLogger_js_1.logAudit)(index_js_1.db, req.userId || null, 'create', 'booking_rebate', result.rows[0].id, undefined, { status: 'pending', method: rebate.method, entered: rebate.value, calculated_amount: rebate.amount });
+                await (0, auditLogger_js_1.logAudit)(client, req.userId || null, 'create', 'booking_rebate', result.rows[0].id, undefined, { status: 'pending', method: rebate.method, entered: rebate.value, calculated_amount: rebate.amount });
             res.status(201).json({ success: true, data: { ...result.rows[0], registration_no: registrationNo, form_no: formNo } });
         }
         catch (err) {
@@ -789,6 +804,9 @@ router.patch('/:id', async (req, res, next) => {
                 throw conflict('This booking is already complete.');
             if (pre.status === 'cancelled')
                 throw conflict('This booking is cancelled.');
+            // The applicant is locked before the first write. The write below takes a shared lock on the applicant row (foreign key), so two bookings of one
+            // applicant that each wait later for the exclusive lock (further down) wait on each other and PostgreSQL aborts one (deadlock, 500).
+            await client.query(`SELECT id FROM consumers WHERE id = (SELECT consumer_id FROM booking_records WHERE id = $1) FOR UPDATE`, [id]);
             // The unit may have been held by someone else since this booking was started
             if (pre.unit_id && (await client.query(`SELECT status FROM units WHERE id = $1 FOR UPDATE`, [pre.unit_id])).rows[0]?.status === 'held') {
                 await (0, holds_js_1.settleHold)(client, pre.unit_id, pre.booking_type === 'broker' ? pre.broker_id : null, req.userId || null);
@@ -857,7 +875,7 @@ router.patch('/:id', async (req, res, next) => {
                 .includes(consumerRowForGst.rows[0]?.nationality);
             const gstRateForBpt = isNriForGst
                 ? { cgstPct: 0, sgstPct: 0 }
-                : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, booking.project_id, projectNameForGst, 'BASIC', bookingDateForGst);
+                : await (0, gst_resolver_js_1.resolveRate)(client, booking.project_id, projectNameForGst, 'BASIC', bookingDateForGst);
             // Amount is always derived server-side from the resolved rate and the
             // confirmed booking_amount -- the frontend-submitted cgst_amount/
             // sgst_amount is ignored (it was flat-multiplied client-side and is
@@ -3251,6 +3269,11 @@ router.post('/:id/cancel', async (req, res, next) => {
                 throw conflict('This booking is complete. Cancel it through Surrender, which also settles the money.');
             if ((await c.query(`SELECT 1 FROM payment_plans WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND allocation_id IN (SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id IS NOT DISTINCT FROM $2 AND status NOT IN ('cancelled','transferred')) LIMIT 1`, [cur.consumer_id, cur.unit_id])).rows.length) {
                 throw conflict('Demands already exist for this booking. Cancel it through Surrender.');
+            }
+            // Owner decision (TA-09): a booking is not cancelled while the applicant has money on record. The money would drop out of every report with nothing to show for it.
+            // Cancel the receipts (or bounce them) first, or settle the money through Surrender.
+            if ((await c.query(`SELECT 1 FROM receipts WHERE consumer_id = $1 AND status NOT IN ('cancelled', 'bounced') AND NOT COALESCE(is_advance, false) LIMIT 1`, [cur.consumer_id])).rows.length) {
+                throw conflict('This applicant has money recorded (a receipt that is not cancelled or bounced). Cancel or refund those receipts first, or settle them through Surrender.');
             }
             await c.query(`UPDATE booking_records SET status = 'cancelled', remarks = TRIM(BOTH E'\n' FROM COALESCE(remarks, '') || E'\nCancelled: ' || $2) WHERE id = $1`, [id, reason]);
             if (cur.unit_id) {

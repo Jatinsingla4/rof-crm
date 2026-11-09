@@ -8,7 +8,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
-import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes, checkAndAutoRaiseInstallment1, reverseInstallment1IfNoValidReceipt, cascadeOverpaymentExcess } from '../utils/payment-waterfall.js';
+import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes, checkAndAutoRaiseInstallment1, reverseInstallment1IfNoValidReceipt, cascadeOverpaymentExcess, reallocatePlan } from '../utils/payment-waterfall.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2, flag, financeOnly } from '../utils/input.js';
 import { persistInterest, nextNumber } from '../utils/penal-interest.js';
@@ -200,7 +200,7 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
     if (!has(b.consumerId)) throw bad('consumerId is required');
     const consumerId = uuid(b.consumerId, 'consumerId'), baseRaw = b.baseAmountInr ?? b.baseAmount;
     if (!has(baseRaw)) throw bad('baseAmount is required');
-    const base = pos(baseRaw, 'baseAmount'), supply = oneOf(b.supplyType, 'supplyType', ['intrastate', 'interstate'] as const) || 'intrastate';
+    let base = pos(baseRaw, 'baseAmount'); const supply = oneOf(b.supplyType, 'supplyType', ['intrastate', 'interstate'] as const) || 'intrastate';
     const type = oneOf(b.invoiceType, 'invoiceType', INVOICE_TYPES) || 'invoice', invoiceDate = day(b.invoiceDate, 'invoiceDate') || today();
     const projectArg = optId(b.projectId, 'projectId'), unitArg = optId(b.unitId, 'unitId'), receiptId = optId(b.receiptId, 'receiptId');
     const desc = text(b.installmentName ?? b.description, 'description', 100, false), hsn = text(b.hsnCode, 'hsnCode', 20, false) || '9972';
@@ -216,7 +216,7 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
       const g = rate(b.gstRate, 'gstRate');
       [cgstRate, sgstRate, igstRate] = supply === 'interstate' ? [0, 0, g] : [r2(g / 2), r2(g / 2), 0];
     } else { cgstRate = 9; sgstRate = 9; igstRate = 0; }
-    const cgst = r2(base * cgstRate / 100), sgst = r2(base * sgstRate / 100), igst = r2(base * igstRate / 100);
+    let cgst = r2(base * cgstRate / 100), sgst = r2(base * sgstRate / 100), igst = r2(base * igstRate / 100);
 
     const row = await inTx(async (c) => {
       const al = (await c.query(`SELECT unit_id, project_id FROM allocations WHERE consumer_id = $1 AND status NOT IN ('cancelled', 'transferred') ORDER BY created_at DESC LIMIT 1`, [consumerId])).rows[0];
@@ -230,6 +230,14 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
         if (['cancelled', 'bounced'].includes(rc.status)) throw bad(`That receipt is ${rc.status}`, 409);
         // an invoice against a receipt cannot tax more than the money received (a 2.8 lakh receipt once got a 30 crore invoice)
         if (base > Number(rc.amount_received_inr)) throw bad(`The taxable amount cannot be more than the receipt amount (₹${Number(rc.amount_received_inr).toLocaleString('en-IN')})`, 400);
+        // An invoice made for a receipt is that receipt's own tax: the money received less the GST stored on the receipt, which is the same figure the receipt,
+        // the ledger and the reports use. The rate or amount the caller sends is not used (the button once added 5% on the whole receipt, the API default 18%).
+        const rr = (await c.query(`SELECT cgst_amount, sgst_amount FROM receipts WHERE id = $1`, [receiptId])).rows[0];
+        const stored = r2(Number(rr.cgst_amount || 0) + Number(rr.sgst_amount || 0));
+        base = r2(Number(rc.amount_received_inr) - stored);
+        if (supply === 'interstate') { cgst = 0; sgst = 0; igst = stored; } else { cgst = r2(Number(rr.cgst_amount || 0)); sgst = r2(Number(rr.sgst_amount || 0)); igst = 0; }
+        const pct = (x: number) => base > 0 ? Math.round(x / base * 10000) / 100 : 0;
+        cgstRate = pct(cgst); sgstRate = pct(sgst); igstRate = pct(igst);
         if ((await c.query(`SELECT 1 FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled'`, [receiptId])).rows.length) throw bad('An invoice was already generated for this receipt', 409);
       }
       const invoiceNo = await nextNumber(c, 'gst_invoices', 'invoice_no', 'INV', 5);
@@ -427,7 +435,7 @@ router.patch('/draw-refunds/:id/complete', requireProcess('jv_refund_drcr', 'che
 /**
  * PATCH /api/payments/receipts/:id/bounce - Mark receipt as bounced
  */
-router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, next: NextFunction) => {
+router.patch('/receipts/:id/bounce', requireProcess('receipt', 'checker'), async (req: AuthRequest, res: Response, next: NextFunction) => {
   const client = await db.connect();
   try {
     const id = uuid(req.params.id, 'Receipt id');
@@ -439,7 +447,7 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
 
     // 1. Get receipt details
     const receiptRes = await client.query(
-      `SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index, status
+      `SELECT consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index, status, received_by_user_id
        FROM receipts WHERE id = $1 FOR UPDATE`,
       [id]
     );
@@ -450,6 +458,7 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
     }
 
     let { consumer_id, demand_id, amount_received_inr, payment_plan_id, installment_index } = receiptRes.rows[0];
+    notOwn(req, receiptRes.rows[0].received_by_user_id);   // owner decision (Q16): the person who recorded a receipt does not also bounce it
     if (receiptRes.rows[0].status === 'bounced' || receiptRes.rows[0].status === 'cancelled') throw bad(`Receipt is already ${receiptRes.rows[0].status}`, 409);
 
     // 1b. If receipt has no payment_plan_id, fall back to linked demand's plan
@@ -488,6 +497,11 @@ router.patch('/receipts/:id/bounce', async (req: AuthRequest, res: Response, nex
           [demand_id]
         );
       }
+    }
+
+    // 3a. Demands this receipt paid by passing its excess on (helper -ADV rows) are reopened too
+    if (payment_plan_id && (await client.query(`SELECT 1 FROM receipts WHERE payment_plan_id = $1 AND is_advance LIMIT 1`, [payment_plan_id])).rows.length) {
+      await reallocatePlan(client, payment_plan_id, 'pending', req.userId || null);
     }
 
     // 3b. Recompute booking_amount for the specific booking this receipt applies to
@@ -595,8 +609,11 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
     }
     await releaseTdsForReceipt(client, id, 'Receipt cancelled');
 
-    // Step 2: Revert demand status AND delivery_status if linked and paid
-    if (receipt.demand_id) {
+    // Step 2: A plan with helper -ADV rows (an overpayment passed on) is allocated again from the receipts still valid: that reopens every demand this
+    // receipt paid, the ones its excess reached included, and cancels the helper rows. Otherwise only the linked demand and the waterfall check below apply.
+    const replayed = !!receipt.payment_plan_id && (await client.query(`SELECT 1 FROM receipts WHERE payment_plan_id = $1 AND is_advance LIMIT 1`, [receipt.payment_plan_id])).rows.length > 0;
+    if (replayed) await reallocatePlan(client, receipt.payment_plan_id, 'pending', req.userId || null);
+    if (!replayed && receipt.demand_id) {
       await client.query(
         `UPDATE demands
          SET status = 'demanded', delivery_status = 'queued', updated_at = NOW()
@@ -625,7 +642,7 @@ router.post('/receipts/:id/cancel', async (req: AuthRequest, res: Response, next
 
     const wfResults = applyWaterfall(wfRcpts.rows as WaterfallReceipt[], wfDemands.rows as WaterfallDemand[]);
 
-    for (const wf of wfResults) {
+    for (const wf of replayed ? [] : wfResults) {
       if (!wf.fully_covered) {
         const dbDemand = wfDemands.rows.find((d: any) => d.id === wf.demand_id);
         if (dbDemand && (dbDemand.status === 'paid' || dbDemand.delivery_status === 'paid')) {
@@ -905,6 +922,7 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
     calcAddonGst(intAmt,   basicCgstPct, basicSgstPct).total +
     calcAddonGst(otherAmt, addonCgstPct, addonSgstPct).total;
 
+  const storedGst = r.cgst_amount != null && r.sgst_amount != null && addonGrossTotal === 0 && !(totalBalconyCharge > 0);
   // ── FIND CURRENT INSTALLMENT ONLY ──────────────────────────────────────
   const currentInstIdx = r.installment_index != null ? parseInt(r.installment_index) : -1;
   const currentInst = allInstallments.find(i => parseInt(i.installment_index) === currentInstIdx)
@@ -932,7 +950,7 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
 
     // A part payment pays a part of the instalment: its balcony, GST and basic shares are that part of the whole, never the whole instalment GST on a smaller amount
     const share = demandGross > 0 && basicGross < demandGross ? basicGross / demandGross : 1;
-    if (hasBalcony && pct > 0) {
+    if (hasBalcony && pct > 0 && !storedGst) {
       const balconyInstGross = Math.round(totalBalconyCharge * pct / 100 * share);
       const balcCgstFull = Math.round(parseFloat(r.balcony_cgst_amount || 0) * pct / 100), balcSgstFull = Math.round(parseFloat(r.balcony_sgst_amount || 0) * pct / 100);
       const balcCgst  = Math.round(balcCgstFull * share);
@@ -975,8 +993,9 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
       }
     } else if (basicGross > 0) {
       sNo++;
-      const instCgst = Math.round(basicGross * cgstFrac);
-      const instSgst = Math.round(basicGross * sgstFrac);
+      // A receipt with no add-on or balcony part prints the GST stored on the receipt, to the paisa, so the paper equals the Receipt List and the ledger
+      const instCgst = storedGst ? parseFloat(r.cgst_amount) : Math.round(basicGross * cgstFrac);
+      const instSgst = storedGst ? parseFloat(r.sgst_amount) : Math.round(basicGross * sgstFrac);
       const instNet  = basicGross - instCgst - instSgst;
       sumNet += instNet; sumCgst += instCgst; sumSgst += instSgst; sumGross += basicGross;
       tableBodyRows += `
@@ -996,8 +1015,8 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
     const basicGross = Math.max(0, totalAmount - addonGrossTotal);
     if (basicGross > 0) {
       sNo++;
-      const cgst = isNri ? 0 : Math.round(basicGross * basicCgstPct / 100);
-      const sgst = isNri ? 0 : Math.round(basicGross * basicSgstPct / 100);
+      const cgst = isNri ? 0 : storedGst ? parseFloat(r.cgst_amount) : Math.round(basicGross * basicCgstPct / 100);
+      const sgst = isNri ? 0 : storedGst ? parseFloat(r.sgst_amount) : Math.round(basicGross * basicSgstPct / 100);
       const net  = basicGross - cgst - sgst;
       const fallbackName = `Installment #${r.installment_index}`;
       sumNet += net; sumCgst += cgst; sumSgst += sgst; sumGross += basicGross;
