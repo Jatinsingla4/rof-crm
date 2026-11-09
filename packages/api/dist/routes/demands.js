@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
@@ -14,7 +15,10 @@ const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const router = (0, express_1.Router)();
-const STATUSES = ['pending', 'demanded', 'paid', 'cancelled', 'raised'];
+const STATUSES = ['pending', 'demanded', 'partial', 'paid', 'cancelled', 'raised'];
+// A partial demand (part covered by cleared money, D3) is raised or not by its raised_at; 'demanded' keeps its old meaning of raised
+const RAISED_SQL = `(d.status IN ('demanded', 'raised') OR (d.status = 'partial' AND d.raised_at IS NOT NULL))`;
+const PENDING_SQL = `(d.status = 'pending' OR (d.status = 'partial' AND d.raised_at IS NULL))`;
 const MAX_RAISE = 2000;
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'A demand for this instalment already exists');
 // Integer query value inside [min, max], or the default when the value is absent
@@ -127,12 +131,12 @@ router.get('/demands/by-stage', async (req, res, next) => {
                         ORDER BY pst.plan_name LIMIT 1), 'Stage ' || d.installment_index) AS installment_name,
              t.id AS tower_id, t.tower_name,
              COUNT(DISTINCT d.consumer_id)                                      AS total_consumers,
-             COUNT(DISTINCT d.consumer_id) FILTER (WHERE d.status = 'pending')  AS pending_count,
-             COUNT(DISTINCT d.consumer_id) FILTER (WHERE d.status = 'demanded') AS raised_count,
-             MIN(d.due_date)     FILTER (WHERE d.status = 'demanded')           AS installment_date,
-             MIN(d.generated_at) FILTER (WHERE d.status = 'demanded')           AS raised_at,
-             ARRAY_AGG(DISTINCT d.id) FILTER (WHERE d.status = 'pending')       AS pending_demand_ids,
-             ARRAY_AGG(DISTINCT d.id) FILTER (WHERE d.status = 'demanded')      AS raised_demand_ids
+             COUNT(DISTINCT d.consumer_id) FILTER (WHERE ${PENDING_SQL}) AS pending_count,
+             COUNT(DISTINCT d.consumer_id) FILTER (WHERE ${RAISED_SQL}) AS raised_count,
+             MIN(d.due_date)     FILTER (WHERE ${RAISED_SQL})           AS installment_date,
+             MIN(d.generated_at) FILTER (WHERE ${RAISED_SQL})           AS raised_at,
+             ARRAY_AGG(DISTINCT d.id) FILTER (WHERE ${PENDING_SQL})       AS pending_demand_ids,
+             ARRAY_AGG(DISTINCT d.id) FILTER (WHERE ${RAISED_SQL})      AS raised_demand_ids
         FROM demands d
         JOIN payment_plans pp ON pp.id = d.payment_plan_id
         JOIN units u  ON u.id = pp.unit_id
@@ -202,9 +206,12 @@ router.get('/demands', async (req, res, next) => {
             where += ` AND lower(u.unit_number) = lower(${add(unit)})`;
         const status = statusOf(q.status, 'status');
         if (status) {
+            // a partial demand (part covered by cleared money, D3) is listed with the raised ones when raised_at is set, and with the pending ones when it is not
             where += q.scope === 'customer' && status === 'pending'
-                ? ` AND (d.status = ${add(status)} OR (d.status = 'paid' AND d.raised_at IS NULL))`
-                : ` AND d.status = ${add(status)}`;
+                ? ` AND (d.status = ${add(status)} OR (d.status IN ('paid', 'partial') AND d.raised_at IS NULL))`
+                : status === 'pending' ? ` AND (d.status = ${add(status)} OR (d.status = 'partial' AND d.raised_at IS NULL))`
+                    : status === 'demanded' ? ` AND (d.status = ${add(status)} OR (d.status = 'partial' AND d.raised_at IS NOT NULL))`
+                        : ` AND d.status = ${add(status)}`;
         }
         const from = (0, input_js_1.day)(q.from ?? q.dateFrom, 'from');
         if (from)
@@ -250,7 +257,7 @@ router.get('/demands', async (req, res, next) => {
         await Promise.all([...pairs.entries()].map(async ([key, { consumerId, unitId }]) => {
             const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
             const [rc, dm] = await Promise.all([
-                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at FROM receipts
+                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
                 index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan}`, [consumerId, unitId]),
@@ -287,12 +294,13 @@ router.patch('/demands/activate', async (req, res, next) => {
             throw (0, input_js_1.bad)('The due date cannot be in the past');
         const out = await (0, input_js_1.inTx)(async (c) => {
             // Oldest instalment first, so a batch holding stage 1 and stage 2 raises both whatever order the ids arrive in
-            const found = await c.query(`SELECT id, installment_index, consumer_id, payment_plan_id, status FROM demands WHERE id = ANY($1::uuid[]) ORDER BY payment_plan_id, installment_index FOR UPDATE`, [ids]);
+            const found = await c.query(`SELECT id, installment_index, consumer_id, payment_plan_id, status, raised_at FROM demands WHERE id = ANY($1::uuid[]) ORDER BY payment_plan_id, installment_index FOR UPDATE`, [ids]);
             const byId = new Map(found.rows.map((r) => [r.id, r]));
             const raised = [];
             const skippedIds = ids.filter((id) => !byId.has(id)).map((id) => ({ id, reason: 'Demand not found' }));
             for (const d of found.rows) {
-                if (d.status === 'demanded' || d.status === 'raised') {
+                // A demand is raised once raised_at is set. One that is only due by its date (D1) or part covered by cleared money (partial) can still be raised.
+                if ((d.status === 'demanded' || d.status === 'raised' || d.status === 'partial') && d.raised_at) {
                     skippedIds.push({ id: d.id, reason: 'Already raised' });
                     continue;
                 }
@@ -300,12 +308,12 @@ router.patch('/demands/activate', async (req, res, next) => {
                     skippedIds.push({ id: d.id, reason: 'Already paid' });
                     continue;
                 }
-                if (d.status !== 'pending') {
+                if (!['pending', 'demanded', 'partial'].includes(d.status)) {
                     skippedIds.push({ id: d.id, reason: `Demand is ${d.status}` });
                     continue;
                 }
                 if (d.installment_index > 0) {
-                    const prior = await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND installment_index < $2 AND status = 'pending' LIMIT 1`, [d.payment_plan_id, d.installment_index]);
+                    const prior = await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND installment_index < $2 AND status IN ('pending', 'demanded', 'partial') AND raised_at IS NULL LIMIT 1`, [d.payment_plan_id, d.installment_index]);
                     if (prior.rows.length) {
                         skippedIds.push({ id: d.id, reason: `Installment ${d.installment_index}: prior stage(s) not yet raised` });
                         continue;
@@ -324,19 +332,8 @@ router.patch('/demands/activate', async (req, res, next) => {
                     await c.query(`INSERT INTO financial_audit_logs (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks) VALUES ($1, $2, $3, $4, $5, $6, $7)`, [d.consumer_id, d.payment_plan_id, req.userId || null, 'receipts_retroactively_linked', JSON.stringify({ demand_id: null }), JSON.stringify({ demand_id: d.id }),
                         `${retro.rows.length} receipt(s) totalling ₹${sum} retroactively linked to demand ${d.id} (installment_index=${d.installment_index})`]);
                 }
-                // Advance / booking receipts that already cover the whole demand mark it paid
-                const [rc, dm] = await Promise.all([
-                    c.query(`SELECT id, amount_received_inr, demand_id, installment_index, status FROM receipts
-                    WHERE consumer_id = $1 AND status != 'cancelled' AND (payment_plan_id IS NULL OR payment_plan_id = $2)`, [d.consumer_id, d.payment_plan_id]),
-                    c.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
-                     FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled'`, [d.payment_plan_id]),
-                ]);
-                const w = (0, payment_waterfall_js_1.applyWaterfall)(rc.rows, dm.rows).find((x) => x.demand_id === d.id);
-                if (w?.fully_covered) {
-                    await c.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [d.id]);
-                    await c.query(`INSERT INTO financial_audit_logs (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks) VALUES ($1, $2, $3, 'demand_auto_paid', $4, $5, $6)`, [d.consumer_id, d.payment_plan_id, req.userId || null, '{"status":"demanded","delivery_status":"queued"}', '{"status":"paid","delivery_status":"paid"}',
-                        'Auto-marked paid: fully covered by advance/booking receipts via waterfall allocation']);
-                }
+                // The status of the plan follows cleared money only (Q13): a demand covered by cleared money is paid, a part covered one is partial
+                await (0, money_basis_js_1.recomputePlan)(c, d.payment_plan_id, req.userId || null);
             }
             return { raised: raised.length, skipped: skippedIds.length, skippedIds, activatedCount: raised.length };
         });
@@ -348,16 +345,18 @@ router.patch('/demands/activate', async (req, res, next) => {
 });
 // Puts raised demands back to pending (the letter is withdrawn). Anything that is not raised is reported as failed.
 const unraise = async (req, res, ids, reason) => (0, input_js_1.inTx)(async (c) => {
-    const rows = await c.query(`SELECT id, status, due_date FROM demands WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [ids]);
+    const rows = await c.query(`SELECT id, status, due_date, raised_at, payment_plan_id FROM demands WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, [ids]);
     const failed = ids.filter((id) => !rows.rows.some((r) => r.id === id)).map((id) => ({ id, reason: 'Demand not found' }));
     let cancelled = 0;
     for (const d of rows.rows) {
-        if (d.status !== 'demanded' && d.status !== 'raised') {
+        if (d.status !== 'demanded' && d.status !== 'raised' && !(d.status === 'partial' && d.raised_at)) {
             failed.push({ id: d.id, reason: `Only raised demands can be cancelled, this one is ${d.status}` });
             continue;
         }
         await c.query(`UPDATE demands SET status = 'pending', delivery_status = 'pending', raised_at = NULL, raised_by = NULL, due_date = NULL, sent_at = NULL, updated_at = NOW() WHERE id = $1`, [d.id]);
         await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'demand', d.id, { status: d.status, due_date: d.due_date }, { status: 'pending', action: 'DEMAND_UNRAISE', reason });
+        // The explicit unraise is the only place raised_at and due_date are cleared (D8); the status then follows cleared money
+        await (0, money_basis_js_1.recomputePlan)(c, d.payment_plan_id, req.userId || null);
         cancelled++;
     }
     return { cancelled, failed };
@@ -384,12 +383,12 @@ router.patch('/demands/:id/send', async (req, res, next) => {
         const id = (0, input_js_1.uuid)(req.params.id, 'Demand id');
         const b = (0, input_js_1.body)(req);
         const via = (0, input_js_1.text)(b.sentVia ?? b.channel, 'sentVia', 50, false);
-        const cur = await index_js_1.db.query(`SELECT status FROM demands WHERE id = $1`, [id]);
+        const cur = await index_js_1.db.query(`SELECT status, raised_at FROM demands WHERE id = $1`, [id]);
         if (!cur.rows.length)
             throw (0, input_js_1.bad)('Demand not found', 404);
-        if (cur.rows[0].status !== 'demanded' && cur.rows[0].status !== 'raised')
+        if (cur.rows[0].status !== 'demanded' && cur.rows[0].status !== 'raised' && !(cur.rows[0].status === 'partial' && cur.rows[0].raised_at))
             throw (0, input_js_1.bad)(`Only a raised demand can be sent, this one is ${cur.rows[0].status}`, 409);
-        const r = await index_js_1.db.query(`UPDATE demands SET delivery_status = 'sent', sent_at = NOW(), sent_via = COALESCE($1, sent_via) WHERE id = $2 AND status IN ('demanded','raised')
+        const r = await index_js_1.db.query(`UPDATE demands SET delivery_status = 'sent', sent_at = NOW(), sent_via = COALESCE($1, sent_via) WHERE id = $2 AND (status IN ('demanded','raised') OR (status = 'partial' AND raised_at IS NOT NULL))
        RETURNING id, delivery_status, sent_at, sent_via`, [via, id]);
         if (!r.rows.length)
             throw (0, input_js_1.bad)('The demand changed while sending, try again', 409);
@@ -478,8 +477,8 @@ router.get('/demand-status', async (req, res, next) => {
              (SELECT fl.floor_name FROM floors fl WHERE fl.tower_id = u.tower_id AND fl.floor_number = u.floor) AS floor_name,
              COUNT(d.id)::int AS total_demands,
              COUNT(CASE WHEN d.status = 'paid' THEN 1 END)::int AS paid_demands,
-             COUNT(CASE WHEN d.status = 'demanded' THEN 1 END)::int AS active_demands,
-             COUNT(CASE WHEN d.status = 'pending' THEN 1 END)::int AS pending_demands,
+             COUNT(CASE WHEN ${RAISED_SQL} THEN 1 END)::int AS active_demands,
+             COUNT(CASE WHEN ${PENDING_SQL} THEN 1 END)::int AS pending_demands,
              COALESCE(SUM(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0)), 0)::bigint AS total_due,
              COALESCE(SUM(CASE WHEN d.status = 'paid' THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) ELSE 0 END), 0)::bigint AS total_paid,
              COALESCE(SUM(CASE WHEN d.status != 'paid' THEN d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) ELSE 0 END), 0)::bigint AS outstanding,
@@ -493,7 +492,7 @@ router.get('/demand-status', async (req, res, next) => {
         await Promise.all(data.rows.map(async (r) => {
             const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
             const [rc, dm] = await Promise.all([
-                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at FROM receipts
+                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
                 index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan} AND status <> 'cancelled'`, [r.consumer_id, r.unit_id]),

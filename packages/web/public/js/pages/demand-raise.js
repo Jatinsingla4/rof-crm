@@ -732,7 +732,7 @@ const DemandRaisePage = {
         + parseFloat(d.addon_cgst_amount||0)
         + parseFloat(d.addon_sgst_amount||0);
       const amt = Utils.currency(netDue);
-      const isRaised = d.status === 'demanded';
+      const isRaised = d.status === 'demanded' || (d.status === 'partial' && !!d.generated_at);
       const raisedClass = (view === 'installment' && isRaised) ? ' class="row-greyed"' : '';
       const checkbox = (view !== 'unraise' && !(view === 'installment' && isRaised))
         ? `<td><input type="checkbox" class="row-sel" value="${d.id}" checked></td>`

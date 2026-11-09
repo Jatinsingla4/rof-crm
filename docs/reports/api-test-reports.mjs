@@ -61,7 +61,7 @@ const clear = async (id) => { const x = await CK('PATCH', `/payments/receipts/${
 const bounce = async (id) => { const x = await CK('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }); if (x.s !== 200) throw new Error('bounce ' + JSON.stringify(x)); return id; };
 const cancel = async (id) => { const x = await A('POST', `/payments/receipts/${id}/cancel`, { reason: 'test' }); if (x.s !== 200) throw new Error('cancel ' + JSON.stringify(x)); return id; };
 const rais = (S, idx, days) => psql(`update demands set status='demanded', due_date = current_date - ${days}, raised_at = now() where payment_plan_id='${S.plan}' and installment_index=${idx} returning 1`);
-const bookingReceipt = (S) => psql(`select id from receipts where consumer_id='${S.c}' and installment_index is null and demand_id is null order by created_at limit 1`);
+const bookingReceipt = (S) => psql(`select id from receipts where consumer_id='${S.c}' and installment_index is null order by created_at limit 1`);   // the booking payment: linked to instalment 1 when the booking is confirmed
 const demandsOf = (S) => rows(`select id, installment_index idx, status, amount_due_inr + cgst_amount + sgst_amount total from demands where payment_plan_id='${S.plan}' order by installment_index`);
 
 // ---- the customers ----
@@ -112,16 +112,16 @@ const IN_P = idsSql(ALLP);
 const ledgerSql = (projects) => `
   with live as (select distinct on (b.consumer_id, b.unit_id) b.id booking_id, b.consumer_id, b.unit_id, b.selected_plan_name plan_name, b.main_broker_id, b.booking_date from booking_records b where b.status in ('complete','pending_payment','active') and b.unit_id is not null order by b.consumer_id, b.unit_id, b.created_at desc),
   pl as (select l.*, u.project_id, p.name project_name, u.tower_id, t.tower_name, u.unit_number, u.bhk_type, (select id from payment_plans pp where pp.consumer_id=l.consumer_id and pp.unit_id=l.unit_id order by pp.created_at desc limit 1) plan_id from live l join units u on u.id=l.unit_id join projects p on p.id=u.project_id left join towers t on t.id=u.tower_id where u.project_id in (${projects})),
-  dm as (select pl.*, d.id demand_id, d.installment_index idx, d.status dstatus, d.due_date, d.demand_type,
+  dm as (select pl.*, d.id demand_id, d.installment_index idx, d.status dstatus, d.raised_at, d.due_date, d.demand_type,
                 d.amount_due_inr + coalesce(d.addon_charge_amount,0) base, coalesce(d.cgst_amount,0)+coalesce(d.addon_cgst_amount,0) cgst, coalesce(d.sgst_amount,0)+coalesce(d.addon_sgst_amount,0) sgst,
                 d.amount_due_inr+coalesce(d.cgst_amount,0)+coalesce(d.sgst_amount,0)+coalesce(d.addon_charge_amount,0)+coalesce(d.addon_cgst_amount,0)+coalesce(d.addon_sgst_amount,0) total
            from pl join demands d on d.payment_plan_id = pl.plan_id where d.status <> 'cancelled'),
-  rc as (select payment_plan_id plan_id, demand_id, installment_index idx, amount_received_inr amt from receipts where status='cleared'),
+  rc as (select payment_plan_id plan_id, demand_id, installment_index idx, amount_received_inr amt from receipts where status='cleared' and is_advance is not true),
   pool as (select plan_id, sum(amt) pool from rc where demand_id is null and idx is null group by plan_id),
   direct as (select dm.*, coalesce((select sum(amt) from rc where rc.demand_id = dm.demand_id),0) + coalesce((select sum(amt) from rc where rc.demand_id is null and rc.idx = dm.idx and rc.plan_id = dm.plan_id),0) direct from dm),
   gap as (select direct.*, greatest(0, total - direct) gap from direct),
-  al as (select g.*, least(g.gap, greatest(0, coalesce(po.pool,0) - coalesce(sum(g.gap) over (partition by g.plan_id order by g.idx rows between unbounded preceding and 1 preceding),0))) frompool from gap g left join pool po on po.plan_id = g.plan_id)
-  select al.*, least(total, direct + frompool) paid, (dstatus in ('demanded','raised','paid')) raised, (current_date - due_date) days_late from al`;
+  al as (select g.*, 0::numeric frompool from gap g)   -- Q13: a cleared receipt with no demand and no instalment is customer credit, it is never spread over demands
+  select al.*, least(total, direct + frompool) paid, (dstatus in ('demanded','raised','paid') or (dstatus = 'partial' and raised_at is not null)) raised, (current_date - due_date) days_late from al`;
 const L = rows(ledgerSql(IN_P));
 const byProject = (P, xs = L) => xs.filter(x => x.project_id === P);
 const raisedOf = (xs, upTo) => xs.filter(x => x.raised && (!upTo || (x.due_date && x.due_date <= upTo)));
@@ -147,7 +147,7 @@ t('set-up: ten customers, nine of them live (the surrendered one is not)', cust.
 t('set-up: the older plan of C6 is not in the ledger', !L.some(x => x.plan_id === S.c6.old), '');
 t('set-up: C5 sits with the buyer', cust.some(c => c.consumer_id === S.c5.c) && !cust.some(c => c.consumer_id === S.c5.seller), '');
 const hasReceiptPools = L.some(x => x.frompool > 0);
-t('set-up: the advance pool really fed an instalment somewhere (so the pool rule is under test)', hasReceiptPools, '');
+t('set-up: no instalment is fed from an advance pool any more (Q13: the excess of a cleared receipt is customer credit)', !hasReceiptPools, '');
 
 // ===================================================================================================================
 // 1. every route, its guard and the six callers
@@ -336,11 +336,13 @@ for (const P of ALLP) {
 // 4. collection and the bank views
 // ===================================================================================================================
 // every receipt of my customers, with the project it belongs to (its plan's project, else the applicant's): the money that really came in is status 'cleared' and not an advance copy
+// a legacy ADV copy (the new code makes none): it stays in the database and every report must leave it out
+psql(`insert into receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, received_date, receipt_number, status, approval_status, is_advance) values ('${S.c1.c}','${S.c1.plan}',3,5000,'neft',current_date,'LEGACY-${U}-ADV','cleared','approved',true)`);
 const allIds = made.map(x => `'${x}'`).join(',');
 const RC = rows(`select r.id, r.status, r.payment_method::text pm, r.amount_received_inr::numeric amt, r.received_date::text rd, r.is_advance adv, r.company_bank_account_id bank, coalesce(pp.project_id, c.project_id) project_id
                    from receipts r join consumers c on c.id=r.consumer_id left join payment_plans pp on pp.id=r.payment_plan_id where r.consumer_id in (${allIds})`);
 const isCash = (x) => x.status === 'cleared' && !x.adv;
-t('collection set-up: the overpayment left an advance copy, a bounced, a cancelled, a pending and an on-hold receipt (so each rule is under test)', RC.some(x => x.adv) && ['bounced', 'cancelled', 'pending', 'on_hold', 'cleared'].every(st => RC.some(x => x.status === st)), RC.map(x => x.status).join());
+t('collection set-up: a legacy advance copy, a bounced, a cancelled, a pending and an on-hold receipt (so each rule is under test)', RC.some(x => x.adv) && ['bounced', 'cancelled', 'pending', 'on_hold', 'cleared'].every(st => RC.some(x => x.status === st)), RC.map(x => x.status).join());
 for (const P of ALLP) {
   const pn = `P${ALLP.indexOf(P) + 1}`, mine = RC.filter(x => x.project_id === P), cash1 = mine.filter(isCash);
   let j = await get(`/project-collection?projectId=${P}`); const row = j.data[0];

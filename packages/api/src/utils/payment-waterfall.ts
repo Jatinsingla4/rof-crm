@@ -22,6 +22,7 @@ export interface WaterfallReceipt {
   demand_id: string | null;
   installment_index: number | null;
   status: string;
+  is_advance?: boolean | null;
   received_date?: string | Date | null;
   payment_method?: string | null;
 }
@@ -240,6 +241,9 @@ export function applyWaterfall(
   receipts: WaterfallReceipt[],
   demands: WaterfallDemand[],
 ): WaterfallResult[] {
+  // Eligible money only (Q13): cleared receipts that are not ADV copies, and that name a demand or an instalment. A receipt with neither is
+  // customer credit and is never spread over demands here; it reaches a demand only through an explicit allocation.
+  receipts = receipts.filter((r) => r.status === 'cleared' && r.is_advance !== true && (!!r.demand_id || (r.installment_index !== null && r.installment_index !== undefined)));
   const sorted = [...demands].sort((a, b) => a.installment_index - b.installment_index);
 
   // Linked receipts → count directly against their demand
@@ -531,220 +535,7 @@ export async function checkAndAutoRaiseInstallment1(
     }
   }
 
-  const [wfRcpts, wfDemands] = await Promise.all([
-    client.query(
-      `SELECT id, amount_received_inr, demand_id, installment_index, status
-       FROM receipts WHERE consumer_id = $1 AND status != 'cancelled'`,
-      [demand.consumer_id]
-    ),
-    client.query(
-      `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,
-              addon_charge_amount, addon_cgst_amount, addon_sgst_amount
-       FROM demands WHERE consumer_id = $1`,
-      [demand.consumer_id]
-    ),
-  ]);
-
-  const wfResult = applyWaterfall(wfRcpts.rows, wfDemands.rows)
-    .find((w) => w.demand_id === demand.id);
-
-  if (wfResult?.fully_covered) {
-    await client.query(
-      `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
-      [demand.id]
-    );
-    await client.query(
-      `INSERT INTO financial_audit_logs
-         (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
-       VALUES ($1, $2, $3, 'demand_auto_paid',
-         '{"status":"demanded","delivery_status":"queued"}',
-         '{"status":"paid","delivery_status":"paid"}',
-         'Auto-marked paid: fully covered on installment-1 auto-raise')`,
-      [demand.consumer_id, paymentPlanId, userId]
-    );
-  }
-}
-
-/**
- * Fires when a receipt with installment_index=1 is bounced/cancelled. If no
- * OTHER valid (non-bounced/cancelled) installment_index=1 receipt still
- * exists for this plan, reverts the installment 1 demand back to its
- * pre-raise state. Mirrors the manual PATCH /demands/:id/cancel reversal
- * (payments.ts), which is the only existing code path that nulls due_date --
- * neither the bounce nor the receipt-cancel endpoint does this today.
- */
-export async function reverseInstallment1IfNoValidReceipt(
-  client: any,
-  paymentPlanId: string,
-): Promise<void> {
-  const stillValid = await client.query(
-    `SELECT id FROM receipts
-     WHERE payment_plan_id = $1 AND installment_index = 1
-       AND status NOT IN ('bounced', 'cancelled')
-     LIMIT 1`,
-    [paymentPlanId]
-  );
-  if (stillValid.rows.length > 0) return;
-
-  await client.query(
-    `UPDATE demands
-     SET status = 'pending', due_date = NULL, raised_at = NULL,
-         delivery_status = 'pending', updated_at = NOW()
-     WHERE payment_plan_id = $1 AND installment_index = 1
-       AND demand_type IN ('installment', 'booking')
-       AND (due_date IS NOT NULL OR status <> 'pending')`,
-    [paymentPlanId]
-  );
-}
-
-// ── overpayment cascade (shared by POST /payments/receipts and booking.ts's Step-G) ──
-
-/**
- * Hops any excess beyond a just-fully-paid demand forward across as many
- * successive unpaid demands as needed, creating a synthetic is_advance
- * receipt at each hop, until the excess is fully absorbed or no further
- * demand remains. Extracted byte-for-byte from payments.ts POST /receipts'
- * inline cascade loop so booking.ts's Step-G receipt can trigger the same
- * behavior a manual receipt's overpayment already does. Transaction-agnostic:
- * takes whatever client/transaction the caller already has open.
- */
-export async function cascadeOverpaymentExcess(
-  client: any,
-  consumerId: string,
-  paymentPlanId: string,
-  sourceDemandId: string,
-  excessAmount: number,
-  method: string,
-  userId: string | null,
-  sourceReceiptId: string | null = null,
-): Promise<void> {
-  const sourceRes = await client.query(
-    `SELECT installment_index FROM demands WHERE id = $1`,
-    [sourceDemandId]
-  );
-  if (sourceRes.rows.length === 0) return;
-
-  // Synthetic advance receipts inherit the bank account of the receipt whose
-  // overpayment triggered the cascade (same money, same account); null if
-  // the source receipt has none set.
-  let inheritedBankAccountId: string | null = null;
-  let sourceDate: string | null = null;   // an advance part carries the date of the payment it came from, not today
-  if (sourceReceiptId) {
-    const sourceReceiptRes = await client.query(
-      `SELECT company_bank_account_id, received_date::text AS received_date FROM receipts WHERE id = $1`,
-      [sourceReceiptId]
-    );
-    inheritedBankAccountId = sourceReceiptRes.rows[0]?.company_bank_account_id || null;
-    sourceDate = sourceReceiptRes.rows[0]?.received_date || null;
-  }
-
-  let excess = excessAmount;
-  let sourceId = sourceDemandId;
-  let cascadeFromIdx = sourceRes.rows[0].installment_index;
-
-  while (excess > 0) {
-    const nextDemand = await client.query(
-      `SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount FROM demands
-       WHERE payment_plan_id = $1
-         AND consumer_id = $2
-         AND installment_index > $3
-         AND status != 'paid'
-       ORDER BY installment_index ASC
-       LIMIT 1`,
-      [paymentPlanId, consumerId, cascadeFromIdx]
-    );
-    if (!nextDemand.rows[0]) break;
-    const nextId = nextDemand.rows[0].id;
-    const nextIdx = nextDemand.rows[0].installment_index;
-    const advanceNum = await nextReceiptNumber(client, '-ADV');
-    const advanceReceiptRes = await client.query(
-      `INSERT INTO receipts
-         (consumer_id, payment_plan_id, demand_id, installment_index, amount_received_inr,
-          payment_method, received_date, received_by_user_id, receipt_number,
-          plc_amount, status, approval_status, print_status,
-          is_advance, advance_from_demand_id, company_bank_account_id, advance_source_receipt_id)
-       VALUES ($1,$2,$3,$4,$5,$6,COALESCE($11::date, ${SQL_TODAY}),$7,$8,0,'pending','pending','not_printed',true,$9,$10,$12)
-       RETURNING id`,
-      [consumerId, paymentPlanId, nextId, nextIdx, excess,
-       method, userId, advanceNum, sourceId, inheritedBankAccountId, sourceDate, sourceReceiptId]
-    );
-    const advanceReceiptId = advanceReceiptRes.rows[0].id;
-    await logAudit(client, userId, 'create', 'receipt', advanceReceiptId, undefined, { receipt_number: advanceNum, consumer_id: consumerId, amount: excess, payment_method: method, source: 'overpayment carried to the next instalment as an advance', advance_from_demand_id: sourceId, source_receipt_id: sourceReceiptId });
-    await client.query(
-      `UPDATE payment_plans SET advance_amount = COALESCE(advance_amount, 0) + $1, updated_at = NOW() WHERE id = $2`,
-      [excess, paymentPlanId]
-    );
-
-    const planProjectRes = await client.query(
-      `SELECT project_id FROM payment_plans WHERE id = $1`,
-      [paymentPlanId]
-    );
-    const advanceProjectId: string | null = planProjectRes.rows[0]?.project_id || null;
-    const advanceReceivedDate = sourceDate || businessToday();
-    const advanceGstSplit = await computeReceiptGstSplit(client, excess, advanceProjectId, advanceReceivedDate);
-    await client.query(
-      `UPDATE receipts SET cgst_amount = $1, sgst_amount = $2 WHERE id = $3`,
-      [advanceGstSplit.cgstAmount, advanceGstSplit.sgstAmount, advanceReceiptId]
-    );
-
-    const nextPaidResult = await client.query(
-      `SELECT COALESCE(SUM(amount_received_inr), 0) as total_paid
-       FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced')`,
-      [nextId]
-    );
-    const nextTotalPaid = parseFloat(nextPaidResult.rows[0].total_paid);
-    const nextAmountDue = parseFloat(nextDemand.rows[0].amount_due_inr)
-                        + parseFloat(nextDemand.rows[0].cgst_amount || 0)
-                        + parseFloat(nextDemand.rows[0].sgst_amount || 0);
-
-    if (nextTotalPaid >= nextAmountDue) {
-      await client.query(
-        `UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`,
-        [nextId]
-      );
-      excess = nextTotalPaid - nextAmountDue;
-      sourceId = nextId;
-      cascadeFromIdx = nextIdx;
-    } else {
-      await client.query(
-        `UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`,
-        [nextId]
-      );
-      excess = 0;
-    }
-  }
-}
-
-/**
- * Undoes what a bounced or cancelled receipt paid, to the last demand it reached.
- * A receipt that overpaid a demand passed the excess on through helper "-ADV" receipts and marked the next demands paid. Reopening only
- * the demand the receipt was filed under (the old rule) left those later demands "paid" and the helper rows live, so money that was
- * never received still showed as paid. Here every helper row of the plan is cancelled and the plan is allocated again from the
- * receipts that are still valid, in instalment order, by the same cascade a new receipt uses. Call it after the receipt's own status is set.
- */
-export async function reallocatePlan(client: any, paymentPlanId: string, reopenStatus: 'pending' | 'demanded', userId: string | null): Promise<void> {
-  const live = `status NOT IN ('cancelled', 'bounced')`;
-  await client.query(`UPDATE receipts SET status = 'cancelled', updated_at = NOW() WHERE payment_plan_id = $1 AND is_advance AND ${live}`, [paymentPlanId]);
-  await client.query(`UPDATE payment_plans SET advance_amount = 0, updated_at = NOW() WHERE id = $1`, [paymentPlanId]);
-  const demands = (await client.query(
-    `SELECT id, consumer_id, installment_index, status, delivery_status, amount_due_inr, cgst_amount, sgst_amount FROM demands
-      WHERE payment_plan_id = $1 AND status <> 'cancelled' ORDER BY installment_index ASC FOR UPDATE`, [paymentPlanId])).rows;
-  // Start every demand open; the receipts that are still valid close them again below
-  for (const d of demands) if (d.status === 'paid') await client.query(`UPDATE demands SET status = $2, delivery_status = 'queued', updated_at = NOW() WHERE id = $1`, [d.id, reopenStatus]);
-  for (const d of demands) {
-    const st = (await client.query(`SELECT status FROM demands WHERE id = $1`, [d.id])).rows[0].status;
-    const direct = (await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND NOT is_advance AND ${live}`, [d.id])).rows[0].s;
-    const total = (await client.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND ${live}`, [d.id])).rows[0].s;
-    const due = parseFloat(d.amount_due_inr) + parseFloat(d.cgst_amount || 0) + parseFloat(d.sgst_amount || 0);
-    if (parseFloat(total) >= due) {
-      if (st !== 'paid') await client.query(`UPDATE demands SET status = 'paid', delivery_status = 'paid', updated_at = NOW() WHERE id = $1`, [d.id]);
-      // Excess of a demand that no earlier helper row reached starts a new cascade; one that a helper row reached was already passed on by that cascade
-      if (parseFloat(direct) === parseFloat(total) && parseFloat(total) > due) {
-        const src = (await client.query(`SELECT id, payment_method FROM receipts WHERE demand_id = $1 AND NOT is_advance AND ${live} ORDER BY created_at DESC LIMIT 1`, [d.id])).rows[0];
-        await cascadeOverpaymentExcess(client, d.consumer_id, paymentPlanId, d.id, parseFloat(total) - due, src.payment_method, userId, src.id);
-      }
-    } else if (parseFloat(total) > 0) {
-      await client.query(`UPDATE demands SET delivery_status = 'partial', updated_at = NOW() WHERE id = $1`, [d.id]);
-    }
-  }
+  // The raise never marks the demand paid (D2, Q13): its status follows cleared money only
+  const { recomputePlan } = await import('./money-basis.js');
+  await recomputePlan(client, paymentPlanId, userId);
 }

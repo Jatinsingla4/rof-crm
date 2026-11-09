@@ -73,7 +73,7 @@ const repriceBooking = async (c, b) => {
     if (!plan)
         return; // no plan yet: the plan will be made from the approved amount when the booking is confirmed
     const ds = (await c.query(`SELECT d.id, d.installment_index, d.status, d.sent_at, d.delivery_status,
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.demand_id = d.id AND r.status NOT IN ('cancelled','bounced') AND NOT COALESCE(r.is_advance, false)), 0)::numeric AS received
+            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.demand_id = d.id AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)), 0)::numeric AS received
        FROM demands d WHERE d.payment_plan_id = $1 AND d.status <> 'cancelled' FOR UPDATE OF d`, [plan.id])).rows;
     const pct = (await c.query(`SELECT 1 FROM consumer_addon_charges cac JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
       WHERE cac.consumer_id = $1 AND cac.project_id = $2 AND cac.status <> 'cancelled' AND acm.rate_type = 'percent' AND acm.percent_basis = 'after_discount' LIMIT 1`, [b.consumer_id, b.project_id])).rows[0];
@@ -90,7 +90,7 @@ const repriceBooking = async (c, b) => {
         if (!d)
             continue;
         const amount = Math.round(total * (parseFloat(t.percentage || 0) / 100));
-        const why = !['pending', 'demanded', 'raised'].includes(d.status) ? 'is already paid or closed'
+        const why = !['pending', 'demanded', 'raised', 'partial'].includes(d.status) ? 'is already paid or closed'
             : (d.sent_at || ['sent', 'delivered', 'read'].includes(d.delivery_status)) ? 'was already sent to the customer'
                 : Number(d.received) > amount ? 'has more money received on it than its new amount' : '';
         if (why)

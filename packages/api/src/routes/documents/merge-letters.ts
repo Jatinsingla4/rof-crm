@@ -128,7 +128,7 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
           // receipts are never tagged to a specific component in this schema.
           const [wfRcptsResCL, wfDemandsResCL] = await Promise.all([
             db.query<WaterfallReceipt>(
-              `SELECT id, amount_received_inr, demand_id, installment_index, status,
+              `SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`,
               [consumerId]

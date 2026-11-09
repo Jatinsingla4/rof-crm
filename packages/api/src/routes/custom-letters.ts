@@ -275,7 +275,7 @@ router.post('/:id/generate', requirePrint, async (req: AuthRequest, res: Respons
              co.gstin AS company_gstin, co.cin AS company_cin, co.email AS company_email,
              co.website AS company_website, co.reg_address AS company_reg_address,
              ${companyBankCols('co')},
-             (SELECT COALESCE(SUM(r.amount_received_inr), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status != 'cancelled') AS total_paid
+             (SELECT COALESCE(SUM(r.amount_received_inr), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE) AS total_paid
       FROM consumers c
       LEFT JOIN LATERAL (SELECT * FROM booking_records b WHERE b.consumer_id = c.id AND b.status <> 'cancelled'
                          ORDER BY b.booking_date DESC NULLS LAST, b.created_at DESC LIMIT 1) br ON true

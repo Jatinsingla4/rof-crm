@@ -143,7 +143,7 @@ const demandRow = (p: LedgerPlan, d: LedgerDemand) => ({
   paid_amount: d.paid, balance_amount: d.balance,
   days_overdue: d.raised && d.balance > 0 && d.due_date && d.due_date < p.today ? daysBetween(d.due_date, p.today) : 0,
 });
-const DEMAND_STATUS = ['demanded', 'pending', 'paid', 'raised'] as const;
+const DEMAND_STATUS = ['demanded', 'pending', 'partial', 'paid', 'raised'] as const;
 const statusOk = (d: LedgerDemand, s: string) => !s || (s === 'demanded' ? d.status === 'demanded' || d.status === 'raised' : d.status === s);
 
 router.get('/due-report', h(async (req, res) => {

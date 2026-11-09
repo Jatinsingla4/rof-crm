@@ -151,12 +151,12 @@ const cellNum = (t: string) => Number(String(t).replace(/[^0-9.\-]/g, '')) || 0;
 // ---- SQL read of the base tables: simple on purpose (every receipt of the run is tied to an instalment, the booking receipts stay pending) ----
 const LIVE = `b.status in ('complete','pending_payment','active')`;
 const planSql = (P: string) => `(select distinct on (b.consumer_id, b.unit_id) (select id from payment_plans pp where pp.consumer_id=b.consumer_id and pp.unit_id=b.unit_id order by pp.created_at desc limit 1) from booking_records b join units u on u.id=b.unit_id where ${LIVE} and u.project_id='${P}' order by b.consumer_id, b.unit_id, b.created_at desc)`;
-const demandedOf = (P: string) => num(`select coalesce(sum(d.amount_due_inr + d.cgst_amount + d.sgst_amount),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','raised','paid')`);
-const paidOf = (P: string) => num(`select coalesce(sum(least(d.amount_due_inr + d.cgst_amount + d.sgst_amount, coalesce((select sum(r.amount_received_inr) from receipts r where r.demand_id = d.id and r.status = 'cleared'),0))),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','raised','paid')`);
+const demandedOf = (P: string) => num(`select coalesce(sum(d.amount_due_inr + d.cgst_amount + d.sgst_amount),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','partial','raised','paid')`);
+const paidOf = (P: string) => num(`select coalesce(sum(least(d.amount_due_inr + d.cgst_amount + d.sgst_amount, coalesce((select sum(r.amount_received_inr) from receipts r where r.demand_id = d.id and r.status = 'cleared'),0))),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','partial','raised','paid')`);
 const clearedOf = (P: string) => num(`select coalesce(sum(r.amount_received_inr),0) from receipts r join consumers c on c.id=r.consumer_id left join payment_plans pp on pp.id=r.payment_plan_id where r.status='cleared' and r.is_advance is not true and coalesce(pp.project_id, c.project_id)='${P}'`);
 const liveClearedOf = (P: string) => num(`select coalesce(sum(r.amount_received_inr),0) from receipts r where r.status='cleared' and r.is_advance is not true and r.payment_plan_id in ${planSql(P)}`);
 const liveCount = (P: string) => num(`select count(*) from (select distinct on (b.consumer_id, b.unit_id) 1 from booking_records b join units u on u.id=b.unit_id where ${LIVE} and u.project_id='${P}' order by b.consumer_id, b.unit_id, b.created_at desc) x`);
-const overdueOf = (P: string, from: number, to: number) => num(`select coalesce(sum(d.amount_due_inr + d.cgst_amount + d.sgst_amount - least(d.amount_due_inr + d.cgst_amount + d.sgst_amount, coalesce((select sum(r.amount_received_inr) from receipts r where r.demand_id = d.id and r.status = 'cleared'),0))),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','raised') and current_date - d.due_date between ${from} and ${to}`);
+const overdueOf = (P: string, from: number, to: number) => num(`select coalesce(sum(d.amount_due_inr + d.cgst_amount + d.sgst_amount - least(d.amount_due_inr + d.cgst_amount + d.sgst_amount, coalesce((select sum(r.amount_received_inr) from receipts r where r.demand_id = d.id and r.status = 'cleared'),0))),0) from demands d where d.payment_plan_id in ${planSql(P)} and d.status in ('demanded','partial','raised') and current_date - d.due_date between ${from} and ${to}`);
 
 // =====================================================================================================================
 // the money screens, number by number
@@ -237,7 +237,7 @@ test('Due Report: every demand, its paid and balance; the summary bar and the fo
 test('Stage Wise Dues: per instalment demanded, received and outstanding match the database', async () => {
   await openTab('stage-wise-dues'); await pickProject(); await pressFetch();
   const api1 = (await api('GET', `/reports/stage-wise-dues?projectId=${S.p1}`)).j;
-  expect(api1.data.length).toBe(num(`select count(distinct d.installment_index) from demands d where d.payment_plan_id in ${planSql(S.p1)} and d.status in ('demanded','raised','paid')`));
+  expect(api1.data.length).toBe(num(`select count(distinct d.installment_index) from demands d where d.payment_plan_id in ${planSql(S.p1)} and d.status in ('demanded','partial','raised','paid')`));
   expect(near(api1.totals.total_due, demandedOf(S.p1))).toBe(true);
   expect(near(api1.totals.total_received, paidOf(S.p1))).toBe(true);
   const txt = (await page.locator('#rpt-result').innerText()).replace(/,/g, '');

@@ -1065,22 +1065,13 @@ router.patch('/:id', async (req, res, next) => {
                         // Auto-raise installment 1 from this Step-G receipt, same as a
                         // manual receipt would via POST /payments/receipts.
                         await (0, payment_waterfall_js_1.checkAndAutoRaiseInstallment1)(client, paymentPlanId, stepGReceiptId, bookingDateStr, req.userId || null);
-                        // If the Step-G amount exceeds installment 1's net due, cascade
-                        // the excess forward the same way a manual receipt's overpayment
-                        // already does.
-                        const inst1Res = await client.query(`SELECT id, amount_due_inr, cgst_amount, sgst_amount FROM demands
-               WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking')
-               ORDER BY created_at ASC LIMIT 1`, [paymentPlanId]);
-                        if (inst1Res.rows.length > 0) {
-                            const inst1 = inst1Res.rows[0];
-                            const inst1NetDue = parseFloat(inst1.amount_due_inr)
-                                + parseFloat(inst1.cgst_amount || 0)
-                                + parseFloat(inst1.sgst_amount || 0);
-                            const stepGExcess = bookingAmt - inst1NetDue;
-                            if (stepGExcess > 0) {
-                                await (0, payment_waterfall_js_1.cascadeOverpaymentExcess)(client, booking.consumer_id, paymentPlanId, inst1.id, stepGExcess, payMethod, req.userId || null, stepGReceiptId);
-                            }
-                        }
+                        // The booking amount belongs to instalment 1. It is linked to that demand here when the auto-raise above did not already do it (the demand
+                        // had a due date), so cleared booking money is paid money for instalment 1 and nothing else. Any excess stays customer credit (Q13): it is
+                        // never passed on to later instalments.
+                        await client.query(`UPDATE receipts SET demand_id = d.id, updated_at = NOW()
+                 FROM (SELECT id FROM demands WHERE payment_plan_id = $1 AND installment_index = 1 AND demand_type IN ('installment', 'booking') AND status <> 'cancelled'
+                        ORDER BY created_at ASC LIMIT 1) d
+                WHERE receipts.id = $2 AND receipts.demand_id IS NULL`, [paymentPlanId, stepGReceiptId]);
                     }
                     // Step H: Auto-apply plan-level addon
                     // charge templates to this consumer.
@@ -1846,7 +1837,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     </table>`;
     // ── SECTION 9 — TAX DETAILS ───────────────
     // Compute cleared receipt totals (also used by Payment Contribution below)
-    const clearedReceipts = (receiptRows || []).filter((r) => r.status === 'cleared');
+    const clearedReceipts = (receiptRows || []).filter((r) => r.status === 'cleared' && !r.is_advance);
     // amount_received_inr is GST-inclusive — subtract cgst + sgst to get base
     const clearedBase = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.amount_received_inr || 0) - parseFloat(r.cgst_amount || 0) - parseFloat(r.sgst_amount || 0), 0);
     const clearedCgst = clearedReceipts.reduce((sum, r) => sum + parseFloat(r.cgst_amount || 0), 0);
@@ -2209,14 +2200,14 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
         </tr>`;
         }).join('')
         : `<tr><td ${rtdC} colspan="21" style="${rFont}padding:4px;text-align:center;">No receipts recorded.</td></tr>`;
-    const rReceivedRows = receiptRows.filter((r) => ['pending', 'deposited', 'cleared', 'on_hold'].includes(r.status));
+    const rReceivedRows = receiptRows.filter((r) => r.status === 'cleared' && !r.is_advance); // received = cleared money only (Q13); pending and deposited show in the pending line
     const rReceivedGross = rReceivedRows.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
     const rReceivedCgst = rReceivedRows.reduce((s, r) => s + parseFloat(r.cgst_amount || 0), 0);
     const rReceivedSgst = rReceivedRows.reduce((s, r) => s + parseFloat(r.sgst_amount || 0), 0);
     const rReceivedInt = rReceivedRows.reduce((s, r) => s + parseFloat(r.interest_amount || 0), 0);
     const rReceivedNet = rReceivedGross - rReceivedCgst - rReceivedSgst;
     const rPendingGross = receiptRows.filter((r) => ['pending', 'deposited', 'on_hold'].includes(r.status)).reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
-    const rClearedGross = receiptRows.filter((r) => r.status === 'cleared').reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
+    const rClearedGross = receiptRows.filter((r) => r.status === 'cleared' && !r.is_advance).reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
     const receiptSection = `
     <div ${sectionHd}>RECEIPT INFORMATION</div>
     <div style="text-align:right;font-size:9px;margin-bottom:4px;font-family:Arial,sans-serif;">

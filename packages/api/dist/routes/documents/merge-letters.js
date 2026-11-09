@@ -149,7 +149,7 @@ async function checkListData(ctx) {
     // via wfMap). Used to prorate Receive across rows below, since
     // receipts are never tagged to a specific component in this schema.
     const [wfRcptsResCL, wfDemandsResCL] = await Promise.all([
-        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status,
+        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
         index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,

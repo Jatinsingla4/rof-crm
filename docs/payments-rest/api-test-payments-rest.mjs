@@ -3,12 +3,14 @@
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-tds.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 const login = async (email) => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'Test#Pass1234' }) })).json()).token;
 const call = (tok) => async (m, p, b, raw) => { const go = () => fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let r; try { r = await go(); } catch { r = await go(); } /* a keep-alive socket the server just closed */ let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local'), tokAF = await login('accounts_finance@test.local');
+const ckTok = await secondAdminToken(B, call(tokA));
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(tokAF);
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
@@ -193,6 +195,8 @@ const rq = (c, over = {}, who = AF) => who('POST', '/payments/refunds', { consum
 const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' where consumer_id='${c}' and status in ('pending','approved') returning 1`);
 {
   const B1 = await buyer(), c = B1.c, rc1 = await receipt(B1, 5000), rc2 = await receipt(B1, 3000), PAID = 10000 + 5000 + 3000, other = await receipt(S1, 1000);
+  const clearBy = async (id) => { for (const [step, b] of [['approve', {}], ['clear', { clearing_date: today }]]) { const x = await fetch(B + `/payments/receipts/${id}/${step}`, { method: 'PATCH', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + ckTok }, body: JSON.stringify(b) }); if (!x.ok) throw new Error('clear ' + step + ' ' + x.status); } };   // only cleared money counts (Q13)
+  for (const id of [rc1, rc2, psql(`select id from receipts where consumer_id='${c}' and installment_index is null order by created_at limit 1`)]) await clearBy(id);   // a refund can only be made from cleared money
   grant(afId, 'jv_refund_drcr', true, false); grant(pmId, 'jv_refund_drcr', false, true);
   for (const [n, who] of [['read_only_viewer', RO], ['sales_executive', SE]]) { r = await rq(c, {}, who); t(`refund: ${n} cannot raise -> 403`, r.s === 403, r.s); }
   grant(afId, 'jv_refund_drcr', false, false); r = await rq(c); t('refund: accounts_finance without maker access -> 403', r.s === 403, r.s); grant(afId, 'jv_refund_drcr', true, false);
@@ -229,7 +233,7 @@ const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' w
   r = await PM('PATCH', `/payments/refunds/${f1}/process`, {}); t('refund process: no mode -> 400', r.s === 400, r.s);
   for (const [k, v] of [['refund_mode', 'barter'], ['refund_reference', 'r'.repeat(256)], ['refund_reference', '<b>'], ['refund_date', '2020-02-30'], ['refund_date', '2999-01-01'], ['refund_date', 'abc']]) { r = await PM('PATCH', `/payments/refunds/${f1}/process`, { refund_mode: 'neft', [k]: v }); t(`refund process: ${k} ${JSON.stringify(v).slice(0, 14)} -> 400`, r.s === 400, r.s); }
   // a receipt cancelled after the approval: the refund no longer has money behind it
-  r = await A('POST', `/payments/receipts/${rc1}/cancel`, { reason: 'test' }); t('refund process: (set-up) the receipt is cancelled after approval', r.s === 200, r.s);
+  psql(`update receipts set status='cancelled' where id='${rc1}' returning 1`); r = { s: 200 }; t('refund process: (set-up) the receipt is cancelled after approval (old data: a cleared receipt is no longer cancelled through the API, so the row is set directly)', r.s === 200, r.s);
   r = await PM('PATCH', `/payments/refunds/${f1}/process`, { refund_mode: 'neft', refund_reference: 'UTR1' }); t('refund process: a refund on a cancelled receipt -> 409', r.s === 409, r.s + JSON.stringify(r.j));
   r = await PM('PATCH', `/payments/refunds/${f1}/reject`, { rejection_reason: 'receipt cancelled' }); t('refund reject: an approved refund can still be rejected', r.s === 200, r.s);
   r = await rq(c, { refund_amount_inr: 1, original_receipt_id: rc1 }); t('refund: a new refund on a cancelled receipt -> 409', r.s === 409, r.s);
@@ -245,6 +249,7 @@ const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' w
   r = await A('GET', `/payments/refunds/${f4}`); t('refund one: opens with names', r.s === 200 && r.j.data.consumer_name && r.j.data.processed_by_name, r.s); r = await A('GET', '/payments/refunds/abc'); t('refund one: id "abc" -> 400', r.s === 400, r.s); r = await A('GET', `/payments/refunds/${NIL}`); t('refund one: unknown -> 404', r.s === 404, r.s);
   // race on the money: 5 parallel refunds of 40% of what is free
   const B2 = await buyer(), c2 = B2.c, free = 10000, each = 4000;
+  await clearBy(psql(`select id from receipts where consumer_id='${c2}' and installment_index is null order by created_at limit 1`));   // the booking payment must be cleared before it can be refunded
   const r5 = await par(5, () => rq(c2, { refund_amount_inr: each }));
   t('refund race: 5 parallel refunds of 40% -> exactly 2 succeed, no 5xx', cnt(r5, 201) === 2 && cnt(r5, 409) === 3 && no5(r5), r5.map(x => x.s).join());
   t('refund race: refunds together never above the money paid', Number(psql(`select coalesce(sum(refund_amount_inr),0) from payment_refunds where consumer_id='${c2}' and status<>'rejected'`)) <= free);
@@ -685,7 +690,7 @@ const alloc2 = async (P, T, name) => {   // an applicant with a unit and an allo
   for (const [m, p] of [['POST', '/dashboard/summary'], ['DELETE', '/dashboard/summary']]) { r = await SE(m, p, {}); t(`dashboard: ${m} is not a route (sales_executive) -> 403 or 404`, r.s === 403 || r.s === 404, r.s); }
   r = await A('GET', '/payments/dashboard?projectId=abc'); t('payment dashboard: projectId "abc" -> 400', r.s === 400, r.s);
   r = await A('GET', `/payments/dashboard?projectId=${P1}`); const k = r.j.data?.kpis;
-  t('payment dashboard: totals match the database (collected = live receipts of the project, outstanding = receivable - collected)', r.s === 200 && k.totalCollected === Number(psql(`select coalesce(sum(r.amount_received_inr),0) from receipts r join payment_plans p on p.id=r.payment_plan_id where r.status not in ('cancelled','bounced') and p.project_id='${P1}'`)) && k.totalReceivables === Number(psql(`select coalesce(sum(total_amount_inr),0) from payment_plans where project_id='${P1}'`)) && k.outstanding === k.totalReceivables - k.totalCollected, r.s + JSON.stringify(k));
+  t('payment dashboard: totals match the database (collected = cleared receipts of the project, outstanding = receivable - collected)', r.s === 200 && k.totalCollected === Number(psql(`select coalesce(sum(r.amount_received_inr),0) from receipts r join payment_plans p on p.id=r.payment_plan_id where r.status = 'cleared' and r.is_advance is not true and p.project_id='${P1}'`)) && k.totalReceivables === Number(psql(`select coalesce(sum(total_amount_inr),0) from payment_plans where project_id='${P1}'`)) && k.outstanding === k.totalReceivables - k.totalCollected, r.s + JSON.stringify(k));
   const p2 = (await A('GET', `/payments/dashboard?projectId=${P2}`)).j.data.kpis; t('payment dashboard: another project has its own totals', p2.totalCollected !== k.totalCollected || p2.totalReceivables !== k.totalReceivables);
   r = await A('GET', '/payments/overdue'); t('overdue: a paid demand is not overdue', r.s === 200 && !r.j.data.some(x => psql(`select status from demands where id='${x.id}'`) === 'paid'), r.s);
   for (const [b, code] of [[{ principalInr: 100000, daysOverdue: 30 }, 200], [{ principalInr: 'abc', daysOverdue: 30 }, 400], [{ principalInr: -5, daysOverdue: 30 }, 400], [{ principalInr: 100, daysOverdue: 1.5 }, 400], [{ principalInr: 100, daysOverdue: 99999 }, 400], [{}, 400], [{ principalInr: 1e12, daysOverdue: 3 }, 400]]) { r = await A('POST', '/payments/calculate-interest', b); t(`calculate interest: ${JSON.stringify(b)} -> ${code}`, r.s === code, r.s); }

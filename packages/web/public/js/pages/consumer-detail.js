@@ -402,7 +402,7 @@ const ConsumerDetailPage = {
                     <td style="font-weight:700">${Utils.currency(total)}</td>
                     <td style="color:var(--green)">${Utils.currency(paid)}</td>
                     <td style="font-weight:600">${Utils.currency(balance)}</td>
-                    <td style="color:var(--warn)">${d.status === 'demanded' || d.status === 'paid' ? Utils.date(d.due_date) : '—'}</td>
+                    <td style="color:var(--warn)">${['demanded', 'partial', 'paid'].includes(d.status) ? Utils.date(d.due_date) : '—'}</td>
                     <td><span class="chip ${state[1]}">${state[0]}</span></td>
                     <td><button class="btn btn-ghost btn-sm" onclick="DemandsPage.printDemandLetter('${id}','${d.id}',this,'${d.due_date || ''}')">Print</button></td>
                   </tr>`).join('')}
@@ -415,7 +415,7 @@ const ConsumerDetailPage = {
           <thead><tr><th>S.No</th><th>Installment</th><th>Due Date</th><th>Total with GST</th><th>Paid</th><th>Balance</th></tr></thead>
           <tbody>${rows.map(({ d, total, paid, balance }, i) => `<tr>
             <td>${i + 1}</td><td>${Utils.esc(d.installment_name || '—')}</td>
-            <td>${d.status === 'demanded' || d.status === 'paid' ? Utils.date(d.due_date) : 'Not raised'}</td>
+            <td>${['demanded', 'partial', 'paid'].includes(d.status) ? Utils.date(d.due_date) : 'Not raised'}</td>
             <td style="font-weight:600">${Utils.currency(total)}</td><td style="color:var(--green)">${Utils.currency(paid)}</td><td>${Utils.currency(balance)}</td></tr>`).join('')}
           </tbody>
           <tfoot><tr style="font-weight:700"><td colspan="3">Total</td><td>${Utils.currency(rows.reduce((t, r) => t + r.total, 0))}</td><td>${Utils.currency(rows.reduce((t, r) => t + r.paid, 0))}</td><td>${Utils.currency(rows.reduce((t, r) => t + r.balance, 0))}</td></tr></tfoot>

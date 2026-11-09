@@ -61,7 +61,7 @@ const c2 = (await A('POST', '/consumers', { name: 'QA Beta ' + U, mobile: mob(),
 const b2 = (await A('POST', '/booking', { consumer_id: c2, project_id: P, unit_id: unit2, selected_plan_name: 'Plan' + U, booking_date: today, carpet_area_sqft: 1000, basic_price: 5500 })).j.data.id;
 await A('PATCH', `/booking/${b2}`, { booking_amount: 100000, payment_mode: 'cash' });
 r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 2000000, paymentMode: 'neft', referenceNumber: 'QA-OVER-' + U, paymentDate: today, installmentIndex: 1 });
-t('overpayment: a receipt bigger than its instalment is recorded (201) and carries a warning that names the carried amount', r.s === 201 && (r.j?.warnings || []).some((w) => /more than what instalment 1 still needed/.test(w) && /advance/.test(w)), JSON.stringify(r.j?.warnings));
+t('overpayment: a receipt bigger than its instalment is recorded (201) and carries a warning that the excess stays customer credit', r.s === 201 && (r.j?.warnings || []).some((w) => /more than what instalment 1 still needed/.test(w) && /customer credit/.test(w)), JSON.stringify(r.j?.warnings));
 r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 1000, paymentMode: 'neft', referenceNumber: 'QA-NODEM-' + U, paymentDate: today, installmentIndex: 9 });
 t('a receipt for an instalment that has no open demand is recorded and says it is not matched yet', r.s === 201 && (r.j?.warnings || []).some((w) => /no open demand for instalment 9/.test(w)), JSON.stringify(r.j?.warnings));
 r = await A('POST', '/payments/receipts', { consumerId: c2, amountReceivedInr: 1000, paymentMode: 'neft', referenceNumber: 'QA-FINE-' + U, paymentDate: today, installmentIndex: 2 });
@@ -132,8 +132,13 @@ await A('POST', '/surrender', { consumerId: c3, allocationId: psql(`select id fr
 f = await af(c3);
 t('applicant file after a surrender: it still shows the unit and the price (it used to come out empty)', f.s === 200 && f.h.includes('A-103-' + U) && f.h.includes('55,05,500'), `status ${f.s} unit ${f.h.includes('A-103-' + U)}`);
 r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50`);
+const advNew = Number(psql(`select count(*) from receipts where consumer_id = '${c2}' and is_advance`));
+t('an overpayment makes no advance receipt any more (the excess is customer credit)', advNew === 0, `advance rows ${advNew}`);
+// a legacy advance copy (made by the old code) stays in the database: the default list hides it, includeAdvance=true shows it
+psql(`insert into receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, received_date, receipt_number, status, approval_status, is_advance) select '${c2}', id, 2, 5000, 'neft', current_date, 'LEGACY-${U}-ADV', 'cleared', 'approved', true from payment_plans where consumer_id = '${c2}' order by created_at desc limit 1`);
+r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50`);
 const advRows = Number(psql(`select count(*) from receipts where consumer_id = '${c2}' and is_advance`));
-t('receipt list: the advance receipts that an overpayment makes exist in the database but are not in the list', advRows >= 1 && (r.j?.data || []).every((x) => x.is_advance === false), `advance rows ${advRows}, listed ${(r.j?.data || []).length}`);
+t('receipt list: a legacy advance receipt exists in the database but is not in the list', advRows >= 1 && (r.j?.data || []).every((x) => x.is_advance === false), `advance rows ${advRows}, listed ${(r.j?.data || []).length}`);
 r = await A('GET', `/payments/receipts?consumerId=${c2}&pageSize=50&includeAdvance=true`);
 t('receipt list: includeAdvance=true shows them', (r.j?.data || []).some((x) => x.is_advance === true));
 

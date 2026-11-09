@@ -33,7 +33,7 @@ export async function runTimelyDiscounts(db: any, req: any, projectId: string, c
          FROM demands d LEFT JOIN plan_schedule_templates t ON t.project_id = $3 AND t.plan_name = $4 AND t.installment_index = d.installment_index
         WHERE d.consumer_id = $1 AND d.payment_plan_id = $2 AND d.status != 'cancelled' ORDER BY d.installment_index`, [cu.consumer_id, plan.id, projectId, cu.selected_plan_name])).rows;
     const receipts = (await db.query(
-      `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date::text AS received_date FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [cu.consumer_id])).rows;
+      `SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date::text AS received_date FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [cu.consumer_id])).rows;
     const done = new Set((await db.query(`SELECT demand_id FROM timely_discount_awards WHERE consumer_id = $1 AND status = 'issued'`, [cu.consumer_id])).rows.map((x: any) => x.demand_id));
     for (const d of demands) {
       if (d.installment_type !== 'installment' || !d.due_date || done.has(d.id)) continue;

@@ -137,26 +137,27 @@ const B1 = await buyer();
 {
   const b = await buyer(); const [d1, d2, d3] = b.d; const total2 = due(d2);
   r = await post({ consumerId: b.c.id, amountReceivedInr: 1000, installmentIndex: 2 }); t('match: a part payment for instalment 2 is linked to its demand', r.s === 201 && rcol(r.j.data.id, 'demand_id') === d2, JSON.stringify(r.j));
-  t('match: the demand shows "partial"', psql(`select delivery_status from demands where id='${d2}'`) === 'partial' && psql(`select status from demands where id='${d2}'`) !== 'paid');
+  t('match: a pending part payment does not make the demand partial or paid (only cleared money counts)', psql(`select delivery_status from demands where id='${d2}'`) !== 'partial' && !['paid', 'partial'].includes(psql(`select status from demands where id='${d2}'`)));
+  const part2 = r.j.data.id; await CK('PATCH', `/payments/receipts/${part2}/approve`, {}); await CK('PATCH', `/payments/receipts/${part2}/clear`, { clearing_date: today });
+  t('match: once it is cleared the demand shows "partial"', psql(`select delivery_status from demands where id='${d2}'`) === 'partial' && psql(`select status from demands where id='${d2}'`) === 'partial');
   t('match: the GST part of the receipt is filled', rcol(r.j.data.id, 'cgst_amount') !== '' && Number(rcol(r.j.data.id, 'cgst_amount')) >= 0);
-  r = await post({ consumerId: b.c.id, amountReceivedInr: Math.ceil(total2 - 1000), installmentIndex: 2 }); t('match: paying the rest marks the demand paid', r.s === 201 && psql(`select status from demands where id='${d2}'`) === 'paid', JSON.stringify(r.j));
-  r = await post({ consumerId: b.c.id, amountReceivedInr: Math.ceil(due(d3) + 5000), installmentIndex: 3 });
-  t('match: paying more than instalment 3 asks for is accepted and marks it paid', r.s === 201 && psql(`select status from demands where id='${d3}'`) === 'paid', JSON.stringify(r.j));
+  r = await post({ consumerId: b.c.id, amountReceivedInr: Math.ceil(total2 - 1000), installmentIndex: 2 }); const rest2 = r.j?.data?.id;
+  t('match: paying the rest records the receipt, but the demand is not paid until it clears', r.s === 201 && psql(`select status from demands where id='${d2}'`) !== 'paid', JSON.stringify(r.j));
+  await CK('PATCH', `/payments/receipts/${rest2}/approve`, {}); await CK('PATCH', `/payments/receipts/${rest2}/clear`, { clearing_date: today });
+  t('match: once the rest is cleared the demand is paid', psql(`select status from demands where id='${d2}'`) === 'paid');
+  r = await post({ consumerId: b.c.id, amountReceivedInr: Math.ceil(due(d3) + 5000), installmentIndex: 3 }); const over3 = r.j?.data?.id;
+  await CK('PATCH', `/payments/receipts/${over3}/approve`, {}); await CK('PATCH', `/payments/receipts/${over3}/clear`, { clearing_date: today });
+  t('match: paying more than instalment 3 asks for is accepted; once cleared it is paid, the excess is customer credit and no advance row is made', r.s === 201 && psql(`select status from demands where id='${d3}'`) === 'paid' && Number(psql(`select count(*) from receipts where consumer_id='${b.c.id}' and is_advance`)) === 0, JSON.stringify(r.j));
   r = await post({ consumerId: b.c.id, amountReceivedInr: 700, installmentIndex: 9 }); t('match: an instalment with no demand yet is accepted, unlinked', r.s === 201 && rcol(r.j.data.id, 'demand_id') === '', JSON.stringify(r.j));
   const adv = psql(`select count(*) from receipts where consumer_id='${b.c.id}' and is_advance and receipt_number ~ '^REC-[0-9]{4}-[0-9]{5}-ADV$'`); t('match: an advance receipt that follows an excess uses a running number with -ADV (or none was needed)', Number(adv) >= 0);
-  // an overpayment's advance parts remember their source receipt and go with it when it is cancelled (migration 148)
+  // Q13: an overpayment makes no advance rows; the excess of a cleared receipt is customer credit and the next instalment is not touched
   {
     const e = await buyer(); const [e1, e2] = e.d;
     r = await post({ consumerId: e.c.id, amountReceivedInr: Math.ceil(due(e1) + 5000), installmentIndex: 1 });
     const src = r.j?.data?.id;
-    const parts = () => Number(psql(`select count(*) from receipts where advance_source_receipt_id='${src}' and status <> 'cancelled'`));
-    t('advance: paying more than instalment 1 asks for makes advance parts that name their source receipt', r.s === 201 && parts() >= 1, JSON.stringify(r.j) + ' parts=' + (src ? parts() : 'n/a'));
-    const advBefore = Number(psql(`select coalesce(advance_amount,0) from payment_plans where consumer_id='${e.c.id}' order by created_at desc limit 1`));
-    r2 = await A('POST', `/payments/receipts/${src}/cancel`, { reason: 'test' });
-    t('advance: cancelling the paying receipt is accepted', r2.s === 200, JSON.stringify(r2.j));
-    t('advance: its advance parts are cancelled with it', parts() === 0 && Number(psql(`select count(*) from receipts where advance_source_receipt_id='${src}'`)) >= 1, 'parts=' + parts());
-    t('advance: the plan advance amount goes down by what was cancelled', Number(psql(`select coalesce(advance_amount,0) from payment_plans where consumer_id='${e.c.id}' order by created_at desc limit 1`)) < advBefore || advBefore === 0, 'before=' + advBefore);
-    t('advance: the next instalment is no longer covered by the cancelled money', psql(`select status from demands where id='${e2}'`) !== 'paid', psql(`select status from demands where id='${e2}'`));
+    t('overpayment: accepted, makes no advance row and does not touch the next instalment', r.s === 201 && Number(psql(`select count(*) from receipts where consumer_id='${e.c.id}' and is_advance`)) === 0 && psql(`select status from demands where id='${e2}'`) !== 'paid', JSON.stringify(r.j));
+    await CK('PATCH', `/payments/receipts/${src}/approve`, {}); const cl = await CK('PATCH', `/payments/receipts/${src}/clear`, { clearing_date: today });
+    t('overpayment: once cleared instalment 1 is paid and instalment 2 is still not paid', cl.s === 200 && psql(`select status from demands where id='${e1}'`) === 'paid' && !['paid', 'partial'].includes(psql(`select status from demands where id='${e2}'`)), cl.s + ' ' + psql(`select status from demands where id='${e2}'`));
   }
   // raise stage 1 by its first receipt
   const c = await buyer(); psql(`delete from receipts where consumer_id='${c.c.id}'`); psql(`update demands set due_date = null, demand_type = 'installment' where id='${c.d[0]}'`);
@@ -278,7 +279,12 @@ const B1 = await buyer();
   const id3 = await mk(); const cc = await Promise.all(Array.from({ length: 5 }, () => A('POST', `/payments/receipts/${id3}/cancel`, {}))); t('cancel race: 5 at once -> cancelled once', cc.filter(x => x.s === 200).length === 1, JSON.stringify(cc.map(x => x.s)));
   // cancelling the receipt that paid a demand reopens it
   const c2 = await buyer(); const x = await post({ consumerId: c2.c.id, amountReceivedInr: Math.ceil(due(c2.d[1])), installmentIndex: 2 }); const st = () => psql(`select status from demands where id='${c2.d[1]}'`);
-  t('cancel: the receipt paid instalment 2', st() === 'paid', st()); await A('POST', `/payments/receipts/${x.j.data.id}/cancel`, {}); t('cancel: cancelling it reopens the demand', st() !== 'paid', st());
+  t('cancel: a pending receipt for instalment 2 does not pay it', st() !== 'paid', st()); await A('POST', `/payments/receipts/${x.j.data.id}/cancel`, {}); t('cancel: cancelling it leaves the demand unpaid', st() !== 'paid', st());
+  const c3 = await buyer(); const y = await post({ consumerId: c3.c.id, amountReceivedInr: Math.ceil(due(c3.d[1])), installmentIndex: 2 }); const st3 = () => psql(`select status from demands where id='${c3.d[1]}'`);
+  await CK('PATCH', `/payments/receipts/${y.j.data.id}/approve`, {}); await CK('PATCH', `/payments/receipts/${y.j.data.id}/clear`, { clearing_date: today });
+  t('cancel: a cleared receipt paid instalment 2', st3() === 'paid', st3());
+  r = await A('POST', `/payments/receipts/${y.j.data.id}/cancel`, {}); t('cancel: a cleared receipt cannot be cancelled -> 409 and the demand stays paid', r.s === 409 && st3() === 'paid', r.s + ' ' + st3());
+  r = await CK('PATCH', `/payments/receipts/${y.j.data.id}/bounce`, {}); t('bounce: a cleared receipt cannot be bounced -> 409 and the demand stays paid', r.s === 409 && st3() === 'paid', r.s + ' ' + st3());
 }
 
 // ---------- random input ----------
