@@ -69,3 +69,6 @@ CREATE TABLE IF NOT EXISTS credit_allocation_reversals (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_allocation_reversals_key ON credit_allocation_reversals (requested_by, idempotency_key);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_credit_allocation_reversals_live ON credit_allocation_reversals (allocation_id) WHERE status IN ('pending', 'approved');
+
+-- Project scope policy for every new table that carries consumer_id (the scope test requires it).
+SELECT rof_apply_project_scope();
