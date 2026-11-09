@@ -1,4 +1,4 @@
--- 147: the database refuses what no screen should ever send (TA-11, defence in depth).
+-- 149: the database refuses what no screen should ever send (TA-11, defence in depth).
 -- Idempotent and safe on existing data: CHECKs are added NOT VALID (enforced for every new or changed row, old rows are not re-checked),
 -- and a unique index is created only when the data has no duplicate today (otherwise it is skipped with a NOTICE for someone to clean up first).
 
