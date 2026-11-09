@@ -131,7 +131,15 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                 await reference(c, 'transaction_ref', ref, null, 'Reference');
             let idx = idxGiven ?? null;
             if (planId && idx == null && !isOther) {
-                idx = (await c.query(`SELECT COALESCE(MAX(installment_index), 0) + 1 AS n FROM receipts WHERE payment_plan_id = $1 AND installment_index IS NOT NULL`, [planId])).rows[0].n;
+                // The receipt goes to the first instalment that is still open (the screen sends none). Counting receipts instead (the old rule) skipped a
+                // demand whenever one instalment took two receipts, and left the paid / pending marks of the demands disagreeing with the money received.
+                const open = (await c.query(`SELECT MIN(installment_index) AS n, COUNT(*) AS total FROM demands WHERE payment_plan_id = $1 AND status NOT IN ('paid', 'cancelled')`, [planId])).rows[0];
+                if (open.n != null)
+                    idx = open.n;
+                else if (!(await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled' LIMIT 1`, [planId])).rows.length)
+                    idx = 1; // nothing raised yet: the first receipt belongs to instalment 1
+                else
+                    warnings.push('Every instalment raised so far is already paid, so this receipt is recorded as an advance and is not matched to an instalment.');
             }
             // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
             let receiptNumber;
@@ -160,7 +168,7 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                     warnings.push(`There is no open demand for instalment ${idx}, so this receipt is not matched to any instalment yet. It will be matched when that demand is raised.`);
                 if (demand) {
                     await c.query(`UPDATE receipts SET demand_id = $1 WHERE id = $2`, [demand.id, receiptId]);
-                    const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status != 'cancelled'`, [demand.id])).rows[0].s);
+                    const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE demand_id = $1 AND status NOT IN ('cancelled', 'bounced')`, [demand.id])).rows[0].s);
                     const due = parseFloat(demand.amount_due_inr) + parseFloat(demand.cgst_amount || 0) + parseFloat(demand.sgst_amount || 0);
                     const before = paid - amount; // what the demand had received before this receipt
                     if (paid > due + 0.005)
@@ -454,9 +462,12 @@ const move = async (req, res, next, o) => {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         const set = o.set((0, input_js_1.body)(req));
         const data = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT id, payment_method, status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Receipt not found', 404);
+            // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
+            if (o.checker)
+                (0, financial_ops_js_1.notOwn)(req, cur.received_by_user_id);
             if (!INSTRUMENTS.includes(cur.payment_method))
                 throw (0, input_js_1.bad)(`This payment mode cannot be ${o.verb}`);
             if (!o.from.includes(cur.status))
@@ -483,13 +494,13 @@ const move = async (req, res, next, o) => {
         fail(err, res, next);
     }
 };
-router.patch('/receipts/:id/deposit', (req, res, next) => move(req, res, next, {
+router.patch('/receipts/:id/deposit', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
     from: ['pending', 'authorized'], to: 'deposited', action: 'deposit', verb: 'deposited', message: 'Cheque marked as deposited',
     set: (b) => { const d = pastDay(b.deposit_date, 'deposit_date'); if (!d)
         throw (0, input_js_1.bad)('deposit_date is required'); return { sql: 'deposit_date = $1', values: [d] }; },
 }));
-router.patch('/receipts/:id/clear', (req, res, next) => move(req, res, next, {
-    from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'cleared', action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
+router.patch('/receipts/:id/clear', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
+    from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'cleared', checker: true, action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
     set: (b) => {
         const d = pastDay(b.clearing_date, 'clearing_date');
         if (!d)
@@ -497,11 +508,11 @@ router.patch('/receipts/:id/clear', (req, res, next) => move(req, res, next, {
         return { sql: 'clearing_date = $1, clearing_bank_id = $2', values: [d, (0, input_js_1.has)(b.clearing_bank_id) ? (0, input_js_1.uuid)(b.clearing_bank_id, 'clearing_bank_id') : null] };
     },
 }));
-router.patch('/receipts/:id/hold', (req, res, next) => move(req, res, next, {
+router.patch('/receipts/:id/hold', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
     from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'on_hold', action: 'hold', verb: 'put on hold', message: 'Cheque put on hold',
     set: (b) => ({ sql: 'hold_remark = $1', values: [(0, input_js_1.text)(b.hold_remark, 'hold_remark', 500, true)] }),
 }));
-router.patch('/receipts/:id/release-hold', (req, res, next) => move(req, res, next, {
+router.patch('/receipts/:id/release-hold', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
     from: ['on_hold'], to: 'pending', action: 'release', verb: 'released from hold', message: 'Cheque released from hold',
     set: () => ({ sql: 'hold_remark = NULL', values: [] }),
 }));

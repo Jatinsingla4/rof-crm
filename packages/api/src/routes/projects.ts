@@ -467,7 +467,7 @@ router.post('/:id/plans/copy', async (req: AuthRequest, res: Response, next: Nex
         );
       }
       await client.query('COMMIT');
-      await auditChange(db, req, res, 'create', 'payment_plan', target, undefined, { plan_name: to, copied_from: from, rows: made.rowCount });
+      await auditChange(client, req, res, 'create', 'payment_plan', target, undefined, { plan_name: to, copied_from: from, rows: made.rowCount });
       res.status(201).json({ success: true, data: { plan_name: to, rows: made.rowCount } });
     } catch (e) { await client.query('ROLLBACK').catch(() => {}); throw e; } finally { client.release(); }
   } catch (err) { planFail(err, res, next); }

@@ -500,7 +500,7 @@ router.post('/document-types', globalGuard('document_types'), async (req: AuthRe
 
 // Only the fields present in the request are changed (the edit form does not send category)
 router.put('/document-types/:id', globalGuard('document_types'), async (req: AuthRequest, res: Response, next: NextFunction) => {
-  const client = await db.connect();
+  let client: import("pg").PoolClient | undefined; // taken just before BEGIN so no pool connection is held while the checks above use the pool
   try {
     const { id } = req.params;
     const cleaned = cleanBody(req.body, DOCUMENT_TYPE_FIELDS);
@@ -519,6 +519,7 @@ router.put('/document-types/:id', globalGuard('document_types'), async (req: Aut
       }
     }
 
+    client = await db.connect();
     await client.query('BEGIN');
     const oldRes = await client.query(`SELECT * FROM document_types WHERE id = $1 FOR UPDATE`, [id]);
     if (!oldRes.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Document type not found' }); }
@@ -542,10 +543,10 @@ router.put('/document-types/:id', globalGuard('document_types'), async (req: Aut
     await auditChange(client, req, res, 'update', 'master.document_types', id, oldRes.rows[0], result.rows[0]);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    await client.query('ROLLBACK').catch(() => {});
+    await client?.query('ROLLBACK').catch(() => {});
     next(err);
   } finally {
-    client.release();
+    client?.release();
   }
 });
 

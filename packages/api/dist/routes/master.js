@@ -628,7 +628,7 @@ router.post('/document-types', globalGuard('document_types'), async (req, res, n
 });
 // Only the fields present in the request are changed (the edit form does not send category)
 router.put('/document-types/:id', globalGuard('document_types'), async (req, res, next) => {
-    const client = await index_js_1.db.connect();
+    let client; // taken just before BEGIN so no pool connection is held while the checks above use the pool
     try {
         const { id } = req.params;
         const cleaned = cleanBody(req.body, DOCUMENT_TYPE_FIELDS);
@@ -652,6 +652,7 @@ router.put('/document-types/:id', globalGuard('document_types'), async (req, res
                 return res.status(409).json({ error: 'A document with this name already exists for this project and document from' });
             }
         }
+        client = await index_js_1.db.connect();
         await client.query('BEGIN');
         const oldRes = await client.query(`SELECT * FROM document_types WHERE id = $1 FOR UPDATE`, [id]);
         if (!oldRes.rows[0]) {
@@ -680,11 +681,11 @@ router.put('/document-types/:id', globalGuard('document_types'), async (req, res
         res.json({ success: true, data: result.rows[0] });
     }
     catch (err) {
-        await client.query('ROLLBACK').catch(() => { });
+        await client?.query('ROLLBACK').catch(() => { });
         next(err);
     }
     finally {
-        client.release();
+        client?.release();
     }
 });
 // Used by delete and rename: history holds the name as text, so only the last document type that carries a name is protected by it

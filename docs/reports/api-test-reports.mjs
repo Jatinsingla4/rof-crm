@@ -2,6 +2,7 @@
 // proved against an independent SQL read of the base tables (demands, receipts, booking_records, payment_plans), on data this script makes itself.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-reports.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
@@ -10,6 +11,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const go = () => fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let r; try { r = await go(); } catch { r = await go(); } let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(await login('accounts_finance@test.local'));
+const CK = call(await secondAdminToken(B, A));   // clears and bounces receipts: whoever recorded a receipt does not clear or bounce it
 const SA = call(await login('support_agent@test.local'));
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1e9 }).trim().split('\n')[0];
 const rows = (sql) => JSON.parse(execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', `select coalesce(json_agg(t), '[]'::json) from (${sql}) t`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 1e9 }).trim() || '[]');
@@ -55,8 +57,8 @@ const buyer = async (P = P1, T = T1, o = {}) => {
 };
 let rn = 0;
 const receipt = async (S, amount, idx, o = {}) => { const x = await A('POST', '/payments/receipts', { consumerId: S.c, amountReceivedInr: amount, paymentMode: o.mode || 'neft', referenceNumber: `RP${U}R${++rn}`, paymentDate: today, installmentIndex: idx, companyBankAccountId: o.bank, ...(o.mode === 'cheque' ? { chequeNo: `CQ${U}${rn}` } : {}) }); if (x.s !== 201) throw new Error('receipt ' + JSON.stringify(x)); return x.j.data.id; };
-const clear = async (id) => { const x = await A('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); return id; };
-const bounce = async (id) => { const x = await A('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }); if (x.s !== 200) throw new Error('bounce ' + JSON.stringify(x)); return id; };
+const clear = async (id) => { const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); return id; };
+const bounce = async (id) => { const x = await CK('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }); if (x.s !== 200) throw new Error('bounce ' + JSON.stringify(x)); return id; };
 const cancel = async (id) => { const x = await A('POST', `/payments/receipts/${id}/cancel`, { reason: 'test' }); if (x.s !== 200) throw new Error('cancel ' + JSON.stringify(x)); return id; };
 const rais = (S, idx, days) => psql(`update demands set status='demanded', due_date = current_date - ${days}, raised_at = now() where payment_plan_id='${S.plan}' and installment_index=${idx} returning 1`);
 const bookingReceipt = (S) => psql(`select id from receipts where consumer_id='${S.c}' and installment_index is null and demand_id is null order by created_at limit 1`);

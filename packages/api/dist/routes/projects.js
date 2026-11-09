@@ -505,7 +505,7 @@ router.post('/:id/plans/copy', async (req, res, next) => {
             WHERE o.project_id = $1 AND o.plan_name = $3`, [target, to, fromName, req.userId]);
             }
             await client.query('COMMIT');
-            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'payment_plan', target, undefined, { plan_name: to, copied_from: from, rows: made.rowCount });
+            await (0, auditLogger_js_1.auditChange)(client, req, res, 'create', 'payment_plan', target, undefined, { plan_name: to, copied_from: from, rows: made.rowCount });
             res.status(201).json({ success: true, data: { plan_name: to, rows: made.rowCount } });
         }
         catch (e) {

@@ -104,7 +104,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
         );
       }
       await client.query('COMMIT');
-      await auditChange(db, req, res, 'create', 'role', roleRes.rows[0].id, {}, { ...roleRes.rows[0], pages: pages.ids.length });
+      await auditChange(client, req, res, 'create', 'role', roleRes.rows[0].id, {}, { ...roleRes.rows[0], pages: pages.ids.length });
       res.status(201).json({ success: true, data: roleRes.rows[0] });
     } catch (err) {
       await client.query('ROLLBACK');

@@ -117,7 +117,7 @@ router.post('/', async (req, res, next) => {
                 await client.query(`INSERT INTO role_page_access (role_name, page_id, can_view) SELECT $1, unnest($2::uuid[]), true`, [name, pages.ids]);
             }
             await client.query('COMMIT');
-            await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'role', roleRes.rows[0].id, {}, { ...roleRes.rows[0], pages: pages.ids.length });
+            await (0, auditLogger_js_1.auditChange)(client, req, res, 'create', 'role', roleRes.rows[0].id, {}, { ...roleRes.rows[0], pages: pages.ids.length });
             res.status(201).json({ success: true, data: roleRes.rows[0] });
         }
         catch (err) {

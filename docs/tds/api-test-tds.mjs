@@ -11,6 +11,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local'), tokAF = await login('accounts_finance@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(tokAF);
+const CK = call(await secondAdminToken(B, A));   // clears and bounces receipts: whoever recorded a receipt does not clear or bounce it
 const A2 = call(await secondAdminToken(B, A));   // the checker: nobody approves what they created, super_admin included
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
@@ -153,7 +154,7 @@ const afId = psql(`select id from users where email='accounts_finance@test.local
   t('assign: both challans consistent', consistent(big) && consistent(big2));
   // dead receipts
   const rcx = await receipt(S3, 800), rcb = await receipt(S3, 800), cd = (await newChallan(5000)).j.data.id;
-  await A('POST', `/payments/receipts/${rcx}/cancel`, { reason: 'test' }); await A('PATCH', `/payments/receipts/${rcb}/bounce`, { reason: 'test', penaltyAmount: 0 });
+  await A('POST', `/payments/receipts/${rcx}/cancel`, { reason: 'test' }); await CK('PATCH', `/payments/receipts/${rcb}/bounce`, { reason: 'test', penaltyAmount: 0 });
   r = await assign(cd, rcx, 10); t('assign: a cancelled receipt -> 409', r.s === 409, r.s + JSON.stringify(r.j)); r = await assign(cd, rcb, 10); t('assign: a bounced receipt -> 409', r.s === 409, r.s);
   t('assign: dead receipts took nothing', bal(cd) === 5000);
   // other project, with a user who sees only project 1
@@ -182,7 +183,7 @@ const afId = psql(`select id from users where email='accounts_finance@test.local
   r = await A('POST', `/payments/receipts/${rc2}/cancel`, { reason: 'wrong' }); t('cancel: the receipt is cancelled', r.s === 200, r.s + JSON.stringify(r.j));
   t('cancel: its 600 went back to the challan, history row says why', bal(c) === 600 && consistent(c) && psql(`select release_reason from tds_assignments where id='${a2}'`) === 'Receipt cancelled', bal(c));
   const rb = await receipt(S3, 3000), cb = (await newChallan(1000)).j.data.id; await assign(cb, rb, 700);
-  r = await A('PATCH', `/payments/receipts/${rb}/bounce`, { reason: 'insufficient', penaltyAmount: 0 }); t('bounce: the receipt is bounced', r.s === 200, r.s + JSON.stringify(r.j));
+  r = await CK('PATCH', `/payments/receipts/${rb}/bounce`, { reason: 'insufficient', penaltyAmount: 0 }); t('bounce: the receipt is bounced', r.s === 200, r.s + JSON.stringify(r.j));
   t('bounce: its 700 went back to the challan', bal(cb) === 1000 && ch(cb, 'status') === 'available' && consistent(cb), bal(cb));
   r = await assign(c, rc2, 10); t('cancel: and the cancelled receipt cannot be assigned again', r.s === 409, r.s);
   // detail and report

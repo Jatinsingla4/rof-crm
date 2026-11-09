@@ -590,9 +590,11 @@ app.use('/api/milestones',     authenticateToken, rbac('payments'),       milest
 app.use('/api/reconciliation', authenticateToken, rbac('payments'),       reconciliationRoutes);
 app.use('/api/smtp-configs',   authenticateToken, rbac('smtp_configs'),   smtpRoutes);
 // Staff need communications access for the FAQ; anyone with it may still vote on an article (POST feedback), as before
+// Owner decision (TA-12): automations and FAQ articles are configuration (email templates stay open to everyone who may write wording, as designed), so changing them needs the edit right on Communications (a support agent only has view and create, which is for sending messages)
+const configEdit = (req: AuthRequest, res: Response, next: NextFunction) => (req.method === 'GET' ? next() : requirePermission('communications', 'edit')(req, res, next));
 app.use('/api/faq', authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => (/^\/articles\/[^/]+\/feedback$/.test(req.path) ? next() : rbac('communications')(req, res, next)), faqRoutes);
 app.use('/api/tasks',         authenticateToken, rbac('consumers'),       tasksRoutes);
-app.use('/api/automation',    authenticateToken, rbac('communications'),  automationRoutes);
+app.use('/api/automation',    authenticateToken, rbac('communications'), configEdit, automationRoutes);
 app.use('/api/email-templates', authenticateToken, rbac('communications'), emailTemplatesRoutes);
 // Brokers: registering and approving needs consumers rights; the commission list and its payment are payments rights (Accounts pay them)
 app.use('/api/brokers',       authenticateToken, (req: AuthRequest, res: Response, next: NextFunction) => rbac(req.path.startsWith('/commission') ? 'payments' : 'consumers')(req, res, next), brokersRoutes);

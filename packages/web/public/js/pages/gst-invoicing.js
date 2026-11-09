@@ -814,17 +814,9 @@ const GSTPage = {
 
   async quickGenerate(receiptId, consumerId, amount, btn) {
     btn.disabled = true; btn.textContent = '…';
-    const gstAmt = Math.round(amount * 0.05);
     try {
-      const res  = await Api.post('/payments/gst-invoices', {
-        consumerId, receiptId,
-        baseAmount: amount,
-        gstRate: 5, gstAmount: gstAmt,
-        totalAmount: amount + gstAmt,
-        supplyType: 'intrastate',
-        invoiceType: 'tax_invoice',
-        cgstAmount: gstAmt/2, sgstAmount: gstAmt/2, igstAmount: 0,
-      });
+      // The server works the tax out from the receipt itself (the GST stored on it); the screen sends no rate or tax
+      const res  = await Api.post('/payments/gst-invoices', { consumerId, receiptId, baseAmount: amount, supplyType: 'intrastate', invoiceType: 'tax_invoice' });
       const data = res.data || res;
       Utils.success(`Invoice ${data.invoice_number||'generated'} created`);
       btn.closest('tr').style.opacity = '0.4';

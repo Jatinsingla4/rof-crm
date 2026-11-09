@@ -272,7 +272,7 @@ export async function updateUser(req: AuthRequest, res: Response, id: string, bo
     // Old and new values of everything this request changed, never the password or its hash. The two JSON columns are shown as lists.
     const { password_hash: _hash, ...shown } = set as any;
     for (const k of ['assigned_project_ids', 'home_page_widgets']) if (typeof shown[k] === 'string') shown[k] = JSON.parse(shown[k]);
-    await auditChange(db, req, res, 'update', 'user', id,
+    await auditChange(client, req, res, 'update', 'user', id,
       withoutSecrets({ name: cur.name, email: cur.email, role: cur.role, is_active: cur.is_active, ...pick(cur, Object.keys(shown)), ...before }),
       withoutSecrets({ ...shown,
         ...(perms ? { processPermissions: perms.length, processes: processLabels(perms) } : {}),
@@ -408,7 +408,7 @@ router.post('/employee-login', guard(async (req, res) => {
     }
     if (companyIds.length) await client.query(`INSERT INTO user_company_access (user_id, company_id, created_by_user_id) SELECT $1, unnest($2::uuid[]), $3`, [userId, companyIds, req.userId]);
     await client.query('COMMIT');
-    await auditChange(db, req, res, 'create', 'user', userId, {}, withoutSecrets({
+    await auditChange(client, req, res, 'create', 'user', userId, {}, withoutSecrets({
       username: fields.username, email: fields.email, role: fields.role,
       processes: processLabels(perms), companyIds, assigned_project_ids: JSON.parse((fields.assigned_project_ids as string) ?? '[]'),
       authorized_print: fields.authorized_print ?? false, authorized_download: fields.authorized_download ?? false, unit_status_access: fields.unit_status_access ?? 'none',
@@ -554,7 +554,7 @@ router.post('/employee-login/:id/revoke-all', guard(async (req, res) => {
               authorized_download = false, unit_status_access = 'none', token_version = COALESCE(token_version, 0) + 1, updated_at = NOW() WHERE id = $1`, [id]);
     await client.query('COMMIT');
     invalidateAuthUser(id);
-    await auditChange(db, req, res, 'update', 'user', id,
+    await auditChange(client, req, res, 'update', 'user', id,
       { is_active: cur.is_active, ...before, ...lists },
       { is_active: false, revokedAll: true, projects: 0, companies: 0, process_rights: 0, ip_addresses: 0, ip_security_enabled: false, authorized_print: false, authorized_download: false, unit_status_access: 'none' });
     res.json({ success: true, data: { id, revoked: before } });

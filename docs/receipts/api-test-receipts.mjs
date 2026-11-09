@@ -12,6 +12,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(await login('accounts_finance@test.local'));
+const CK = call(await secondAdminToken(B, A));   // clears and bounces receipts: whoever recorded a receipt does not clear or bounce it
 const A2 = call(await secondAdminToken(B, A));   // the checker: nobody approves what they created, super_admin included
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
@@ -113,7 +114,7 @@ const B1 = await buyer();
   t('numbers: 14 receipts recorded at the same moment all succeed', par.every(x => x.s === 201), JSON.stringify(par.map(x => x.s)));
   const pn = par.map(x => x.j.data.receipt_number);
   t('numbers: and all 14 numbers are different', new Set(pn).size === 14, pn.join());
-  const idxs = par.map(x => Number(rcol(x.j.data.id, 'installment_index'))); t('numbers: each got its own instalment number (no two the same)', new Set(idxs).size === 14, idxs.join());
+  const idxs = par.map(x => Number(rcol(x.j.data.id, 'installment_index'))); t('numbers: 14 receipts at once all go to the first open instalment (TA-03: part payments of one instalment, none skipped)', new Set(idxs).size === 1 && idxs[0] === 1, idxs.join());
   const bk = psql(`select receipt_number from receipts where consumer_id='${B1.c.id}' order by created_at limit 1`);
   t('numbers: the receipt a booking makes uses the same running numbers', /^REC-\d{4}-\d{5}$/.test(bk), bk);
 }
@@ -189,7 +190,7 @@ const B1 = await buyer();
   const z = await post({ consumerId: b.c.id, amountReceivedInr: 100, paymentMode: 'cheque', chequeNo: 'ZZ' + U + 'a' }); r = await A('PATCH', `/payments/receipts/${id}`, { chequeNo: 'ZZ' + U + 'a' }); t('edit: a cheque number another live receipt holds -> 409', r.s === 409, r.s);
   r = await A('PATCH', `/payments/receipts/${id}`, { receivedDate: later(-3) }); t('edit: changing the date works', r.s === 200 && rcol(id, 'received_date') === later(-3), r.s + JSON.stringify(r.j).slice(0, 100));
   await A('POST', `/payments/receipts/${z.j.data.id}/cancel`, {}); r = await A('PATCH', `/payments/receipts/${z.j.data.id}`, { bankName: 'X' }); t('edit: a cancelled receipt cannot be edited -> 403', r.s === 403, r.s);
-  await A('PATCH', `/payments/receipts/${y.j.data.id}/bounce`, {}); r = await A('PATCH', `/payments/receipts/${y.j.data.id}`, { bankName: 'X' }); t('edit: a bounced receipt cannot be edited -> 403', r.s === 403, r.s);
+  await CK('PATCH', `/payments/receipts/${y.j.data.id}/bounce`, {}); r = await A('PATCH', `/payments/receipts/${y.j.data.id}`, { bankName: 'X' }); t('edit: a bounced receipt cannot be edited -> 403', r.s === 403, r.s);
 }
 
 // ---------- authorising and printing ----------
@@ -216,7 +217,7 @@ const B1 = await buyer();
   const id = await mk();
   for (const [n, act, bd] of [['deposit', 'deposit', { deposit_date: today }], ['clear', 'clear', { clearing_date: today }], ['hold', 'hold', { hold_remark: 'x' }], ['release', 'release-hold', {}]]) {
     r = await A('PATCH', `/payments/receipts/abc/${act}`, bd); t(`${n}: id not an id -> 400`, r.s === 400, r.s); r = await A('PATCH', `/payments/receipts/${NILS}/${act}`, bd); t(`${n}: unknown id -> 404`, r.s === 404, r.s); }
-  const bad = async (n, act, bd, code = 400) => { const x = await A('PATCH', `/payments/receipts/${id}/${act}`, bd); t(`${n} -> ${code}`, x.s === code, x.s + ' ' + JSON.stringify(x.j).slice(0, 100)); };
+  const bad = async (n, act, bd, code = 400) => { const x = await CK('PATCH', `/payments/receipts/${id}/${act}`, bd); t(`${n} -> ${code}`, x.s === code, x.s + ' ' + JSON.stringify(x.j).slice(0, 100)); };
   await bad('deposit: no date', 'deposit', {}); await bad('deposit: date in the future', 'deposit', { deposit_date: '2999-01-01' }); await bad('deposit: date "abc"', 'deposit', { deposit_date: 'abc' }); await bad('deposit: 31 Feb', 'deposit', { deposit_date: '2026-02-31' });
   await bad('clear: no date', 'clear', {}); await bad('clear: future date', 'clear', { clearing_date: later(3) }); await bad('clear: bank not an id', 'clear', { clearing_date: today, clearing_bank_id: 'zz' }); await bad('clear: bank that does not exist', 'clear', { clearing_date: today, clearing_bank_id: NILS });
   await bad('hold: no remark', 'hold', {}); await bad('hold: blank remark', 'hold', { hold_remark: '   ' }); await bad('hold: remark 501 characters', 'hold', { hold_remark: 'r'.repeat(501) }); await bad('hold: remark with <b>', 'hold', { hold_remark: '<b>' }); await bad('release: not on hold', 'release-hold', {});
@@ -226,14 +227,14 @@ const B1 = await buyer();
   r = await A('PATCH', `/payments/receipts/${id}/release-hold`, {}); t('release: back to pending, remark cleared', r.s === 200 && rcol(id, 'status') === 'pending' && rcol(id, 'hold_remark') === '', r.s);
   r = await A('PATCH', `/payments/receipts/${id}/deposit`, { deposit_date: today }); t('deposit: pending -> deposited', r.s === 200 && rcol(id, 'status') === 'deposited' && rcol(id, 'deposit_date') === today, r.s);
   r = await A('PATCH', `/payments/receipts/${id}/deposit`, { deposit_date: today }); t('deposit: twice -> 400', r.s === 400, r.s);
-  r = await A('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); t('clear: deposited -> cleared', r.s === 200 && rcol(id, 'status') === 'cleared' && rcol(id, 'clearing_date') === today, r.s);
-  r = await A('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); t('clear: twice -> 400', r.s === 400, r.s);
+  r = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); t('clear: deposited -> cleared', r.s === 200 && rcol(id, 'status') === 'cleared' && rcol(id, 'clearing_date') === today, r.s);
+  r = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); t('clear: twice -> 400', r.s === 400, r.s);
   r = await A('PATCH', `/payments/receipts/${id}/hold`, { hold_remark: 'x' }); t('hold: a cleared cheque cannot be held -> 400', r.s === 400, r.s);
   t('flow: audit rows for hold, release, deposit, clear', Number(psql(`select count(*) from audit_logs where resource_id='${id}' and resource_type='receipt'`)) >= 4);
   const a2 = await mk(); await AF('PATCH', `/payments/receipts/${a2}/approve`, {}); r = await A('PATCH', `/payments/receipts/${a2}/deposit`, { deposit_date: today }); t('flow: an authorised receipt can still be deposited (it used to be stuck)', r.s === 200, r.s + JSON.stringify(r.j));
-  const a3 = await mk(); await AF('PATCH', `/payments/receipts/${a3}/approve`, {}); r = await A('PATCH', `/payments/receipts/${a3}/clear`, { clearing_date: today }); t('flow: an authorised receipt can be cleared', r.s === 200 && rcol(a3, 'status') === 'cleared', r.s);
-  const a4 = await mk(); const cl = await Promise.all(Array.from({ length: 6 }, () => A('PATCH', `/payments/receipts/${a4}/clear`, { clearing_date: today }))); t('flow race: 6 clear clicks at once -> cleared once, the rest refused', cl.filter(x => x.s === 200).length === 1 && cl.filter(x => x.s === 400).length === 5, JSON.stringify(cl.map(x => x.s)));
-  const a5 = await mk({ paymentMode: 'rtgs', chequeNo: undefined }); r = await A('PATCH', `/payments/receipts/${a5}/deposit`, { deposit_date: today }); t('flow: an RTGS receipt can be deposited and cleared like a cheque (it used to be refused)', r.s === 200, r.s + JSON.stringify(r.j)); r = await A('PATCH', `/payments/receipts/${a5}/clear`, { clearing_date: today }); t('flow: and then cleared', r.s === 200 && rcol(a5, 'status') === 'cleared', r.s); r = await A('GET', '/payments/receipts/pending-cheques?cheque_no=zzzz'); t('flow: pending list still fine', r.s === 200, r.s);
+  const a3 = await mk(); await AF('PATCH', `/payments/receipts/${a3}/approve`, {}); r = await CK('PATCH', `/payments/receipts/${a3}/clear`, { clearing_date: today }); t('flow: an authorised receipt can be cleared', r.s === 200 && rcol(a3, 'status') === 'cleared', r.s);
+  const a4 = await mk(); const cl = await Promise.all(Array.from({ length: 6 }, () => CK('PATCH', `/payments/receipts/${a4}/clear`, { clearing_date: today }))); t('flow race: 6 clear clicks at once -> cleared once, the rest refused', cl.filter(x => x.s === 200).length === 1 && cl.filter(x => x.s === 400).length === 5, JSON.stringify(cl.map(x => x.s)));
+  const a5 = await mk({ paymentMode: 'rtgs', chequeNo: undefined }); r = await A('PATCH', `/payments/receipts/${a5}/deposit`, { deposit_date: today }); t('flow: an RTGS receipt can be deposited and cleared like a cheque (it used to be refused)', r.s === 200, r.s + JSON.stringify(r.j)); r = await CK('PATCH', `/payments/receipts/${a5}/clear`, { clearing_date: today }); t('flow: and then cleared', r.s === 200 && rcol(a5, 'status') === 'cleared', r.s); r = await A('GET', '/payments/receipts/pending-cheques?cheque_no=zzzz'); t('flow: pending list still fine', r.s === 200, r.s);
   // pending cheques list
   r = await A('GET', '/payments/receipts/pending-cheques'); t('pending cheques: lists live cheques without repeating a receipt', r.s === 200 && new Set(r.j.data.map(x => x.id)).size === r.j.data.length, r.s);
   for (const q of ['project_id=abc', 'tower_id=abc', 'from_date=abc', 'to_date=2020-02-30', 'from_date=2026-05-01&to_date=2026-01-01', 'cheque_no=a&cheque_no=b', 'first_name=%3Cb%3E']) { const x = await A('GET', '/payments/receipts/pending-cheques?' + q); t(`pending cheques: ${q} -> 400`, x.s === 400, x.s); }
@@ -252,13 +253,13 @@ const B1 = await buyer();
   await bad('bounce: penalty 2 million', 'PATCH', `/payments/receipts/${id}/bounce`, { penaltyAmount: 2_000_000 }, 400); await bad('bounce: reason 201 characters', 'PATCH', `/payments/receipts/${id}/bounce`, { reason: 'r'.repeat(201) }, 400);
   await bad('cancel: id not an id', 'POST', '/payments/receipts/abc/cancel', {}, 400); await bad('cancel: unknown id', 'POST', `/payments/receipts/${NILS}/cancel`, {}, 404); await bad('cancel: reason 201 characters', 'POST', `/payments/receipts/${id}/cancel`, { reason: 'r'.repeat(201) }, 400);
   t('bounce: nothing changed by the refused calls', rcol(id, 'status') === 'pending' && psql(`select count(*) from cheque_bounce_logs where receipt_id='${id}'`) === '0');
-  const pr = await Promise.all(Array.from({ length: 5 }, () => A('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'insufficient funds', penaltyAmount: 750 })));
+  const pr = await Promise.all(Array.from({ length: 5 }, () => CK('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'insufficient funds', penaltyAmount: 750 })));
   t('bounce race: 5 at once -> bounced once, one penalty record', pr.filter(x => x.s === 200).length === 1 && psql(`select count(*) from cheque_bounce_logs where receipt_id='${id}'`) === '1', JSON.stringify(pr.map(x => x.s)));
   t('bounce: status, penalty and reason are kept', rcol(id, 'status') === 'bounced' && psql(`select penalty_amount_inr||'/'||reason from cheque_bounce_logs where receipt_id='${id}'`) === '750/insufficient funds');
   r = await A('POST', `/payments/receipts/${id}/cancel`, {}); t('cancel: a bounced receipt cannot be cancelled -> 409', r.s === 409, r.s);
   const id2 = await mk(); r = await A('POST', `/payments/receipts/${id2}/cancel`, { reason: 'wrong customer' });
   t('cancel: a pending receipt is cancelled, with audit', r.s === 200 && rcol(id2, 'status') === 'cancelled' && Number(psql(`select count(*) from audit_logs where resource_id='${id2}' and new_values::text like '%wrong customer%'`)) === 1, r.s + JSON.stringify(r.j));
-  r = await A('POST', `/payments/receipts/${id2}/cancel`, {}); t('cancel: twice -> 403', r.s === 403, r.s); r = await A('PATCH', `/payments/receipts/${id2}/bounce`, {}); t('bounce: a cancelled receipt cannot be bounced -> 409', r.s === 409, r.s);
+  r = await A('POST', `/payments/receipts/${id2}/cancel`, {}); t('cancel: twice -> 403', r.s === 403, r.s); r = await CK('PATCH', `/payments/receipts/${id2}/bounce`, {}); t('bounce: a cancelled receipt cannot be bounced -> 409', r.s === 409, r.s);
   const cr = await Promise.all(Array.from({ length: 5 }, async () => null)); 
   const id3 = await mk(); const cc = await Promise.all(Array.from({ length: 5 }, () => A('POST', `/payments/receipts/${id3}/cancel`, {}))); t('cancel race: 5 at once -> cancelled once', cc.filter(x => x.s === 200).length === 1, JSON.stringify(cc.map(x => x.s)));
   // cancelling the receipt that paid a demand reopens it

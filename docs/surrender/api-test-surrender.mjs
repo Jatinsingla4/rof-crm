@@ -3,6 +3,7 @@
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-surrender.mjs   (psql must reach the same database; SEED=n repeats a random run)
 import { execFileSync } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { secondAdminToken } from '../_shared/second-admin.mjs';
 import { bizToday, bizDate } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
@@ -11,6 +12,7 @@ const login = async (email) => (await (await fetch(B + '/auth/login', { method: 
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const tokA = await login('super_admin@test.local');
 const A = call(tokA), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local')), AF = call(await login('accounts_finance@test.local'));
+const CK = call(await secondAdminToken(B, A));   // clears and bounces receipts: whoever recorded a receipt does not clear or bounce it
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const SEED = Number(process.env.SEED || Date.now() % 1e9); let rs = SEED;
 const rnd = () => (rs = (rs * 1664525 + 1013904223) % 4294967296) / 4294967296, ri = (a, b) => a + Math.floor(rnd() * (b - a + 1)), pick = (a) => a[ri(0, a.length - 1)];
@@ -46,7 +48,7 @@ const NILS = '00000000-0000-0000-0000-000000000000';
 const buyer = async (paid = 0) => {   // a seller: completed booking (unit, plan, 3 demands); optionally with cleared money
   const c = await person(); const u = await unit(); const x = await book(c, u, {}); if (x.s !== 201) throw new Error('book ' + JSON.stringify(x));
   const y = await finish(x.j.data.id); if (y.s !== 200) throw new Error('finish ' + JSON.stringify(y));
-  if (paid) { const p = await A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: paid, paymentMode: 'neft', referenceNumber: `SUR${U}${++rn}`, paymentDate: today, installmentIndex: 9 }); if (p.s !== 201) throw new Error('rec ' + JSON.stringify(p)); const k = await A('PATCH', `/payments/receipts/${p.j.data.id}/clear`, { clearing_date: today }); if (k.s !== 200) throw new Error('clear ' + JSON.stringify(k)); }
+  if (paid) { const p = await A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: paid, paymentMode: 'neft', referenceNumber: `SUR${U}${++rn}`, paymentDate: today, installmentIndex: 9 }); if (p.s !== 201) throw new Error('rec ' + JSON.stringify(p)); const k = await CK('PATCH', `/payments/receipts/${p.j.data.id}/clear`, { clearing_date: today }); if (k.s !== 200) throw new Error('clear ' + JSON.stringify(k)); }
   return { c, u, id: x.j.data.id, al: psql(`select id from allocations where consumer_id='${c}' and status not in ('cancelled','transferred') order by created_at desc limit 1`) };
 };
 let rn = 0;
