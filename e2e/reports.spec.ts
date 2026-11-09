@@ -6,6 +6,7 @@ import { autoAsk } from './_ask';
 import { test, expect, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { bizToday, bizDate } from '../docs/_shared/business-date.mjs';
+import { secondAdminToken } from '../docs/_shared/second-admin.mjs';
 
 const PASSWORD = 'Test#Pass1234';
 const BASE = process.env.BASE_URL || 'http://localhost:3002';
@@ -30,6 +31,14 @@ const api = async (method: string, path: string, body?: any) => {
   return { s: r.status, j };
 };
 const must = async (label: string, p: Promise<{ s: number; j: any }>) => { const x = await p; if (x.s >= 300) throw new Error(`${label}: ${x.s} ${JSON.stringify(x.j).slice(0, 300)}`); return x.j.data ?? x.j; };
+// Whoever recorded a receipt does not clear or bounce it (owner decision Q16): these two calls go through a second super admin, made once through the API
+let ckToken = '';
+const apiCk = async (method: string, path: string, body?: any) => {
+  if (!ckToken) ckToken = await secondAdminToken(`${BASE}/api`, api);
+  const r = await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${ckToken}` }, body: body === undefined ? undefined : JSON.stringify(body) });
+  let j: any = null; try { j = await r.json(); } catch {}
+  return { s: r.status, j };
+};
 declare const Utils: any;   // the screens' global helper object (used inside page.evaluate)
 const S: Record<string, any> = {};
 
@@ -72,8 +81,8 @@ test.beforeAll(async ({ browser }) => {
   const dem = (B: any, idx: number) => Number(sql(`select amount_due_inr + cgst_amount + sgst_amount from demands where payment_plan_id='${B.plan}' and installment_index=${idx}`));
   const rcp = async (B: any, amt: number, idx: number, st: 'clear' | 'bounce' | 'cancel' | 'pending', o: any = {}) => {
     const id = (await must('receipt', api('POST', '/payments/receipts', { consumerId: B.c, amountReceivedInr: amt, paymentMode: o.mode || 'neft', referenceNumber: `RE${U}-${++seq}`, paymentDate: today, installmentIndex: idx, companyBankAccountId: o.bank, ...(o.mode === 'cheque' ? { chequeNo: `RC${U}${seq}` } : {}) }))).id;
-    if (st === 'clear') await must('clear', api('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }));
-    if (st === 'bounce') await must('bounce', api('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }));
+    if (st === 'clear') await must('clear', apiCk('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }));
+    if (st === 'bounce') await must('bounce', apiCk('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }));
     if (st === 'cancel') await must('cancel', api('POST', `/payments/receipts/${id}/cancel`, { reason: 'test' }));
     return id;
   };

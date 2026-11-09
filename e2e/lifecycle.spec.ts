@@ -5,6 +5,7 @@ import { autoAsk } from './_ask';
 // After each screen the database is asked, through the API, whether the screen really did what it showed.
 import { test, expect, Page } from '@playwright/test';
 import { bizToday, bizDate } from '../docs/_shared/business-date.mjs';
+import { secondAdminToken } from '../docs/_shared/second-admin.mjs';
 
 const PASSWORD = 'Test#Pass1234';
 const BASE = process.env.BASE_URL || 'http://localhost:3002';
@@ -26,6 +27,14 @@ const api = async (method: string, path: string, body?: any) => {
   return { s: r.status, j };
 };
 const must = async (label: string, p: Promise<{ s: number; j: any }>) => { const x = await p; if (x.s >= 300) throw new Error(`${label}: ${x.s} ${JSON.stringify(x.j).slice(0, 300)}`); return x.j.data ?? x.j; };
+// Whoever recorded a receipt does not clear or bounce it (owner decision Q16): these two calls go through a second super admin, made once through the API
+let ckToken = '';
+const apiCk = async (method: string, path: string, body?: any) => {
+  if (!ckToken) ckToken = await secondAdminToken(`${BASE}/api`, api);
+  const r = await fetch(`${BASE}/api${path}`, { method, headers: { 'content-type': 'application/json', authorization: `Bearer ${ckToken}` }, body: body === undefined ? undefined : JSON.stringify(body) });
+  let j: any = null; try { j = await r.json(); } catch {}
+  return { s: r.status, j };
+};
 
 const S: Record<string, any> = {};   // ids made by the set-up and by the flow
 
@@ -367,7 +376,7 @@ test('Receipts: a bounced receipt gives its TDS back too', async () => {
   const id = x.j.receipt?.id || x.j.data?.id;
   expect((await api('POST', '/payments/tds/assign', { challanId: S.challan, receiptId: id, amount: 2500 })).s).toBe(200);
   expect(Number((await challan(S.challan)).assigned_amount)).toBe(2500);
-  expect((await api('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'insufficient funds', penaltyAmount: 0 })).s).toBe(200);
+  expect((await apiCk('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'insufficient funds', penaltyAmount: 0 })).s).toBe(200);
   expect(Number((await challan(S.challan)).assigned_amount)).toBe(0);
   await tab('tds-report');
   await page.locator('#tds-f-search').fill(S.challanNo); await page.getByRole('button', { name: 'SEARCH' }).click();
@@ -384,7 +393,8 @@ const pcOpen = async () => { await page.goto(`/pending-cheques.html?project_id=$
 const rcpt = async (id: string) => (await api('GET', `/payments/receipts/${id}`)).j.data;
 const cheque = async (label: string, amount = 5000) => {
   const no = `LC${U}${label}`;
-  const x = await api('POST', '/payments/receipts', { consumerId: S.consumer, amountReceivedInr: amount, paymentMode: 'cheque', chequeNo: no, chequeDate: today, bankName: 'HDFC', paymentDate: today });
+  // recorded by the second admin, so the signed-in super admin (the screen, and api()) is the one who clears or bounces it
+  const x = await apiCk('POST', '/payments/receipts', { consumerId: S.consumer, amountReceivedInr: amount, paymentMode: 'cheque', chequeNo: no, chequeDate: today, bankName: 'HDFC', paymentDate: today });
   expect(x.s, JSON.stringify(x.j)).toBeLessThan(300);
   const id = x.j.receipt?.id || x.j.data?.id;
   return { id, no, rno: x.j.receipt?.receipt_number || x.j.data?.receipt_number as string };
@@ -542,7 +552,7 @@ test('Pending cheques: actions on a cheque that changed behind the screen fail w
   }
   expect((await api('PATCH', `/payments/receipts/${S.chq.C.id}/bounce`, { reason: 'again' })).s).toBe(409);   // already bounced
   expect((await api('PATCH', `/payments/receipts/not-an-id/clear`, { clearing_date: today })).s).toBe(400);
-  expect((await api('PATCH', `/payments/receipts/${S.chq.B.id}/clear`, { clearing_date: 'junk' })).s).toBe(400);
+  expect((await apiCk('PATCH', `/payments/receipts/${S.chq.B.id}/clear`, { clearing_date: 'junk' })).s).toBe(400);
   expect((await rcpt(S.chq.B.id)).status).toBe('pending');
 });
 
@@ -1242,7 +1252,7 @@ test('E-Draw Import: a file with results is read, refunds are made once, wrong f
   const rc = await api('POST', '/payments/receipts', { consumerId: alt.W2.id, amountReceivedInr: 15000, paymentMode: 'cash', paymentDate: today });
   expect(rc.s, JSON.stringify(rc.j)).toBeLessThan(300);
   const rid = rc.j.receipt?.id || rc.j.data?.id;
-  expect((await api('PATCH', `/payments/receipts/${rid}/clear`, { clearing_date: today })).s).toBe(200);
+  expect((await apiCk('PATCH', `/payments/receipts/${rid}/clear`, { clearing_date: today })).s).toBe(200);
   await go('/allotment'); await allotTab('edraw');
   const importBtn = page.getByRole('button', { name: 'Import E-Draw Results' });
   await importBtn.click(); await expect(toast(/select a CSV file/i)).toBeVisible();
