@@ -14,6 +14,8 @@ const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' :
 const login = async (email) => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'Test#Pass1234' }) })).json()).token;
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const A = call(await login('super_admin@test.local')), SE = call(await login('sales_executive@test.local')), RO = call(await login('read_only_viewer@test.local'));
+// Owner decision U3: add-on charges are blocked while a receipt is unresolved, so these tests set the booking receipt (cash 10,000) aside first; a receipt a test records itself stays and blocks
+const AO = async (m, p, b) => { psql(`update receipts set status = 'cancelled' where status = 'pending' and payment_method = 'cash' and amount_received_inr = 10000`); return A(m, p, b); };
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const U = Date.now().toString(36).slice(-5) + ri(0, 99), NIL = '00000000-0000-0000-0000-000000000000';
 const today = bizToday();
@@ -149,11 +151,14 @@ if (addTotalPct > 0) {
   await A('PATCH', `/addon-charges/master/${addon.id}`, addType === 'flat' ? { defaultAmount: Number(cur.default_amount) } : { ratePerSqftInr: Number(cur.rate_per_sqft_inr) });
   t('add-on change: changing it back restores every demand exactly as it was', JSON.stringify(snapsNow()) === JSON.stringify(baseline2), 'not restored');
   // cancel and add again for one customer: same figures
-  const b0 = booked[0], chg = psql(`select id from consumer_addon_charges where consumer_id='${b0.cons}' and status='active' limit 1`);
-  const was = snap(b0.cons, b0.u.id); await A('PATCH', `/addon-charges/consumer/${chg}/cancel`);
+  const b0 = booked[0];
+  const addAgain = async () => { const c2 = (await A('GET', `/addon-charges/master?projectId=${proj}`)).j.data.find(m => m.id === addon.id); return AO('POST', '/addon-charges/consumer', { consumerId: b0.cons, projectId: proj, chargeMasterId: addon.id, amount: addType === 'flat' ? Number(c2.default_amount) : Math.round(Number(c2.rate_per_sqft_inr) * b0.u.carpet * 100) / 100 }); };
+  const activeCharge = () => psql(`select id from consumer_addon_charges where consumer_id='${b0.cons}' and status='active' limit 1`);
+  // U3: the booking receipt is set aside by the first add-on change, which also unfreezes its demand; one cancel and add settles the layout, and the figures after that are compared with each other
+  await AO('PATCH', `/addon-charges/consumer/${activeCharge()}/cancel`); await addAgain();
+  const was = snap(b0.cons, b0.u.id); await AO('PATCH', `/addon-charges/consumer/${activeCharge()}/cancel`);
   t('cancelling one customer\'s add-on takes it out of the demands', addonOf(snap(b0.cons, b0.u.id)) === 0 && addonOf(was) > 0, snap(b0.cons, b0.u.id));
-  const cur2 = (await A('GET', `/addon-charges/master?projectId=${proj}`)).j.data.find(m => m.id === addon.id);
-  await A('POST', '/addon-charges/consumer', { consumerId: b0.cons, projectId: proj, chargeMasterId: addon.id, amount: addType === 'flat' ? Number(cur2.default_amount) : Math.round(Number(cur2.rate_per_sqft_inr) * b0.u.carpet * 100) / 100 });
+  await addAgain();
   t('add-on: cancel then add again gives the same demands as before', snap(b0.cons, b0.u.id) === was, `${snap(b0.cons, b0.u.id)} vs ${was}`);
 }
 
@@ -243,7 +248,7 @@ if (addTotalPct > 0) {
   psql(`insert into receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) values ('${first.cons}','${pp}',1,5000,'cash','cleared',current_date) returning id`);
   // the booking money already sits on the first instalment (booking-type rows included), so an add-on planned there moves to the next one: ask the demand itself
   const firstHas = Number(psql(`select coalesce(sum(addon_charge_amount),0) from demands where payment_plan_id='${pp}' and installment_index=1 and status<>'cancelled'`)) > 0;
-  r = await A('PATCH', `/addon-charges/consumer/${ch}/cancel`);
+  r = await AO('PATCH', `/addon-charges/consumer/${ch}/cancel`);
   t(firstHas ? 'add-on billed on a paid instalment cannot be cancelled' : 'add-on not on the paid instalment can still be cancelled', firstHas ? r.s === 400 : r.s === 200, r.s + JSON.stringify(r.j));
 }
 r = await SE('POST', '/plc-charges', { projectId: proj, unitLocationId: locId, rateValue: 1 }); t('a sales executive cannot change PLC', r.s === 403, r.s);

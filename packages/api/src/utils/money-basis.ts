@@ -99,7 +99,7 @@ export async function recomputePlan(client: any, planId: string | null, userId: 
     if (!same) {
       await client.query(
         `INSERT INTO financial_audit_logs (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
-         VALUES ($1, $2, $3, 'demand_status_recomputed', $4, $5, $6)`,
+         VALUES ($1, $2, COALESCE($3::uuid, (SELECT id FROM users WHERE role = 'super_admin' ORDER BY created_at LIMIT 1)), 'demand_status_recomputed', $4, $5, $6)`,
         [d.consumer_id, planId, userId, JSON.stringify({ status: d.status, delivery_status: d.delivery_status }), JSON.stringify({ status: next, delivery_status: delivery }),
          `Instalment ${d.installment_index}: status follows cleared money (paid ${p})`]);
     }

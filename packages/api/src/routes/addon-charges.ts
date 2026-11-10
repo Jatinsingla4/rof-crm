@@ -385,6 +385,7 @@ router.post('/consumer', async (req: AuthRequest, res: Response, next: NextFunct
     const effectiveDate = day(b.effectiveDate) || businessToday();
     const out = await inTx(async (c) => {
       await lockConsumer(c, consumerId);
+      await requireNoUnresolvedReceipt(c, consumerId);
       if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {
         throw bad('This customer has no active booking in this project');
       }
@@ -421,6 +422,14 @@ router.post('/consumer', async (req: AuthRequest, res: Response, next: NextFunct
   } catch (err) { fail(err, res, next); }
 });
 
+// Owner decision U3: a customer's add-on charges do not change while one of the customer's receipts is unresolved (pending, authorized, deposited or on hold):
+// the money has to be settled first, so a demand is never re-priced under a receipt nobody has decided on.
+async function requireNoUnresolvedReceipt(c: any, consumerId: string) {
+  const open = (await c.query(
+    `SELECT COALESCE(receipt_number, 'a receipt of Rs ' || amount_received_inr) AS receipt_number FROM receipts WHERE consumer_id = $1 AND status IN ('pending', 'authorized', 'deposited', 'on_hold') AND is_advance IS NOT TRUE ORDER BY created_at LIMIT 5`, [consumerId])).rows;
+  if (open.length) throw Object.assign(bad(`Add-on charges cannot change while a receipt is unresolved. Clear, reject, bounce or cancel ${open.map((r: any) => r.receipt_number).join(', ')} first.`), { http: 409 });
+}
+
 // One customer charge, changed only while it is active
 async function changeCharge(req: AuthRequest, res: Response, next: NextFunction, kind: 'edit' | 'cancel' | 'waive') {
   try {
@@ -435,6 +444,7 @@ async function changeCharge(req: AuthRequest, res: Response, next: NextFunction,
       const pre = (await c.query(`SELECT consumer_id, project_id FROM consumer_addon_charges WHERE id = $1`, [cid])).rows[0];
       if (!pre) throw Object.assign(new Error('Charge not found'), { http: 404 });
       await lockConsumer(c, pre.consumer_id);
+      await requireNoUnresolvedReceipt(c, pre.consumer_id);
       const cur = (await c.query(`SELECT * FROM consumer_addon_charges WHERE id = $1 FOR UPDATE`, [cid])).rows[0];
       if (cur.status !== 'active') throw bad(`This charge is already ${cur.status}`);
       let upd: any;

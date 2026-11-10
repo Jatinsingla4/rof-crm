@@ -2347,21 +2347,21 @@ router.post('/interest-scheduler', async (req: AuthRequest, res: Response, next:
       const cid = consumer.consumer_id;
 
       const receiptsRes = await db.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index,
-                status, received_date, created_at
+        `SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index,
+                status, received_date, clearing_date, is_advance, created_at
          FROM receipts
          WHERE consumer_id = $1
-           AND status NOT IN ('cancelled','bounced')
-         ORDER BY received_date ASC, created_at ASC`,
+           AND status = 'cleared'
+         ORDER BY COALESCE(clearing_date, received_date) ASC, created_at ASC`,
         [cid]
       );
 
       const demandsRaw = await db.query(
-        `SELECT id, installment_index, amount_due_inr, due_date,
+        `SELECT id, installment_index, amount_due_inr, due_date, (raised_at IS NOT NULL) AS raised,
                 cgst_amount, sgst_amount,
                 addon_charge_amount, addon_cgst_amount, addon_sgst_amount
          FROM demands
-         WHERE consumer_id = $1
+         WHERE consumer_id = $1 AND status <> 'cancelled'
          ORDER BY installment_index ASC`,
         [cid]
       );
@@ -2746,20 +2746,20 @@ router.post('/consumer-interest-detail/:consumerId', async (req: AuthRequest, re
 
       // Receipts
       const receiptsRes = await client.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index, status, received_date, created_at
+        `SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, received_date, clearing_date, is_advance, created_at
          FROM receipts
-         WHERE consumer_id = $1 AND status NOT IN ('cancelled','bounced')
-         ORDER BY received_date ASC, created_at ASC`,
+         WHERE consumer_id = $1 AND status = 'cleared'
+         ORDER BY COALESCE(clearing_date, received_date) ASC, created_at ASC`,
         [consumerId]
       );
 
       // Demands
       const demandsRaw = await client.query(
-        `SELECT id, installment_index, amount_due_inr, due_date,
+        `SELECT id, installment_index, amount_due_inr, due_date, (raised_at IS NOT NULL) AS raised,
                 cgst_amount, sgst_amount,
                 addon_charge_amount, addon_cgst_amount, addon_sgst_amount
          FROM demands
-         WHERE consumer_id = $1
+         WHERE consumer_id = $1 AND status <> 'cancelled'
          ORDER BY installment_index ASC`,
         [consumerId]
       );

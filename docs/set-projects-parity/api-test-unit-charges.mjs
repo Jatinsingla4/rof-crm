@@ -8,6 +8,8 @@ const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' :
 const call = (tok) => async (m, p, b) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) }, body: b === undefined ? undefined : JSON.stringify(b) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const login = async (e) => (await call()('POST', '/auth/login', { email: e, password: 'Test#Pass1234' })).j?.token;
 const A = call(await login('super_admin@test.local')), RO = call(await login('read_only_viewer@test.local')), SE = call(await login('sales_executive@test.local')), NO = call();
+// Owner decision U3: add-on charges are blocked while a receipt is unresolved, so these tests set the booking receipt (cash 10,000) aside first; a receipt a test records itself stays and blocks
+const AO = async (m, p, b) => { psql(`update receipts set status = 'cancelled' where status = 'pending' and payment_method = 'cash' and amount_received_inr = 10000`); return A(m, p, b); };
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim();
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000', today = bizToday();
 let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 100000000).slice(-9).padStart(9, '0');
@@ -135,13 +137,13 @@ r = await A('PATCH', `/addon-charges/master/${PC}`, { rateType: 'flat', defaultA
 t('percent charge: switched to flat it keeps no percent and the customer follows (1234)', r.s === 200 && psql(`select percent_value is null from addon_charge_master where id = '${PC}'`) === 't' && amtOf(c6) === '1234.00', { s: r.s, amt: amtOf(c6) });
 // customer level: the amount is left out and the server works it out from the customer's own unit
 const SC2 = await master(Fp, { chargeName: `SuperOn ${U}`, rateType: 'per_sqft', ratePerSqftInr: 10, calculateRateType: 'Super Area' }), PC2 = await master(Fp, { chargeName: `PctOn ${U}`, rateType: 'percent', percentValue: 1 });
-r = await A('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: SC2 });
+r = await AO('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: SC2 });
 t('customer charge: a per-sqft charge without an amount is rate x the area it names (1200 x 10 = 12000)', r.s === 201 && Number(r.j.data.amount) === 12000, r);
-r = await A('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: PC2 });
+r = await AO('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: PC2 });
 t('customer charge: a percent charge without an amount is 1% of the basic price (80000)', r.s === 201 && Number(r.j.data.amount) === 80000, r);
-r = await A('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeName: 'Free text' }); t('customer charge: no master and no amount is still 400', r.s === 400);
+r = await AO('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeName: 'Free text' }); t('customer charge: no master and no amount is still 400', r.s === 400);
 const FL = await master(Fp, { chargeName: `FlatOn ${U}`, defaultAmount: 777 });
-r = await A('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: FL }); t('customer charge: a flat charge without an amount takes its own amount (777)', r.s === 201 && Number(r.j.data.amount) === 777, r);
+r = await AO('POST', '/addon-charges/consumer', { consumerId: c6, projectId: Fp.P, chargeMasterId: FL }); t('customer charge: a flat charge without an amount takes its own amount (777)', r.s === 201 && Number(r.j.data.amount) === 777, r);
 t('suggest: unknown customer, unknown charge, bad ids are 404 or 400', (await A('GET', `/addon-charges/suggest?consumerId=${NIL}&projectId=${Fp.P}&chargeMasterId=${PC2}`)).s === 404 && (await A('GET', `/addon-charges/suggest?consumerId=${c6}&projectId=${Fp.P}&chargeMasterId=${NIL}`)).s === 404 && (await A('GET', '/addon-charges/suggest?consumerId=zzz&projectId=x&chargeMasterId=y')).s === 400);
 t('suggest: no login is 401', (await NO('GET', `/addon-charges/suggest?consumerId=${c6}&projectId=${Fp.P}&chargeMasterId=${PC2}`)).s === 401);
 // parking stock: "Quantity" of an inventory-based charge is how many exist
@@ -158,7 +160,7 @@ t('stock: a unit may save its own list again (its own pieces are not counted twi
 t('stock: the list shows how many are given out (3 of 3)', ((await A('GET', `/addon-charges/master?projectId=${Gp.P}`)).j.data.find((m) => m.id === STK) || {}).stock_used === 3);
 r = await A('PATCH', `/addon-charges/master/${STK}`, { quantity: 2 }); t('stock: lowering it below what is given out (2 < 3) is 409', r.s === 409, r);
 t('stock: raising it to 4 works and one more unit can take a piece', (await A('PATCH', `/addon-charges/master/${STK}`, { quantity: 4 })).s === 200 && (await put(g3, [{ chargeMasterId: STK, quantity: 1 }])).s === 200);
-const cg = await person(Gp.P); r = await A('POST', '/addon-charges/consumer', { consumerId: cg, projectId: Gp.P, chargeMasterId: STK, amount: 1000 });
+const cg = await person(Gp.P); r = await AO('POST', '/addon-charges/consumer', { consumerId: cg, projectId: Gp.P, chargeMasterId: STK, amount: 1000 });
 t('stock: a customer with no booking is still 400', r.s === 400, r);
 // a Mandatory charge with a stock: every booking takes one
 const Hp = await mkProject('H');
@@ -169,7 +171,7 @@ const kh1 = await (async () => { const c = await person(Hp.P), b = await A('POST
 t('stock: the first booking takes the only piece of a Mandatory charge', kh1.f.s === 200 && psql(`select count(*) from consumer_addon_charges where consumer_id = '${kh1.c}' and charge_master_id = '${MST}' and status = 'active'`) === '1', kh1.f);
 const kh2 = await (async () => { const c = await person(Hp.P), b = await A('POST', '/booking', { consumer_id: c, project_id: Hp.P, unit_id: h2, selected_plan_name: 'Plan ' + U, booking_date: today }); return { c, f: await A('PATCH', `/booking/${b.j?.data?.id}`, { booking_amount: 10000, payment_mode: 'cash' }) }; })();
 t('stock: the second booking finds no piece left and is refused (409), nothing is half saved', kh2.f.s === 409 && /no piece left/.test(kh2.f.j?.error || '') && psql(`select count(*) from consumer_addon_charges where consumer_id = '${kh2.c}'`) === '0', kh2.f);
-r = await A('POST', '/addon-charges/consumer', { consumerId: kh1.c, projectId: Hp.P, chargeName: 'x', amount: 5 }); t('stock: a free-text customer charge has no stock to check (201)', r.s === 201, r);
+r = await AO('POST', '/addon-charges/consumer', { consumerId: kh1.c, projectId: Hp.P, chargeName: 'x', amount: 5 }); t('stock: a free-text customer charge has no stock to check (201)', r.s === 201, r);
 // unit wise area on a booked unit: super, carpet and balcony 1 are fixed, the other areas can still be corrected
 r = await A('GET', `/units/${u1}/areas`); t('unit area: a booked unit says it is sold', r.s === 200 && r.j.data.sold === true, r);
 r = await A('PUT', `/units/${u1}/areas`, { carpetAreaSqft: 999 }); t('unit area: a booked unit cannot change its carpet area (409)', r.s === 409 && psql(`select carpet_area_sqft::int from units where id = '${u1}'`) === '1000', r);

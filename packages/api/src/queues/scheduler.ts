@@ -32,6 +32,7 @@ export function scheduleDemandLetters() {
                EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int as days_until_due
         FROM demands
         WHERE delivery_status IN ('pending', 'queued')
+        AND raised_at IS NOT NULL AND status IN ('demanded', 'raised', 'partial')   -- only formally raised demands get a reminder
           AND (EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 15
                OR EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 7
                OR EXTRACT(DAY FROM (due_date::date - ${SQL_TODAY}))::int = 3)
@@ -93,6 +94,7 @@ export function scheduleOverdueCheck() {
         FROM demands d
         WHERE d.due_date < ${SQL_TODAY}
           AND d.delivery_status NOT IN ('paid', 'cancelled')
+          AND d.raised_at IS NOT NULL AND d.status NOT IN ('pending', 'paid', 'cancelled')   -- only formally raised demands
       `);
 
       const overdues: Demand[] = result.rows;

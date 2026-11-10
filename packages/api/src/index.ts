@@ -59,6 +59,7 @@ import rolesRoutes from './routes/roles.js';
 import companiesRoutes from './routes/companies.js';
 import customLettersRoutes from './routes/custom-letters.js';
 import gstConfigRoutes from './routes/gst-configuration.js';
+import cronRoutes from './routes/cron.js';
 import { requirePermission, hasPermission } from './middleware/rbac.js';
 import { logAudit } from './middleware/auditLogger.js';
 import { cleanIp } from './utils/security.js';
@@ -630,6 +631,9 @@ app.use('/api/test-data', authenticateToken, (req: AuthRequest, res: Response, n
 app.use('/api/roles',          authenticateToken, rolesRoutes);
 app.use('/api/companies',      authenticateToken, companiesRoutes);
 app.use('/api/custom-letters', authenticateToken, rbac('documents'), customLettersRoutes);
+
+// Jobs started by Vercel Cron: no login, they carry the CRON_SECRET instead
+app.use('/api/cron', cronRoutes);
 
 // An API path no route handled answers in JSON, like every other API error
 app.use('/api', (req: Request, res: Response) => { res.status(404).json({ error: 'Not found' }); });

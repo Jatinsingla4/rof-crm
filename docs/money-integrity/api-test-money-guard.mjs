@@ -12,8 +12,8 @@ const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' :
 // file -> [clusters that touch the receipts table, mentions of amount_received_inr]
 const ALLOWED = {
  "routes/addon-charges.ts": [
-  1,
-  0
+  2,
+  1
  ],
  "routes/allocations.ts": [
   2,
@@ -61,7 +61,7 @@ const ALLOWED = {
  ],
  "routes/payments.ts": [
   18,
-  26
+  28
  ],
  "routes/projects.ts": [
   1,

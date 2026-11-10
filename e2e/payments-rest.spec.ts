@@ -50,7 +50,7 @@ test.beforeAll(async ({ browser }) => {
     const u = (await must('unit', api('POST', '/units', { projectId: S.project, towerId: S.tower, unitNumber: `PU${i}-${U}`, floor: 2, bhkType: '2BHK', carpetAreaSqft: 1000, superAreaSqft: 1200, basePriceInr: 9000000, totalPriceInr: 9500000 }))).id;
     const b = await must('booking', api('POST', '/booking', { consumer_id: c, project_id: S.project, unit_id: u, selected_plan_name: S.plan, booking_date: today }));
     await must('booking payment', api('PATCH', `/booking/${b.id}`, { booking_amount: 10000, payment_mode: 'cash' }));
-    sql(`update demands set due_date = current_date - 150, status = 'raised' where consumer_id = '${c}' and installment_index in (1, 2)`);
+    sql(`update demands set due_date = current_date - 150, status = 'raised', raised_at = COALESCE(raised_at, now()) where consumer_id = '${c}' and installment_index in (1, 2)`);
     S.buyers.push({ c, u, name: `Payrest Buyer${i} ${U}`, unit: `PU${i}-${U}` });
   }
   await api('POST', `/payments/consumer-interest-detail/${S.buyers[0].c}`);

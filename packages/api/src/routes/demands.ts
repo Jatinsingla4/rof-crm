@@ -221,6 +221,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       `SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
               d.addon_charge_amount, d.addon_cgst_amount, d.addon_sgst_amount,
               d.due_date, d.status, d.demand_type, d.delivery_status, d.sent_at, d.generated_at,
+              (d.due_date IS NOT NULL AND d.due_date <= ${SQL_TODAY}) AS due_reached,
               c.name AS consumer_name, c.mobile, br.registration_no, pp.unit_id,
               u.unit_number AS unit_address, u.bhk_type AS unit_type, u.floor, tw.tower_name, p.name AS project_name,
               COALESCE(pst.installment_name, 'Instalment ' || d.installment_index::text) AS installment_name,
@@ -261,7 +262,9 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       const totalPaid = byIndex ? byIndex.get(Number(r.installment_index)) || 0 : parseFloat(r.total_paid);
       const netDue = parseFloat(r.amount_due_inr) + parseFloat(r.cgst_amount || 0) + parseFloat(r.sgst_amount || 0)
         + parseFloat(r.addon_charge_amount || 0) + parseFloat(r.addon_cgst_amount || 0) + parseFloat(r.addon_sgst_amount || 0);
-      return { ...r, total_paid: totalPaid, balance: netDue - totalPaid };
+      // D1 at read time: a pending demand whose due date has been reached is shown as demanded (the daily job stores it; nothing waits for a write event)
+    const { due_reached, ...rest } = r;
+    return { ...rest, status: rest.status === 'pending' && due_reached ? 'demanded' : rest.status, total_paid: totalPaid, balance: netDue - totalPaid };
     });
     res.json({ success: true, data });
   } catch (err) { fail(err, res, next); }

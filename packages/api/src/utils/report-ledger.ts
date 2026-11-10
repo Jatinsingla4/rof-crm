@@ -111,7 +111,7 @@ export async function loadLedger(f: LedgerFilter = {}): Promise<LedgerPlan[]> {
          FROM demands d WHERE d.payment_plan_id = ANY($1::uuid[]) AND d.status <> 'cancelled'
         ORDER BY d.installment_index, d.created_at`, [planIds]),
     db.query(
-      `SELECT id, payment_plan_id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, received_date, received_date::text AS received_date_text, created_at, is_advance,
+      `SELECT id, payment_plan_id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, received_date, received_date::text AS received_date_text, clearing_date, created_at, is_advance,
               COALESCE(cgst_amount,0) AS cgst_amount, COALESCE(sgst_amount,0) AS sgst_amount, COALESCE(interest_amount,0) AS interest_amount
          FROM receipts WHERE payment_plan_id = ANY($1::uuid[]) AND status IN ('cleared','pending','authorized','deposited','on_hold')
         ORDER BY received_date, created_at`, [planIds]),
@@ -216,7 +216,7 @@ export async function loadInterestCtx(plans: LedgerPlan[]): Promise<InterestCtx>
 
 export function interestOf(p: LedgerPlan, ctx: InterestCtx) {
   const st = ctx.settings.get(p.consumer_id) || { grace: 0, start: null };
-  const rows = buildInterestRows(p.raw.receipts as any, p.raw.demands.filter((d: any) => RAISED.has(d.status)).map((d: any) => ({ ...d, installment_name: d.demand_type || String(d.installment_index), due_date: d.due_date })) as any,
+  const rows = buildInterestRows(p.raw.receipts as any, p.raw.demands.filter((d: any) => d.raised_flag).map((d: any) => ({ ...d, raised: true, installment_name: d.demand_type || String(d.installment_index), due_date: d.due_date })) as any,
     ctx.penalRate, { asOfDate: new Date(p.today), gracePeriodDays: st.grace, interestStartDate: st.start });
   const computed = new Map<number, number>();
   for (const r of rows) computed.set(r.installment_index, (computed.get(r.installment_index) || 0) + r.interest_amount);

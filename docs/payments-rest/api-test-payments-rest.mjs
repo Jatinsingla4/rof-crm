@@ -59,7 +59,7 @@ const grant = (uid, name, maker, checker) => psql(`insert into user_process_perm
 const revoke = (uid) => psql(`delete from user_process_permissions where user_id='${uid}' and process_name in ('interest_waiver','jv_refund_drcr') returning 1`);
 const noRows = (uid) => { try { revoke(uid); } catch { /* none */ } };
 for (const u of [afId, pmId]) noRows(u);
-const demandsPast = (c, idxs = [1], days = 120) => psql(`update demands set due_date = current_date - ${days}, status = 'raised' where consumer_id='${c}' and installment_index in (${idxs.join(',')}) returning 1`);
+const demandsPast = (c, idxs = [1], days = 120) => psql(`update demands set due_date = current_date - ${days}, status = 'raised', raised_at = COALESCE(raised_at, now()) where consumer_id='${c}' and installment_index in (${idxs.join(',')}) returning 1`);
 const recalc = (c, who = A) => who('POST', `/payments/consumer-interest-detail/${c}`);
 const pis = (c) => psqlAll(`select id||'|'||installment_index||'|'||amount_inr||'|'||coalesce(interest_waived_inr,0)||'|'||status from penal_interests where consumer_id='${c}' order by installment_index, status`).map(l => { const [id, idx, amt, w, st] = l.split('|'); return { id, idx: +idx, amt: +amt, w: +w, st }; });
 const waivedSum = (c) => Number(psql(`select coalesce(sum(waiver_amount_inr),0) from interest_waivers where consumer_id='${c}' and status='approved'`));

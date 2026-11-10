@@ -7,6 +7,8 @@ const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' :
 const login = async (email) => (await (await fetch(B + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email, password: 'Test#Pass1234' }) })).json()).token;
 const call = (tok) => async (m, p, b, raw) => { const r = await fetch(B + p, { method: m, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok }, body: raw ?? (b === undefined ? undefined : JSON.stringify(b)) }); let j = null; try { j = await r.json(); } catch {} return { s: r.status, j }; };
 const A = call(await login('super_admin@test.local')), PM = call(await login('project_manager@test.local')), SE = call(await login('sales_executive@test.local'));
+// Owner decision U3: add-on charges are blocked while a receipt is unresolved, so these tests set the booking receipt (cash 10,000) aside first; a receipt a test records itself stays and blocks
+const AO = async (m, p, b) => { psql(`update receipts set status = 'cancelled' where status = 'pending' and payment_method = 'cash' and amount_received_inr = 10000`); return A(m, p, b); };
 const AF = call(await login('accounts_finance@test.local')), RO = call(await login('read_only_viewer@test.local')), SA = call(await login('support_agent@test.local'));
 const psql = (sql) => execFileSync('psql', ['-qAt', '-v', 'ON_ERROR_STOP=1', '-c', sql], { encoding: 'utf8' }).trim().split('\n')[0];
 const U = Date.now().toString(36).slice(-5), NIL = '00000000-0000-0000-0000-000000000000';
@@ -82,7 +84,7 @@ const ch = (o) => ({ consumerId: C1.cons, projectId: P1, chargeMasterId: M1, amo
 r = await SE('POST', '/addon-charges/consumer', ch()); t('roles: sales_executive cannot add a customer charge -> 403', r.s === 403, r.s);
 r = await RO('POST', '/addon-charges/consumer', ch()); t('roles: read_only_viewer cannot -> 403', r.s === 403, r.s);
 r = await RO('GET', `/addon-charges/consumer?consumerId=${C1.cons}`); t('roles: read_only_viewer can read', r.s === 200, r.s);
-const bc = async (n, o, re) => { r = await A('POST', '/addon-charges/consumer', ch(o)); t('customer charge: ' + n + ' -> 400', r.s === 400 && (!re || re.test(r.j?.error || '')), r.s + ' ' + JSON.stringify(r.j)); };
+const bc = async (n, o, re) => { r = await AO('POST', '/addon-charges/consumer', ch(o)); t('customer charge: ' + n + ' -> 400', r.s === 400 && (!re || re.test(r.j?.error || '')), r.s + ' ' + JSON.stringify(r.j)); };
 await bc('zero amount', { amount: 0 }, /more than 0/); await bc('negative', { amount: -5 }, /Amount/); await bc('text', { amount: 'abc' }, /Amount/); await bc('missing amount (no charge type picked, so none to take it from)', { amount: undefined, chargeMasterId: undefined, chargeName: 'Free text' }, /Amount/);
 await bc('exponent', { amount: '1e3' }, /Amount/); await bc('3 decimals', { amount: '1.005' }, /Amount/); await bc('huge', { amount: 1e10 }, /Amount/); await bc('array amount', { amount: [5] }, /Amount/);
 await bc('bad consumer id', { consumerId: 'x' }, /consumerId/); await bc('bad project id', { projectId: 'x' }, /projectId/); await bc('bad master id', { chargeMasterId: 'x' }, /chargeMasterId/);
@@ -90,19 +92,19 @@ await bc('customer not in this project', { consumerId: C3.cons }, /no active boo
 await bc('master of another project', { chargeMasterId: (await M(P2, { chargeName: 'Other ' + U, defaultAmount: 1 })).j.data.id }, /does not exist in this project/);
 await bc('no master and no name', { chargeMasterId: undefined, chargeName: undefined }, /name/i); await bc('long remark', { remark: 'x'.repeat(1001) }, /1000/); await bc('markup remark', { remark: '<script>' }, /character/);
 await bc('impossible date', { effectiveDate: '2026-02-30' }, /date/i); await bc('date text', { effectiveDate: 'soon' }, /date/i); await bc('cgst 99', { cgstPct: 99 }, /CGST/);
-r = await A('POST', '/addon-charges/consumer', undefined, '"text"'); t('customer charge: plain string body -> 400', r.s === 400, r.s);
+r = await AO('POST', '/addon-charges/consumer', undefined, '"text"'); t('customer charge: plain string body -> 400', r.s === 400, r.s);
 
 // ---------- customer charge: add, totals, duplicates, race ----------
-r = await A('POST', '/addon-charges/consumer', ch({ remark: ' first ' })); t('customer charge: add', r.s === 201 && Number(r.j.data.total_amount) === 59000 && r.j.data.remark === 'first', JSON.stringify(r.j)); const CH1 = r.j.data.id;
+r = await AO('POST', '/addon-charges/consumer', ch({ remark: ' first ' })); t('customer charge: add', r.s === 201 && Number(r.j.data.total_amount) === 59000 && r.j.data.remark === 'first', JSON.stringify(r.j)); const CH1 = r.j.data.id;
 t('demand 1 now carries the charge + GST', dem(C1, 1) === '50000.00/4500/4500', dem(C1, 1)); t('demand 2 untouched', dem(C1, 2) === '0.00/0/0', dem(C1, 2));
-r = await A('POST', '/addon-charges/consumer', ch()); t('customer charge: same charge twice -> 400', r.s === 400 && /already added/.test(r.j.error), JSON.stringify(r.j));
-const rc = await Promise.all(Array.from({ length: 8 }, () => A('POST', '/addon-charges/consumer', ch({ consumerId: C2.cons })))); t('customer charge: 8 parallel adds -> exactly 1', rc.filter(x => x.s === 201).length === 1 && rc.every(x => x.s === 201 || x.s === 400), rc.map(x => x.s).join());
+r = await AO('POST', '/addon-charges/consumer', ch()); t('customer charge: same charge twice -> 400', r.s === 400 && /already added/.test(r.j.error), JSON.stringify(r.j));
+const rc = await Promise.all(Array.from({ length: 8 }, () => AO('POST', '/addon-charges/consumer', ch({ consumerId: C2.cons })))); t('customer charge: 8 parallel adds -> exactly 1', rc.filter(x => x.s === 201).length === 1 && rc.every(x => x.s === 201 || x.s === 400), rc.map(x => x.s).join());
 t('race: demand counted once', dem(C2, 1) === '50000.00/4500/4500', dem(C2, 1));
-r = await A('POST', '/addon-charges/consumer', ch({ chargeMasterId: undefined, chargeName: 'Custom ' + U, consumerId: C4.cons, amount: '100.5' })); t('customer charge: custom name without master, GST default 9+9', r.s === 201 && Number(r.j.data.total_amount) === 118.6, JSON.stringify(r.j));
-r = await A('POST', '/addon-charges/consumer', ch({ chargeMasterId: undefined, chargeName: 'custom ' + U, consumerId: C4.cons })); t('customer charge: same custom name other case -> 400', r.s === 400, r.s);
+r = await AO('POST', '/addon-charges/consumer', ch({ chargeMasterId: undefined, chargeName: 'Custom ' + U, consumerId: C4.cons, amount: '100.5' })); t('customer charge: custom name without master, GST default 9+9', r.s === 201 && Number(r.j.data.total_amount) === 118.6, JSON.stringify(r.j));
+r = await AO('POST', '/addon-charges/consumer', ch({ chargeMasterId: undefined, chargeName: 'custom ' + U, consumerId: C4.cons })); t('customer charge: same custom name other case -> 400', r.s === 400, r.s);
 
 // ---------- customer charge: edit ----------
-const pc = (id, b, raw) => A('PATCH', `/addon-charges/consumer/${id}`, b, raw);
+const pc = (id, b, raw) => AO('PATCH', `/addon-charges/consumer/${id}`, b, raw);
 r = await pc('x', { amount: 1 }); t('edit: bad id -> 400', r.s === 400, r.s); r = await pc(NIL, { amount: 1 }); t('edit: unknown -> 404', r.s === 404, r.s);
 r = await pc(CH1, { amount: -1 }); t('edit: negative -> 400', r.s === 400, r.s); r = await pc(CH1, { amount: 0 }); t('edit: zero -> 400', r.s === 400, r.s); r = await pc(CH1, { increaseAmount: 'abc' }); t('edit: bad increase -> 400', r.s === 400, r.s);
 r = await pc(CH1, { increaseAmount: 10000 }); t('edit: increase only keeps the amount', r.s === 200 && Number(r.j.data.amount) === 50000 && Number(r.j.data.increase_amount) === 10000 && Number(r.j.data.total_amount) === 70800, JSON.stringify(r.j));
@@ -115,11 +117,11 @@ r = await pm(M1, { defaultAmount: 80000 }); t('master edit: cascades to customer
 t('cascade: customer charge keeps its increase (80000+10000) and GST', psql(`SELECT amount||'/'||increase_amount||'/'||total_amount FROM consumer_addon_charges WHERE id='${CH1}'`) === '80000.00/10000.00/106200.00');
 t('cascade: demand follows', dem(C1, 1) === '90000.00/8100/8100', dem(C1, 1)); t('cascade: other customer demand too', dem(C2, 1) === '80000.00/7200/7200', dem(C2, 1));
 r = await pm(MS, { ratePerSqftInr: 120 }); t('per sq.ft. master edit ok', r.s === 200, r.s);
-r = await A('POST', '/addon-charges/consumer', ch({ chargeMasterId: MS, consumerId: C4.cons, amount: 84000 })); const CHS = r.j?.data?.id; t('per sq.ft. customer charge added', r.s === 201, r.s);
+r = await AO('POST', '/addon-charges/consumer', ch({ chargeMasterId: MS, consumerId: C4.cons, amount: 84000 })); const CHS = r.j?.data?.id; t('per sq.ft. customer charge added', r.s === 201, r.s);
 r = await pm(MS, { ratePerSqftInr: 150 }); t('per sq.ft. master edit prices from the unit (700 sq.ft. x 150)', r.s === 200 && psql(`SELECT amount FROM consumer_addon_charges WHERE id='${CHS}'`) === '105000.00', JSON.stringify(r.j));
 
 // ---------- cancel and waive ----------
-const cancel = (id) => A('PATCH', `/addon-charges/consumer/${id}/cancel`), waive = (id, b) => A('PATCH', `/addon-charges/consumer/${id}/waive`, b);
+const cancel = (id) => AO('PATCH', `/addon-charges/consumer/${id}/cancel`), waive = (id, b) => AO('PATCH', `/addon-charges/consumer/${id}/waive`, b);
 r = await cancel('x'); t('cancel: bad id -> 400', r.s === 400, r.s); r = await cancel(NIL); t('cancel: unknown -> 404', r.s === 404, r.s);
 r = await SE('PATCH', `/addon-charges/consumer/${CH1}/cancel`); t('cancel: sales_executive -> 403', r.s === 403, r.s);
 r = await AF('PATCH', `/addon-charges/consumer/${CH1}/cancel`); t('cancel: accounts_finance allowed', r.s === 200, r.s);
@@ -133,14 +135,14 @@ r = await waive(c2, { waiveRemark: ['a'] }); t('waive: array remark -> 400', r.s
 r = await waive(c2, { waiveRemark: 'Goodwill for delay' }); t('waive: ok', r.s === 200 && r.j.data.status === 'waived', JSON.stringify(r.j)); t('waive: demand back to 0', dem(C2, 1) === '0.00/0/0', dem(C2, 1));
 r = await waive(c2, { waiveRemark: 'again' }); t('waive twice -> 400', r.s === 400, r.s); r = await cancel(c2); t('cancel a waived charge -> 400', r.s === 400, r.s);
 r = await Promise.all([cancel(CHS), cancel(CHS), waive(CHS, { waiveRemark: 'race' })]); t('cancel/cancel/waive in parallel -> exactly one wins', r.filter(x => x.s === 200).length === 1, r.map(x => x.s).join());
-r = await A('POST', '/addon-charges/consumer', ch({ consumerId: C2.cons })); t('after waive the charge can be added again', r.s === 201, JSON.stringify(r.j));
+r = await AO('POST', '/addon-charges/consumer', ch({ consumerId: C2.cons })); t('after waive the charge can be added again', r.s === 201, JSON.stringify(r.j));
 
 // ---------- deactivate a master ----------
 r = await A('DELETE', `/addon-charges/master/${M1}`); t('deactivate: cancels active customer charges', r.s === 200 && r.j.affectedConsumers === 1, JSON.stringify(r.j));
 t('deactivate: demand back to 0', dem(C2, 1) === '0.00/0/0', dem(C2, 1));
 r = await A('DELETE', `/addon-charges/master/${M1}`); t('deactivate twice -> 404', r.s === 404, r.s);
 r = await A('DELETE', '/addon-charges/master/x'); t('deactivate: bad id -> 400', r.s === 400, r.s);
-r = await A('POST', '/addon-charges/consumer', ch({ consumerId: C4.cons })); t('a deactivated master cannot be given to a customer -> 400', r.s === 400, r.s);
+r = await AO('POST', '/addon-charges/consumer', ch({ consumerId: C4.cons })); t('a deactivated master cannot be given to a customer -> 400', r.s === 400, r.s);
 r = await A('GET', `/addon-charges/master?projectId=${P1}`); t('deactivated master leaves the list', !r.j.data.some(x => x.id === M1), '');
 r = await M(P1, { chargeName: 'Club House ' + U, defaultAmount: 1 }); t('its name can be used again after deactivation', r.s === 201, JSON.stringify(r.j));
 
@@ -174,41 +176,41 @@ const fch = (f, o) => ({ consumerId: f.cons, projectId: P3, chargeMasterId: MF, 
 
 // F1: instalment 1 is paid, then the charge is added -> its share moves to the next unpaid instalment
 const F1 = mkF('F1'); pay(F1, 1);
-r = await A('POST', '/addon-charges/consumer', fch(F1)); t('frozen: add after instalment 1 is paid -> 201 with a note', r.s === 201 && /instalment 2/.test(r.j.note || ''), JSON.stringify(r.j)); const F1c = r.j?.data?.id;
+r = await AO('POST', '/addon-charges/consumer', fch(F1)); t('frozen: add after instalment 1 is paid -> 201 with a note', r.s === 201 && /instalment 2/.test(r.j.note || ''), JSON.stringify(r.j)); const F1c = r.j?.data?.id;
 t('frozen: paid instalment untouched, its share moved to instalment 2, total stays 100000', fd(F1) === '0.00/75000.00/25000.00', fd(F1));
-r = await A('PATCH', `/addon-charges/consumer/${F1c}/cancel`); t('frozen: cancelling a charge that never touched the paid instalment works', r.s === 200 && fd(F1) === '0.00/0.00/0.00', r.s + ' ' + fd(F1));
+r = await AO('PATCH', `/addon-charges/consumer/${F1c}/cancel`); t('frozen: cancelling a charge that never touched the paid instalment works', r.s === 200 && fd(F1) === '0.00/0.00/0.00', r.s + ' ' + fd(F1));
 // F2: charge added first, instalment 1 paid after -> cut/cancel/waive refused, raise allowed
-const F2 = mkF('F2'); r = await A('POST', '/addon-charges/consumer', fch(F2)); const F2c = r.j.data.id; t('frozen: normal add spreads 50/25/25', fd(F2) === '50000.00/25000.00/25000.00', fd(F2));
+const F2 = mkF('F2'); r = await AO('POST', '/addon-charges/consumer', fch(F2)); const F2c = r.j.data.id; t('frozen: normal add spreads 50/25/25', fd(F2) === '50000.00/25000.00/25000.00', fd(F2));
 const rcp = pay(F2, 1);
-r = await A('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: cancel after payment -> 400 naming the instalment', r.s === 400 && /Instalment 1 already has a payment/.test(r.j.error), JSON.stringify(r.j));
-r = await A('PATCH', `/addon-charges/consumer/${F2c}/waive`, { waiveRemark: 'try' }); t('frozen: waive after payment -> 400', r.s === 400, r.s);
-r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 60000 }); t('frozen: lowering the amount after payment -> 400', r.s === 400, r.s);
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: cancel after payment -> 400 naming the instalment', r.s === 400 && /Instalment 1 already has a payment/.test(r.j.error), JSON.stringify(r.j));
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}/waive`, { waiveRemark: 'try' }); t('frozen: waive after payment -> 400', r.s === 400, r.s);
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 60000 }); t('frozen: lowering the amount after payment -> 400', r.s === 400, r.s);
 t('frozen: refused changes left charge and demands as they were', fd(F2) === '50000.00/25000.00/25000.00' && psql(`SELECT status||amount FROM consumer_addon_charges WHERE id='${F2c}'`) === 'active100000.00', fd(F2));
-r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: raising the amount is allowed; the extra for the paid instalment moves forward', r.s === 200 && /instalment 2/.test(r.j.note || '') && fd(F2) === '50000.00/100000.00/50000.00', r.s + ' ' + fd(F2) + JSON.stringify(r.j.note));
-r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: saving the same amount again changes nothing', r.s === 200 && !r.j.note && fd(F2) === '50000.00/100000.00/50000.00', fd(F2));
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: raising the amount is allowed; the extra for the paid instalment moves forward', r.s === 200 && /instalment 2/.test(r.j.note || '') && fd(F2) === '50000.00/100000.00/50000.00', r.s + ' ' + fd(F2) + JSON.stringify(r.j.note));
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 200000 }); t('frozen: saving the same amount again changes nothing', r.s === 200 && !r.j.note && fd(F2) === '50000.00/100000.00/50000.00', fd(F2));
 // the carried amount now sits on instalment 2, which has no payment: cutting back the carried part is blocked only by the paid instalment's own share
-r = await A('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 100000 }); t('frozen: back to 100000 is allowed (the paid instalment keeps its 50000, only the carried part goes)', r.s === 200 && fd(F2) === '50000.00/25000.00/25000.00', r.s + ' ' + fd(F2));
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}`, { amount: 100000 }); t('frozen: back to 100000 is allowed (the paid instalment keeps its 50000, only the carried part goes)', r.s === 200 && fd(F2) === '50000.00/25000.00/25000.00', r.s + ' ' + fd(F2));
 // a bounced cheque frees the demand
 psql(`UPDATE receipts SET status='bounced' WHERE id='${rcp}'`);
-r = await A('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: a bounced receipt no longer freezes -> cancel works', r.s === 200 && fd(F2) === '0.00/0.00/0.00', r.s + ' ' + fd(F2));
+r = await AO('PATCH', `/addon-charges/consumer/${F2c}/cancel`); t('frozen: a bounced receipt no longer freezes -> cancel works', r.s === 200 && fd(F2) === '0.00/0.00/0.00', r.s + ' ' + fd(F2));
 // F3: other kinds of receipt
 const F3 = mkF('F3'); pay(F3, 1, 'cancelled'); pay(F3, 1, 'cleared', false);
-r = await A('POST', '/addon-charges/consumer', fch(F3)); t('frozen: a cancelled receipt, and a receipt with no instalment, do not freeze', r.s === 201 && !r.j.note && fd(F3) === '50000.00/25000.00/25000.00', fd(F3));
+r = await AO('POST', '/addon-charges/consumer', fch(F3)); t('frozen: a cancelled receipt, and a receipt with no instalment, do not freeze', r.s === 201 && !r.j.note && fd(F3) === '50000.00/25000.00/25000.00', fd(F3));
 const F3c = r.j.data.id; pay(F3, 2, 'pending');
-r = await A('PATCH', `/addon-charges/consumer/${F3c}/cancel`); t('frozen: a pending cheque counts as money received -> cancel refused', r.s === 400 && /Instalment 2/.test(r.j.error), JSON.stringify(r.j));
+r = await AO('PATCH', `/addon-charges/consumer/${F3c}/cancel`); t('frozen: a pending cheque is an unresolved receipt (decision U3) -> cancel refused (409)', r.s === 409 && /unresolved/.test(r.j.error), JSON.stringify(r.j));
 // F4: demand marked paid with no receipt row (old data) freezes too; cancelled demand is ignored
 const F4 = mkF('F4'); psql(`UPDATE demands SET status='paid' WHERE payment_plan_id='${F4.pp}' AND installment_index=1`); psql(`UPDATE demands SET status='cancelled' WHERE payment_plan_id='${F4.pp}' AND installment_index=3`);
-r = await A('POST', '/addon-charges/consumer', fch(F4)); t('frozen: status paid freezes; a cancelled instalment is skipped (25000 + moved 50000)', r.s === 201 && fd(F4) === '0.00/75000.00/0.00', r.s + ' ' + fd(F4));
+r = await AO('POST', '/addon-charges/consumer', fch(F4)); t('frozen: status paid freezes; a cancelled instalment is skipped (25000 + moved 50000)', r.s === 201 && fd(F4) === '0.00/75000.00/0.00', r.s + ' ' + fd(F4));
 // F5: everything paid
 const F5 = mkF('F5'); for (const i of [1, 2, 3]) pay(F5, i);
-r = await A('POST', '/addon-charges/consumer', fch(F5)); t('frozen: every instalment paid -> 400, nothing saved', r.s === 400 && /separate demand/.test(r.j.error) && psql(`SELECT count(*) FROM consumer_addon_charges WHERE consumer_id='${F5.cons}'`) === '0', JSON.stringify(r.j));
+r = await AO('POST', '/addon-charges/consumer', fch(F5)); t('frozen: every instalment paid -> 400, nothing saved', r.s === 400 && /separate demand/.test(r.j.error) && psql(`SELECT count(*) FROM consumer_addon_charges WHERE consumer_id='${F5.cons}'`) === '0', JSON.stringify(r.j));
 // master changes hit the same rule, all or nothing
 r = await pm(MF, { defaultAmount: 50000 }); t('frozen: lowering the master while a customer has paid -> 400 naming them, nothing changed', r.s === 400 && /Frozen F3/.test(r.j.error) && psql(`SELECT default_amount FROM addon_charge_master WHERE id='${MF}'`) === '100000.00' && psql(`SELECT amount FROM consumer_addon_charges WHERE id='${F3c}'`) === '100000.00', JSON.stringify(r.j));
 r = await A('DELETE', `/addon-charges/master/${MF}`); t('frozen: deactivating the master while a customer has paid -> 400, master stays on', r.s === 400 && psql(`SELECT is_active FROM addon_charge_master WHERE id='${MF}'`) === 't', JSON.stringify(r.j));
 r = await pm(MF, { defaultAmount: 120000 }); t('frozen: raising the master is fine', r.s === 200, JSON.stringify(r.j));
 // races with a receipt arriving between checks cannot be tested here; parallel changes on one customer still serialise
-const F6 = mkF('F6'); r = await A('POST', '/addon-charges/consumer', fch(F6)); const F6c = r.j.data.id; pay(F6, 1);
-const rr = await Promise.all([1, 2, 3, 4].map(() => A('PATCH', `/addon-charges/consumer/${F6c}`, { amount: 150000 }))); t('frozen: 4 parallel raises all succeed and the total is billed once', rr.every(x => x.s === 200) && psql(`SELECT sum(addon_charge_amount)::int FROM demands WHERE payment_plan_id='${F6.pp}'`) === '150000', rr.map(x => x.s).join() + ' ' + fd(F6));
+const F6 = mkF('F6'); r = await AO('POST', '/addon-charges/consumer', fch(F6)); const F6c = r.j.data.id; pay(F6, 1);
+const rr = await Promise.all([1, 2, 3, 4].map(() => AO('PATCH', `/addon-charges/consumer/${F6c}`, { amount: 150000 }))); t('frozen: 4 parallel raises all succeed and the total is billed once', rr.every(x => x.s === 200) && psql(`SELECT sum(addon_charge_amount)::int FROM demands WHERE payment_plan_id='${F6.pp}'`) === '150000', rr.map(x => x.s).join() + ' ' + fd(F6));
 
 // ---------- audit ----------
 const au = (ty, a) => Number(psql(`SELECT count(*) FROM audit_logs WHERE resource_type='${ty}' AND action='${a}'`));

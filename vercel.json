@@ -9,5 +9,6 @@
       "includeFiles": "{packages/web/public/**,packages/api/dist/**,packages/api/node_modules/**}"
     }
   },
+  "crons": [{ "path": "/api/cron/daily-status", "schedule": "30 18 * * *" }],
   "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
 }

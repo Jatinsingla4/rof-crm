@@ -46,3 +46,13 @@ Source: `ROF_CRM_OWNER_CA_DECISIONS_FINAL.md` (decisions 11 and 12, defect DEF-0
 | Total cost with GST in the due summary is the same as in the balance report (unit cost plus the GST of all demands) | `routes/reports-dues.ts` |
 
 Not yet applied (separate batches, some need a design first): the approval matrix as request-then-approve for allocation cancel, surrender, transfer, unraise, interest save and reconciliation match; the common refund lifecycle; the transfer ownership model; the GST basis on the net taxable value (statutory validation required); interest only on cleared money from the clearing date and only on raised demands; TDS rules; the overpayment threshold approval; Vercel Cron and read-time due status; the financial screens.
+
+## Delegated owner decisions applied in batch 2 (10 November 2026)
+
+| Rule | Where it is enforced |
+|---|---|
+| Interest (U1): only CLEARED, non-ADV receipts reduce interest, counted from the clearing date; only a formally raised demand (raised_at set) bears interest; the scheduler, the single-customer calculation and the reports use one engine; approved returns are taken off | `utils/payment-waterfall.ts` (`buildInterestRows`), `routes/payments.ts`, `utils/report-ledger.ts` |
+| Due status (scheduler decision): a pending demand whose due date has been reached is shown as demanded at read time; the daily job `GET /api/cron/daily-status` (Vercel Cron, `CRON_SECRET`) stores it, idempotently; reminders and the overdue job only take formally raised demands | `routes/demands.ts`, `routes/cron.ts`, `vercel.json`, `queues/scheduler.ts` |
+| Add-on charges (U3): none can be added, edited, cancelled or waived while the customer has an unresolved receipt (pending, authorized, deposited, on hold) | `routes/addon-charges.ts` |
+
+Setting `CRON_SECRET` in the Vercel project is required for the daily job; without it the job answers 503.
