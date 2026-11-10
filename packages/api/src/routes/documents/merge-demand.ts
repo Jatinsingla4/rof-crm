@@ -8,6 +8,7 @@ import { applyWaterfall, buildInterestRows, WaterfallReceipt, WaterfallDemand } 
 import { numberToWordsIndian, ordinalFloor, fmtDateIndia, fmtIndianNumber, fmtIndianNumberDecimal, fmtIndianMoneyDecimal, fmtIndianAreaDecimal } from './shells.js';
 import { penalRateFrom } from '../../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart, businessYear } from '../../utils/business-date.js';
+import { returnedSql } from '../../utils/money-basis.js';
 export interface GenCtx {
   req: any; consumerId: string; allocationId?: string; template: any; d: any;
   includeAllDemands?: boolean; dueDate?: string; mergeData: any; htmlContent: string;
@@ -84,7 +85,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
               br.balcony_cgst_amount,
               br.balcony_sgst_amount,
               COALESCE((
-                SELECT SUM(r.amount_received_inr)
+                SELECT SUM(r.amount_received_inr - ${returnedSql('r')})
                 FROM receipts r
                 WHERE r.consumer_id = c.id
                 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
@@ -176,7 +177,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
               d.addon_sgst_amount,
               d.due_date,
               COALESCE(
-                (SELECT SUM(r.amount_received_inr) FROM receipts r
+                (SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r
                  WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
@@ -207,7 +208,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
               d.addon_sgst_amount,
               d.due_date,
               COALESCE(
-                (SELECT SUM(r.amount_received_inr) FROM receipts r
+                (SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r
                  WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),
                 0
               ) AS amount_paid,
@@ -237,8 +238,8 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
                 COALESCE(pst2.installment_name, d.demand_type, 'Installment') AS installment_name,
                 d.amount_due_inr, d.cgst_amount, d.sgst_amount, d.due_date,
                 COALESCE(
-                  (SELECT SUM(amount_received_inr) FROM receipts
-                   WHERE demand_id = d.id AND status = 'cleared' AND is_advance IS NOT TRUE), 0
+                  (SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r
+                   WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
                 COALESCE(pst2.percentage, 0) AS percentage,
@@ -270,7 +271,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
           // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
           const [wfRcptsRes, wfDemandsRes] = await Promise.all([
             db.query<WaterfallReceipt>(
-              `SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
+              `SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`,
               [consumerId]

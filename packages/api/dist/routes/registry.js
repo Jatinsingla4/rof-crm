@@ -5,6 +5,7 @@ const index_js_1 = require("../index.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
 /**
@@ -54,7 +55,7 @@ router.post('/schedule', async (req, res, next) => {
             // Ledger balance: every live demand (tax and add-on charges included) less every live receipt
             const balance = Number((await c.query(`SELECT COALESCE((SELECT SUM(amount_due_inr + COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(addon_charge_amount,0) + COALESCE(addon_cgst_amount,0) + COALESCE(addon_sgst_amount,0))
                             FROM demands WHERE consumer_id = $1 AND status <> 'cancelled'), 0)
-              - COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND NOT COALESCE(is_advance, false)), 0) AS balance`, [al.consumer_id])).rows[0].balance);
+              - COALESCE((SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)), 0) AS balance`, [al.consumer_id])).rows[0].balance);
             if (balance > 0)
                 throw (0, input_js_1.bad)('Registry cannot be scheduled until all dues are cleared. Current balance: ' + Math.round(balance * 100) / 100);
             return (await c.query(`INSERT INTO registry_details (allocation_id, unit_id, consumer_id, appointment_date, remarks, status) VALUES ($1, $2, $3, $4, $5, 'scheduled') RETURNING id, status`, [allocationId, al.unit_id, al.consumer_id, appointmentDate, remarks])).rows[0];

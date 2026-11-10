@@ -4,6 +4,7 @@ import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, text, day, body, inTx, paging, qtext } from '../utils/input.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
@@ -47,7 +48,7 @@ router.post('/schedule', async (req: AuthRequest, res: Response, next: NextFunct
       const balance = Number((await c.query(
         `SELECT COALESCE((SELECT SUM(amount_due_inr + COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(addon_charge_amount,0) + COALESCE(addon_cgst_amount,0) + COALESCE(addon_sgst_amount,0))
                             FROM demands WHERE consumer_id = $1 AND status <> 'cancelled'), 0)
-              - COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND NOT COALESCE(is_advance, false)), 0) AS balance`, [al.consumer_id])).rows[0].balance);
+              - COALESCE((SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)), 0) AS balance`, [al.consumer_id])).rows[0].balance);
       if (balance > 0) throw bad('Registry cannot be scheduled until all dues are cleared. Current balance: ' + Math.round(balance * 100) / 100);
       return (await c.query(
         `INSERT INTO registry_details (allocation_id, unit_id, consumer_id, appointment_date, remarks, status) VALUES ($1, $2, $3, $4, $5, 'scheduled') RETURNING id, status`,

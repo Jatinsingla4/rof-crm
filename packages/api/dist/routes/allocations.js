@@ -20,6 +20,7 @@ const surrender_js_1 = require("./surrender.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const csvUpload = (0, multer_1.default)({ storage: multer_1.default.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
 const STATUSES = ['allotted', 'agreement_signed', 'cancelled', 'transferred', 'booked'];
@@ -188,7 +189,7 @@ router.post('/:id/cancel', async (req, res, next) => {
             const alloc = (await c.query(`SELECT id, consumer_id, unit_id FROM allocations WHERE id = $1`, [id])).rows[0];
             if (!alloc)
                 throw (0, input_js_1.bad)('Allocation not found', 404);
-            const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [alloc.consumer_id])).rows[0].s);
+            const received = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [alloc.consumer_id])).rows[0].s);
             const forfeit = Math.min(29500, received), refund = Math.round((received - forfeit) * 100) / 100;
             const done = await (0, surrender_js_1.performSurrender)(c, req, res, {
                 consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: (0, business_date_js_1.businessToday)(), sType: 'allocation_cancel', mode: null,
@@ -280,7 +281,7 @@ router.post('/import-edraw', (req, res, next) => csvUpload.single('file')(req, r
                         skipped++;
                         continue;
                     }
-                    const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [p.id])).rows[0].s);
+                    const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [p.id])).rows[0].s);
                     if (paid > 0) {
                         await c.query(`INSERT INTO draw_refunds (consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status, created_by_user_id, company_bank_account_id)
                VALUES ($1, $2, 'unsuccessful', $3, $3, ${business_date_js_1.SQL_TODAY} + INTERVAL '30 days', 'pending', $4, $5)`, [p.id, projectId, paid, req.userId, bankAccount]);

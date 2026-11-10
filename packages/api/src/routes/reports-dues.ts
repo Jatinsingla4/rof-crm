@@ -125,7 +125,7 @@ router.get('/customer-due-summary', h(async (req, res) => {
       consumer_id: p.consumer_id, registration_no: p.registration_no, booking_date: p.booking_date, name: p.consumer_name, tower_name: p.tower_name, unit_number: p.unit_number,
       bhk_type: p.bhk_type, area: p.carpet_area_sqft, broker_name: p.broker_name, plan_name: p.plan_name, loan_type: p.self_or_loan, rate: p.rate,
       net_basic_price: p.net_basic_price, plc_amount: p.plc_amount, basic_with_plc: r2(p.net_basic_price + p.plc_amount), total_unit_cost: p.unit_cost,
-      total_cost_with_gst: r2(p.unit_cost + p.booking_gst),
+      total_cost_with_gst: r2(p.unit_cost + allGst(p)),   // D-TOTALCOST: unit cost plus the GST of ALL demands, the same figure as the balance report (not the GST of the booking payment alone)
       due_amount: t.amount, due_amount_with_tax: t.demanded, ten_pct_due: Math.round(p.unit_cost * 0.1),
       received_pending: p.received_pending, received_clear: p.received, received_total: r2(p.received + p.received_pending),
     };

@@ -14,6 +14,7 @@ import cashRoutes from './reports-cash.js';
 import applicantRoutes from './reports-applicant.js';
 import { baseCostSql } from '../utils/report-ledger.js';
 import { sqlDay } from '../utils/business-date.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 
@@ -661,7 +662,7 @@ router.get('/tower-floor-sales', async (req: AuthRequest, res: Response, next: N
 
     const receivedJoin = `
       LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(r.amount_received_inr), 0) AS received
+        SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) AS received
         FROM receipts r
         JOIN payment_plans pp ON pp.id = r.payment_plan_id
         WHERE pp.unit_id = u.id AND pp.consumer_id = br.consumer_id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
@@ -774,8 +775,8 @@ router.get('/project-details', async (req: AuthRequest, res: Response, next: Nex
          COALESCE((SELECT AVG(u.base_price_inr)  FROM units u WHERE u.project_id = p.id), 0) AS average_bsp,
          COALESCE((SELECT AVG(u.total_price_inr) FROM units u WHERE u.project_id = p.id), 0) AS average_cost,
          COALESCE(
-           (SELECT SUM(r.amount_received_inr)
-              FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
+           (SELECT SUM(r.amount_received_inr - ${returnedSql('r')})
+               FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
              WHERE COALESCE(pp.project_id, c.project_id) = p.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),
            0
          )                                                             AS total_collection

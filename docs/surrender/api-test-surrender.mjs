@@ -48,7 +48,7 @@ const NILS = '00000000-0000-0000-0000-000000000000';
 const buyer = async (paid = 0) => {   // a seller: completed booking (unit, plan, 3 demands); optionally with cleared money
   const c = await person(); const u = await unit(); const x = await book(c, u, {}); if (x.s !== 201) throw new Error('book ' + JSON.stringify(x));
   const y = await finish(x.j.data.id); if (y.s !== 200) throw new Error('finish ' + JSON.stringify(y));
-  if (paid) { const p = await A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: paid, paymentMode: 'neft', referenceNumber: `SUR${U}${++rn}`, paymentDate: today, installmentIndex: 9 }); if (p.s !== 201) throw new Error('rec ' + JSON.stringify(p)); const k = await CK('PATCH', `/payments/receipts/${p.j.data.id}/clear`, { clearing_date: today }); if (k.s !== 200) throw new Error('clear ' + JSON.stringify(k)); }
+  if (paid) { const p = await A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: paid, paymentMode: 'neft', referenceNumber: `SUR${U}${++rn}`, paymentDate: today, installmentIndex: 9 }); if (p.s !== 201) throw new Error('rec ' + JSON.stringify(p)); await CK('PATCH', `/payments/receipts/${p.j.data.id}/approve`, {}); const k = await CK('PATCH', `/payments/receipts/${p.j.data.id}/clear`, { clearing_date: today }); if (k.s !== 200) throw new Error('clear ' + JSON.stringify(k)); }
   return { c, u, id: x.j.data.id, al: psql(`select id from allocations where consumer_id='${c}' and status not in ('cancelled','transferred') order by created_at desc limit 1`) };
 };
 let rn = 0;

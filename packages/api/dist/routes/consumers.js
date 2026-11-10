@@ -24,6 +24,7 @@ const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -129,6 +130,11 @@ router.post('/', (0, processPermission_js_1.requireProcess)('new_applicant', 'ma
                 row[k] = v;
         Object.assign(row, { name, mobile, project_id: project, lead_stage: stage || 'enquiry', income_category: inc || null, parivar_pehchan_patra: f.ppp_id ?? null, created_by_user_id: req.userId });
         delete row.ppp_id;
+        if (!row.first_name && !row.last_name && row.applicant_type !== 'company') {
+            const parts = String(name).trim().split(/\s+/);
+            row.first_name = parts[0];
+            row.last_name = parts.length > 1 ? parts.slice(1).join(' ') : null;
+        }
         if (row.pan_no)
             row.pan_hash = (0, applicant_fields_js_1.sha)(row.pan_no);
         if (row.aadhaar_no)
@@ -227,6 +233,8 @@ router.get('/', async (req, res, next) => {
                 throw (0, input_js_1.bad)(`leadStage must be one of ${applicant_js_1.LEAD_STAGES.join(', ')}`);
             add('c.lead_stage = ?', q.leadStage);
         }
+        if (q.leadSource)
+            add(`REPLACE(LOWER(c.source_of_enquiry), ' ', '_') = ?`, String(q.leadSource).toLowerCase().replace(/\s+/g, '_'));
         if (q.unitNo)
             add(`u.unit_number ILIKE ? ESCAPE '\\'`, (0, applicant_js_1.likeOf)(q.unitNo));
         if (q.mobile)
@@ -327,7 +335,7 @@ router.get('/:id', async (req, res, next) => {
         // Fetch payment summary
         const paymentResult = await index_js_1.db.query(`SELECT
         SUM(total_amount_inr) as total_due,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE) as collected
+        (SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE) as collected
        FROM payment_plans WHERE consumer_id = $1`, [id]);
         res.json({
             success: true,
@@ -701,10 +709,10 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
           e.name AS employee_name,
           u2.name AS created_by_name,
           COALESCE((
-            SELECT SUM(r.amount_received_inr)
-            FROM receipts r
-            WHERE r.consumer_id = c.id
-            AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
+            SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')})
+             FROM receipts r
+             WHERE r.consumer_id = c.id
+             AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
           ), 0) AS total_received_inr,
           COALESCE((
             SELECT json_agg(json_build_object(
@@ -712,12 +720,12 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
               'total_paid', rr.total_paid
             ))
             FROM (
-              SELECT installment_index,
-                     SUM(amount_received_inr) AS total_paid
-              FROM receipts
-              WHERE consumer_id = c.id
-                AND status = 'cleared' AND is_advance IS NOT TRUE
-              GROUP BY installment_index
+              SELECT r.installment_index,
+                      SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS total_paid
+               FROM receipts r
+               WHERE r.consumer_id = c.id
+                 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
+               GROUP BY r.installment_index
             ) rr
           ), '[]'::json) AS installment_payments
         FROM consumers c
@@ -882,7 +890,7 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
         // Waterfall allocation: replace installment_payments with accurate per-installment paid amounts.
         // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
         const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-            index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
+            index_js_1.db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

@@ -14,6 +14,7 @@ const reports_dues_js_1 = require("./reports-dues.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const company_bank_js_1 = require("../utils/company-bank.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
 const PROJECT = `COALESCE(pp.project_id, c.project_id)`;
@@ -26,14 +27,14 @@ const notScoped = (what) => { if ((0, pool_js_1.isScoped)())
     throw (0, input_js_1.bad)(`${what} is company wide and is not available to a login limited to projects`, 403); };
 router.get('/monthly-collection', (0, reports_dues_js_1.h)(async (req, res) => {
     const x = (0, reports_dues_js_1.Q)(req);
-    const r = await pool_js_1.db.query(`SELECT TO_CHAR(DATE_TRUNC('month', r.received_date), 'YYYY-MM-DD') AS month, COUNT(*)::int AS receipt_count, SUM(r.amount_received_inr) AS amount_collected_inr
+    const r = await pool_js_1.db.query(`SELECT TO_CHAR(DATE_TRUNC('month', r.received_date), 'YYYY-MM-DD') AS month, COUNT(*)::int AS receipt_count, SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS amount_collected_inr
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid)
       GROUP BY 1 ORDER BY 1 DESC`, [x.projectId || null]);
     res.json({ success: true, data: r.rows.map((m) => ({ ...m, amount_collected_inr: num(m.amount_collected_inr) })) });
 }));
 router.get('/year-month-collection', (0, reports_dues_js_1.h)(async (req, res) => {
     const x = (0, reports_dues_js_1.Q)(req);
-    const r = await pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS total
+    const r = await pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS total
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid) GROUP BY 1, 2 ORDER BY 1, 2`, [x.projectId || null]);
     const cur = (0, business_date_js_1.businessYear)();
     const years = r.rows.map((a) => a.yr);
@@ -52,7 +53,7 @@ router.get('/project-collection', (0, reports_dues_js_1.h)(async (req, res) => {
     const x = (0, reports_dues_js_1.Q)(req);
     const from = x.fromDate || null, to = x.toDate || null, pid = x.projectId || null;
     const inRange = (col) => `($2::date IS NULL OR ${col} >= $2::date) AND ($3::date IS NULL OR ${col} <= $3::date)`;
-    const rows = (await pool_js_1.db.query(`WITH pr AS (SELECT r.id, r.status, r.payment_method::text AS pm, r.amount_received_inr, r.received_date, r.is_advance, ${PROJECT} AS project_id ${RECEIPT_FROM})
+    const rows = (await pool_js_1.db.query(`WITH pr AS (SELECT r.id, r.status, r.payment_method::text AS pm, r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')} AS amount_received_inr, r.received_date, r.is_advance, ${PROJECT} AS project_id ${RECEIPT_FROM})
      SELECT p.id AS project_id, p.name AS project_name,
         COALESCE(SUM(pr.amount_received_inr) FILTER (WHERE pr.status = 'cleared' AND pr.is_advance IS NOT TRUE AND pr.pm = 'cheque' AND ${inRange('pr.received_date')}), 0) AS cheque_amount,
         COALESCE(SUM(pr.amount_received_inr) FILTER (WHERE pr.status = 'cleared' AND pr.is_advance IS NOT TRUE AND pr.pm = 'demand_draft' AND ${inRange('pr.received_date')}), 0) AS draft_amount,
@@ -101,7 +102,7 @@ router.get('/cash-bank-summary', (0, reports_dues_js_1.h)(async (req, res) => {
     notScoped('The cash and bank summary');
     const x = (0, reports_dues_js_1.Q)(req);
     const r = await pool_js_1.db.query(`SELECT cba.id, cba.bank_name, cba.account_name, cba.account_number,
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.company_bank_account_id = cba.id AND ${CASH} AND ($4::date IS NULL OR r.received_date >= $4::date) AND ($5::date IS NULL OR r.received_date <= $5::date)), 0) AS credit,
+            COALESCE((SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r WHERE r.company_bank_account_id = cba.id AND ${CASH} AND ($4::date IS NULL OR r.received_date >= $4::date) AND ($5::date IS NULL OR r.received_date <= $5::date)), 0) AS credit,
             COALESCE((SELECT SUM(op.amount_inr) FROM outgoing_payments op WHERE op.company_bank_account_id = cba.id AND op.status = 'cleared' AND ($4::date IS NULL OR op.payment_date >= $4::date) AND ($5::date IS NULL OR op.payment_date <= $5::date)), 0) AS debit
        FROM company_bank_accounts cba
       WHERE cba.is_active = true AND ($1::uuid IS NULL OR cba.company_id = $1::uuid)
@@ -116,7 +117,7 @@ router.get('/ledger-monthly-summary/:companyBankAccountId', (0, reports_dues_js_
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
         throw (0, input_js_1.bad)('companyBankAccountId is not valid');
     const [cr, dr] = await Promise.all([
-        pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS credit FROM receipts r
+        pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS credit FROM receipts r
                WHERE r.company_bank_account_id = $1 AND ${CASH} AND ($2::date IS NULL OR r.received_date >= $2::date) AND ($3::date IS NULL OR r.received_date <= $3::date) GROUP BY 1, 2`, [id, x.fromDate || null, x.toDate || null]),
         pool_js_1.db.query(`SELECT EXTRACT(YEAR FROM op.payment_date)::int AS yr, EXTRACT(MONTH FROM op.payment_date)::int AS mo, SUM(op.amount_inr) AS debit FROM outgoing_payments op
                WHERE op.company_bank_account_id = $1 AND op.status = 'cleared' AND ($2::date IS NULL OR op.payment_date >= $2::date) AND ($3::date IS NULL OR op.payment_date <= $3::date) GROUP BY 1, 2`, [id, x.fromDate || null, x.toDate || null]),

@@ -9,6 +9,7 @@ const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
 const business_date_js_1 = require("../../utils/business-date.js");
+const money_basis_js_1 = require("../../utils/money-basis.js");
 // Fills ctx.mergeData for a demand letter
 async function demandLetterData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -78,7 +79,7 @@ async function demandLetterData(ctx) {
               br.balcony_cgst_amount,
               br.balcony_sgst_amount,
               COALESCE((
-                SELECT SUM(r.amount_received_inr)
+                SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')})
                 FROM receipts r
                 WHERE r.consumer_id = c.id
                 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
@@ -159,7 +160,7 @@ async function demandLetterData(ctx) {
               d.addon_sgst_amount,
               d.due_date,
               COALESCE(
-                (SELECT SUM(r.amount_received_inr) FROM receipts r
+                (SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r
                  WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0
               ) AS amount_paid,
               GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue
@@ -189,7 +190,7 @@ async function demandLetterData(ctx) {
               d.addon_sgst_amount,
               d.due_date,
               COALESCE(
-                (SELECT SUM(r.amount_received_inr) FROM receipts r
+                (SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r
                  WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),
                 0
               ) AS amount_paid,
@@ -219,8 +220,8 @@ async function demandLetterData(ctx) {
                 COALESCE(pst2.installment_name, d.demand_type, 'Installment') AS installment_name,
                 d.amount_due_inr, d.cgst_amount, d.sgst_amount, d.due_date,
                 COALESCE(
-                  (SELECT SUM(amount_received_inr) FROM receipts
-                   WHERE demand_id = d.id AND status = 'cleared' AND is_advance IS NOT TRUE), 0
+                  (SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r
+                   WHERE r.demand_id = d.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0
                 ) AS amount_paid,
                 GREATEST(0, EXTRACT(DAY FROM NOW() - d.due_date)::INT) AS days_overdue,
                 COALESCE(pst2.percentage, 0) AS percentage,
@@ -250,7 +251,7 @@ async function demandLetterData(ctx) {
     const totalPlanInstallments = parseInt(planSchedCountRes.rows[0]?.count || '0');
     // Build waterfall allocation map: demand_id → total paid (linked + advance pool)
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
-        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
+        index_js_1.db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
         index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,

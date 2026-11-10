@@ -351,9 +351,11 @@ export async function recomputeBookingAmount(
   projectId: string,
   paymentPlanId: string,
 ): Promise<void> {
+  // Q13 money basis: a legacy ADV row never counts, and an approved return is taken off (dynamic import: money-basis imports this file)
+  const { returnedSql } = await import('./money-basis.js');
   const result = await client.query(
-    `SELECT amount_received_inr FROM receipts
-     WHERE consumer_id = $1 AND status = 'cleared'
+    `SELECT amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr FROM receipts
+     WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE
        AND (payment_plan_id = $2
             OR demand_id IN (SELECT id FROM demands WHERE payment_plan_id = $2))
      ORDER BY created_at ASC LIMIT 1`,

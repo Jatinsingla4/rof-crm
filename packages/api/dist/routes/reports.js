@@ -17,6 +17,7 @@ const reports_cash_js_1 = __importDefault(require("./reports-cash.js"));
 const reports_applicant_js_1 = __importDefault(require("./reports-applicant.js"));
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 // Every filter is checked once here (400 for a bad id, date, number or a list / object where one value is expected)
 router.use((req, res, next) => {
@@ -601,7 +602,7 @@ router.get('/tower-floor-sales', async (req, res, next) => {
         + COALESCE(br.other_charge_amount, 0))`;
         const receivedJoin = `
       LEFT JOIN LATERAL (
-        SELECT COALESCE(SUM(r.amount_received_inr), 0) AS received
+        SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) AS received
         FROM receipts r
         JOIN payment_plans pp ON pp.id = r.payment_plan_id
         WHERE pp.unit_id = u.id AND pp.consumer_id = br.consumer_id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
@@ -710,8 +711,8 @@ router.get('/project-details', async (req, res, next) => {
          COALESCE((SELECT AVG(u.base_price_inr)  FROM units u WHERE u.project_id = p.id), 0) AS average_bsp,
          COALESCE((SELECT AVG(u.total_price_inr) FROM units u WHERE u.project_id = p.id), 0) AS average_cost,
          COALESCE(
-           (SELECT SUM(r.amount_received_inr)
-              FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
+           (SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')})
+               FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
              WHERE COALESCE(pp.project_id, c.project_id) = p.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE),
            0
          )                                                             AS total_collection

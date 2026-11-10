@@ -677,10 +677,13 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
   // On Vercel the exported app is the request handler; only bind a port elsewhere
   if (!process.env.VERCEL) {
-    app.listen(Number(PORT), '0.0.0.0', () => {
+    const server = app.listen(Number(PORT), '0.0.0.0', () => {
       console.log(`ROF CRM API running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'} (APP_ENV ${appConfig.appEnv ?? 'not set'}, SCOPE_MODE ${appConfig.scopeMode})`);
     });
+    // Node closes an idle keep-alive connection after 5 s; a client that reuses it at that moment gets ECONNRESET (seen in the long test scripts). 65 s is the usual value behind a proxy.
+    server.keepAliveTimeout = 65_000;
+    server.headersTimeout = 66_000;
   }
 })();
 

@@ -5,7 +5,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { db, AuthRequest } from '../index.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
-import { recomputePlan } from '../utils/money-basis.js';
+import { recomputePlan, returnedSql } from '../utils/money-basis.js';
 import { resolveGstForComponents } from '../utils/gst-resolver.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
@@ -248,7 +248,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
     await Promise.all([...pairs.entries()].map(async ([key, { consumerId, unitId }]) => {
       const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
       const [rc, dm] = await Promise.all([
-        db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
+        db.query(`SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
         db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan}`, [consumerId, unitId]),
@@ -460,7 +460,7 @@ router.get('/demand-status', async (req: AuthRequest, res: Response, next: NextF
     await Promise.all(data.rows.map(async (r: any) => {
       const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
       const [rc, dm] = await Promise.all([
-        db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
+        db.query(`SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
         db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan} AND status <> 'cancelled'`, [r.consumer_id, r.unit_id]),

@@ -29,3 +29,20 @@
 Switches: `RECEIPT_RETURNS=off` and `CREDIT_ALLOCATIONS=off` refuse new requests and approvals with 409 and change nothing; existing records stay and stay counted.
 Tests: `docs/money-integrity/api-test-money-integrity.mjs`, `docs/money-integrity/api-test-returns-credit.mjs`.
 Not decided here: Q12 (GST before or after the rebate), Q14 (overpayment approval threshold), the interest engine basis, and the accounting, tax and cheque-clearing treatment (CA).
+
+## Delegated owner decisions applied in batch 1 (9 to 10 November 2026)
+
+Source: `ROF_CRM_OWNER_CA_DECISIONS_FINAL.md` (decisions 11 and 12, defect DEF-03 priority P0, plus small defects). Tests: `docs/money-decisions/`.
+
+| Rule | Where it is enforced |
+|---|---|
+| An approved receipt return is taken off the money in every reader: surrender cap, allocation cancel, refund room, transfer snapshot, registry gate, dashboard, Project Collection and cash reports, customer balance, consumer, unit, project and letter figures, rebate re-pricing, demand waterfall loaders | `returnedSql` from `utils/money-basis.ts` in each query |
+| Cleared money of a surrendered or cancelled unit and a receipt with no payment plan both count in the dashboard collection (the project comes from the plan, else from the customer) | `routes/dashboard.ts` |
+| Surrender, allocation cancel and refund requests take the same consumer lock as clearing and returns, so the money they read cannot go stale | `routes/surrender.ts`, `routes/financial-ops.ts` |
+| A legacy ADV receipt never feeds the booking amount | `utils/payment-waterfall.ts` (`recomputeBookingAmount`) |
+| `authorized` means approved: approving sets `approval_status = approved`. Nothing is deposited or cleared before it is authorized; deposit, hold and release are never by the creator; a held receipt returns to authorized | `routes/receipts.ts`, migration 151 (fills the field for receipts a checker already authorized) |
+| The creator may withdraw a pending receipt; a pending receipt is rejected, and an authorized one cancelled, only by another user with the receipt checker right and a reason; a cleared receipt is never cancelled | `routes/payments.ts` (cancel) |
+| Rebate approval splits the demands exactly like the booking confirmation (the demands add up to the plan total), compares money received with the new demand total including GST, and recomputes demand statuses | `utils/rebate.ts` |
+| Total cost with GST in the due summary is the same as in the balance report (unit cost plus the GST of all demands) | `routes/reports-dues.ts` |
+
+Not yet applied (separate batches, some need a design first): the approval matrix as request-then-approve for allocation cancel, surrender, transfer, unraise, interest save and reconciliation match; the common refund lifecycle; the transfer ownership model; the GST basis on the net taxable value (statutory validation required); interest only on cleared money from the clearing date and only on raised demands; TDS rules; the overpayment threshold approval; Vercel Cron and read-time due status; the financial screens.

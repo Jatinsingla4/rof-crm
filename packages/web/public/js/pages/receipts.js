@@ -1748,7 +1748,8 @@ const ReceiptsPage = {
 
         // Cancel mode — show status-aware rows
         const isCancelled = r.status === 'cancelled';
-        const isApproved  = r.approval_status === 'approved';
+        // D-RECEIPTCTRL: an authorized receipt can still be cancelled by a different authorized user (the server decides who); only a cleared or bounced one cannot
+        const isApproved  = ['cleared', 'bounced'].includes(String(r.status || '').toLowerCase());
 
         if (isCancelled) {
           return `<tr style="opacity:0.5">
@@ -1764,8 +1765,8 @@ const ReceiptsPage = {
             <td class="td-mono">${r.receipt_number}</td>
             <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
             <td class="td-bold">${amt}</td>
-            <td>${Utils.chip('approved')}</td>
-            <td><span style="font-size:11px;color:var(--text3)">Approved — cannot cancel</span></td>
+            <td>${statusChip}</td>
+            <td><span style="font-size:11px;color:var(--text3)">${String(r.status).toLowerCase() === 'bounced' ? 'Bounced — cannot cancel' : 'Cleared — use the return process'}</span></td>
           </tr>`;
         }
 

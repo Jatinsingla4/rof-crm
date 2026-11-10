@@ -10,6 +10,7 @@ import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../u
 import { flagPaidCommission } from '../utils/broker.js';
 import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow } from '../utils/business-date.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 
@@ -131,7 +132,7 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
       db.query(`SELECT * FROM co_applicants WHERE consumer_id = $1 LIMIT 1`, [consumerId]),
       db.query(
         `SELECT r.id, r.receipt_number, r.received_date, r.payment_method,
-                r.amount_received_inr, r.cheque_no, r.bank_name,
+                r.amount_received_inr - ${returnedSql('r')} AS amount_received_inr, r.cheque_no, r.bank_name,
                 r.clearing_date, r.status, r.interest_amount
          FROM receipts r
          WHERE r.consumer_id = $1 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
@@ -338,6 +339,8 @@ export interface SurrenderInput {
 export const performSurrender = async (c: any, req: AuthRequest, res: Response, p: SurrenderInput) => {
   const { consumerId, allocationId, given, isCancel, date, sType, mode, f } = p;
     await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`surrender-alloc:${allocationId}`]);
+    // The same consumer lock as recording, clearing, returning and allocating money, so the money read below cannot go stale while a return is being approved
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${consumerId}`]);
     const alloc = (await c.query(`SELECT id, consumer_id, unit_id, project_id, status FROM allocations WHERE id = $1 FOR UPDATE`, [allocationId])).rows[0];
     if (!alloc) throw bad('Allocation not found', 404);
     if (alloc.consumer_id !== consumerId) throw bad('This allocation does not belong to that applicant');
@@ -356,7 +359,7 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     if (booking && booking.status === 'cancelled') throw bad('This booking is already cancelled', 409);
 
     // What the applicant has paid (cleared receipts, as the account screen shows it): forfeiture and refund together cannot exceed it
-    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [consumerId])).rows[0].s);
+    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [consumerId])).rows[0].s);
     if (f.forfeit > received + 0.005) throw bad(`The forfeiture (${f.forfeit}) is more than the amount received (${received})`);
     if (f.forfeit + f.refund > received + 1) throw bad(`Forfeiture plus refund (${r2(f.forfeit + f.refund)}) is more than the amount received (${received})`);
 

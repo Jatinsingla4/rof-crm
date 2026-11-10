@@ -81,7 +81,7 @@ test.beforeAll(async ({ browser }) => {
   const dem = (B: any, idx: number) => Number(sql(`select amount_due_inr + cgst_amount + sgst_amount from demands where payment_plan_id='${B.plan}' and installment_index=${idx}`));
   const rcp = async (B: any, amt: number, idx: number, st: 'clear' | 'bounce' | 'cancel' | 'pending', o: any = {}) => {
     const id = (await must('receipt', api('POST', '/payments/receipts', { consumerId: B.c, amountReceivedInr: amt, paymentMode: o.mode || 'neft', referenceNumber: `RE${U}-${++seq}`, paymentDate: today, installmentIndex: idx, companyBankAccountId: o.bank, ...(o.mode === 'cheque' ? { chequeNo: `RC${U}${seq}` } : {}) }))).id;
-    if (st === 'clear') await must('clear', apiCk('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }));
+    if (st === 'clear') { await apiCk('PATCH', `/payments/receipts/${id}/approve`, {}); await must('clear', apiCk('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today })); }
     if (st === 'bounce') await must('bounce', apiCk('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }));
     if (st === 'cancel') await must('cancel', api('POST', `/payments/receipts/${id}/cancel`, { reason: 'test' }));
     return id;

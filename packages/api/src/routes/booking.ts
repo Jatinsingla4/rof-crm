@@ -302,6 +302,7 @@ router.get('/check-form-no', async (req: AuthRequest, res: Response, next: NextF
 const holds = async (q: any, consumerId: string, unitId: string) => (await q.query(`SELECT 1 FROM allocations WHERE consumer_id = $1 AND unit_id <> $2 AND status NOT IN ('cancelled','transferred') LIMIT 1`, [consumerId, unitId])).rows.length > 0;
 router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
+    if (body(req).discount_value !== undefined) throw bad('discount_value is not used by bookings. Use the company rebate (needs approval) or the inaugural discount.');
     const o = parseNew(body(req));
     const {
       consumer_id, unit_id, booking_date, booking_amount,
@@ -509,7 +510,12 @@ router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, 
       // incident (consumer 9e9d7841, TULA-2026-0002 wrongly overwritten to ALAN-2026-0016
       // during unrelated testing).
       const existingRegNo = consumerRow.registration_no;
-      if (existingRegNo && consumerRow.project_id !== project_id) {
+      // An applicant created with a name and a mobile only has no project on record yet (the project was never stored when the number was issued): that is not
+      // "another project" unless a booking in a different project exists. The project is stored below, so the next booking finds it.
+      const otherProject = existingRegNo && consumerRow.project_id !== project_id
+        && (consumerRow.project_id !== null
+          || (await client.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id IS DISTINCT FROM $2 LIMIT 1`, [consumer_id, project_id])).rows.length > 0);
+      if (otherProject) {
         throw conflict(`Consumer is already registered as ${existingRegNo} under a different project. Create a new consumer record to book under this project instead.`);
       }
 
@@ -525,9 +531,10 @@ router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, 
              comm_city          = COALESCE($7, comm_city),
              comm_state         = COALESCE($8, comm_state),
              comm_country       = COALESCE($9, comm_country),
-             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
+             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END,
+             project_id         = COALESCE(project_id, $11)
          WHERE id = $10`,
-        [registrationNo, formNo, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, consumer_id]
+        [registrationNo, formNo, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, consumer_id, project_id]
       );
 
       // Auto-create pending commission record when booking type is broker
@@ -684,7 +691,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
           const was = cur.company_rebate_status;
           const next = rb.method === 'none' ? 'none' : 'pending';
           Object.assign(extra, { company_rebate_status: next, approved_rebate_amount: 0, rebate_requested_by: next === 'pending' ? req.userId : null, rebate_requested_at: next === 'pending' ? new Date() : null, rebate_decided_by: null, rebate_decided_at: null, rebate_decision_reason: null });
-          if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete') await repriceBooking(c, { ...cur, approved_rebate_amount: 0 });
+          if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete') await repriceBooking(c, { ...cur, approved_rebate_amount: 0 }, req.userId || null);
           rebateEvent = { was, next, method: rb.method, entered: rb.value, calculated_amount: rb.amount };
         }
       }
@@ -884,19 +891,21 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
         ]
       );
 
-      // Lock the unit now that payment is confirmed
+      // Lock the unit now that payment is confirmed (a unit locked at booking creation is already locked: no second history row for nothing)
       if (booking.unit_id) {
-        await client.query(
-          `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
-           WHERE id = $1 AND status != 'locked'`,
-          [booking.unit_id]
-        );
-        await client.query(
-          `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
-           VALUES ($1, 'available', 'locked', NOW(), $2, $3)
-           ON CONFLICT DO NOTHING`,
-          [booking.unit_id, req.userId, `Payment confirmed - ${booking.registration_no}`]
-        );
+        const was = (await client.query(`SELECT status FROM units WHERE id = $1`, [booking.unit_id])).rows[0]?.status;
+        if (was && was !== 'locked') {
+          await client.query(
+            `UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
+             WHERE id = $1 AND status != 'locked'`,
+            [booking.unit_id]
+          );
+          await client.query(
+            `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+             VALUES ($1, $2, 'locked', NOW(), $3, $4)`,
+            [booking.unit_id, was, req.userId, `Payment confirmed - ${booking.registration_no}`]
+          );
+        }
       }
 
       // Auto-create allocation + payment_plan on payment confirmation (idempotent)
@@ -979,10 +988,18 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             [booking.unit_id, booking.consumer_id]
           );
 
+          const before = (await client.query(`SELECT status FROM units WHERE id = $1`, [booking.unit_id])).rows[0]?.status;
           await client.query(
             `UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`,
             [booking.unit_id]
           );
+          if (before && before !== 'booked') {
+            await client.query(
+              `INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+               VALUES ($1, $2, 'booked', NOW(), $3, $4)`,
+              [booking.unit_id, before, req.userId, `Booking completed - ${booking.registration_no}`]
+            );
+          }
 
           // Auto-generate pending demand records from the consumer's payment plan template
           const selectedPlanName = booking.selected_plan_name;
@@ -3466,6 +3483,7 @@ router.get('/:id/receipt-html', requirePrint, async (req: AuthRequest, res: Resp
     }
 
     const booking = bookingResult.rows[0];
+    if (booking.status === 'cancelled') return res.status(409).json({ error: 'This booking is cancelled, so no receipt can be printed for it.' });
 
     // Build settings key-value object
     const settings: Record<string, string> = {};
@@ -3551,7 +3569,7 @@ const rebateDecision = (approve: boolean) => async (req: AuthRequest, res: Respo
       const rb = checkRebate(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, basicPriceOf(cur.basic_rate_inr_sqft, u), u, cur.company_inaugural_disc);
       if (rb.method === 'none') throw conflict('There is no rebate on this booking.');
       const amount = approve ? rb.amount : 0;
-      if (approve) await repriceBooking(c, { ...cur, approved_rebate_amount: amount });
+      if (approve) await repriceBooking(c, { ...cur, approved_rebate_amount: amount }, req.userId || null);
       const row = (await c.query(
         `UPDATE booking_records SET company_rebate_status = $2, approved_rebate_amount = $3, rebate_decided_by = $4, rebate_decided_at = NOW(), rebate_decision_reason = $5 WHERE id = $1 RETURNING *`,
         [id, approve ? 'approved' : 'rejected', amount, req.userId, reason])).rows[0];

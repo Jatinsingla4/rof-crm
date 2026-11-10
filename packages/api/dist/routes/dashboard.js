@@ -10,6 +10,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const TODAY = business_date_js_1.SQL_TODAY; // the business day (Asia/Kolkata), shared with every other module
 const RAISED = `(d.status IN ('demanded','raised') OR (d.status = 'partial' AND d.raised_at IS NOT NULL))`; // a demand that was raised (pending = not yet raised, paid / cancelled are done)
@@ -19,9 +20,7 @@ const SALE = `br.status IN ('complete','pending_payment','active')`; // the same
 const CHEQUE = `r.payment_method::text IN ('cheque','bank_transfer')`;
 // What a Daily Status number counts, written once: the card sums these and the list behind a number shows these rows.
 const SALE_DAY = `COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date)`;
-const COLLECTED = `r.status = 'cleared' AND r.is_advance IS NOT TRUE
-           AND NOT (EXISTS (SELECT 1 FROM booking_records x WHERE x.consumer_id = r.consumer_id AND x.unit_id = pp.unit_id AND x.status = 'cancelled')
-                    AND NOT EXISTS (SELECT 1 FROM booking_records y WHERE y.consumer_id = r.consumer_id AND y.unit_id = pp.unit_id AND y.status IN ('complete','pending_payment','active')))`;
+const COLLECTED = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`; // D-COLLECTED: cleared money counts, surrendered units and plan-less receipts included, approved returns deducted in the sums
 const PERIOD = (col, period) => period === 'today' ? `${col} = ${TODAY}` : period === 'month' ? `date_trunc('month', ${col}) = date_trunc('month', ${TODAY})` : 'TRUE';
 const IN_FLIGHT = `r.status NOT IN ('cancelled','bounced','cleared') AND NOT COALESCE(r.is_advance, false)`; // an advance receipt only splits money another receipt already holds             // not yet in the bank
 const panels = {
@@ -83,13 +82,13 @@ const panels = {
                COUNT(*) AS total
           FROM booking_records br WHERE ${SALE} GROUP BY br.project_id) s ON s.project_id = p.id
       LEFT JOIN (
-        SELECT pp.project_id,
-               SUM(r.amount_received_inr) FILTER (WHERE ${PERIOD('r.received_date', 'today')}) AS today,
-               SUM(r.amount_received_inr) FILTER (WHERE ${PERIOD('r.received_date', 'month')}) AS month,
-               SUM(r.amount_received_inr) AS total
-          FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id
+        SELECT COALESCE(pp.project_id, cn.project_id) AS project_id,
+               SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FILTER (WHERE ${PERIOD('r.received_date', 'today')}) AS today,
+               SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FILTER (WHERE ${PERIOD('r.received_date', 'month')}) AS month,
+               SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS total
+          FROM receipts r JOIN consumers cn ON cn.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
          WHERE ${COLLECTED}
-         GROUP BY pp.project_id) c ON c.project_id = p.id
+         GROUP BY COALESCE(pp.project_id, cn.project_id)) c ON c.project_id = p.id
      WHERE s.project_id IS NOT NULL OR c.project_id IS NOT NULL
      ORDER BY p.name`),
     // parking slots per project and type
@@ -186,14 +185,14 @@ router.get('/daily-status/list', async (req, res, next) => {
             ]);
             return res.json({ success: true, kind, data: rows.rows, count: n.rows[0].n, amount: null, truncated: n.rows[0].n > rows.rows.length });
         }
-        const base = `FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id JOIN projects p ON p.id = pp.project_id JOIN consumers c ON c.id = r.consumer_id
+        const base = `FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id JOIN projects p ON p.id = COALESCE(pp.project_id, c.project_id)
                    LEFT JOIN units u ON u.id = pp.unit_id LEFT JOIN towers t ON t.id = u.tower_id
-                   WHERE ${COLLECTED} AND ${PERIOD('r.received_date', period)} AND ($1::text = 'all' OR pp.project_id = $1::uuid)`;
+                   WHERE ${COLLECTED} AND ${PERIOD('r.received_date', period)} AND ($1::text = 'all' OR p.id = $1::uuid)`;
         const [rows, n] = await Promise.all([
             index_js_1.db.query(`SELECT r.id, p.name AS project, c.id AS consumer_id, c.registration_no, ${PERSON} AS name, t.tower_name, u.unit_number, r.receipt_number, r.received_date::text AS received_date,
-                       r.payment_method::text AS payment_method, r.amount_received_inr::float AS amount
+                       r.payment_method::text AS payment_method, (r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')})::float AS amount
                   ${base} ORDER BY r.received_date DESC, r.created_at DESC, r.id LIMIT ${LIST_MAX}`, [projectId]),
-            index_js_1.db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(r.amount_received_inr), 0)::float AS amount ${base}`, [projectId]),
+            index_js_1.db.query(`SELECT COUNT(*)::int AS n, COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0)::float AS amount ${base}`, [projectId]),
         ]);
         res.json({ success: true, kind, data: rows.rows, count: n.rows[0].n, amount: n.rows[0].amount, truncated: n.rows[0].n > rows.rows.length });
     }

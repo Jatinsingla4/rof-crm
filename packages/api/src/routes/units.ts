@@ -13,6 +13,7 @@ import { typePrice } from '../utils/unit-type-price.js';
 import { lockCharges, requireStock } from '../utils/charge-stock.js';
 import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce } from '../utils/input.js';
 import { businessDayStart, businessToday } from '../utils/business-date.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
@@ -320,7 +321,7 @@ router.get('/tower/:projectId', async (req: AuthRequest, res: Response, next: Ne
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN LATERAL (
          -- money against THIS unit: receipts on its payment plan; a receipt with no plan counts only when the customer has one unit
-         SELECT COALESCE(SUM(r.amount_received_inr), 0) as received
+         SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) as received
          FROM receipts r
          WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE
            AND (r.payment_plan_id IN (SELECT pp.id FROM payment_plans pp WHERE pp.unit_id = u.id)

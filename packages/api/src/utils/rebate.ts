@@ -7,6 +7,7 @@
  *  - Any change to the rebate, or to what it is calculated from, after approval sends it back to "pending".
  */
 import { bad } from './input.js';
+import { returnedSql, recomputePlan } from './money-basis.js';
 
 export const REBATE_STATUS = ['none', 'pending', 'approved', 'rejected', 'legacy'] as const;
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -59,7 +60,7 @@ export const planTotal = (b: { basic_rate_inr_sqft?: any; plc_amount?: any; othe
  * nothing is changed, if a demand is already paid, if its letter was sent to the customer, or if the money received on it would be more
  * than its new amount.
  */
-export const repriceBooking = async (c: any, b: any): Promise<void> => {
+export const repriceBooking = async (c: any, b: any, userId: string | null = null): Promise<void> => {
   const plan = (await c.query(
     `SELECT pp.id FROM payment_plans pp WHERE pp.consumer_id = $1 AND pp.unit_id = $2
         AND pp.allocation_id IN (SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 AND status NOT IN ('cancelled','transferred'))
@@ -67,7 +68,8 @@ export const repriceBooking = async (c: any, b: any): Promise<void> => {
   if (!plan) return;                                     // no plan yet: the plan will be made from the approved amount when the booking is confirmed
   const ds = (await c.query(
     `SELECT d.id, d.installment_index, d.status, d.sent_at, d.delivery_status,
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.demand_id = d.id AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)), 0)::numeric AS received
+            d.cgst_amount, d.sgst_amount, d.addon_charge_amount, d.addon_cgst_amount, d.addon_sgst_amount,
+            COALESCE((SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r WHERE r.demand_id = d.id AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)), 0)::numeric AS received
        FROM demands d WHERE d.payment_plan_id = $1 AND d.status <> 'cancelled' FOR UPDATE OF d`, [plan.id])).rows;
   const pct = (await c.query(
     `SELECT 1 FROM consumer_addon_charges cac JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
@@ -75,19 +77,26 @@ export const repriceBooking = async (c: any, b: any): Promise<void> => {
   if (pct) throw bad('This booking has an add-on charge worked out "after discount". Change that charge first, then approve or withdraw the rebate.', 409);
   const unit = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [b.unit_id])).rows[0];
   const total = Math.round(planTotal(b, unit));
-  const tmpl = (await c.query(`SELECT installment_index, percentage, flat_amount_inr FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2`, [b.project_id, b.selected_plan_name])).rows;
+  const tmpl = (await c.query(`SELECT installment_index, percentage, flat_amount_inr FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 ORDER BY installment_index`, [b.project_id, b.selected_plan_name])).rows;
+  // The same split as the booking confirmation: a plan of percentages is cut on the running share, so the instalments add up to the plan total exactly
+  const runShares: number[] = []; { let run = 0; for (const tt of tmpl) runShares.push(Math.round((run += parseFloat(tt.percentage || 0) / 100) * 1e6) / 1e6); }
+  const byShare = tmpl.length > 0 && tmpl.every((tt: any) => !tt.flat_amount_inr) && Math.abs(runShares[runShares.length - 1] - 1) < 1e-6;
   const moves: { id: string; amount: number }[] = [];
-  for (const t of tmpl) {
+  for (const [ti, t] of tmpl.entries()) {
     if (t.flat_amount_inr) continue;                     // a fixed-amount row does not move with the price
     const d = ds.find((x: any) => x.installment_index === t.installment_index);
     if (!d) continue;
-    const amount = Math.round(total * (parseFloat(t.percentage || 0) / 100));
+    const amount = byShare ? Math.round(total * runShares[ti]) - Math.round(total * (ti ? runShares[ti - 1] : 0)) : Math.round(total * (parseFloat(t.percentage || 0) / 100));
+    // the money received on a demand includes its GST: it is compared with the new demand total on the same basis (amount, GST and add-ons)
+    const gross = amount + Number(d.cgst_amount || 0) + Number(d.sgst_amount || 0) + Number(d.addon_charge_amount || 0) + Number(d.addon_cgst_amount || 0) + Number(d.addon_sgst_amount || 0);
     const why = !['pending', 'demanded', 'raised', 'partial'].includes(d.status) ? 'is already paid or closed'
       : (d.sent_at || ['sent', 'delivered', 'read'].includes(d.delivery_status)) ? 'was already sent to the customer'
-      : Number(d.received) > amount ? 'has more money received on it than its new amount' : '';
+      : Number(d.received) > gross + 0.005 ? 'has more money received on it than its new amount' : '';
     if (why) throw bad(`The rebate cannot be applied or withdrawn now: demand ${d.installment_index} of this booking ${why}. Unraise or settle it first.`, 409);
     moves.push({ id: d.id, amount });
   }
   await c.query(`UPDATE payment_plans SET total_amount_inr = $2, updated_at = NOW() WHERE id = $1`, [plan.id, total]);
   for (const m of moves) await c.query(`UPDATE demands SET amount_due_inr = $2, updated_at = NOW() WHERE id = $1`, [m.id, m.amount]);
+  // the statuses follow the new amounts and the money already received (D1, Q13); dates are never touched
+  await recomputePlan(c, plan.id, userId);
 };
