@@ -111,7 +111,7 @@ async function recomputePlan(client, planId, userId = null) {
         await client.query(`UPDATE demands SET status = $2, delivery_status = $3, updated_at = NOW() WHERE id = $1`, [d.id, same ? d.status : next, delivery]);
         if (!same) {
             await client.query(`INSERT INTO financial_audit_logs (consumer_id, payment_plan_id, user_id, action_type, old_value, new_value, remarks)
-         VALUES ($1, $2, $3, 'demand_status_recomputed', $4, $5, $6)`, [d.consumer_id, planId, userId, JSON.stringify({ status: d.status, delivery_status: d.delivery_status }), JSON.stringify({ status: next, delivery_status: delivery }),
+         VALUES ($1, $2, COALESCE($3::uuid, (SELECT id FROM users WHERE role = 'super_admin' ORDER BY created_at LIMIT 1)), 'demand_status_recomputed', $4, $5, $6)`, [d.consumer_id, planId, userId, JSON.stringify({ status: d.status, delivery_status: d.delivery_status }), JSON.stringify({ status: next, delivery_status: delivery }),
                 `Instalment ${d.installment_index}: status follows cleared money (paid ${p})`]);
         }
         changed++;

@@ -56,12 +56,11 @@ function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
     const graceDays = options?.gracePeriodDays ?? 0;
-    const active = receipts.filter(r => !['cancelled', 'bounced'].includes(r.status));
-    const sorted = [...active].sort((a, b) => {
-        const ta = new Date(a.received_date || a.created_at || 0).getTime();
-        const tb = new Date(b.received_date || b.created_at || 0).getTime();
-        return ta - tb;
-    });
+    // Owner decision U1: only CLEARED money reduces interest (never a pending, authorised, deposited, bounced or cancelled receipt, never a legacy ADV row),
+    // and it counts from the day it cleared, not the day it was recorded.
+    const when = (r) => r.clearing_date || r.received_date || r.created_at || 0;
+    const active = receipts.filter(r => r.status === 'cleared' && r.is_advance !== true);
+    const sorted = [...active].sort((a, b) => new Date(when(a)).getTime() - new Date(when(b)).getTime());
     // Interest runs on the BASIC amount, the way the client's own file does it: a receipt counts without its CGST and SGST, a demand without its tax.
     // Money is matched to the oldest installment first, by date received, whatever installment the receipt was filed under
     // (a receipt entered while an earlier cheque was still pending was filed under the wrong installment and charged interest that was not due).
@@ -69,10 +68,13 @@ function buildInterestRows(receipts, demands, penalRate, options) {
     for (const r of sorted) {
         const gross = parseFloat(String(r.amount_received_inr));
         const amt = Math.max(0, gross - (parseFloat(String(r.cgst_amount ?? 0)) || 0) - (parseFloat(String(r.sgst_amount ?? 0)) || 0));
-        pool.push({ remaining: amt, received_date: r.received_date ? new Date(r.received_date) : null });
+        const day = when(r);
+        pool.push({ remaining: amt, received_date: day ? new Date(day) : null });
     }
     const rows = [];
     for (const demand of sortedDemands) {
+        if (demand.raised === false)
+            continue; // U1: a demand nobody raised bears no interest, whatever its due date
         // The basic amount of the installment (plus the base of an add-on charge), without GST
         const dueAmt = parseFloat(String(demand.amount_due_inr || 0))
             + parseFloat(String(demand.addon_charge_amount || 0));
