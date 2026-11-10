@@ -125,6 +125,7 @@ const PC = {
   _badgeClass(status) {
     return {
       pending:   'badge-pending',
+      authorized: 'badge-pending',
       deposited: 'badge-deposited',
       cleared:   'badge-cleared',
       bounced:   'badge-bounced',
@@ -135,6 +136,7 @@ const PC = {
   _badgeLabel(status) {
     return {
       pending:   'Pending',
+      authorized: 'Authorized',
       deposited: 'Deposited',
       cleared:   'Cleared',
       bounced:   'Bounced',

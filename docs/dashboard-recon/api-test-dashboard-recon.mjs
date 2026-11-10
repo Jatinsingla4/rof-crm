@@ -90,8 +90,8 @@ t('pending approval: the 3 pending receipts of the project, with its unit and a 
 t('pending approval: the count is the real count, not the length of the list', typeof r.j.count === 'number' && r.j.count >= 3 && r.j.count === Number(psql(`select count(*) from receipts where status='pending'`)), r.j.count);
 r = await A('GET', '/dashboard/daily-status'); d = row(r.j.data, 'project', N1);
 t('daily status: sales are live bookings only (cancelled and draft are not sales)', d && d.sales_total === 2 && d.sales_today === 1, d);
-t('daily status: collection is cleared receipts only (cancelled booking, pending, bounced left out)', d && d.coll_total === 12100 && d.coll_today === 5100, d);
-t('daily status: a customer with several receipts does not multiply sales or collection (the old join did)', d && d.sales_total === 2 && d.coll_total === 12100, d);
+t('daily status: collection is cleared receipts only (pending and bounced left out; the cleared money of the cancelled booking counts, owner decision D-COLLECTED)', d && d.coll_total === 22099 && d.coll_today === 15099, d);
+t('daily status: a customer with several receipts does not multiply sales or collection (the old join did)', d && d.sales_total === 2 && d.coll_total === 22099, d);
 t('daily status: a project with nothing is not listed', !row(r.j.data, 'project', N2));
 r = await A('GET', '/dashboard/parking-detail'); d = row(r.j.data, 'project', N1);
 t('parking detail: total, allotted, available', d && d.total === 3 && d.allotted === 1 && d.available === 2 && d.parking_type === 'covered', d);

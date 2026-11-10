@@ -8,6 +8,7 @@ exports.runTimelyDiscounts = runTimelyDiscounts;
 // An earned discount is raised as a credit note on that installment's invoice; if there is no invoice yet (or the note cannot be raised) it is kept as "waiting" and tried again on the next run.
 const payment_waterfall_js_1 = require("./payment-waterfall.js");
 const financial_ops_js_1 = require("../routes/financial-ops.js");
+const money_basis_js_1 = require("./money-basis.js");
 const r2 = (n) => Math.round(n * 100) / 100;
 // pct that applies to one customer of one plan: his own if set, else the plan's (only a plan with timely discount on gives any)
 const effectivePct = (plan, own) => !plan.timely_discount ? 0 : own != null ? Number(own) : Number(plan.discount_pct);
@@ -31,7 +32,7 @@ async function runTimelyDiscounts(db, req, projectId, consumerId) {
               t.installment_name, t.installment_type
          FROM demands d LEFT JOIN plan_schedule_templates t ON t.project_id = $3 AND t.plan_name = $4 AND t.installment_index = d.installment_index
         WHERE d.consumer_id = $1 AND d.payment_plan_id = $2 AND d.status != 'cancelled' ORDER BY d.installment_index`, [cu.consumer_id, plan.id, projectId, cu.selected_plan_name])).rows;
-        const receipts = (await db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date::text AS received_date FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [cu.consumer_id])).rows;
+        const receipts = (await db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date::text AS received_date FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [cu.consumer_id])).rows;
         const done = new Set((await db.query(`SELECT demand_id FROM timely_discount_awards WHERE consumer_id = $1 AND status = 'issued'`, [cu.consumer_id])).rows.map((x) => x.demand_id));
         for (const d of demands) {
             if (d.installment_type !== 'installment' || !d.due_date || done.has(d.id))

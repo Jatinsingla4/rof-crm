@@ -58,9 +58,11 @@ exports.text = text;
 const day = (v, label = 'Date') => {
     if (!(0, exports.has)(v))
         return null;
-    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v || v < '1990-01-01' || v > '2100-12-31') {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v) || isNaN(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v) {
         throw (0, exports.bad)(`${label} must be a real date (YYYY-MM-DD)`);
     }
+    if (v < '1990-01-01' || v > '2100-12-31')
+        throw (0, exports.bad)(`${label} is out of range: it must be between 1990-01-01 and 2100-12-31`);
     return v;
 };
 exports.day = day;

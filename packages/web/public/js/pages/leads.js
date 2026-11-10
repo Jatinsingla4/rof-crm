@@ -234,7 +234,7 @@ const LeadsPage = {
               <td>${c.mobile||c.phone||'—'}</td>
               <td style="font-size:10.5px">${c.project_name||c.projectName||'—'}</td>
               <td>${Utils.chip(c.lead_stage||c.leadStage||'enquiry')}</td>
-              <td style="font-size:10.5px">${(c.lead_source||c.leadSource||'—').replace(/_/g,' ')}</td>
+              <td style="font-size:10.5px">${(c.lead_source||c.leadSource||c.source_of_enquiry||'—').replace(/_/g,' ')}</td>
               <td style="font-size:10.5px">${Utils.date(c.created_at||c.createdAt)}</td>
               <td><button class="btn btn-ghost btn-sm" onclick="Router.navigate('/consumer',{id:'${c.id}'})">View</button></td>
             </tr>`).join('')}

@@ -14,6 +14,7 @@ const unit_type_price_js_1 = require("../utils/unit-type-price.js");
 const charge_stock_js_1 = require("../utils/charge-stock.js");
 const input_js_1 = require("../utils/input.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
 const FACING_CODES = { e: 'East', w: 'West', n: 'North', s: 'South', ne: 'North-East', se: 'South-East', nw: 'North-West', sw: 'South-West' };
@@ -350,7 +351,7 @@ router.get('/tower/:projectId', async (req, res, next) => {
        JOIN towers t ON u.tower_id = t.id
        LEFT JOIN LATERAL (
          -- money against THIS unit: receipts on its payment plan; a receipt with no plan counts only when the customer has one unit
-         SELECT COALESCE(SUM(r.amount_received_inr), 0) as received
+         SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) as received
          FROM receipts r
          WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE
            AND (r.payment_plan_id IN (SELECT pp.id FROM payment_plans pp WHERE pp.unit_id = u.id)

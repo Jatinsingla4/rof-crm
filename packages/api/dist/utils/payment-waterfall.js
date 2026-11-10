@@ -274,8 +274,10 @@ async function resolveBookingScope(client, receipt) {
  * Auto-recompute always wins over any manual document-writeback edit.
  */
 async function recomputeBookingAmount(client, consumerId, unitId, projectId, paymentPlanId) {
-    const result = await client.query(`SELECT amount_received_inr FROM receipts
-     WHERE consumer_id = $1 AND status = 'cleared'
+    // Q13 money basis: a legacy ADV row never counts, and an approved return is taken off (dynamic import: money-basis imports this file)
+    const { returnedSql } = await Promise.resolve().then(() => __importStar(require('./money-basis.js')));
+    const result = await client.query(`SELECT amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr FROM receipts
+     WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE
        AND (payment_plan_id = $2
             OR demand_id IN (SELECT id FROM demands WHERE payment_plan_id = $2))
      ORDER BY created_at ASC LIMIT 1`, [consumerId, paymentPlanId]);

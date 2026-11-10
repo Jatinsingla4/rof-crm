@@ -17,6 +17,7 @@ const input_js_1 = require("../utils/input.js");
 const penal_interest_js_1 = require("../utils/penal-interest.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const not_creator_js_1 = require("../utils/not-creator.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const fail = (e, res, next) => (0, input_js_1.failWith)(e, res, next);
 const MODES = ['cash', 'cheque', 'demand_draft', 'bank_transfer', 'neft', 'rtgs', 'upi', 'card'];
@@ -247,11 +248,11 @@ const REFUND_SELECT = `
 // What may still be refunded: money received (live receipts only) minus the other refunds that are open or paid. Call with the applicant locked.
 const refundRoom = async (c, consumerId, receiptId, exceptId) => {
     const open = `status IN ('pending','approved','processed') AND id IS DISTINCT FROM $2`;
-    const all = (await c.query(`SELECT COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE), 0) AS paid,
+    const all = (await c.query(`SELECT COALESCE((SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0) AS paid,
             COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE consumer_id = $1 AND ${open}), 0) AS taken`, [consumerId, exceptId])).rows[0];
     let room = Number(all.paid) - Number(all.taken), what = 'what the applicant has paid';
     if (receiptId) {
-        const rc = (await c.query(`SELECT r.amount_received_inr AS paid, r.status, COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE original_receipt_id = r.id AND ${open}), 0) AS taken
+        const rc = (await c.query(`SELECT r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')} AS paid, r.status, COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE original_receipt_id = r.id AND ${open}), 0) AS taken
          FROM receipts r WHERE r.id = $3 AND r.consumer_id = $1`, [consumerId, exceptId, receiptId])).rows[0];
         if (!rc)
             throw (0, input_js_1.bad)('That receipt does not belong to this applicant', 400);
@@ -296,6 +297,7 @@ router.post('/refunds', (0, processPermission_js_1.requireProcess)('jv_refund_dr
             if (planId && !(await c.query(`SELECT 1 FROM payment_plans WHERE id = $1 AND consumer_id = $2`, [planId, consumerId])).rows.length)
                 throw (0, input_js_1.bad)('That payment plan does not belong to this applicant');
             await (0, input_js_1.lock)(c, 'refund:' + consumerId);
+            await (0, input_js_1.lock)(c, 'receipt-consumer:' + consumerId); // same lock as returns and clearing: the money read by refundRoom cannot go stale
             const { room, what } = await refundRoom(c, consumerId, receiptId, null);
             if (amount > room)
                 throw (0, input_js_1.bad)(`Refund (Rs ${amount}) is more than ${what} less the refunds already raised (Rs ${Math.max(room, 0)} left)`, 409);

@@ -316,6 +316,8 @@ router.get('/check-form-no', async (req, res, next) => {
 const holds = async (q, consumerId, unitId) => (await q.query(`SELECT 1 FROM allocations WHERE consumer_id = $1 AND unit_id <> $2 AND status NOT IN ('cancelled','transferred') LIMIT 1`, [consumerId, unitId])).rows.length > 0;
 router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, next) => {
     try {
+        if ((0, input_js_1.body)(req).discount_value !== undefined)
+            throw (0, input_js_1.bad)('discount_value is not used by bookings. Use the company rebate (needs approval) or the inaugural discount.');
         const o = parseNew((0, input_js_1.body)(req));
         const { consumer_id, unit_id, booking_date, booking_amount, payment_mode, payment_ref, bank_name, cheque_date, company_inaugural_disc, company_rebate_rs, company_rebate_sqft, company_rebate_pct, broker_id, broker_commission, broker_commission_type, booking_type, main_broker_id, broker_rebate_rs, broker_rebate_sqft, broker_rebate_pct, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, sales_employee_id, nominee_name, nominee_relation, loan_amount, finance_bank, remarks, form_no, has_plc, plc_amount, has_other_charge, other_charge_amount, other_charge_desc, bank_branch, received_for, account_holder, on_account_of, invoice_date_by, interest_type, extra_add_on_type, tds_type, self_or_loan, interest_amount, dealer_adjustment_amount, tds_challan_id, s_tax_pct, gst_interest_pct, tds_amount, selected_plan_name, basic_price, carpet_area_sqft, } = o;
         let project_id = o.project_id;
@@ -496,7 +498,12 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
             // incident (consumer 9e9d7841, TULA-2026-0002 wrongly overwritten to ALAN-2026-0016
             // during unrelated testing).
             const existingRegNo = consumerRow.registration_no;
-            if (existingRegNo && consumerRow.project_id !== project_id) {
+            // An applicant created with a name and a mobile only has no project on record yet (the project was never stored when the number was issued): that is not
+            // "another project" unless a booking in a different project exists. The project is stored below, so the next booking finds it.
+            const otherProject = existingRegNo && consumerRow.project_id !== project_id
+                && (consumerRow.project_id !== null
+                    || (await client.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id IS DISTINCT FROM $2 LIMIT 1`, [consumer_id, project_id])).rows.length > 0);
+            if (otherProject) {
                 throw conflict(`Consumer is already registered as ${existingRegNo} under a different project. Create a new consumer record to book under this project instead.`);
             }
             // Update consumer with form number, communication preferences, and comm address.
@@ -510,8 +517,9 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
              comm_city          = COALESCE($7, comm_city),
              comm_state         = COALESCE($8, comm_state),
              comm_country       = COALESCE($9, comm_country),
-             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END
-         WHERE id = $10`, [registrationNo, formNo, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, consumer_id]);
+             lead_stage         = CASE WHEN lead_stage = 'cancelled' THEN 'enquiry' ELSE lead_stage END,
+             project_id         = COALESCE(project_id, $11)
+         WHERE id = $10`, [registrationNo, formNo, mailing_address_type, communication_mode, comm_address_line1, comm_pin, comm_city, comm_state, comm_country, consumer_id, project_id]);
             // Auto-create pending commission record when booking type is broker
             if (booking_type === 'broker' && broker_id) {
                 const commission = broker_commission_type === 'percent' ? Math.round(basicEstimate * broker_commission) / 100 : broker_commission;
@@ -720,7 +728,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                     const next = rb.method === 'none' ? 'none' : 'pending';
                     Object.assign(extra, { company_rebate_status: next, approved_rebate_amount: 0, rebate_requested_by: next === 'pending' ? req.userId : null, rebate_requested_at: next === 'pending' ? new Date() : null, rebate_decided_by: null, rebate_decided_at: null, rebate_decision_reason: null });
                     if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete')
-                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: 0 });
+                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: 0 }, req.userId || null);
                     rebateEvent = { was, next, method: rb.method, entered: rb.value, calculated_amount: rb.amount };
                 }
             }
@@ -894,13 +902,15 @@ router.patch('/:id', async (req, res, next) => {
                 gst_interest_pct, gstSplit.cgstAmount,
                 gstSplit.sgstAmount, tds_amount,
             ]);
-            // Lock the unit now that payment is confirmed
+            // Lock the unit now that payment is confirmed (a unit locked at booking creation is already locked: no second history row for nothing)
             if (booking.unit_id) {
-                await client.query(`UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
-           WHERE id = $1 AND status != 'locked'`, [booking.unit_id]);
-                await client.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
-           VALUES ($1, 'available', 'locked', NOW(), $2, $3)
-           ON CONFLICT DO NOTHING`, [booking.unit_id, req.userId, `Payment confirmed - ${booking.registration_no}`]);
+                const was = (await client.query(`SELECT status FROM units WHERE id = $1`, [booking.unit_id])).rows[0]?.status;
+                if (was && was !== 'locked') {
+                    await client.query(`UPDATE units SET status = 'locked', status_changed_at = NOW(), updated_at = NOW()
+             WHERE id = $1 AND status != 'locked'`, [booking.unit_id]);
+                    await client.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+             VALUES ($1, $2, 'locked', NOW(), $3, $4)`, [booking.unit_id, was, req.userId, `Payment confirmed - ${booking.registration_no}`]);
+                }
             }
             // Auto-create allocation + payment_plan on payment confirmation (idempotent)
             if (booking.unit_id && booking.consumer_id) {
@@ -952,7 +962,12 @@ router.patch('/:id', async (req, res, next) => {
              RETURNING id`, [allocationId, booking.consumer_id, booking.unit_id, booking.project_id, Math.round(totalAmount), req.userId]);
                     const paymentPlanId = planRow.rows[0].id;
                     await client.query(`UPDATE consumers SET allocated_unit_id = $1 WHERE id = $2`, [booking.unit_id, booking.consumer_id]);
+                    const before = (await client.query(`SELECT status FROM units WHERE id = $1`, [booking.unit_id])).rows[0]?.status;
                     await client.query(`UPDATE units SET status = 'booked', updated_at = NOW() WHERE id = $1`, [booking.unit_id]);
+                    if (before && before !== 'booked') {
+                        await client.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_at, changed_by_user_id, reason)
+               VALUES ($1, $2, 'booked', NOW(), $3, $4)`, [booking.unit_id, before, req.userId, `Booking completed - ${booking.registration_no}`]);
+                    }
                     // Auto-generate pending demand records from the consumer's payment plan template
                     const selectedPlanName = booking.selected_plan_name;
                     if (selectedPlanName && booking.project_id) {
@@ -3218,6 +3233,8 @@ router.get('/:id/receipt-html', printDownload_js_1.requirePrint, async (req, res
             return res.status(404).json({ error: 'Booking not found' });
         }
         const booking = bookingResult.rows[0];
+        if (booking.status === 'cancelled')
+            return res.status(409).json({ error: 'This booking is cancelled, so no receipt can be printed for it.' });
         // Build settings key-value object
         const settings = {};
         for (const row of settingsResult.rows) {
@@ -3309,7 +3326,7 @@ const rebateDecision = (approve) => async (req, res, next) => {
                 throw conflict('There is no rebate on this booking.');
             const amount = approve ? rb.amount : 0;
             if (approve)
-                await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: amount });
+                await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: amount }, req.userId || null);
             const row = (await c.query(`UPDATE booking_records SET company_rebate_status = $2, approved_rebate_amount = $3, rebate_decided_by = $4, rebate_decided_at = NOW(), rebate_decision_reason = $5 WHERE id = $1 RETURNING *`, [id, approve ? 'approved' : 'rejected', amount, req.userId, reason])).rows[0];
             return { row, rb, requestedBy: cur.rebate_requested_by };
         });

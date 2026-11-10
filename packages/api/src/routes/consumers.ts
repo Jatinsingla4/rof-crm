@@ -25,6 +25,7 @@ import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, 
 import { penalRateFrom } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -114,6 +115,10 @@ router.post('/', requireProcess('new_applicant', 'maker'), async (req: AuthReque
     for (const [k, v] of Object.entries(f)) if (v !== null) row[k] = v;
     Object.assign(row, { name, mobile, project_id: project, lead_stage: stage || 'enquiry', income_category: inc || null, parivar_pehchan_patra: f.ppp_id ?? null, created_by_user_id: req.userId });
     delete row.ppp_id;
+    if (!row.first_name && !row.last_name && row.applicant_type !== 'company') {
+      const parts = String(name).trim().split(/\s+/);
+      row.first_name = parts[0]; row.last_name = parts.length > 1 ? parts.slice(1).join(' ') : null;
+    }
     if (row.pan_no) row.pan_hash = sha(row.pan_no);
     if (row.aadhaar_no) row.aadhaar_hash = sha(row.aadhaar_no);
 
@@ -189,6 +194,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const add = (sql: string, ...vals: any[]) => { let i = params.length; params.push(...vals); w.push(sql.replace(/\?/g, () => `$${++i}`)); };
     if (q.projectId) add('c.project_id = ?', uuid(q.projectId, 'projectId'));
     if (q.leadStage) { if (!LEAD_STAGES.includes(q.leadStage)) throw bad(`leadStage must be one of ${LEAD_STAGES.join(', ')}`); add('c.lead_stage = ?', q.leadStage); }
+    if (q.leadSource) add(`REPLACE(LOWER(c.source_of_enquiry), ' ', '_') = ?`, String(q.leadSource).toLowerCase().replace(/\s+/g, '_'));
     if (q.unitNo) add(`u.unit_number ILIKE ? ESCAPE '\\'`, likeOf(q.unitNo));
     if (q.mobile) add(`c.mobile LIKE ? ESCAPE '\\'`, likeOf(q.mobile));
     if (q.regNo) add(`COALESCE(c.registration_no, br.registration_no) ILIKE ? ESCAPE '\\'`, likeOf(q.regNo));
@@ -281,7 +287,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     const paymentResult = await db.query(
       `SELECT
         SUM(total_amount_inr) as total_due,
-        (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE) as collected
+        (SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE) as collected
        FROM payment_plans WHERE consumer_id = $1`,
       [id]
     );
@@ -597,10 +603,10 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
           e.name AS employee_name,
           u2.name AS created_by_name,
           COALESCE((
-            SELECT SUM(r.amount_received_inr)
-            FROM receipts r
-            WHERE r.consumer_id = c.id
-            AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
+            SELECT SUM(r.amount_received_inr - ${returnedSql('r')})
+             FROM receipts r
+             WHERE r.consumer_id = c.id
+             AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
           ), 0) AS total_received_inr,
           COALESCE((
             SELECT json_agg(json_build_object(
@@ -608,12 +614,12 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
               'total_paid', rr.total_paid
             ))
             FROM (
-              SELECT installment_index,
-                     SUM(amount_received_inr) AS total_paid
-              FROM receipts
-              WHERE consumer_id = c.id
-                AND status = 'cleared' AND is_advance IS NOT TRUE
-              GROUP BY installment_index
+              SELECT r.installment_index,
+                      SUM(r.amount_received_inr - ${returnedSql('r')}) AS total_paid
+               FROM receipts r
+               WHERE r.consumer_id = c.id
+                 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
+               GROUP BY r.installment_index
             ) rr
           ), '[]'::json) AS installment_payments
         FROM consumers c
@@ -810,7 +816,7 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
     // The SQL subquery groups by installment_index which loses NULL-indexed advance receipts.
     const [wfRcptsRes, wfDemandsRes] = await Promise.all([
       db.query(
-        `SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
+        `SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at, cgst_amount, sgst_amount
          FROM receipts WHERE consumer_id = $1 AND status = 'cleared'
            AND payment_plan_id = (
              SELECT id FROM payment_plans

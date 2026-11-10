@@ -45,6 +45,7 @@ const payment_waterfall_js_1 = require("../../utils/payment-waterfall.js");
 const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
 const business_date_js_1 = require("../../utils/business-date.js");
+const money_basis_js_1 = require("../../utils/money-basis.js");
 // Check list
 async function checkListData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -149,7 +150,7 @@ async function checkListData(ctx) {
     // via wfMap). Used to prorate Receive across rows below, since
     // receipts are never tagged to a specific component in this schema.
     const [wfRcptsResCL, wfDemandsResCL] = await Promise.all([
-        index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance,
+        index_js_1.db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance,
                       received_date, payment_method
                FROM receipts WHERE consumer_id = $1 AND status = 'cleared'`, [consumerId]),
         index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount,

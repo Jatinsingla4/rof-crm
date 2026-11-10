@@ -37,7 +37,7 @@ const total2 = (c) => Number(psql(`select amount_due_inr + coalesce(cgst_amount,
 const setDue = (c, offset) => psql(`update demands set due_date = current_date + (${offset}), status = 'raised' where consumer_id = '${c}' and installment_index = 2 returning 1`);
 let rno = 0; const pay = (c, amount, date = today) => A('POST', '/payments/receipts', { consumerId: c, amountReceivedInr: amount, paymentMode: 'neft', referenceNumber: `TD${U}${++rno}`, paymentDate: date, installmentIndex: 2 });
 // money counts once it is cleared: the transfer is received on `date` and cleared by the bank today
-const clearAll = async (c) => { for (const id of psql(`select id from receipts where consumer_id = '${c}' and installment_index = 2 and status = 'pending'`).split('\n').filter(Boolean)) { const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); } };
+const clearAll = async (c) => { for (const id of psql(`select id from receipts where consumer_id = '${c}' and installment_index = 2 and status = 'pending'`).split('\n').filter(Boolean)) { await CK('PATCH', `/payments/receipts/${id}/approve`, {}); const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); } };
 const run = (b = {}, who = A, P = X.P) => who('POST', `/projects/${P}/timely-discount/run`, b);
 const tdList = async () => (await A('GET', `/projects/${X.P}/timely-discount`)).j;
 

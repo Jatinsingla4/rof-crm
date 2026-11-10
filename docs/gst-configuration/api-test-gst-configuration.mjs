@@ -43,7 +43,7 @@ r = await AF('DELETE', G('/hsn-sac-codes/' + r.j?.data?.id)); t('roles: accounts
 const FY = (b) => A('POST', G('/financial-years'), { name: 'FY ' + U, fromDate: d(Y, 4, 1), toDate: d(Y + 1, 3, 31), ...b });
 for (const [n, b, re] of [['no name', { name: '' }, /Name/], ['name spaces', { name: '   ' }, /Name/], ['name over 50', { name: 'x'.repeat(51) }, /50/], ['markup name', { name: '<b>' }, /character/], ['numeric name', { name: 5 }, /text/],
   ['no from date', { fromDate: undefined }, /required/], ['no to date', { toDate: undefined }, /required/], ['impossible date', { fromDate: '2026-02-30' }, /real date/], ['text date', { toDate: 'soon' }, /real date/], ['date as number', { fromDate: 20260401 }, /real date/],
-  ['year 1989', { fromDate: '1989-04-01' }, /real date/], ['year 2101', { toDate: '2101-03-31' }, /real date/], ['from after to', { fromDate: d(Y + 1, 4, 1) }, /not be after/], ['isActive text', { isActive: 'yes' }, /true or false/]]) {
+  ['year 1989', { fromDate: '1989-04-01' }, /real date|out of range/], ['year 2101', { toDate: '2101-03-31' }, /real date|out of range/], ['from after to', { fromDate: d(Y + 1, 4, 1) }, /not be after/], ['isActive text', { isActive: 'yes' }, /true or false/]]) {
   r = await FY(b); t(`FY: ${n} -> 400`, r.s === 400 && re.test(r.j?.error || ''), r.s + ' ' + JSON.stringify(r.j));
 }
 r = await A('POST', G('/financial-years'), undefined, '[1]'); t('FY: array body -> 400', r.s === 400, r.s);

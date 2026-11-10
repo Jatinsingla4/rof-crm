@@ -14,6 +14,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const security_js_1 = require("../utils/security.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const HEADER_TYPES = ['Computer Generated', 'Own Header'];
 const LETTER_FOR = ['All', 'Loan', 'Self'];
@@ -320,7 +321,7 @@ router.post('/:id/generate', printDownload_js_1.requirePrint, async (req, res, n
              co.gstin AS company_gstin, co.cin AS company_cin, co.email AS company_email,
              co.website AS company_website, co.reg_address AS company_reg_address,
              ${(0, company_bank_js_1.companyBankCols)('co')},
-             (SELECT COALESCE(SUM(r.amount_received_inr), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE) AS total_paid
+             (SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) FROM receipts r WHERE r.consumer_id = c.id AND r.status = 'cleared' AND r.is_advance IS NOT TRUE) AS total_paid
       FROM consumers c
       LEFT JOIN LATERAL (SELECT * FROM booking_records b WHERE b.consumer_id = c.id AND b.status <> 'cancelled'
                          ORDER BY b.booking_date DESC NULLS LAST, b.created_at DESC LIMIT 1) br ON true

@@ -425,7 +425,7 @@ router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
         // Strict maker-checker: whoever recorded the receipt cannot authorize it (super_admin included); a receipt with no known recorder waits for remediation.
         // One statement, so the check and the change cannot be separated by a concurrent request.
-        const r = await index_js_1.db.query(`UPDATE receipts SET status = 'authorized', authorized_by = $1, authorized_at = NOW(), updated_at = NOW()
+        const r = await index_js_1.db.query(`UPDATE receipts SET status = 'authorized', approval_status = 'approved', authorized_by = $1, authorized_at = NOW(), updated_at = NOW()
         WHERE id = $2 AND status = 'pending' AND received_by_user_id IS NOT NULL AND received_by_user_id <> $1
         RETURNING id, receipt_number, amount_received_inr, status`, [req.userId, id]);
         if (!r.rows.length) {
@@ -434,7 +434,7 @@ router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)
                 (0, financial_ops_js_1.notOwn)(req, cur.received_by_user_id);
             throw (0, input_js_1.bad)('Pending receipt not found or already authorized', 404);
         }
-        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'receipt', id, { status: 'pending' }, { status: 'authorized' });
+        await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'update', 'receipt', id, { status: 'pending', approval_status: 'pending' }, { status: 'authorized', approval_status: 'approved' });
         res.json({ success: true, data: r.rows[0], message: 'Receipt authorized successfully' });
     }
     catch (err) {
@@ -466,7 +466,7 @@ const move = async (req, res, next, o) => {
             const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
             if (pre && o.to === 'cleared')
                 await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
-            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Receipt not found', 404);
             // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
@@ -476,11 +476,15 @@ const move = async (req, res, next, o) => {
                 throw (0, input_js_1.bad)(`This payment mode cannot be ${o.verb}`);
             if (!o.from.includes(cur.status))
                 throw (0, input_js_1.bad)(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
-            const r = await c.query(`UPDATE receipts SET status = '${o.to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}
+            // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
+            if (o.to === 'cleared' && !cur.authorized_by)
+                throw (0, input_js_1.bad)('Cannot clear: the receipt has not been authorized by a checker yet', 409);
+            const to = typeof o.to === 'function' ? o.to(cur) : o.to;
+            const r = await c.query(`UPDATE receipts SET status = '${to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}
          RETURNING id, receipt_number, status, amount_received_inr, deposit_date, clearing_date, clearing_bank_id, hold_remark`, [...set.values, id]);
-            await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'receipt', id, { status: cur.status }, { status: o.to });
+            await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'receipt', id, { status: cur.status }, { status: to });
             // Clearing is what makes money count: the demands of the plan follow it in the same transaction (Q13)
-            if (o.to === 'cleared')
+            if (to === 'cleared')
                 await (0, money_basis_js_1.recomputePlan)(c, cur.payment_plan_id, req.userId || null);
             return r.rows[0];
         });
@@ -502,12 +506,12 @@ const move = async (req, res, next, o) => {
     }
 };
 router.patch('/receipts/:id/deposit', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
-    from: ['pending', 'authorized'], to: 'deposited', action: 'deposit', verb: 'deposited', message: 'Cheque marked as deposited',
+    from: ['authorized'], to: 'deposited', checker: true, action: 'deposit', verb: 'deposited', message: 'Cheque marked as deposited',
     set: (b) => { const d = pastDay(b.deposit_date, 'deposit_date'); if (!d)
         throw (0, input_js_1.bad)('deposit_date is required'); return { sql: 'deposit_date = $1', values: [d] }; },
 }));
 router.patch('/receipts/:id/clear', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
-    from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'cleared', checker: true, action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
+    from: ['authorized', 'deposited', 'on_hold'], to: 'cleared', checker: true, action: 'clear', verb: 'cleared', message: 'Cheque marked as cleared',
     set: (b) => {
         const d = pastDay(b.clearing_date, 'clearing_date');
         if (!d)
@@ -516,11 +520,11 @@ router.patch('/receipts/:id/clear', (0, processPermission_js_1.requireProcess)('
     },
 }));
 router.patch('/receipts/:id/hold', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
-    from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'on_hold', action: 'hold', verb: 'put on hold', message: 'Cheque put on hold',
+    from: ['pending', 'authorized', 'deposited', 'on_hold'], to: 'on_hold', checker: true, action: 'hold', verb: 'put on hold', message: 'Cheque put on hold',
     set: (b) => ({ sql: 'hold_remark = $1', values: [(0, input_js_1.text)(b.hold_remark, 'hold_remark', 500, true)] }),
 }));
 router.patch('/receipts/:id/release-hold', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), (req, res, next) => move(req, res, next, {
-    from: ['on_hold'], to: 'pending', action: 'release', verb: 'released from hold', message: 'Cheque released from hold',
+    from: ['on_hold'], to: (cur) => (cur.authorized_by ? 'authorized' : 'pending'), checker: true, action: 'release', verb: 'released from hold', message: 'Cheque released from hold',
     set: () => ({ sql: 'hold_remark = NULL', values: [] }),
 }));
 router.use(pg_errors_js_1.pgErrorHandler);

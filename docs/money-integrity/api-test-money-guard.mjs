@@ -25,7 +25,7 @@ const ALLOWED = {
  ],
  "routes/consumers.ts": [
   5,
-  7
+  8
  ],
  "routes/custom-letters.ts": [
   1,
@@ -37,15 +37,15 @@ const ALLOWED = {
  ],
  "routes/demands.ts": [
   4,
-  6
+  8
  ],
  "routes/documents/merge-demand.ts": [
   5,
-  5
+  6
  ],
  "routes/documents/merge-letters.ts": [
   1,
-  1
+  2
  ],
  "routes/financial-ops.ts": [
   2,
@@ -89,7 +89,7 @@ const ALLOWED = {
  ],
  "routes/reports-cash.ts": [
   3,
-  14
+  15
  ],
  "routes/reports.ts": [
   8,
@@ -97,7 +97,7 @@ const ALLOWED = {
  ],
  "routes/surrender.ts": [
   3,
-  5
+  6
  ],
  "routes/transfers.ts": [
   3,
@@ -121,7 +121,7 @@ const ALLOWED = {
  ],
  "utils/payment-waterfall.ts": [
   4,
-  10
+  11
  ],
  "utils/rebate.ts": [
   1,
@@ -137,7 +137,7 @@ const ALLOWED = {
  ],
  "utils/timely-discount.ts": [
   1,
-  1
+  2
  ]
 };
 const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? (e.name === 'db' ? [] : walk(path.join(d, e.name))) : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);

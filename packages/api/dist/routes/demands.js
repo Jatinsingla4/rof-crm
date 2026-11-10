@@ -257,7 +257,7 @@ router.get('/demands', async (req, res, next) => {
         await Promise.all([...pairs.entries()].map(async ([key, { consumerId, unitId }]) => {
             const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
             const [rc, dm] = await Promise.all([
-                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
+                index_js_1.db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
                 index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan}`, [consumerId, unitId]),
@@ -492,7 +492,7 @@ router.get('/demand-status', async (req, res, next) => {
         await Promise.all(data.rows.map(async (r) => {
             const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
             const [rc, dm] = await Promise.all([
-                index_js_1.db.query(`SELECT id, amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
+                index_js_1.db.query(`SELECT id, amount_received_inr - ${(0, money_basis_js_1.returnedSql)('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
                    WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
                 index_js_1.db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan} AND status <> 'cancelled'`, [r.consumer_id, r.unit_id]),

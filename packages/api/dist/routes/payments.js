@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const document_recalc_js_1 = require("../utils/document-recalc.js");
 const payment_waterfall_js_1 = require("../utils/payment-waterfall.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const receipt_returns_js_1 = require("./receipt-returns.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const input_js_1 = require("../utils/input.js");
 const penal_interest_js_1 = require("../utils/penal-interest.js");
@@ -129,7 +130,7 @@ router.get('/dashboard', async (req, res, next) => {
         const projectId = (0, input_js_1.has)(req.query.projectId) ? (0, input_js_1.uuid)(req.query.projectId, 'projectId') : null;
         const result = await index_js_1.db.query(`SELECT
          COALESCE((SELECT SUM(total_amount_inr) FROM payment_plans WHERE $1::uuid IS NULL OR project_id = $1), 0) AS total_receivables,
-         COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
+         COALESCE((SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
                     WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
          (SELECT COUNT(*) FROM demands d JOIN payment_plans p ON p.id = d.payment_plan_id
            WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled') AND ($1::uuid IS NULL OR p.project_id = $1)) AS overdue_count`, [projectId]);
@@ -546,12 +547,12 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
     const client = await index_js_1.db.connect();
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
-        const reason = (0, input_js_1.text)((0, input_js_1.body)(req).reason, 'reason', 200, false) || 'Cancelled by user';
+        const givenReason = (0, input_js_1.text)((0, input_js_1.body)(req).reason, 'reason', 200, false);
         await client.query('BEGIN');
         const pre = (await client.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
         if (pre)
             await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]); // same consumer lock as every money path
-        const receiptResult = await client.query(`SELECT id, receipt_number, status, approval_status,
+        const receiptResult = await client.query(`SELECT id, receipt_number, status, approval_status, received_by_user_id,
               demand_id, payment_plan_id, amount_received_inr, consumer_id, installment_index
        FROM receipts WHERE id = $1 FOR UPDATE`, [id]);
         if (receiptResult.rows.length === 0) {
@@ -571,10 +572,30 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
             await client.query('ROLLBACK');
             return res.status(409).json({ error: 'A cleared receipt cannot be cancelled. A bank return after clearing is recorded through the receipt return workflow.' });
         }
-        if (receipt.approval_status === 'approved') {
-            await client.query('ROLLBACK');
-            return res.status(403).json({ error: 'Cannot cancel an approved receipt. Please use the formal reversal workflow.' });
+        // Owner decision (D-RECEIPTCTRL): the creator may withdraw a receipt that is still pending (audited); a pending receipt is otherwise rejected, and an authorised one
+        // cancelled, only by a different user who holds the receipt checker right, with a reason. Neither is open to any user with payment access.
+        const isCreator = !!req.userId && receipt.received_by_user_id === req.userId;
+        const withdrawn = isCreator && receipt.status === 'pending';
+        if (!withdrawn) {
+            if (isCreator) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ error: 'You recorded this receipt yourself. You can withdraw it only while it is pending; once it is authorized someone else has to cancel it.' });
+            }
+            if (!receipt.received_by_user_id) {
+                await client.query('ROLLBACK');
+                return res.status(409).json({ error: 'The creator of this record is unknown, so it needs remediation before anyone can act on it' });
+            }
+            if (!(await (0, receipt_returns_js_1.hasProcessRight)(client, req, 'receipt', 'checker'))) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({ error: 'Only a user with the receipt checker right, other than the one who recorded it, can reject or cancel this receipt' });
+            }
+            if (!givenReason) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'A reason is required to reject or cancel a receipt' });
+            }
         }
+        const reason = givenReason || 'Withdrawn by its creator';
+        const kind = withdrawn ? 'withdrawn by its creator' : receipt.status === 'pending' ? 'rejected by a checker' : 'cancelled by a checker';
         // The advance parts this receipt's overpayment created go with it, or the same money would stay counted against the next instalments.
         // Parts that are already approved, cleared or bounced have been dealt with on their own and block the cancellation instead.
         const lockedParts = await client.query(`SELECT receipt_number FROM receipts WHERE advance_source_receipt_id = $1 AND status != 'cancelled' AND (approval_status = 'approved' OR status IN ('cleared', 'bounced'))`, [id]);
@@ -610,13 +631,13 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
                 'RECEIPT_CANCEL',
                 JSON.stringify({ status: receipt.status, amount: receipt.amount_received_inr }),
                 JSON.stringify({ status: 'cancelled' }),
-                reason,
+                `${kind}: ${reason}`,
             ]);
         }
         catch (auditErr) {
             console.error('Audit log failed (non-fatal):', auditErr.message);
         }
-        await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'receipt', id, { status: receipt.status }, { status: 'cancelled', reason });
+        await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'receipt', id, { status: receipt.status }, { status: 'cancelled', reason, how: kind });
         await client.query('COMMIT');
         return res.json({
             success: true,
@@ -1856,8 +1877,8 @@ router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (
                SUM(amount_due_inr + COALESCE(cgst_amount,0) + COALESCE(sgst_amount,0) + COALESCE(addon_charge_amount,0) + COALESCE(addon_cgst_amount,0) + COALESCE(addon_sgst_amount,0)) AS total
         FROM demands WHERE consumer_id = c.id AND status <> 'cancelled') dl ON TRUE
       LEFT JOIN LATERAL (
-        SELECT SUM(amount_received_inr) AS paid FROM receipts
-        WHERE consumer_id = c.id AND status = 'cleared' AND NOT COALESCE(is_advance, false)) rc ON TRUE
+        SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS paid FROM receipts r
+        WHERE r.consumer_id = c.id AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)) rc ON TRUE
       WHERE c.id = $1
         AND u.id IS NOT NULL
       ORDER BY COALESCE(br.created_at, pp.created_at) DESC
@@ -2643,6 +2664,9 @@ router.get('/interest-waiver-list', async (req, res, next) => {
 // POST /api/payments/consumer-interest-detail/:consumerId — recalc, persist, return rows
 router.post('/consumer-interest-detail/:consumerId', async (req, res, next) => {
     try {
+        // This route saves interest, so it takes the same role as the scheduler's save (the second-approver step of decision 10 comes with the approval work)
+        if (!['super_admin', 'accounts_finance'].includes(req.userRole || ''))
+            throw (0, input_js_1.bad)('Only accounts and finance can save the interest calculation', 403);
         const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'Consumer id');
         const out = await (0, input_js_1.inTx)(async (client) => {
             await (0, input_js_1.lock)(client, 'pi:' + consumerId);

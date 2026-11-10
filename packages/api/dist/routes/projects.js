@@ -16,6 +16,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const unit_grant_js_1 = require("../utils/unit-grant.js");
 const input_js_1 = require("../utils/input.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 // GET /api/projects
 // Unit and floor figures on these routes count only the units the login's unit-status grant covers (owner-approved U-C): none -> zero, partial -> covered units only,
@@ -960,10 +961,10 @@ router.get('/:id/payment-plans', async (req, res, next) => {
        LEFT JOIN units u ON u.id = pp.unit_id
        LEFT JOIN consumers c ON c.id = pp.consumer_id
        LEFT JOIN (
-         SELECT payment_plan_id, SUM(amount_received_inr) AS total_paid
-         FROM receipts
-         WHERE status = 'cleared' AND is_advance IS NOT TRUE
-         GROUP BY payment_plan_id
+         SELECT r.payment_plan_id, SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) AS total_paid
+         FROM receipts r
+          WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE
+          GROUP BY r.payment_plan_id
        ) paid ON paid.payment_plan_id = pp.id
        WHERE pp.project_id = $1
        ORDER BY pp.created_at DESC`, [req.params.id]);

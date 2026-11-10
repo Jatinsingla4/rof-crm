@@ -57,7 +57,7 @@ const buyer = async (P = P1, T = T1, o = {}) => {
 };
 let rn = 0;
 const receipt = async (S, amount, idx, o = {}) => { const x = await A('POST', '/payments/receipts', { consumerId: S.c, amountReceivedInr: amount, paymentMode: o.mode || 'neft', referenceNumber: `RP${U}R${++rn}`, paymentDate: today, installmentIndex: idx, companyBankAccountId: o.bank, ...(o.mode === 'cheque' ? { chequeNo: `CQ${U}${rn}` } : {}) }); if (x.s !== 201) throw new Error('receipt ' + JSON.stringify(x)); return x.j.data.id; };
-const clear = async (id) => { const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); return id; };
+const clear = async (id) => { await CK('PATCH', `/payments/receipts/${id}/approve`, {}); const x = await CK('PATCH', `/payments/receipts/${id}/clear`, { clearing_date: today }); if (x.s !== 200) throw new Error('clear ' + JSON.stringify(x)); return id; };
 const bounce = async (id) => { const x = await CK('PATCH', `/payments/receipts/${id}/bounce`, { reason: 'test' }); if (x.s !== 200) throw new Error('bounce ' + JSON.stringify(x)); return id; };
 const cancel = async (id) => { const x = await A('POST', `/payments/receipts/${id}/cancel`, { reason: 'test' }); if (x.s !== 200) throw new Error('cancel ' + JSON.stringify(x)); return id; };
 const rais = (S, idx, days) => psql(`update demands set status='demanded', due_date = current_date - ${days}, raised_at = now() where payment_plan_id='${S.plan}' and installment_index=${idx} returning 1`);
@@ -69,7 +69,7 @@ const S = {};
 // C1: demand 1 (20 days late) and 2 (70 days late) raised; the booking money cleared (pool), a part payment on 2, plus a bounced, a cancelled, a pending and an on-hold receipt that must not count
 S.c1 = await buyer(P1, T1, { base: 8000000 + ri(0, 99999), bhk: '3BHK' }); rais(S.c1, 1, 20); rais(S.c1, 2, 70);
 await clear(bookingReceipt(S.c1)); await clear(await receipt(S.c1, ri(5, 9) * 100000 + ri(0, 999), 2, { bank: bank1 }));
-await bounce(await receipt(S.c1, 777777, 1)); await cancel(await receipt(S.c1, 666666, 2)); await receipt(S.c1, 55555, 2); const oh = await receipt(S.c1, 44444, 3); await A('PATCH', `/payments/receipts/${oh}/hold`, { hold_remark: 'x' });
+await bounce(await receipt(S.c1, 777777, 1)); await cancel(await receipt(S.c1, 666666, 2)); await receipt(S.c1, 55555, 2); const oh = await receipt(S.c1, 44444, 3); await CK('PATCH', `/payments/receipts/${oh}/hold`, { hold_remark: 'x' });
 // C2: demand 1 paid in full, demand 2 raised and not yet late with a part payment, 3 not raised
 S.c2 = await buyer(P1, T1b, { base: 5000000 + ri(0, 99999) }); rais(S.c2, 1, 40); rais(S.c2, 2, -15);
 const d2 = demandsOf(S.c2); await clear(await receipt(S.c2, d2[0].total, 1, { mode: 'cheque', bank: bank2 })); await clear(await receipt(S.c2, Math.floor(d2[1].total / 3), 2, { bank: bank1 })); await clear(bookingReceipt(S.c2));

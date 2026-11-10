@@ -16,6 +16,7 @@ import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qte
 import { nextNumber } from '../utils/penal-interest.js';
 import { SQL_TODAY, businessTomorrow, businessYear } from '../utils/business-date.js';
 import { notCreator } from '../utils/not-creator.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 const fail = (e: any, res: Response, next: NextFunction) => failWith(e, res, next);
@@ -222,12 +223,12 @@ const REFUND_SELECT = `
 const refundRoom = async (c: any, consumerId: string, receiptId: string | null, exceptId: string | null) => {
   const open = `status IN ('pending','approved','processed') AND id IS DISTINCT FROM $2`;
   const all = (await c.query(
-    `SELECT COALESCE((SELECT SUM(amount_received_inr) FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE), 0) AS paid,
+    `SELECT COALESCE((SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE), 0) AS paid,
             COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE consumer_id = $1 AND ${open}), 0) AS taken`, [consumerId, exceptId])).rows[0];
   let room = Number(all.paid) - Number(all.taken), what = 'what the applicant has paid';
   if (receiptId) {
     const rc = (await c.query(
-      `SELECT r.amount_received_inr AS paid, r.status, COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE original_receipt_id = r.id AND ${open}), 0) AS taken
+      `SELECT r.amount_received_inr - ${returnedSql('r')} AS paid, r.status, COALESCE((SELECT SUM(refund_amount_inr) FROM payment_refunds WHERE original_receipt_id = r.id AND ${open}), 0) AS taken
          FROM receipts r WHERE r.id = $3 AND r.consumer_id = $1`, [consumerId, exceptId, receiptId])).rows[0];
     if (!rc) throw bad('That receipt does not belong to this applicant', 400);
     if (['cancelled', 'bounced'].includes(rc.status)) throw bad(`That receipt is ${rc.status}, there is nothing to refund on it`, 409);
@@ -261,6 +262,7 @@ router.post('/refunds', requireProcess('jv_refund_drcr', 'maker'), async (req: A
       await consumerExists(c, consumerId);
       if (planId && !(await c.query(`SELECT 1 FROM payment_plans WHERE id = $1 AND consumer_id = $2`, [planId, consumerId])).rows.length) throw bad('That payment plan does not belong to this applicant');
       await lock(c, 'refund:' + consumerId);
+      await lock(c, 'receipt-consumer:' + consumerId);   // same lock as returns and clearing: the money read by refundRoom cannot go stale
       const { room, what } = await refundRoom(c, consumerId, receiptId, null);
       if (amount > room) throw bad(`Refund (Rs ${amount}) is more than ${what} less the refunds already raised (Rs ${Math.max(room, 0)} left)`, 409);
       return (await c.query(

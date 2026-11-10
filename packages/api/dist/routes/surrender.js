@@ -13,6 +13,7 @@ const input_js_1 = require("../utils/input.js");
 const broker_js_1 = require("../utils/broker.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'This record already exists');
 const query = (v, label, max = 100) => {
@@ -130,7 +131,7 @@ router.get('/detail/:consumerId', async (req, res, next) => {
          LIMIT 1`, [consumerId]),
             index_js_1.db.query(`SELECT * FROM co_applicants WHERE consumer_id = $1 LIMIT 1`, [consumerId]),
             index_js_1.db.query(`SELECT r.id, r.receipt_number, r.received_date, r.payment_method,
-                r.amount_received_inr, r.cheque_no, r.bank_name,
+                r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')} AS amount_received_inr, r.cheque_no, r.bank_name,
                 r.clearing_date, r.status, r.interest_amount
          FROM receipts r
          WHERE r.consumer_id = $1 AND r.status = 'cleared' AND NOT COALESCE(r.is_advance, false)
@@ -307,6 +308,8 @@ const r2 = (n) => Math.round(n * 100) / 100;
 const performSurrender = async (c, req, res, p) => {
     const { consumerId, allocationId, given, isCancel, date, sType, mode, f } = p;
     await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`surrender-alloc:${allocationId}`]);
+    // The same consumer lock as recording, clearing, returning and allocating money, so the money read below cannot go stale while a return is being approved
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${consumerId}`]);
     const alloc = (await c.query(`SELECT id, consumer_id, unit_id, project_id, status FROM allocations WHERE id = $1 FOR UPDATE`, [allocationId])).rows[0];
     if (!alloc)
         throw (0, input_js_1.bad)('Allocation not found', 404);
@@ -334,7 +337,7 @@ const performSurrender = async (c, req, res, p) => {
     if (booking && booking.status === 'cancelled')
         throw (0, input_js_1.bad)('This booking is already cancelled', 409);
     // What the applicant has paid (cleared receipts, as the account screen shows it): forfeiture and refund together cannot exceed it
-    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [consumerId])).rows[0].s);
+    const received = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [consumerId])).rows[0].s);
     if (f.forfeit > received + 0.005)
         throw (0, input_js_1.bad)(`The forfeiture (${f.forfeit}) is more than the amount received (${received})`);
     if (f.forfeit + f.refund > received + 1)

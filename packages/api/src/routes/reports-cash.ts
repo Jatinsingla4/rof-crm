@@ -12,6 +12,7 @@ import { h, Q } from './reports-dues.js';
 import { r2 } from '../utils/report-ledger.js';
 import { forRole } from '../utils/company-bank.js';
 import { businessYear } from '../utils/business-date.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 const CASH = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`;
@@ -27,7 +28,7 @@ const notScoped = (what: string) => { if (isScoped()) throw bad(`${what} is comp
 router.get('/monthly-collection', h(async (req, res) => {
   const x = Q(req);
   const r = await db.query(
-    `SELECT TO_CHAR(DATE_TRUNC('month', r.received_date), 'YYYY-MM-DD') AS month, COUNT(*)::int AS receipt_count, SUM(r.amount_received_inr) AS amount_collected_inr
+    `SELECT TO_CHAR(DATE_TRUNC('month', r.received_date), 'YYYY-MM-DD') AS month, COUNT(*)::int AS receipt_count, SUM(r.amount_received_inr - ${returnedSql('r')}) AS amount_collected_inr
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid)
       GROUP BY 1 ORDER BY 1 DESC`, [x.projectId || null]);
   res.json({ success: true, data: r.rows.map((m: any) => ({ ...m, amount_collected_inr: num(m.amount_collected_inr) })) });
@@ -36,7 +37,7 @@ router.get('/monthly-collection', h(async (req, res) => {
 router.get('/year-month-collection', h(async (req, res) => {
   const x = Q(req);
   const r = await db.query(
-    `SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS total
+    `SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr - ${returnedSql('r')}) AS total
        ${RECEIPT_FROM} WHERE ${CASH} AND ($1::uuid IS NULL OR ${PROJECT} = $1::uuid) GROUP BY 1, 2 ORDER BY 1, 2`, [x.projectId || null]);
   const cur = businessYear();
   const years = r.rows.map((a: any) => a.yr);
@@ -57,7 +58,7 @@ router.get('/project-collection', h(async (req, res) => {
   const from = x.fromDate || null, to = x.toDate || null, pid = x.projectId || null;
   const inRange = (col: string) => `($2::date IS NULL OR ${col} >= $2::date) AND ($3::date IS NULL OR ${col} <= $3::date)`;
   const rows = (await db.query(
-    `WITH pr AS (SELECT r.id, r.status, r.payment_method::text AS pm, r.amount_received_inr, r.received_date, r.is_advance, ${PROJECT} AS project_id ${RECEIPT_FROM})
+    `WITH pr AS (SELECT r.id, r.status, r.payment_method::text AS pm, r.amount_received_inr - ${returnedSql('r')} AS amount_received_inr, r.received_date, r.is_advance, ${PROJECT} AS project_id ${RECEIPT_FROM})
      SELECT p.id AS project_id, p.name AS project_name,
         COALESCE(SUM(pr.amount_received_inr) FILTER (WHERE pr.status = 'cleared' AND pr.is_advance IS NOT TRUE AND pr.pm = 'cheque' AND ${inRange('pr.received_date')}), 0) AS cheque_amount,
         COALESCE(SUM(pr.amount_received_inr) FILTER (WHERE pr.status = 'cleared' AND pr.is_advance IS NOT TRUE AND pr.pm = 'demand_draft' AND ${inRange('pr.received_date')}), 0) AS draft_amount,
@@ -111,7 +112,7 @@ router.get('/cash-bank-summary', h(async (req, res) => {
   const x = Q(req);
   const r = await db.query(
     `SELECT cba.id, cba.bank_name, cba.account_name, cba.account_number,
-            COALESCE((SELECT SUM(r.amount_received_inr) FROM receipts r WHERE r.company_bank_account_id = cba.id AND ${CASH} AND ($4::date IS NULL OR r.received_date >= $4::date) AND ($5::date IS NULL OR r.received_date <= $5::date)), 0) AS credit,
+            COALESCE((SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r WHERE r.company_bank_account_id = cba.id AND ${CASH} AND ($4::date IS NULL OR r.received_date >= $4::date) AND ($5::date IS NULL OR r.received_date <= $5::date)), 0) AS credit,
             COALESCE((SELECT SUM(op.amount_inr) FROM outgoing_payments op WHERE op.company_bank_account_id = cba.id AND op.status = 'cleared' AND ($4::date IS NULL OR op.payment_date >= $4::date) AND ($5::date IS NULL OR op.payment_date <= $5::date)), 0) AS debit
        FROM company_bank_accounts cba
       WHERE cba.is_active = true AND ($1::uuid IS NULL OR cba.company_id = $1::uuid)
@@ -127,7 +128,7 @@ router.get('/ledger-monthly-summary/:companyBankAccountId', h(async (req, res) =
   const id = req.params.companyBankAccountId;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw bad('companyBankAccountId is not valid');
   const [cr, dr] = await Promise.all([
-    db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr) AS credit FROM receipts r
+    db.query(`SELECT EXTRACT(YEAR FROM r.received_date)::int AS yr, EXTRACT(MONTH FROM r.received_date)::int AS mo, SUM(r.amount_received_inr - ${returnedSql('r')}) AS credit FROM receipts r
                WHERE r.company_bank_account_id = $1 AND ${CASH} AND ($2::date IS NULL OR r.received_date >= $2::date) AND ($3::date IS NULL OR r.received_date <= $3::date) GROUP BY 1, 2`, [id, x.fromDate || null, x.toDate || null]),
     db.query(`SELECT EXTRACT(YEAR FROM op.payment_date)::int AS yr, EXTRACT(MONTH FROM op.payment_date)::int AS mo, SUM(op.amount_inr) AS debit FROM outgoing_payments op
                WHERE op.company_bank_account_id = $1 AND op.status = 'cleared' AND ($2::date IS NULL OR op.payment_date >= $2::date) AND ($3::date IS NULL OR op.payment_date <= $3::date) GROUP BY 1, 2`, [id, x.fromDate || null, x.toDate || null]),

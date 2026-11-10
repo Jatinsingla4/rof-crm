@@ -397,6 +397,7 @@ const cheque = async (label: string, amount = 5000) => {
   const x = await apiCk('POST', '/payments/receipts', { consumerId: S.consumer, amountReceivedInr: amount, paymentMode: 'cheque', chequeNo: no, chequeDate: today, bankName: 'HDFC', paymentDate: today });
   expect(x.s, JSON.stringify(x.j)).toBeLessThan(300);
   const id = x.j.receipt?.id || x.j.data?.id;
+  expect((await api('PATCH', `/payments/receipts/${id}/approve`, {})).s).toBe(200);   // authorized first: nothing is deposited or cleared before a checker has authorized it
   return { id, no, rno: x.j.receipt?.receipt_number || x.j.data?.receipt_number as string };
 };
 
@@ -407,7 +408,7 @@ test('Pending cheques: five new cheques show on the screen with the right unit, 
     const r = pcRow(S.chq[l].no);
     await expect(r).toHaveCount(1);
     await expect(r).toContainText(S.reg); await expect(r).toContainText(`L1-${U}`); await expect(r).toContainText(S.towerName);
-    await expect(r).toContainText('Pending'); await expect(r).toContainText('5,000');
+    await expect(r).toContainText('Authorized'); await expect(r).toContainText('5,000');
   }
   await pcClean();
   const n = await page.locator('#pc-tbody tr').count();
@@ -480,10 +481,10 @@ test('Pending cheques: CLEAR without a clearing date uses today (or says why), a
   dialogs = [];
   await page.getByRole('button', { name: /^CLEAR/ }).click();
   await expect.poll(() => dialogs.length).toBeGreaterThan(0);
-  await expect.poll(async () => (await rcpt(S.chq.D.id)).status).not.toBe('pending');
+  await expect.poll(async () => (await rcpt(S.chq.D.id)).status).not.toBe('authorized');
   const st = (await rcpt(S.chq.D.id)).status;
   // whichever way it goes, the message must match what the database holds
-  if (/Success: 1/.test(dialogs.join())) expect(st).toBe('cleared'); else expect(st).toBe('pending');
+  if (/Success: 1/.test(dialogs.join())) expect(st).toBe('cleared'); else expect(st).toBe('authorized');
   expect(dialogs.join()).not.toMatch(/undefined|NaN/);
   expect(st, 'a cheque cleared with the date left blank should clear with today as the date').toBe('cleared');
 });
@@ -499,7 +500,7 @@ test('Pending cheques: Hold needs a remark, Hold puts it on hold, Release brings
   await page.locator('#pc-hold-remark').fill('   ');
   await page.locator('.btn-hold-submit').click();
   expect(dialogs.join()).toMatch(/remark is required/i);
-  expect((await rcpt(S.chq.B.id)).status).toBe('pending');
+  expect((await rcpt(S.chq.B.id)).status).toBe('authorized');
   await page.locator('#pc-hold-remark').fill('awaiting customer call');
   await page.locator('.btn-hold-submit').click();
   await expect.poll(async () => (await rcpt(S.chq.B.id)).status).toBe('on_hold');
@@ -509,9 +510,9 @@ test('Pending cheques: Hold needs a remark, Hold puts it on hold, Release brings
   // a held cheque cannot be held again from a stale screen, but holding again with a new remark is allowed by the API: check the screen
   await expect(pcRow(S.chq.B.no).getByRole('button', { name: 'Release' })).toBeVisible();
   await pcRow(S.chq.B.no).getByRole('button', { name: 'Release' }).click();
-  await expect.poll(async () => (await rcpt(S.chq.B.id)).status).toBe('pending');
+  await expect.poll(async () => (await rcpt(S.chq.B.id)).status).toBe('authorized');
   expect((await rcpt(S.chq.B.id)).hold_remark).toBeNull();
-  await expect(pcRow(S.chq.B.no)).toContainText('Pending');
+  await expect(pcRow(S.chq.B.no)).toContainText('Authorized');
   await expect(pcRow(S.chq.B.no).getByRole('button', { name: 'Hold' })).toBeVisible();
 });
 
@@ -522,7 +523,7 @@ test('Pending cheques: BOUNCE needs a reason, a reason bounces the cheque in the
   dialogs = [];
   await page.getByRole('button', { name: 'BOUNCE', exact: true }).click();
   await expect.poll(() => dialogs.join()).toMatch(/skipped/i);
-  expect((await rcpt(S.chq.C.id)).status).toBe('pending');
+  expect((await rcpt(S.chq.C.id)).status).toBe('authorized');
   const reasons = await r.locator('.pc-bounce-reason option').evaluateAll(o => o.map((x: any) => x.value).filter(Boolean));
   expect(reasons.length).toBe(13);
   await pcRow(S.chq.C.no).locator('.pc-bounce-reason').selectOption('Fund Insufficient');
@@ -553,7 +554,7 @@ test('Pending cheques: actions on a cheque that changed behind the screen fail w
   expect((await api('PATCH', `/payments/receipts/${S.chq.C.id}/bounce`, { reason: 'again' })).s).toBe(409);   // already bounced
   expect((await api('PATCH', `/payments/receipts/not-an-id/clear`, { clearing_date: today })).s).toBe(400);
   expect((await apiCk('PATCH', `/payments/receipts/${S.chq.B.id}/clear`, { clearing_date: 'junk' })).s).toBe(400);
-  expect((await rcpt(S.chq.B.id)).status).toBe('pending');
+  expect((await rcpt(S.chq.B.id)).status).toBe('authorized');
 });
 
 test('Pending cheques: select all, double click on CLEAR, and a mixed selection', async () => {
@@ -572,7 +573,7 @@ test('Pending cheques: select all, double click on CLEAR, and a mixed selection'
   await expect.poll(async () => (await rcpt(g.id)).status).toBe('cleared');     // a held cheque can be cleared directly
   expect(dialogs.join()).not.toMatch(/undefined|NaN/);
   const st: Record<string, string> = {}; for (const [l, c] of Object.entries<any>(S.chq)) st[l] = (await rcpt(c.id)).status;
-  expect(st).toEqual({ A: 'cleared', B: 'pending', C: 'bounced', D: 'cleared', E: 'cleared' });
+  expect(st).toEqual({ A: 'cleared', B: 'authorized', C: 'bounced', D: 'cleared', E: 'cleared' });
 });
 
 // ---------- Transfers: fee setup, search, transfer the unit to a new applicant, date edit, report, detail, letter ----------
@@ -1252,6 +1253,7 @@ test('E-Draw Import: a file with results is read, refunds are made once, wrong f
   const rc = await api('POST', '/payments/receipts', { consumerId: alt.W2.id, amountReceivedInr: 15000, paymentMode: 'cash', paymentDate: today });
   expect(rc.s, JSON.stringify(rc.j)).toBeLessThan(300);
   const rid = rc.j.receipt?.id || rc.j.data?.id;
+  await apiCk('PATCH', `/payments/receipts/${rid}/approve`, {});
   expect((await apiCk('PATCH', `/payments/receipts/${rid}/clear`, { clearing_date: today })).s).toBe(200);
   await go('/allotment'); await allotTab('edraw');
   const importBtn = page.getByRole('button', { name: 'Import E-Draw Results' });

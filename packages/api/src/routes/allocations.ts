@@ -15,6 +15,7 @@ import { performSurrender } from './surrender.js';
 import { SQL_TODAY, businessToday, businessTomorrow } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
 import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
+import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
 const csvUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
@@ -153,7 +154,7 @@ router.post('/:id/cancel', async (req: AuthRequest, res: Response, next: NextFun
     const out = await inTx(async (c) => {
       const alloc = (await c.query(`SELECT id, consumer_id, unit_id FROM allocations WHERE id = $1`, [id])).rows[0];
       if (!alloc) throw bad('Allocation not found', 404);
-      const received = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [alloc.consumer_id])).rows[0].s);
+      const received = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [alloc.consumer_id])).rows[0].s);
       const forfeit = Math.min(29500, received), refund = Math.round((received - forfeit) * 100) / 100;
       const done = await performSurrender(c, req, res, {
         consumerId: alloc.consumer_id, allocationId: id, given: { booking: null, unit: null, project: null }, isCancel: true, date: businessToday(), sType: 'allocation_cancel', mode: null,
@@ -227,7 +228,7 @@ router.post('/import-edraw', (req: AuthRequest, res: Response, next: NextFunctio
           if (p.allocated_unit_id) { skipped++; mismatches.push({ applicantId: row.applicantId, reason: 'Applicant already holds a unit, no refund created' }); continue; }
           // Importing the same file twice must not create the refund twice
           if ((await c.query(`SELECT 1 FROM draw_refunds WHERE consumer_id = $1 AND project_id = $2 AND draw_result = 'unsuccessful' LIMIT 1`, [p.id, projectId])).rows.length) { skipped++; continue; }
-          const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(amount_received_inr), 0) AS s FROM receipts WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE`, [p.id])).rows[0].s);
+          const paid = parseFloat((await c.query(`SELECT COALESCE(SUM(r.amount_received_inr - ${returnedSql('r')}), 0) AS s FROM receipts r WHERE r.consumer_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE`, [p.id])).rows[0].s);
           if (paid > 0) {
             await c.query(
               `INSERT INTO draw_refunds (consumer_id, project_id, draw_result, booking_amount_paid_inr, refund_amount_inr, refund_due_by, refund_status, created_by_user_id, company_bank_account_id)
