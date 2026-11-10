@@ -63,6 +63,7 @@ const roles_js_1 = __importDefault(require("./routes/roles.js"));
 const companies_js_1 = __importDefault(require("./routes/companies.js"));
 const custom_letters_js_1 = __importDefault(require("./routes/custom-letters.js"));
 const gst_configuration_js_1 = __importDefault(require("./routes/gst-configuration.js"));
+const cron_js_1 = __importDefault(require("./routes/cron.js"));
 const rbac_js_1 = require("./middleware/rbac.js");
 const auditLogger_js_1 = require("./middleware/auditLogger.js");
 const security_js_1 = require("./utils/security.js");
@@ -540,6 +541,8 @@ app.use('/api/test-data', exports.authenticateToken, (req, res, next) => (req.us
 app.use('/api/roles', exports.authenticateToken, roles_js_1.default);
 app.use('/api/companies', exports.authenticateToken, companies_js_1.default);
 app.use('/api/custom-letters', exports.authenticateToken, rbac('documents'), custom_letters_js_1.default);
+// Jobs started by Vercel Cron: no login, they carry the CRON_SECRET instead
+app.use('/api/cron', cron_js_1.default);
 // An API path no route handled answers in JSON, like every other API error
 app.use('/api', (req, res) => { res.status(404).json({ error: 'Not found' }); });
 // ============================================

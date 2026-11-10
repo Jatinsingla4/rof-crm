@@ -410,6 +410,7 @@ router.post('/consumer', async (req, res, next) => {
         const effectiveDate = (0, input_js_1.day)(b.effectiveDate) || (0, business_date_js_1.businessToday)();
         const out = await (0, input_js_1.inTx)(async (c) => {
             await lockConsumer(c, consumerId);
+            await requireNoUnresolvedReceipt(c, consumerId);
             if (!(await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND project_id = $2 AND status != 'cancelled'`, [consumerId, projectId])).rows.length) {
                 throw (0, input_js_1.bad)('This customer has no active booking in this project');
             }
@@ -450,6 +451,13 @@ router.post('/consumer', async (req, res, next) => {
         fail(err, res, next);
     }
 });
+// Owner decision U3: a customer's add-on charges do not change while one of the customer's receipts is unresolved (pending, authorized, deposited or on hold):
+// the money has to be settled first, so a demand is never re-priced under a receipt nobody has decided on.
+async function requireNoUnresolvedReceipt(c, consumerId) {
+    const open = (await c.query(`SELECT COALESCE(receipt_number, 'a receipt of Rs ' || amount_received_inr) AS receipt_number FROM receipts WHERE consumer_id = $1 AND status IN ('pending', 'authorized', 'deposited', 'on_hold') AND is_advance IS NOT TRUE ORDER BY created_at LIMIT 5`, [consumerId])).rows;
+    if (open.length)
+        throw Object.assign((0, input_js_1.bad)(`Add-on charges cannot change while a receipt is unresolved. Clear, reject, bounce or cancel ${open.map((r) => r.receipt_number).join(', ')} first.`), { http: 409 });
+}
 // One customer charge, changed only while it is active
 async function changeCharge(req, res, next, kind) {
     try {
@@ -466,6 +474,7 @@ async function changeCharge(req, res, next, kind) {
             if (!pre)
                 throw Object.assign(new Error('Charge not found'), { http: 404 });
             await lockConsumer(c, pre.consumer_id);
+            await requireNoUnresolvedReceipt(c, pre.consumer_id);
             const cur = (await c.query(`SELECT * FROM consumer_addon_charges WHERE id = $1 FOR UPDATE`, [cid])).rows[0];
             if (cur.status !== 'active')
                 throw (0, input_js_1.bad)(`This charge is already ${cur.status}`);
