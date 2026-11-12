@@ -450,7 +450,7 @@ const ConsumerDetailPage = {
               const isVerified = uploaded || isPopulated;
               return `<tr style="border-bottom:1px solid var(--border);transition:background 0.15s;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
                 <td style="padding:14px 16px;text-align:center;">
-                  <input type="checkbox" data-doc-type="${item}" ${isVerified ? 'checked' : ''} style="width:18px;height:18px;cursor:pointer;accent-color:var(--teal);">
+                  <input type="checkbox" data-doc-type="${item}" ${isVerified ? 'checked' : ''} aria-readonly="true" onclick="return false" style="width:18px;height:18px;cursor:default;accent-color:var(--teal);">
                 </td>
                 <td style="padding:14px 16px;">
                   <span style="font-weight:${isVerified?'600':'400'};color:${isVerified?'var(--teal)':'var(--text)'};font-size:14px;">${item}</span>
@@ -461,10 +461,7 @@ const ConsumerDetailPage = {
               </tr>`;
             }).join('')}
           </tbody>
-        </table>
-        <div style="margin-top:16px;text-align:right;">
-          <button id="btn-save-kyc" class="btn btn-teal btn-sm" onclick="Utils.success('Compliance checklist saved')">Save Compliance Data</button>
-        </div>`;
+        </table>`;
 
       const el = document.getElementById(`docs-vault-${id}`);
       if (el) el.innerHTML = docs.length === 0

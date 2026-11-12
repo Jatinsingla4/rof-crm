@@ -70,8 +70,18 @@ const RegistryPage = {
   },
 
   async loadConsumers() {
-    const res = await Api.get('/consumers', { params: { leadStage: 'allotted' } });
-    const list = res.data || res || [];
+    // The API returns 20 consumers a page unless asked otherwise: read every page until pagination.total is reached.
+    // The dropdown is written once, after all pages arrived, so a failed page never leaves a half list (the error goes up as before).
+    const PAGE_SIZE = 200, seen = new Set(), list = [];
+    let received = 0, total = 0;
+    for (let page = 1; page === 1 || received < total; page++) {
+      const res = await Api.get('/consumers', { params: { leadStage: 'allotted', page, pageSize: PAGE_SIZE } });
+      const rows = Array.isArray(res) ? res : (res.data || []);
+      total = Array.isArray(res) ? rows.length : Number(res.pagination?.total) || 0;
+      if (!rows.length) break;   // nothing more (also stops the loop if the total ever drifts)
+      received += rows.length;
+      for (const c of rows) if (!seen.has(c.id)) { seen.add(c.id); list.push(c); }   // a consumer added meanwhile can shift a page: never list one twice
+    }
     document.getElementById('reg-consumer').innerHTML = '<option value="">— Select Allotted Consumer —</option>' +
       list.map(c => `<option value="${c.id}">${c.name || `${c.first_name} ${c.last_name}`} · ${c.unit_number || 'Unit'}</option>`).join('');
   },
