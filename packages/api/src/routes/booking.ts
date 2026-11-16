@@ -22,6 +22,7 @@ import { pinCode, mobileNo } from '../utils/applicant.js';
 import { cleanFields, checkIdentity, personName, hasLetter, forAudit, asText, lock, sha } from '../utils/applicant-fields.js';
 import { resolveGstForComponents, resolveRate, splitGstAcrossInstalments } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
+import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 import { priceQuote } from '../utils/price-quote.js';
 import { snapshotOn, writeSnapshot, quoteBookingRow } from '../utils/agreement-snapshot.js';
 import { loadLedger } from '../utils/report-ledger.js';
@@ -326,9 +327,7 @@ router.get('/reconciliation', financeOnly, async (_req: AuthRequest, res: Respon
     for (const p of await loadLedger()) for (const d of p.demands) if (d.status === 'paid' && d.balance > 1) paidShort.push({ booking_id: p.booking_id, registration_no: p.registration_no, demand_id: d.id, installment: d.index, total: d.total, paid: d.paid, balance: d.balance });
     const sets: Record<string, any[]> = {
       demands_paid_with_balance_over_1: paidShort,
-      invoices_on_cancelled_or_smaller_receipt: await q(`SELECT gi.id, gi.invoice_no, gi.total_amount_inr::float8 AS invoice_total, r.status AS receipt_status, r.amount_received_inr::float8 AS receipt_amount
-        FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
-       WHERE gi.status <> 'cancelled' AND (r.status IN ('cancelled','bounced') OR gi.total_amount_inr > r.amount_received_inr)`),
+      invoices_charging_more_than_the_receipt_behind_them: (await invoicesOverReceipt(db)).map((x: any) => ({ id: x.id, invoice_no: x.invoice_no, invoice_total: x.invoice_total, still_charged: x.still_charged, receipt_status: x.receipt_status, receipt_net: x.receipt_net })),
       live_bookings_with_no_rate_or_area: await q(`SELECT br.id, br.registration_no, br.status, br.basic_rate_inr_sqft::float8 AS rate, u.carpet_area_sqft::float8 AS carpet
         FROM booking_records br JOIN units u ON u.id = br.unit_id
        WHERE br.status IN ('pending_payment','active','complete') AND (COALESCE(br.basic_rate_inr_sqft,0) <= 0 OR COALESCE(u.carpet_area_sqft,0) <= 0)`),

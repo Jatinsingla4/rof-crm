@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const price_quote_js_1 = require("../utils/price-quote.js");
 const agreement_snapshot_js_1 = require("../utils/agreement-snapshot.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
@@ -360,9 +361,7 @@ router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) =>
                     paidShort.push({ booking_id: p.booking_id, registration_no: p.registration_no, demand_id: d.id, installment: d.index, total: d.total, paid: d.paid, balance: d.balance });
         const sets = {
             demands_paid_with_balance_over_1: paidShort,
-            invoices_on_cancelled_or_smaller_receipt: await q(`SELECT gi.id, gi.invoice_no, gi.total_amount_inr::float8 AS invoice_total, r.status AS receipt_status, r.amount_received_inr::float8 AS receipt_amount
-        FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
-       WHERE gi.status <> 'cancelled' AND (r.status IN ('cancelled','bounced') OR gi.total_amount_inr > r.amount_received_inr)`),
+            invoices_charging_more_than_the_receipt_behind_them: (await (0, invoice_exposure_js_1.invoicesOverReceipt)(index_js_1.db)).map((x) => ({ id: x.id, invoice_no: x.invoice_no, invoice_total: x.invoice_total, still_charged: x.still_charged, receipt_status: x.receipt_status, receipt_net: x.receipt_net })),
             live_bookings_with_no_rate_or_area: await q(`SELECT br.id, br.registration_no, br.status, br.basic_rate_inr_sqft::float8 AS rate, u.carpet_area_sqft::float8 AS carpet
         FROM booking_records br JOIN units u ON u.id = br.unit_id
        WHERE br.status IN ('pending_payment','active','complete') AND (COALESCE(br.basic_rate_inr_sqft,0) <= 0 OR COALESCE(u.carpet_area_sqft,0) <= 0)`),

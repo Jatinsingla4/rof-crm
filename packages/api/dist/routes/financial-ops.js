@@ -453,9 +453,9 @@ const raiseNote = async (req, b) => {
     if (!(0, input_js_1.has)(b.note_type))
         throw (0, input_js_1.bad)('note_type is required');
     const type = (0, input_js_1.oneOf)(b.note_type, 'note_type', ['credit', 'debit']), amount = (0, input_js_1.pos)(b.adjustment_amount, 'adjustment_amount'), reason = (0, input_js_1.text)(b.reason, 'reason', 500, true);
-    const gstRate = (0, input_js_1.has)(b.gst_rate) ? (0, input_js_1.num)(b.gst_rate, 'gst_rate', 28, 2) : 5, noteDate = (0, input_js_1.day)(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
+    const givenRate = (0, input_js_1.has)(b.gst_rate) ? (0, input_js_1.num)(b.gst_rate, 'gst_rate', 28, 2) : null, noteDate = (0, input_js_1.day)(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
     return (0, input_js_1.inTx)(async (c) => {
-        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
+        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
         if (!inv)
             throw (0, input_js_1.bad)('Invoice not found', 404);
         if (inv.status === 'cancelled')
@@ -467,6 +467,8 @@ const raiseNote = async (req, b) => {
             if (used + amount > Number(inv.taxable_amount_inr))
                 throw (0, input_js_1.bad)(`Credit notes (Rs ${(0, input_js_1.r2)(used + amount)} with this one) would be more than the invoice (Rs ${inv.taxable_amount_inr})`, 409);
         }
+        // A note without a rate carries the rate of the invoice it adjusts (it used to assume 5%)
+        const gstRate = givenRate ?? (0, input_js_1.r2)(Number(inv.own_rate));
         const gst = (0, input_js_1.r2)(amount * gstRate / 100);
         const no = await (0, penal_interest_js_1.nextNumber)(c, 'credit_debit_notes', 'note_number', 'CDN', 4);
         // Journal authentication of the invoice's project: Automatic issues the note at once (no checker); Manual (the default) leaves it pending for a checker
