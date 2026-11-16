@@ -17,6 +17,7 @@ import { businessTomorrow, businessYear, SQL_TODAY } from '../utils/business-dat
 import { notOwn } from './financial-ops.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { recomputePlan, creditSummary } from '../utils/money-basis.js';
+import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 
 const router = Router();
 const fail = (err: any, res: Response, next: NextFunction) => {
@@ -143,9 +144,9 @@ router.post('/receipt-returns/:id/approve', requireProcess('receipt', 'checker')
       if (!up.rows.length) throw bad('The return changed while it was being approved, try again', 409);
       await recomputePlan(c, planId, req.userId || null);   // statuses follow the money after the return; raised_at and due_date are never touched (D8)
       await auditChange(c, req, res, 'update', 'receipt_return', id, { status: 'pending' }, { status: 'approved', amount: ret.amount, reversed_allocations: reversed });
-      return { row: up.rows[0], reversed_allocation_ids: reversed };
+      return { row: up.rows[0], reversed_allocation_ids: reversed, invoices_to_review: (await invoicesOverReceipt(c, ret.receipt_id)).map((x: any) => x.invoice_no) };
     });
-    res.json({ success: true, data: out.row, reversed_allocation_ids: out.reversed_allocation_ids });
+    res.json({ success: true, data: out.row, reversed_allocation_ids: out.reversed_allocation_ids, invoices_to_review: out.invoices_to_review });
   } catch (err) { fail(err, res, next); }
 });
 

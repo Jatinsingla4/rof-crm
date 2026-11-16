@@ -20,8 +20,8 @@ const ALLOWED = {
   2
  ],
  "routes/booking.ts": [
-  9,
-  11
+  8,
+  9
  ],
  "routes/consumers.ts": [
   5,
@@ -118,6 +118,10 @@ const ALLOWED = {
  "utils/money-basis.ts": [
   1,
   7
+ ],
+ "utils/invoice-exposure.ts": [
+  1,
+  2
  ],
  "utils/payment-waterfall.ts": [
   4,

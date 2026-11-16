@@ -20,6 +20,7 @@ const business_date_js_1 = require("../utils/business-date.js");
 const financial_ops_js_1 = require("./financial-ops.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => {
     if (err?.extra)
@@ -164,9 +165,9 @@ router.post('/receipt-returns/:id/approve', (0, processPermission_js_1.requirePr
                 throw (0, input_js_1.bad)('The return changed while it was being approved, try again', 409);
             await (0, money_basis_js_1.recomputePlan)(c, planId, req.userId || null); // statuses follow the money after the return; raised_at and due_date are never touched (D8)
             await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'receipt_return', id, { status: 'pending' }, { status: 'approved', amount: ret.amount, reversed_allocations: reversed });
-            return { row: up.rows[0], reversed_allocation_ids: reversed };
+            return { row: up.rows[0], reversed_allocation_ids: reversed, invoices_to_review: (await (0, invoice_exposure_js_1.invoicesOverReceipt)(c, ret.receipt_id)).map((x) => x.invoice_no) };
         });
-        res.json({ success: true, data: out.row, reversed_allocation_ids: out.reversed_allocation_ids });
+        res.json({ success: true, data: out.row, reversed_allocation_ids: out.reversed_allocation_ids, invoices_to_review: out.invoices_to_review });
     }
     catch (err) {
         fail(err, res, next);

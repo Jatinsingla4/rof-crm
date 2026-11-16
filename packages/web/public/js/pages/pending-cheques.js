@@ -254,7 +254,7 @@ const PC = {
           headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
-        if (res.ok) { success++; } else {
+        if (res.ok) { success++; const ok = await res.json().catch(() => ({})); (ok.invoiceToReverse || []).forEach(n => invoicesToReverse.push(n)); } else {
           const j = await res.json().catch(() => ({}));
           failed++;
           failMsgs.push(j.message || j.error || 'HTTP ' + res.status);
@@ -273,7 +273,7 @@ const PC = {
     if (!ids.length) { alert('Please select at least one cheque to bounce.'); return; }
 
     const token = pcGetToken();
-    let success = 0, failed = 0, noReason = 0, failMsgs = [];
+    let success = 0, failed = 0, noReason = 0, failMsgs = [], invoicesToReverse = [];
 
     for (const id of ids) {
       const rowStatus = document.querySelector('tr[data-id="' + id + '"]')?.dataset?.status;
@@ -297,6 +297,7 @@ const PC = {
     }
 
     let msg = 'Bounce complete. Success: ' + success + ', Failed: ' + failed + '.';
+    if (invoicesToReverse.length) msg += '\nGST invoice(s) ' + invoicesToReverse.join(', ') + ' were made for these cheques and now have to be cancelled or credited by a checker.';
     if (noReason) msg += '\n' + noReason + ' row(s) skipped — no bounce reason selected.';
     if (failMsgs.length) msg += '\n\nErrors:\n' + failMsgs.join('\n');
     alert(msg);

@@ -398,9 +398,9 @@ export const raiseNote = async (req: AuthRequest, b: any) => {
   const invoiceId = optId(b.invoice_id, 'invoice_id'), invoiceNo = text(b.original_invoice_no, 'original_invoice_no', 50, false);
   if (!has(b.note_type)) throw bad('note_type is required');
   const type = oneOf(b.note_type, 'note_type', ['credit', 'debit'] as const)!, amount = pos(b.adjustment_amount, 'adjustment_amount'), reason = text(b.reason, 'reason', 500, true)!;
-  const gstRate = has(b.gst_rate) ? num(b.gst_rate, 'gst_rate', 28, 2) : 5, noteDate = day(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
+  const givenRate = has(b.gst_rate) ? num(b.gst_rate, 'gst_rate', 28, 2) : null, noteDate = day(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
   return inTx(async (c) => {
-    const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
+    const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
     if (!inv) throw bad('Invoice not found', 404);
     if (inv.status === 'cancelled') throw bad('That invoice is cancelled', 409);
     if (consumerId && consumerId !== inv.consumer_id) throw bad('That invoice belongs to another applicant');
@@ -408,6 +408,8 @@ export const raiseNote = async (req: AuthRequest, b: any) => {
       const used = Number((await c.query(`SELECT COALESCE(SUM(adjustment_amount), 0) AS n FROM credit_debit_notes WHERE invoice_id = $1 AND note_type = 'credit' AND status <> 'cancelled'`, [inv.id])).rows[0].n);
       if (used + amount > Number(inv.taxable_amount_inr)) throw bad(`Credit notes (Rs ${r2(used + amount)} with this one) would be more than the invoice (Rs ${inv.taxable_amount_inr})`, 409);
     }
+    // A note without a rate carries the rate of the invoice it adjusts (it used to assume 5%)
+    const gstRate = givenRate ?? r2(Number(inv.own_rate));
     const gst = r2(amount * gstRate / 100);
     const no = await nextNumber(c, 'credit_debit_notes', 'note_number', 'CDN', 4);
     // Journal authentication of the invoice's project: Automatic issues the note at once (no checker); Manual (the default) leaves it pending for a checker
