@@ -89,10 +89,10 @@ test('Dashboard: every panel shows the numbers of the data made here (and the na
   const pc = (await rowOf('dash-pending-cheques').innerText()).replace(/\s+/g, ' ');
   expect(pc).toContain(S.name); expect(pc).toMatch(/\b1\b.*\b1\b.*\b2\b/);   // pending 1, deposite 1, total 2 (cheques only)
   expect(pc).toMatch(/7,000/); expect(pc).toMatch(/2,500/);
-  // demand status: raised demands only: instalment 1 sent, 2 and 3 not sent, total 3, overdue 30,000
+  // demand status: raised demands only: instalment 1 sent, 2 and 3 not sent, total 3, O/S 40,000 (30,000 overdue + 10,000 due today, as Project-wise Dues counts them)
   const dd = await rowOf('dash-demand-status').innerText();
   const cells = dd.split(/\t|\n/).map((x) => x.trim()).filter(Boolean);
-  expect(cells[0]).toBe(S.name); expect(cells.slice(1, 9).join(' ')).toBe('0 1 1 0 1 0 0 0'); expect(cells[9]).toBe('3'); expect(cells[10]).toMatch(/30,000/);
+  expect(cells[0]).toBe(S.name); expect(cells.slice(1, 9).join(' ')).toBe('0 1 1 0 1 0 0 0'); expect(cells[9]).toBe('3'); expect(cells[10]).toMatch(/40,000/);
   // forthcoming: today 1, 1-7 days 1
   const fc = (await rowOf('dash-forthcoming-due').innerText()).split(/\t|\n/).map((x) => x.trim()).filter(Boolean);
   expect(fc.slice(0, 6).join(' ')).toBe(`${S.name} 1 1 0 0 0`);
