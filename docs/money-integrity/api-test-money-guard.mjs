@@ -131,6 +131,10 @@ const ALLOWED = {
   2,
   1
  ],
+ "utils/receipt-allocation-shadow.ts": [
+  1,
+  1
+ ],
  "utils/receipt-number.ts": [
   1,
   0

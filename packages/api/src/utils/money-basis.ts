@@ -62,7 +62,7 @@ export function paidByDemand(receipts: any[], allocations: Map<string, number>, 
   return out;
 }
 
-const DEMAND_COLS = `id, consumer_id, installment_index, status, delivery_status, due_date::text AS due_date, (raised_at IS NOT NULL) AS raised,
+export const DEMAND_COLS = `id, consumer_id, installment_index, status, delivery_status, due_date::text AS due_date, (raised_at IS NOT NULL) AS raised,
             amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount`;
 
 // Eligible money, what it paid on demands, what was allocated, and the credit left (>= 0 when the books are consistent)

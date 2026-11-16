@@ -44,13 +44,19 @@ export function splitLines(amount: number, d: any) {
   return { principal: r2(amount - cgst - sgst), cgst, sgst };
 }
 
-export async function writeAllocations(client: any, planId: string, demands: any[]) {
+// The rows one plan's cleared money would settle: the same eligible money and demands the status uses. Nothing is written.
+export async function planAllocationRows(client: any, planId: string, demands: any[]) {
   const rs = (await client.query(
     `SELECT r.id, r.demand_id, r.installment_index, r.amount_received_inr::float8 - (SELECT COALESCE(SUM(rr.amount),0)::float8 FROM receipt_returns rr WHERE rr.receipt_id = r.id AND rr.status = 'approved') AS amount
        FROM receipts r WHERE r.payment_plan_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
       ORDER BY COALESCE(r.clearing_date, r.received_date, r.created_at), r.id`, [planId])).rows;
   const live = demands.filter((d) => d.status !== 'cancelled');
   const rows = allocateReceipts(rs.filter((r: any) => r.amount > 0.004).map((r: any) => ({ id: r.id, amount: r.amount, demand_id: r.demand_id, installment_index: r.installment_index })), live);
+  return { rows, live };
+}
+
+export async function writeAllocations(client: any, planId: string, demands: any[]) {
+  const { rows, live } = await planAllocationRows(client, planId, demands);
   await client.query(`DELETE FROM receipt_allocation WHERE receipt_id IN (SELECT id FROM receipts WHERE payment_plan_id = $1)`, [planId]);
   const byId = new Map(live.map((d) => [String(d.id), d]));
   for (const a of rows) {
