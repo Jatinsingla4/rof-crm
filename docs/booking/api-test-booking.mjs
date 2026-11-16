@@ -411,6 +411,37 @@ let done1;
   t('random: 30 random edits / cancels on odd ids never gave a 500', five.length === 0, JSON.stringify(five.slice(0, 3)));
 }
 
+// ---------- the price quote: one server-side price, the same one the schedule bills (CRM-CALC-002, 006, 012) ----------
+{
+  const P4 = await mkProj('Q'), T4 = await tw(P4); const u4 = await unit(P4, T4, 100, 5000000); const plan4 = await plan(P4, 'PlanQ ' + U, [100]);
+  const tax = async (code, pct) => (await A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab, gstCode: `${code} ${U}`, type: 'INTRA', cgstPct: pct, sgstPct: pct })).j.data.id;
+  const lowTax = await tax('QLOW', 0.5), midTax = await tax('QMID', 2.5);
+  await A('POST', '/gst-configuration/gst-charge-mapping', { projectId: P4, slabId: slab, gstTaxId: lowTax, chargeType: 'BASIC' });
+  for (const ct of ['PLC', 'OTHER CHARGE']) await A('POST', '/gst-configuration/gst-charge-mapping', { projectId: P4, slabId: slab, gstTaxId: midTax, chargeType: ct });
+  const before = psql('select count(*) from booking_records');
+  r = await A('POST', '/booking/quote', { unit_id: u4, basic_price: 500, plc_amount: 40000, booking_date: today });
+  t('quote: 100 sq ft x 500 + PLC 40,000 -> 200', r.s === 200, r.s + JSON.stringify(r.j));
+  const q = r.j?.data || {};
+  t('quote: basic 50,000, agreement value 90,000', q.basic_inr === 50000 && q.agreement_value_inr === 90000, JSON.stringify(q));
+  t('quote: GST per charge head: BASIC 250+250, PLC 1,000+1,000 (not one flat rate)', JSON.stringify((q.tax_lines || []).map(l => [l.charge_head, l.cgst, l.sgst])) === JSON.stringify([['BASIC', 250, 250], ['PLC', 1000, 1000]]), JSON.stringify(q.tax_lines));
+  t('quote: total with GST is 92,500', q.gst_inr === 2500 && q.total_with_gst_inr === 92500, JSON.stringify([q.gst_inr, q.total_with_gst_inr]));
+  t('quote: it saved nothing', psql('select count(*) from booking_records') === before);
+  r2 = await A('POST', '/booking/quote', { unit_id: u4, basic_price: 500, plc_amount: 40000, company_inaugural_disc: 10000 });
+  t('quote: a discount comes off the price, GST stays on the full price (as the demands bill it)', r2.s === 200 && r2.j.data.agreement_value_inr === 80000 && r2.j.data.gst_inr === 2500, JSON.stringify(r2.j));
+  t('quote: the browser sees what the quote says: read_only_viewer can ask for it', (await RO('POST', '/booking/quote', { unit_id: u4, basic_price: 500 })).s === 200);
+  for (const [n, body] of [['rate 0', { unit_id: u4, basic_price: 0 }], ['rate -5', { unit_id: u4, basic_price: -5 }], ['no rate', { unit_id: u4 }], ['discount above the basic price', { unit_id: u4, basic_price: 500, company_inaugural_disc: 60000 }]]) {
+    r = await A('POST', '/booking/quote', body);
+    t(`quote: ${n} -> 422 with {field, message}`, r.s === 422 && !!r.j?.field && !!r.j?.message, r.s + JSON.stringify(r.j));
+  }
+  t('quote: an unknown unit -> 404', (await A('POST', '/booking/quote', { unit_id: NIL, basic_price: 500 })).s === 404);
+  // quote = what the schedule bills
+  const c = await person(P4); const bk = await A('POST', '/booking', { consumer_id: c, project_id: P4, unit_id: u4, selected_plan_name: plan4, booking_date: today, basic_price: 500, carpet_area_sqft: 100, has_plc: true, plc_amount: 40000 });
+  t('quote = schedule: booking started', bk.s === 201, bk.s + JSON.stringify(bk.j));
+  r = await finish(bk.j.data.id, { booking_amount: 10000 }); t('quote = schedule: booking confirmed', r.s === 200, r.s + JSON.stringify(r.j));
+  const sched = psql(`select coalesce(sum(amount_due_inr),0) || '|' || coalesce(sum(cgst_amount + sgst_amount),0) from demands where consumer_id='${c}'`).split('|').map(Number);
+  t('quote = schedule: the demands add up to the quote (price 90,000 and GST 2,500)', sched[0] === q.agreement_value_inr && sched[1] === q.gst_inr, JSON.stringify([sched, q.agreement_value_inr, q.gst_inr]));
+}
+
 // ---------- clean up ----------
 if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_id='${slab}'`, `delete from gst_tax_setup where slab_id='${slab}'`, `delete from gst_slabs where id='${slab}'`]) { try { psql(sql); } catch {} }
 {

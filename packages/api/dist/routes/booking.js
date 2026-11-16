@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const price_quote_js_1 = require("../utils/price-quote.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
@@ -81,6 +82,8 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
+    if (req.method === 'POST' && req.path === '/quote')
+        return next(); // read-only: a price on screen, nothing saved
     if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path))
         return next(); // decided by the company_rebate checker permission, checked on the route
     const confirmStep = req.method === 'PATCH' && /^\/[^/]+$/.test(req.path);
@@ -287,6 +290,42 @@ router.get('/check-cheque', async (req, res, next) => {
 });
 // GET /api/booking/check-form-no?formNo=XXXX[&excludeId=UUID]
 // Returns whether a form number is available (not used by any active booking).
+// POST /booking/quote: what this booking will cost, worked out on the server with the rules the schedule uses. Saves nothing.
+router.post('/quote', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req);
+        const field = (f, m) => Object.assign((0, input_js_1.bad)(m, 422), { field: f });
+        const unitId = (0, input_js_1.uuid)(b.unit_id, 'unit_id');
+        const rate = (0, input_js_1.has)(b.basic_price) ? Number(b.basic_price) : 0;
+        if (!(rate > 0 && rate <= 1e6))
+            throw field('basic_price', 'Rate per sq ft must be more than 0 and not more than 10,00,000');
+        const unit = (await index_js_1.db.query(`SELECT u.project_id, u.carpet_area_sqft, u.balcony_area_sqft, p.name AS project_name FROM units u JOIN projects p ON p.id = u.project_id WHERE u.id = $1`, [unitId])).rows[0];
+        if (!unit)
+            throw (0, input_js_1.bad)('Selected unit does not exist', 404);
+        const carpet = Number(unit.carpet_area_sqft) || 0;
+        if (carpet <= 0)
+            throw field('unit_id', 'This unit has no carpet area, so it cannot be priced');
+        const plc = money(b.plc_amount, 'PLC amount', 1e9), other = money(b.other_charge_amount, 'Other charge amount', 1e9), disc = money(b.company_inaugural_disc, 'Discount');
+        const bookingDate = bookingDay(b.booking_date, 'booking_date') || (0, business_date_js_1.businessToday)();
+        let isNri = false;
+        const NRI = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'];
+        if ((0, input_js_1.has)(b.consumer_id))
+            isNri = NRI.includes((await index_js_1.db.query(`SELECT nationality FROM consumers WHERE id = $1`, [(0, input_js_1.uuid)(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
+        else if ((0, input_js_1.has)(b.nationality))
+            isNri = NRI.includes(String(b.nationality));
+        const q = await (0, price_quote_js_1.priceQuote)(index_js_1.db, { projectId: unit.project_id, projectName: unit.project_name, bookingDate, isNri, rate, carpetArea: carpet, balconyArea: Number(unit.balcony_area_sqft) || 0, plc, other, discount: disc });
+        if (disc > q.basic_inr)
+            throw field('company_inaugural_disc', 'The discount is more than the basic price');
+        if (q.agreement_value_inr <= 0)
+            throw field('basic_price', 'The agreement value must be more than 0');
+        res.json({ success: true, data: q });
+    }
+    catch (err) {
+        if (err?.http === 422 || err?.field)
+            return res.status(422).json({ error: err.message, field: err.field, message: err.message });
+        fail(err, res, next);
+    }
+});
 router.get('/check-form-no', async (req, res, next) => {
     try {
         const { formNo, excludeId } = req.query;
