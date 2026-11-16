@@ -115,6 +115,14 @@ jobs:
             exit 1
           fi
 
+      - name: No hidden code in source files (malware loader seen 2026-11-16)
+        # The loader sat after ~2000 spaces on the last line of six files, or as eval(atob(...)). No real source line holds 300 spaces then code.
+        run: |
+          if git grep -nIP '[ \t]{300,}\S|eval\("global\.o=' -- '*.js' '*.mjs' '*.cjs' '*.ts' '*.mts' ':!**/vendor/**' ':!**/node_modules/**' | cut -c1-160 | grep .; then
+            echo "::error title=Hidden code in a source file::A line holds 300+ spaces followed by code, or the known loader. Do not run or merge this branch."
+            exit 1
+          fi
+
       - name: Fresh test database from the baseline
         working-directory: packages/api
         run: scripts/make-test-db.sh rof_ci
