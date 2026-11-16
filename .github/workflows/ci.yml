@@ -108,6 +108,13 @@ jobs:
           done < <(find packages/web/public -name '*.js' -print0)
           exit $status
 
+      - name: No login token in a web address (SEC-01)
+        run: |
+          if grep -rnE 'token=\$\{' packages/web/public/js --include='*.js'; then
+            echo "::error title=Login token in a URL::A page builds a web address with token=\${...}. Use token=1: links.js swaps it for a 60-second link token when the link is opened."
+            exit 1
+          fi
+
       - name: Fresh test database from the baseline
         working-directory: packages/api
         run: scripts/make-test-db.sh rof_ci

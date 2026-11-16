@@ -1002,7 +1002,7 @@ const ReceiptsPage = {
                 const total = amt;
                 return `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
-                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                 <td style="font-weight:600;color:var(--teal)">
                   ${Utils.currency(amt)} <br>
                   <span style="font-size:10px;color:var(--text3)">incl. CGST: ${Utils.currency(cgst)} | SGST: ${Utils.currency(sgst)}</span>
@@ -1041,7 +1041,7 @@ const ReceiptsPage = {
             <tbody>
               ${list.map(r => `<tr>
                 <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
-                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                 <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
                 <td>${Utils.esc(Utils.toTitleCase(r.payment_method||r.payment_mode||r.paymentMode||'') || '—')}</td>
                 <td class="td-mono">${Utils.esc(r.transaction_ref||r.reference_number||r.referenceNumber||'—')}</td>
@@ -1177,7 +1177,7 @@ const ReceiptsPage = {
               <tbody>
                 ${list.map(r => `<tr>
                   <td class="td-mono">${r.receipt_number||r.receiptNumber||'—'}</td>
-                  <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+                  <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                   <td style="font-weight:600;color:var(--teal)">${Utils.currency(r.amount)}</td>
                   <td>${Utils.esc(Utils.toTitleCase(r.payment_method||r.payment_mode||r.paymentMode||'') || '—')}</td>
                   <td>${Utils.date(r.payment_date||r.created_at)}</td>
@@ -1233,7 +1233,7 @@ const ReceiptsPage = {
             <thead><tr><th>Consumer</th><th>Unit</th><th>Project</th><th>Overdue Amount</th><th>Days Overdue</th><th>Penal Interest (11.10% p.a.)</th><th>Total Payable</th></tr></thead>
             <tbody>
               ${list.map(r => `<tr>
-                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
                 <td>${r.unit_no||r.unitNo||'—'}</td>
                 <td style="font-size:10.5px">${r.project_name||r.projectName||'—'}</td>
                 <td style="font-weight:600;color:var(--red)">${Utils.currency(r.amount_due_inr||r.overdueAmount||0)}</td>
@@ -1739,7 +1739,7 @@ const ReceiptsPage = {
         if (mode === 'edit') {
           return `<tr>
             <td class="td-mono">${r.receipt_number}</td>
-            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
             <td class="td-bold">${amt}</td>
             <td>${statusChip}</td>
             <td><button class="btn btn-teal btn-sm" onclick="ReceiptsPage.editReceipt('${r.id}')">Edit</button></td>
@@ -1754,7 +1754,7 @@ const ReceiptsPage = {
         if (isCancelled) {
           return `<tr style="opacity:0.5">
             <td class="td-mono">${r.receipt_number}</td>
-            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
             <td class="td-bold">${amt}</td>
             <td>${Utils.chip('cancelled')}</td>
             <td><span style="font-size:11px;color:var(--text3)">Already cancelled</span></td>
@@ -1763,7 +1763,7 @@ const ReceiptsPage = {
         if (isApproved) {
           return `<tr style="opacity:0.6">
             <td class="td-mono">${r.receipt_number}</td>
-            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
+            <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>
             <td class="td-bold">${amt}</td>
             <td>${statusChip}</td>
             <td><span style="font-size:11px;color:var(--text3)">${String(r.status).toLowerCase() === 'bounced' ? 'Bounced — cannot cancel' : 'Cleared — use the return process'}</span></td>
@@ -2149,7 +2149,7 @@ const ReceiptsPage = {
           ? `<span style="color:var(--teal);font-size:11px">${r.printed_by_name}</span>`
           : `<span style="color:var(--text3);font-size:11px">Not Printed</span>`;
       const consumerLink = r.consumer_id
-        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name || '—'}</a>`
+        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name || '—'}</a>`
         : (r.consumer_name || '—');
       const receiptLink = isCancelled
         ? `<span style="color:var(--red);font-size:11px;text-decoration:line-through">${r.receipt_number || '—'}</span>`

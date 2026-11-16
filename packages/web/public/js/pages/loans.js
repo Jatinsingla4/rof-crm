@@ -109,7 +109,7 @@ const LoanPage = {
         <thead><tr><th>Consumer</th><th>Bank</th><th>Amount</th><th>Status</th><th>TPA Signed</th></tr></thead>
         <tbody>
           ${list.map(l => `<tr>
-            <td class="td-bold"><a href="/api/consumers/${l.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="lnn-link" title="View Applicant File">${l.consumer_name || '—'}</a></td>
+            <td class="td-bold"><a href="/api/consumers/${l.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" class="lnn-link" title="View Applicant File">${l.consumer_name || '—'}</a></td>
             <td>${l.bank_name || '—'}</td>
             <td>${l.loan_amount != null ? Utils.currency(l.loan_amount) : '—'}</td>
             <td>${Utils.chip(l.loan_status)}</td>

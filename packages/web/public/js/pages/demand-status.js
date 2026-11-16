@@ -251,7 +251,7 @@ const DS = {
           <td>${(this._page-1)*this._limit+i+1}</td>
           <td class="ds-link" onclick="DS.openConsumer('${r.consumer_id}')">${r.registration_no||'—'}</td>
           <td>${r.booking_date?new Date(r.booking_date).toLocaleDateString('en-IN'):'—'}</td>
-          <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.name||'—'}</a></td>
+          <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" title="View Applicant File">${r.name||'—'}</a></td>
           <td>${r.bhk_type||'—'}</td>
           <td style="font-weight:600">${r.unit_number||'—'}</td>
           <td>${r.tower_name||'—'}</td>

@@ -350,7 +350,7 @@ const ReportsPage = {
           <td>${Utils.esc(u.bhk_type)}</td>
           <td>${u.super_area_sqft}</td>
           <td>${Utils.chip(u.status)}</td>
-          <td>${u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(u.consumer_name||'—')}</a>` : (u.consumer_name || '—')}</td>
+          <td>${u.consumer_id ? `<a href="/api/consumers/${u.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(u.consumer_name||'—')}</a>` : (u.consumer_name || '—')}</td>
           <td style="font-size:10px">${Utils.esc(u.broker_name || '—')}</td>
           <td>${u.registry_status ? '<span class="chip ch-green">Yes</span>' : '<span class="chip ch-gray">No</span>'}</td>
         </tr>`)
@@ -1344,7 +1344,7 @@ const ReportsPage = {
         const pStyle = pct >= 100 ? `${aR};color:#198754;font-weight:600` : aR;
         const pctDisp = pct >= 100 ? `${fmtN(pct)}% ✓` : `${fmtN(pct)}%`;
         const nameLink = r.consumer_id
-          ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`
+          ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`
           : `<span style="font-weight:600">${Utils.esc(r.consumer_name)}</span>`;
         return `<tr>
           <td style="${aC}">${i+1}</td>
@@ -1595,7 +1595,7 @@ const ReportsPage = {
         const os  = parseFloat(r.outstanding_amount || 0);
         const osPct = parseFloat(r.outstanding_pct || 0);
         const osStyle = os > 0 ? `${aR};color:#dc3545;font-weight:600` : `${aR};color:#198754;font-weight:600`;
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
 
         // CUSTOMER DETAILS cells (15)
         const custCells = [
@@ -2121,7 +2121,7 @@ const ReportsPage = {
         return `<tr>
           <td style="${aC}">${i+1}</td>
           <td>${Utils.esc(r.registration_no || '—')}</td>
-          <td style="font-weight:600"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a></td>
+          <td style="font-weight:600"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a></td>
           <td>${Utils.esc(r.mobile || '—')}</td>
           <td>${Utils.esc(r.project_name)}</td>
           <td>${Utils.esc(r.tower_name || '—')}</td>
@@ -2510,7 +2510,7 @@ const ReportsPage = {
     }
     const rows = consumers.map(c => `<tr>
       <td>${Utils.esc(c.registration_no || '—')}</td>
-      <td style="font-weight:600"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(c.consumer_name)}</a></td>
+      <td style="font-weight:600"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(c.consumer_name)}</a></td>
       <td>${Utils.esc(c.tower_name || '—')}</td>
       <td>${Utils.esc(c.unit_number)}</td>
       <td>${Utils.esc(c.bhk_type || '—')}</td>
@@ -3647,7 +3647,7 @@ const ReportsPage = {
         const bal = parseFloat(r.balance||0); const days = parseInt(r.days_overdue||0);
         const balStyle = bal>0?`${aR};color:#dc3545;font-weight:600`:`${aR};color:#198754;font-weight:600`;
         const dayStyle = days>0?`${aC};color:#dc3545;font-weight:600`:aC;
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
         return `<tr>
           <td style="${aC}">${i+1}</td><td>${Utils.esc(r.registration_no||'—')}</td><td>${nameLink}</td><td>${Utils.esc(r.mobile||'—')}</td>
           <td>${Utils.esc(r.project_name)}</td><td>${Utils.esc(r.tower_name||'—')}</td><td>${Utils.esc(r.unit_number)}</td>
@@ -4431,7 +4431,7 @@ const ReportsPage = {
     return `<tr>
       <td style="text-align:center">${i + 1}<button class="apf-rec-btn" onclick="ReportsPage.openReceiptForm('${r.consumer_id}')">REC</button></td>
       <td>${Utils.esc(r.registration_no || '—')}</td>
-      <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" class="apf-consumer-link" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name || '—')}</a></td>
+      <td><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" class="apf-consumer-link" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name || '—')}</a></td>
       <td>${dt(r.booking_date)}</td>
       <td>${Utils.esc(r.mobile || '—')}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis">${Utils.esc(r.email || '—')}</td>
@@ -4635,7 +4635,7 @@ const ReportsPage = {
         ['#', 'Consumer Name', 'Reg. No.', 'Mobile', 'Project', 'Tower', 'Unit', 'Booking Date', 'Booking Amount'],
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
           <td>${Utils.esc(r.registration_no || '—')}</td>
           <td>${Utils.esc(r.mobile || '—')}</td>
           <td>${Utils.esc(r.project_name || '—')}</td>
@@ -4678,7 +4678,7 @@ const ReportsPage = {
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
           <td>${fmtDate(r.booking_date)}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
           <td>${Utils.esc(r.registration_no || '—')}</td>
           <td>${Utils.esc(r.mobile || '—')}</td>
           <td>${Utils.esc(r.project_name || '—')}</td>
@@ -4732,7 +4732,7 @@ const ReportsPage = {
         ['#', 'Consumer', 'Reg. No.', 'Project', 'Tower', 'Unit', 'BHK', 'Booking Amt', 'TDS @1%', 'Challan No.', 'Challan Date', 'TDS Paid', 'FY', 'Qtr', 'Status'],
         rows.map((r, i) => `<tr>
           <td style="color:var(--text3)">${i + 1}</td>
-          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
+          <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${Utils.esc((r.consumer_name || '').trim() || '—')}</a></td>
           <td>${Utils.esc(r.registration_no || '—')}</td>
           <td>${Utils.esc(r.project_name || '—')}</td>
           <td>${Utils.esc(r.tower_name || '—')}</td>
@@ -5268,7 +5268,7 @@ const ReportsPage = {
       if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(3,1fr)';
       if (!rows.length) { if(el) el.innerHTML='<div class="empty-state"><h3>No records found</h3></div>'; return; }
       const bodyRows = rows.map((r,i) => {
-        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
+        const nameLink = `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--primary);text-decoration:underline;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name)}</a>`;
         return `<tr style="${i%2===1?'background:var(--bg-row-alt,rgba(0,0,0,.03))':''}">
           <td style="${aC}">${i+1}</td><td>${Utils.esc(r.registration_no||'—')}</td><td>${nameLink}</td>
           <td>${Utils.esc(r.project_name)}</td><td>${Utils.esc(r.tower_name||'—')}</td><td>${Utils.esc(r.unit_number)}</td><td>${Utils.esc(r.bhk_type||'—')}</td>
@@ -5840,9 +5840,9 @@ const EditsPage = {
       const status = r.is_active
         ? `<span style="display:inline-block;background:#e8f5e9;color:#2e7d32;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid #c8e6c9">Active</span>`
         : `<span style="display:inline-block;background:var(--surface2);color:var(--text3);padding:2px 10px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:0.3px;border:1px solid var(--border2)">Reverted</span>`;
-      const viewUrl = `/api/documents/${r.document_id}/html?token=${encodeURIComponent(Auth.getToken()||'')}`;
+      const viewUrl = `/api/documents/${r.document_id}/html?token=1`;
       const consumerLink = r.consumer_id
-        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name||'N/A')}</a>`
+        ? `<a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${Utils.esc(r.consumer_name||'N/A')}</a>`
         : `<span style="color:var(--text)">${Utils.esc(r.consumer_name || 'N/A')}</span>`;
       const zebra = i % 2 === 1 ? 'background:var(--bg2)' : '';
       return `<tr style="${zebra}">

@@ -390,14 +390,14 @@ const loginThrottle = makeThrottle('login', 5, 24 * 60 * 60 * 1000, 15 * 60 * 10
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req: Request, res: Response, next: NextFunction) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-// Opening a letter, receipt or applicant file in a new tab needs a link: valid 2 minutes, for that one page only
+// Opening a letter, receipt or applicant file in a new tab needs a link: valid 60 seconds, for that one page only
 app.post('/api/auth/link-token', authenticateToken, (req: AuthRequest, res: Response) => {
   const path = (req.body || {}).path;
   if (typeof path !== 'string' || !/^\/api\/[A-Za-z0-9/_.\-]+$/.test(path) || path.includes('..')) return res.status(400).json({ error: 'path is not valid' });
   // The address is read by logs, history and bookmarks, so the link token carries only who (userId) and which session version (tv), never the email, name, role or permissions;
   // the server loads those from the database on every request.
   const { userId, tv } = jwt.decode(req.headers['authorization']!.split(' ')[1]) as any;
-  res.json({ token: jwt.sign({ userId, tv, purpose: 'link', p: path }, JWT_SECRET!, { algorithm: 'HS256', expiresIn: '2m' }) });
+  res.json({ token: jwt.sign({ userId, tv, purpose: 'link', p: path }, JWT_SECRET!, { algorithm: 'HS256', expiresIn: '60s' }) });
 });
 
 app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => {

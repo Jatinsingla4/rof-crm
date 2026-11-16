@@ -199,7 +199,7 @@
             html += `
       <tr>
         <td>${sno++}</td>
-        <td><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
+        <td><a href="/api/consumers/${c.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.consumer_name}</a></td>
         <td>${c.registration_number || '—'}</td>
         <td>${row.installment_name}</td>
         <td>${row.installment_date ? new Date(row.installment_date).toLocaleDateString('en-IN') : '—'}</td>

@@ -1,5 +1,5 @@
 // Pages open letters, receipts and applicant files in a new tab through a ?token= address. The login token must not sit in a web address,
-// so any such address is swapped for a link token made for that one page and valid for 2 minutes.
+// so any such address is swapped for a link token made for that one page and valid for 60 seconds.
 (function () {
   const isLink = (u) => typeof u === 'string' && /^\/api\/[^?]*\?(.*&)?token=/.test(u);
   async function linkUrl(url) {

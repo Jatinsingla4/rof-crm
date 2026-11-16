@@ -213,7 +213,7 @@ const SearchCustomerPage = {
   },
 
   openConsumer(id)         { if (typeof Router !== 'undefined') Router.navigate('/consumer', { id }); },
-  openApplicantFile(id)    { const t = Auth?.getToken?.() || localStorage.getItem('rof-jwt') || ''; window.open(`/api/consumers/${id}/applicant-file?token=${t}`, '_blank'); },
+  openApplicantFile(id)    { window.open(`/api/consumers/${id}/applicant-file?token=1`, '_blank'); },
 
   clearSearch() {
     const input = document.getElementById('sc-search-input');
