@@ -1,8 +1,8 @@
 # Phase 8: automated QA of the release candidate
 
-Run on 2026-11-16 on a local disposable database. **Nothing here was run in CI or on production.** The release candidate is the branch :  (3dea4fd) plus the phase branches for Phases 2 to 7 merged in order
-(, , , , , ).
-Merging them found three conflicts, all mechanical: an import line in , the generated  files (rebuilt), and the money-guard list (union of the entries). A first merge committed conflict markers in the guard list by mistake; it was caught by a scan before anything ran and fixed in the next commit.
+Run on 2026-11-16 on a local disposable database. **Nothing here was run in CI or on production.** The release candidate is the branch `rc/internal-qa`: `origin/main` (3dea4fd) plus the phase branches for Phases 2 to 7 merged in order
+(`fix/phase2-payment-entry-quote`, `fix/phase3-receipt-allocation`, `fix/phase4-gst-invoices`, `fix/phase5-report-reconciliation`, `fix/phase6-financial-modules`, `fix/phase7-historical-reconciliation`).
+Merging them found three conflicts, all mechanical: an import line in `payments.ts`, the generated `dist/` files (rebuilt), and the money-guard list (union of the entries). A first merge committed conflict markers in the guard list by mistake; a scan caught it before anything ran and the next commit fixed it.
 
 ## Result
 
@@ -10,10 +10,10 @@ Merging them found three conflicts, all mechanical: an import line in , the gene
 |---|---|---|
 | CI static checks, run by hand | hidden-code scan, tax literals in page scripts, syntax of every frontend script, dist rebuilt with no diff | 0 hits, 0 hits, 0 errors, 0 changed files |
 | Migrations | fresh database from the baseline, every migration from 096 on run twice | all ok |
-| API tests | all 85 files , one after another against one API | **9,751 checks passed, 0 failed** |
-| Playwright | all 22 specs  | **274 passed, 0 failed** (11.4 min) |
+| API tests | all 85 files `docs/*/api-test-*.mjs`, one after another against one API | **9,751 checks passed, 0 failed** |
+| Playwright | all 22 specs `e2e/*.spec.ts` | **274 passed, 0 failed** (11.4 min) |
 
-Scan of the API outputs and the server log for crashes: none. The server log holds only refusals that the hostile-input checks provoke on purpose (for example "consumerId or allocationId is required").
+A scan of the API outputs for crashes found none. The server log holds only refusals that the hostile-input checks provoke on purpose (for example "consumerId or allocationId is required").
 
 ## API tests by area
 
@@ -66,7 +66,7 @@ Scan of the API outputs and the server log for crashes: none. The server log hol
 | whole-flow | 2 | 46 | 0 |
 | **Total** | **85** | **9751** | **0** |
 
-Ten files print no final RESULT line (older scripts); their checks are counted from their PASS and FAIL lines, which is how the table counts every file.
+Ten files print no final RESULT line (older scripts); every file in the table is counted from its PASS and FAIL lines.
 
 ## What the earlier phases added, and where it is tested
 
@@ -77,15 +77,15 @@ Ten files print no final RESULT line (older scripts); their checks are counted f
 | 3 | receipt allocation with the flag ON, shadow report, invariants | remediation/api-test-allocation-flows (23), api-test-allocation (8), receipt-allocation, receipts, allocations |
 | 4 | GST invoices tied to receipts, notes, reconciliation of invoices | remediation/api-test-gst-invoices (21) |
 | 5 | one meaning per financial measure across 14 reports | remediation/api-test-financial-measures (28), reports (956 + 24) |
-| 6 | commission payout gate (flag), list totals | remediation/api-test-commission-payout (16), api-test-pagination (34), broker-hold (569) |
+| 6 | commission payout gate (flag), list totals | remediation/api-test-commission-payout (16), api-test-pagination (33), broker-hold (569) |
 | 7 | historical repair kit | remediation/api-test-historical (32) |
 
 ## What this does not show
 
-- **The R-01 to R-36 regression set was not run as such.** Its text (blueprint pages 17 to 19) is no longer on this machine and was not kept in the session notes, only its grouping (R-01 to 08 pricing, R-09 to 12 and 21 to 25 reports, R-13 to 20 allocation, status and invoice, R-26 and 27 booking, unit and demands, R-31 to 34 tax and interest). I did not invent a mapping to the IDs. If the blueprint PDF is supplied, each R-ID can be mapped to a check above or to a new one in a short pass.
-- **CI has not run** on any of these branches. A local pass is not a CI pass: CI also builds from a clean checkout and runs the same suites on its own runner.
-- **Local conditions**: one machine, one database, tests run one after another, Node 20. Two earlier local failures were data-size effects on a database that had accumulated thousands of rows (perf timing checks and an "under 1000 rows" check); they pass on a fresh database as here. A single failure of  in an earlier run did not repeat.
+- **The R-01 to R-36 regression set was not run as such.** Its text (blueprint pages 17 to 19) is no longer on this machine and was not kept in the session notes, only its grouping (R-01 to 08 pricing, R-09 to 12 and 21 to 25 reports, R-13 to 20 allocation, status and invoice, R-26 and 27 booking, unit and demands, R-31 to 34 tax and interest). No mapping to the IDs was invented. If the blueprint PDF is supplied, each R-ID can be mapped to a check above or to a new one in a short pass.
+- **CI has not run** on any of these branches. A local pass is not a CI pass: CI builds from a clean checkout and runs the same suites on its own runner.
+- **Local conditions**: one machine, one database, tests run one after another, Node 20. Two earlier local failures were data-size effects on a database that had accumulated thousands of rows (perf timing checks and an "under 1000 rows" check); they pass on a fresh database, as here. A single failure of `reports.spec.ts:337` in an earlier run did not repeat.
 - **Not covered by a browser test**: the GST figures shown on the payment-entry screen, the commission payout screen, the Analytics KPI figures beyond the label and the contract balance, the bulk-bounce warning text. The API tests cover the numbers they come from.
-- **Flags**:  and  were OFF in this run except inside the tests that switch them on and put them back, and  is absent (off). The behaviour with those flags ON in production is not shown by this run.
+- **Flags**: `agreement_snapshot_v1` and `receipt_allocation_v1` were OFF in this run except inside the tests that switch them on and put them back, and `commission_requires_cleared_v1` is absent (off). The behaviour with those flags ON in production is not shown by this run.
 - **Blocked by decisions, so no test**: unit reservation (BR-09, N days not given), BR-12 and BR-13 (tax advisor), the open decisions D1 to D10 in the finance notes.
 - **Not examined for new defects**: transfers, parking, add-on charges, interest and general error handling (only their existing suites ran, and passed).
