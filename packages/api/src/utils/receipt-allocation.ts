@@ -1,6 +1,6 @@
 // RC-3: which receipt settled which demand, and how much of it was principal and GST. Derived from the same money rules as the demand status
-// (cleared receipts, approved returns taken off, linked money first, unlinked money to the oldest gap first), so the rows always add up to the paid
-// amounts the screens show. Rebuilt on every recompute, so cancelling a receipt removes its rows. Written only while receipt_allocation_v1 is 'on'.
+// (cleared receipts, approved returns taken off; money that names a demand or an instalment settles that one; money that names neither is customer credit and
+// gets no row, as in the waterfall), so the rows always add up to the paid amounts the screens show. Rebuilt on every recompute, so cancelling a receipt removes its rows. Written only while receipt_allocation_v1 is 'on'.
 
 export const allocationOn = async (db: any): Promise<boolean> =>
   (await db.query(`SELECT value FROM global_settings WHERE key = 'receipt_allocation_v1'`)).rows[0]?.value === 'on';
@@ -29,11 +29,8 @@ export function allocateReceipts(receipts: AllocIn[], demands: any[]): AllocOut[
     const target = r.demand_id ? String(r.demand_id) : r.installment_index != null ? byIndex.get(Number(r.installment_index)) : undefined;
     if (target && gap.has(target)) put(r.id, target, r.amount);
   }
-  for (const r of receipts) {   // money that names neither fills the oldest gap first
-    if (r.demand_id || r.installment_index != null) continue;
-    let left = r.amount;
-    for (const d of ds) { if (left <= 0.004) break; left = r2(left - put(r.id, String(d.id), left)); }
-  }
+  // money that names neither a demand nor an instalment is customer credit: the waterfall never spreads it over demands (it reaches one only through an approved
+  // credit allocation), so it gets no row here either. The pre-activation shadow report found this: an earlier version filled the oldest gap with it.
   return out;
 }
 
@@ -44,13 +41,19 @@ export function splitLines(amount: number, d: any) {
   return { principal: r2(amount - cgst - sgst), cgst, sgst };
 }
 
-export async function writeAllocations(client: any, planId: string, demands: any[]) {
+// The rows one plan's cleared money would settle: the same eligible money and demands the status uses. Nothing is written.
+export async function planAllocationRows(client: any, planId: string, demands: any[]) {
   const rs = (await client.query(
     `SELECT r.id, r.demand_id, r.installment_index, r.amount_received_inr::float8 - (SELECT COALESCE(SUM(rr.amount),0)::float8 FROM receipt_returns rr WHERE rr.receipt_id = r.id AND rr.status = 'approved') AS amount
        FROM receipts r WHERE r.payment_plan_id = $1 AND r.status = 'cleared' AND r.is_advance IS NOT TRUE
       ORDER BY COALESCE(r.clearing_date, r.received_date, r.created_at), r.id`, [planId])).rows;
   const live = demands.filter((d) => d.status !== 'cancelled');
   const rows = allocateReceipts(rs.filter((r: any) => r.amount > 0.004).map((r: any) => ({ id: r.id, amount: r.amount, demand_id: r.demand_id, installment_index: r.installment_index })), live);
+  return { rows, live };
+}
+
+export async function writeAllocations(client: any, planId: string, demands: any[]) {
+  const { rows, live } = await planAllocationRows(client, planId, demands);
   await client.query(`DELETE FROM receipt_allocation WHERE receipt_id IN (SELECT id FROM receipts WHERE payment_plan_id = $1)`, [planId]);
   const byId = new Map(live.map((d) => [String(d.id), d]));
   for (const a of rows) {

@@ -22,6 +22,7 @@ import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { loadLedger, loadInterestCtx } from '../utils/report-ledger.js';
 import { getPenalRate, DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
+import { allocationShadow } from '../utils/receipt-allocation-shadow.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
 
@@ -381,6 +382,12 @@ router.post('/receipts/quote', async (req: AuthRequest, res: Response, next: Nex
     const rate = await resolveRate(db, projectId, pr.name, 'BASIC', date);
     res.json({ success: true, data: { amount_inr: amount, cgst_inr: g.cgstAmount, sgst_inr: g.sgstAmount, taxable_inr: r2(amount - g.cgstAmount - g.sgstAmount), cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, basis: 'GST is inside the amount received (inclusive), at the project BASIC rate on the receipt date' } });
   } catch (error) { fail(error, res, next); }
+});
+
+// GET /api/payments/receipt-allocation-shadow: what the receipt allocation would settle on every plan, against what the status rules say each demand has paid.
+// Read-only, finance only, safe while the flag is off. Every mismatch is a demand finance must look at before the allocation is switched on.
+router.get('/receipt-allocation-shadow', financeOnly, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, ...(await allocationShadow(db)) }); } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/interest/preview/:demandId[?asOf=YYYY-MM-DD]: the late-payment interest on one demand, row by row, with the formula. Read-only.

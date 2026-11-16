@@ -22,6 +22,7 @@ const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
+const receipt_allocation_shadow_js_1 = require("../utils/receipt-allocation-shadow.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
@@ -416,6 +417,16 @@ router.post('/receipts/quote', async (req, res, next) => {
             throw (0, input_js_1.bad)('Project not found', 404);
         const rate = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, pr.name, 'BASIC', date);
         res.json({ success: true, data: { amount_inr: amount, cgst_inr: g.cgstAmount, sgst_inr: g.sgstAmount, taxable_inr: (0, input_js_1.r2)(amount - g.cgstAmount - g.sgstAmount), cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, basis: 'GST is inside the amount received (inclusive), at the project BASIC rate on the receipt date' } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/payments/receipt-allocation-shadow: what the receipt allocation would settle on every plan, against what the status rules say each demand has paid.
+// Read-only, finance only, safe while the flag is off. Every mismatch is a demand finance must look at before the allocation is switched on.
+router.get('/receipt-allocation-shadow', input_js_1.financeOnly, async (_req, res, next) => {
+    try {
+        res.json({ success: true, ...(await (0, receipt_allocation_shadow_js_1.allocationShadow)(index_js_1.db)) });
     }
     catch (error) {
         fail(error, res, next);
