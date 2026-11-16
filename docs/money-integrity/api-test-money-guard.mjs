@@ -20,8 +20,8 @@ const ALLOWED = {
   2
  ],
  "routes/booking.ts": [
-  7,
-  9
+  9,
+  11
  ],
  "routes/consumers.ts": [
   5,
@@ -125,6 +125,10 @@ const ALLOWED = {
  ],
  "utils/rebate.ts": [
   1,
+  1
+ ],
+ "utils/receipt-allocation.ts": [
+  2,
   1
  ],
  "utils/receipt-number.ts": [

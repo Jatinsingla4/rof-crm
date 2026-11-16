@@ -6,6 +6,7 @@
 //  - A demand's status follows from that money and from its dates (D1): paid, partial, demanded (raised_at set or due_date reached, business
 //    timezone), otherwise pending. raised_at and due_date are never cleared here (D8).
 import { applyWaterfall } from './payment-waterfall.js';
+import { allocationOn, writeAllocations } from './receipt-allocation.js';
 import { businessToday } from './business-date.js';
 
 // SQL predicate for eligible money on a receipts alias (before approved returns are taken off)
@@ -105,5 +106,6 @@ export async function recomputePlan(client: any, planId: string | null, userId: 
     }
     changed++;
   }
+  if (await allocationOn(client)) await writeAllocations(client, planId, ds);   // flag receipt_allocation_v1 (off by default): which receipt settled which demand
   return changed;
 }
