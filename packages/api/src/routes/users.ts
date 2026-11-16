@@ -3,6 +3,7 @@
  * Every create and update goes through one validated path so the rules are the same everywhere.
  */
 
+import { countOf } from '../utils/input.js';
 import { Router, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../index.js';
@@ -314,11 +315,11 @@ router.get('/', guard(async (req, res) => {
     where.push(`assigned_project_ids @> $${params.length}::jsonb`);
   }
   params.push(pageSize, (page - 1) * pageSize);
-  const result = await db.query(
-    `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
+  const listSql = `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
      FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-  res.json({ success: true, data: result.rows });
+     ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+  const result = await db.query(listSql, params);
+  res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await countOf(db, listSql, params) } });
 }));
 
 // GET /api/users/audit-logs - who did what
@@ -338,12 +339,12 @@ router.get('/audit-logs', guard(async (req, res) => {
     add(op === '>=' ? `a."timestamp" >= ?::date` : `a."timestamp" < (?::date + 1)`, v);
   }
   params.push(pageSize, (page - 1) * pageSize);
-  const result = await db.query(
-    `SELECT a.id, a.user_id, u.name AS user_name, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
+  const listSql = `SELECT a.id, a.user_id, u.name AS user_name, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
      FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY a."timestamp" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-  res.json({ success: true, data: result.rows });
+     ORDER BY a."timestamp" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+  const result = await db.query(listSql, params);
+  res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await countOf(db, listSql, params) } });
 }));
 
 // GET /api/users/activity - actions per user in the last N days

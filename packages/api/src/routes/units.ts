@@ -11,7 +11,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { typePrice } from '../utils/unit-type-price.js';
 import { lockCharges, requireStock } from '../utils/charge-stock.js';
-import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce } from '../utils/input.js';
+import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce, countOf } from '../utils/input.js';
 import { businessDayStart, businessToday } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
 
@@ -285,7 +285,7 @@ const listUnits = async (req: AuthRequest, res: Response, next: NextFunction, lo
     innerParams.push(pageSize, (page - 1) * pageSize);
     const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT $${innerParams.length - 1} OFFSET $${innerParams.length}`;
     const result = await db.query(query, innerParams);
-    res.json({ success: true, data: idOnly ? result.rows.map((r: any) => Object.fromEntries(LOOKUP_IDENTIFIERS.map((k) => [k, r[k]]))) : result.rows });
+    res.json({ success: true, data: idOnly ? result.rows.map((r: any) => Object.fromEntries(LOOKUP_IDENTIFIERS.map((k) => [k, r[k]]))) : result.rows, pagination: { page, pageSize, total: await countOf(db, query, innerParams) } });
   } catch (error) {
     fail(error, res, next);
   }
