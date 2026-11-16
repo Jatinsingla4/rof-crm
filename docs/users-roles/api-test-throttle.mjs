@@ -6,6 +6,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+import { startServer, makeCall, apiRoot } from './_server-harness.mjs';   // Module 1 / B1 additions at the end of this file
 
 const B = process.env.BASE || 'http://localhost:3010/api';
 const PSQL = process.env.PSQL || 'psql';
@@ -60,6 +62,63 @@ sql(`DELETE FROM auth_throttle WHERE key = 'curpw:${u2.id}'`);
 
 const dbg = await (await fetch(B + '/health/debug', { headers: { authorization: 'Bearer ' + SA } })).json().catch(() => ({}));
 t('the admin diagnostics say which backend is in use', dbg.throttle === 'shared', JSON.stringify(dbg).slice(0, 120));
+
+// ===== Module 1 / B1 additions: the SHARED-table variants. The table exists here (applied above), so the order of the run does not matter. =====
+// T2-B: release of a reserved attempt, SQL level and HTTP level.   T5-D: window and lock expiry on the shared table (rows aged with SQL, the clock is the database's now()).
+// Writes only rows this block owns: keys 'b1sql:<run>:*' and the sign-in keys of the fault e-mail. No schema change (the table came from the T2 draft above).
+{
+  const require = createRequire(import.meta.url);
+  const RUNB = Date.now().toString(36);
+  t('B1: the psql helper and this process name the same database (DB_NAME = PGDATABASE), so the SQL checks look at what the throttle wrote', !!process.env.DB_NAME && process.env.DB_NAME === process.env.PGDATABASE, `${process.env.DB_NAME} / ${process.env.PGDATABASE}`);
+  const { makeThrottle, refreshThrottleBackend } = require(path.join(apiRoot(), 'dist/utils/throttle.js'));
+  const { db: bdb } = require(path.join(apiRoot(), 'dist/db/pool.js'));
+  t('B1 T5-D: backend mode for the next checks: shared', (await refreshThrottleBackend(true)) === 'shared');
+  const th = makeThrottle('b1sql', 5, 24 * 3600 * 1000, 15 * 60 * 1000);
+  const key = (n) => `${RUNB}:${n}`, row = (n) => `key = 'b1sql:${key(n)}'`;
+  const cnt = (n) => Number(sql(`SELECT coalesce(max(count), 0) FROM auth_throttle WHERE ${row(n)}`));
+  const locked = (n) => sql(`SELECT coalesce(bool_or(locked_until > now()), false) FROM auth_throttle WHERE ${row(n)}`) === 't';
+  { const got = []; for (let i = 0; i < 5; i++) got.push(await th.reserve(key('seq')));
+    t('B1 T2-B: five reservations are granted and counted in the table (5)', got.every((x) => x === 0) && cnt('seq') === 5, got);
+    t('B1 T2-B: a sixth is refused and does not raise the count', (await th.reserve(key('seq'))) > 0 && cnt('seq') === 5);
+    await th.confirmFailure(key('seq')); t('B1 T2-B: the failure with five counted starts the lock in the table', locked('seq'));
+    await th.release(key('seq')); t('B1 T2-B: release never undoes a running lock (still locked, count still 5)', locked('seq') && cnt('seq') === 5);
+    t('B1 T5-D: a running lock refuses a new attempt', (await th.reserve(key('seq'))) > 0);
+    sql(`UPDATE auth_throttle SET locked_until = now() - interval '1 second' WHERE ${row('seq')}`);
+    t('B1 T5-D: after the lock time has passed (row aged in SQL) the key may try again', (await th.reserve(key('seq'))) === 0 && cnt('seq') === 1 && !locked('seq')); }
+  { const res = await Promise.all(Array.from({ length: 40 }, () => th.reserve(key('par'))));
+    t('B1 T2-B: 40 parallel reservations in the shared table: exactly 5 granted and the count is 5 (one atomic statement)', res.filter((x) => x === 0).length === 5 && cnt('par') === 5, [res.filter((x) => x === 0).length, cnt('par')]); }
+  { for (let i = 0; i < 3; i++) await th.reserve(key('rel')); await th.release(key('rel'));
+    t('B1 T2-B: three reserved, one released: the table says 2', cnt('rel') === 2, cnt('rel'));
+    for (let i = 0; i < 4; i++) await th.release(key('rel'));
+    t('B1 T2-B: more releases than reservations never go below 0', cnt('rel') === 0, cnt('rel')); }
+  { for (let i = 0; i < 3; i++) await th.reserve(key('win'));
+    sql(`UPDATE auth_throttle SET first_at = first_at - interval '25 hours' WHERE ${row('win')}`);
+    const fresh = []; for (let i = 0; i < 5; i++) fresh.push(await th.reserve(key('win')));
+    t('B1 T5-D: unlocked counts older than the 24 hour window are forgotten: five granted again, count 5', fresh.every((x) => x === 0) && cnt('win') === 5, [fresh, cnt('win')]); }
+  sql(`DELETE FROM auth_throttle WHERE key LIKE 'b1sql:${RUNB}:%'`);
+
+  // T2-B at HTTP level: the sign-in lookup of ONE e-mail fails (test-only fault), the throttle is the shared table (no force-local)
+  const FAULT = 'b1.fault@test.local';
+  sql(`DELETE FROM auth_throttle WHERE key LIKE 'login:%|${FAULT}'`);
+  const srv = await startServer({ preloads: ['test-b1-fault.cjs'], env: { B1_FAULT_EMAIL: FAULT } });
+  try {
+    const c = makeCall(srv.api), lg = (e, p) => c()('POST', '/auth/login', { email: e, password: p });
+    const sa2 = await lg('super_admin@test.local', 'Test#Pass1234');
+    t('B1 T2-B (HTTP): a normal sign-in works in the extra process', sa2.s === 200, sa2.s);
+    const d2 = await c(sa2.j?.token)('GET', '/health/debug');
+    t('B1 T2-B (HTTP): backend mode of the extra process: shared', d2.j?.throttle === 'shared', d2.j);
+    const fcount = () => Number(sql(`SELECT coalesce(max(count), 0) FROM auth_throttle WHERE key LIKE 'login:%|${FAULT}'`));
+    const s1 = []; for (let i = 0; i < 8; i++) s1.push((await lg(FAULT, 'Whatever#1x')).s);
+    t('B1 T2-B (HTTP): 8 sign-ins in a row with the broken lookup: all 500, none 429', s1.every((x) => x === 500), s1);
+    t('B1 T2-B (HTTP): and the shared table holds count 0 for that key (every reservation was released in SQL)', fcount() === 0, fcount());
+    const par = await Promise.all(Array.from({ length: 8 }, () => lg(FAULT, 'Whatever#1x'))); const pc = par.map((x) => x.s);
+    t('B1 T2-B (HTTP): 8 parallel: every answer is 500 or 429 (429 only the transient cap)', pc.every((x) => x === 500 || x === 429) && pc.filter((x) => x === 500).length >= 5, pc);
+    t('B1 T2-B (HTTP): after the burst the table again holds count 0', fcount() === 0, fcount());
+    const s2 = []; for (let i = 0; i < 8; i++) s2.push((await lg(FAULT, 'Whatever#1x')).s);
+    t('B1 T2-B (HTTP): 8 more in a row: all 500, none 429', s2.every((x) => x === 500), s2);
+  } finally { await srv.stop(); sql(`DELETE FROM auth_throttle WHERE key LIKE 'login:%|${FAULT}'`); }
+  await bdb.end().catch(() => {});
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
