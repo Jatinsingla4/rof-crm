@@ -78,3 +78,10 @@ export const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&l
 // A placeholder such as RERA-X-NONE or RERA/GGM/2024/XXXX is never a real registration number. Print the fallback instead.
 export const isPlaceholderRera = (v: any) => typeof v === 'string' && /(^|[-\s/])(X{3,}|NONE|TBD|NIL)([-\s/]|$)|(^|[-\s/])X([-\s/]|$)|^\s*(N\/?A|NOT AVAILABLE|X+)\s*$/i.test(v.trim());
 export const realRera = (v: any, fallback = 'N/A') => (has(v) && !isPlaceholderRera(v) ? String(v) : fallback);
+
+// The number of rows a paged list query matches, whatever page was asked for. The query must end with LIMIT $a OFFSET $b, the last two parameters (the paged lists all do).
+export const countOf = async (q: any, sql: string, params: any[]): Promise<number> => {
+  const m = /\s+LIMIT\s+\$\d+\s+OFFSET\s+\$\d+\s*$/i.exec(sql);
+  if (!m) throw new Error('countOf: the query must end with LIMIT $n OFFSET $m');
+  return Number((await q.query(`SELECT COUNT(*)::int AS n FROM (${sql.slice(0, m.index)}) _c`, params.slice(0, -2))).rows[0].n);
+};

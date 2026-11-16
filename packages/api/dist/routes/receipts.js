@@ -265,7 +265,7 @@ router.get('/receipts', async (req, res, next) => {
         }
         const pageSize = int(q.pageSize, 'pageSize', 1, 1000, 50);
         const page = int(q.page, 'page', 1, 100000, 1);
-        const result = await index_js_1.db.query(`SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index, r.consumer_id, r.amount_received_inr, r.payment_method, r.cgst_amount, r.sgst_amount,
+        const listSql = `SELECT r.id, r.receipt_number, r.payment_plan_id, r.installment_index, r.consumer_id, r.amount_received_inr, r.payment_method, r.cgst_amount, r.sgst_amount,
               r.transaction_ref, r.received_date, r.created_at, r.status, r.approval_status, r.bank_name, r.print_status, r.printed_at,
               r.plc_amount, r.edc_amount, r.idc_amount, r.other_charge_amount, r.other_charge_desc, r.interest_amount,
               COALESCE(r.is_advance, false) AS is_advance,
@@ -286,8 +286,9 @@ router.get('/receipts', async (req, res, next) => {
          LEFT JOIN brokers b ON b.id = latest_booking.main_broker_id
         WHERE TRUE ${where}
         ORDER BY r.created_at DESC, r.id DESC
-        LIMIT ${add(pageSize)} OFFSET ${add((page - 1) * pageSize)}`, params);
-        res.json({ success: true, data: result.rows });
+        LIMIT ${add(pageSize)} OFFSET ${add((page - 1) * pageSize)}`;
+        const result = await index_js_1.db.query(listSql, params);
+        res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
     }
     catch (err) {
         fail(err, res, next);

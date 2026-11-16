@@ -15,7 +15,7 @@ import { hasPermission } from '../middleware/rbac.js';
 import { auditChange, logAudit } from '../middleware/auditLogger.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { rebateMethodOf, checkRebate, basicPriceOf, planTotal, repriceBooking } from '../utils/rebate.js';
-import { bad, uuid, has, realRera, num, text, day, flag, body, inTx, financeOnly } from '../utils/input.js';
+import { bad, uuid, has, realRera, num, text, day, flag, body, inTx, financeOnly, countOf } from '../utils/input.js';
 import { settleHold } from '../utils/holds.js';
 import { brokerOk, flagPaidCommission } from '../utils/broker.js';
 import { pinCode, mobileNo } from '../utils/applicant.js';
@@ -670,7 +670,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     const offset = ((page as number) - 1) * (pageSize as number);
     params.push(pageSize, offset);
 
-    const result = await db.query(`
+    const listSql = `
       SELECT br.*, c.name as consumer_name, c.mobile, p.name as project_name, u.unit_number
       FROM booking_records br
       JOIN consumers c ON c.id = br.consumer_id
@@ -679,9 +679,10 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
       ${where}
       ORDER BY br.created_at DESC
       LIMIT $${params.length-1} OFFSET $${params.length}
-    `, params);
+    `;
+    const result = await db.query(listSql, params);
 
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await countOf(db, listSql, params) } });
   } catch (err) { fail(err, res, next); }
 });
 

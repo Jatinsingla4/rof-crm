@@ -690,7 +690,7 @@ router.get('/', async (req, res, next) => {
         }
         const offset = (page - 1) * pageSize;
         params.push(pageSize, offset);
-        const result = await index_js_1.db.query(`
+        const listSql = `
       SELECT br.*, c.name as consumer_name, c.mobile, p.name as project_name, u.unit_number
       FROM booking_records br
       JOIN consumers c ON c.id = br.consumer_id
@@ -699,8 +699,9 @@ router.get('/', async (req, res, next) => {
       ${where}
       ORDER BY br.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
-    `, params);
-        res.json({ success: true, data: result.rows });
+    `;
+        const result = await index_js_1.db.query(listSql, params);
+        res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
     }
     catch (err) {
         fail(err, res, next);
