@@ -119,6 +119,10 @@ const ALLOWED = {
   1,
   7
  ],
+ "scripts/historical-backfill.ts": [
+  1,
+  0
+ ],
  "utils/payment-waterfall.ts": [
   4,
   11
