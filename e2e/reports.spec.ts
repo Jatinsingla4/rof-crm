@@ -456,7 +456,9 @@ test('Analytics Dashboard: the KPIs, collection trend and payment ageing show th
   const rupees = (n: number) => '\u20b9' + Math.round(n).toLocaleString('en-IN');
   const kp = (label: string) => page.locator('#an-kpis .kpi', { has: page.locator('.kpi-lbl', { hasText: new RegExp(`^${label}$`) }) });
   await expect(kp('Collection')).toContainText(rupees(fin.total_collected));
-  await expect(kp('Outstanding')).toContainText(rupees(fin.outstanding));
+  await expect(kp('Contract balance')).toContainText(rupees(fin.contract_balance));   // was labelled Outstanding; fin.outstanding is the same number and key, kept for old callers
+  await expect(kp('Contract balance')).toContainText(rupees(fin.billed_outstanding));
+  expect(fin.outstanding).toBe(fin.contract_balance);
   expect(fin.total_collected).toBeGreaterThan(0);
   const ageing = (await api('GET', '/reports/payment-ageing')).j.data;
   for (const b of ageing) await expect(page.locator('#an-ageing')).toContainText(rupees(b.total_due_inr));

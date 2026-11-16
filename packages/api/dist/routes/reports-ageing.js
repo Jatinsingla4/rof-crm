@@ -9,6 +9,7 @@ const express_1 = require("express");
 const pool_js_1 = require("../db/pool.js");
 const input_js_1 = require("../utils/input.js");
 const reports_dues_js_1 = require("./reports-dues.js");
+const financial_measures_js_1 = require("../utils/financial-measures.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const router = (0, express_1.Router)();
 const ageingRows = (plans, asOn, keyOf, order) => {
@@ -250,8 +251,19 @@ router.get('/collection-pivot', (0, reports_dues_js_1.h)(async (req, res) => {
 // ---- dashboards (money part) ----
 const dashboardMoney = (plans) => {
     const receivables = (0, report_ledger_js_1.sum)(plans, (p) => (0, report_ledger_js_1.sum)(p.demands, (d) => d.total)), collected = (0, report_ledger_js_1.sum)(plans, (p) => p.received);
-    return { total_receivables: receivables, total_collected: collected, outstanding: (0, report_ledger_js_1.r2)(receivables - collected) };
+    const fm = (0, financial_measures_js_1.financialMeasures)(plans);
+    // `outstanding` has always been receivables less collected (the contract balance); the named measures say which "outstanding" is which
+    return { total_receivables: receivables, total_collected: collected, outstanding: (0, report_ledger_js_1.r2)(receivables - collected),
+        contract_balance: fm.contract_balance, billed_outstanding: fm.billed_outstanding, overdue_amount: fm.overdue, unallocated_credit: fm.unallocated_credit };
 };
+// GET /reports/financial-measures[?projectId=&asOn=]: every money measure with one name and one meaning (see utils/financial-measures.ts)
+router.get('/financial-measures', (0, reports_dues_js_1.h)(async (req, res) => {
+    const x = (0, reports_dues_js_1.Q)(req);
+    const plans = await (0, report_ledger_js_1.loadLedger)({ projectId: x.projectId || undefined });
+    const returned = Number((await pool_js_1.db.query(`SELECT COALESCE(SUM(rr.amount), 0)::float8 AS n FROM receipt_returns rr JOIN receipts r ON r.id = rr.receipt_id
+      LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE rr.status = 'approved' AND ($1::uuid IS NULL OR pp.project_id = $1::uuid)`, [x.projectId || null])).rows[0].n);
+    res.json({ success: true, data: { as_on: x.asOn || plans[0]?.today || null, ...(0, financial_measures_js_1.financialMeasures)(plans, x.asOn || null), approved_bank_returns: (0, report_ledger_js_1.r2)(returned) }, definitions: financial_measures_js_1.MEASURE_DEFINITIONS });
+}));
 router.get('/financial-dashboard', (0, reports_dues_js_1.h)(async (req, res) => {
     const plans = await (0, report_ledger_js_1.loadLedger)({ projectId: (0, reports_dues_js_1.Q)(req).projectId || undefined });
     const m = dashboardMoney(plans);
