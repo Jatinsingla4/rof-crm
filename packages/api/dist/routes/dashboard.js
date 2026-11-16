@@ -10,6 +10,7 @@ const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const report_ledger_js_1 = require("../utils/report-ledger.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
 const router = (0, express_1.Router)();
 const TODAY = business_date_js_1.SQL_TODAY; // the business day (Asia/Kolkata), shared with every other module
@@ -38,7 +39,17 @@ const panels = {
       JOIN receipts r ON r.payment_plan_id = pp.id AND ${IN_FLIGHT}
      GROUP BY p.id, p.name ORDER BY p.name`),
     // raised demands per project: letters sent and not sent for instalment 1, 2, 3 and 4+, and what is overdue
-    demandStatus: () => index_js_1.db.query(`
+    // O/S is the dues reports' number: what is still unpaid on raised demands due up to today (India), after the cleared receipts are spread over them (same ledger as Project-wise Dues)
+    demandStatus: async () => {
+        const [res, plans] = await Promise.all([panels.demandStatusRows(), (0, report_ledger_js_1.loadLedger)()]);
+        const today = (0, business_date_js_1.businessToday)(), os = new Map();
+        for (const p of plans) {
+            const ds = (0, report_ledger_js_1.dueOf)(p, today);
+            os.set(p.project_id, (0, report_ledger_js_1.r2)((os.get(p.project_id) || 0) + (0, report_ledger_js_1.sum)(ds, (d) => d.total) - (0, report_ledger_js_1.sum)(ds, (d) => d.paid)));
+        }
+        return { ...res, rows: res.rows.map((r) => ({ ...r, outstanding: os.get(r.project_id) || 0 })) };
+    },
+    demandStatusRows: () => index_js_1.db.query(`
     SELECT p.id AS project_id, p.name AS project,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND COALESCE(d.delivery_status, '') <> 'sent')::int AS demand_unsend,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'sent')::int  AS demand_send,

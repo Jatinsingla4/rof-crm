@@ -9,7 +9,8 @@ import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { failWith } from '../utils/input.js';
-import { SQL_TODAY } from '../utils/business-date.js';
+import { SQL_TODAY, businessToday } from '../utils/business-date.js';
+import { loadLedger, dueOf, sum, r2 } from '../utils/report-ledger.js';
 import { returnedSql } from '../utils/money-basis.js';
 
 const router = Router();
@@ -42,7 +43,14 @@ const panels = {
      GROUP BY p.id, p.name ORDER BY p.name`),
 
   // raised demands per project: letters sent and not sent for instalment 1, 2, 3 and 4+, and what is overdue
-  demandStatus: () => db.query(`
+  // O/S is the dues reports' number: what is still unpaid on raised demands due up to today (India), after the cleared receipts are spread over them (same ledger as Project-wise Dues)
+  demandStatus: async () => {
+    const [res, plans] = await Promise.all([panels.demandStatusRows(), loadLedger()]);
+    const today = businessToday(), os = new Map<string, number>();
+    for (const p of plans) { const ds = dueOf(p, today); os.set(p.project_id, r2((os.get(p.project_id) || 0) + sum(ds, (d) => d.total) - sum(ds, (d) => d.paid))); }
+    return { ...res, rows: res.rows.map((r: any) => ({ ...r, outstanding: os.get(r.project_id) || 0 })) };
+  },
+  demandStatusRows: () => db.query(`
     SELECT p.id AS project_id, p.name AS project,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND COALESCE(d.delivery_status, '') <> 'sent')::int AS demand_unsend,
            COUNT(d.id) FILTER (WHERE d.installment_index = 1 AND d.delivery_status = 'sent')::int  AS demand_send,

@@ -440,6 +440,16 @@ let done1;
   r = await finish(bk.j.data.id, { booking_amount: 10000 }); t('quote = schedule: booking confirmed', r.s === 200, r.s + JSON.stringify(r.j));
   const sched = psql(`select coalesce(sum(amount_due_inr),0) || '|' || coalesce(sum(cgst_amount + sgst_amount),0) from demands where consumer_id='${c}'`).split('|').map(Number);
   t('quote = schedule: the demands add up to the quote (price 90,000 and GST 2,500)', sched[0] === q.agreement_value_inr && sched[1] === q.gst_inr, JSON.stringify([sched, q.agreement_value_inr, q.gst_inr]));
+  // the GST inside a receipt amount, and the interest preview: both read-only
+  r = await A('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4, received_date: today });
+  t('receipts quote: 10,100 at BASIC 0.5% + 0.5% inclusive -> taxable 10,000, CGST 50, SGST 50', r.s === 200 && r.j.data.taxable_inr === 10000 && r.j.data.cgst_inr === 50 && r.j.data.sgst_inr === 50, r.s + JSON.stringify(r.j));
+  for (const [n, body] of [['amount 0', { amount: 0, project_id: P4 }], ['no project', { amount: 500 }]]) { r = await A('POST', '/payments/receipts/quote', body); t(`receipts quote: ${n} is refused (4xx)`, r.s >= 400 && r.s < 500, r.s + JSON.stringify(r.j)); }
+  t('receipts quote: accounts_finance may ask; read_only_viewer keeps the payments rule (403)', (await AF('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4 })).s === 200 && (await RO('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4 })).s === 403);
+  const dId = psql(`select id from demands where consumer_id='${c}' order by installment_index limit 1`);
+  r = await A('GET', `/payments/interest/preview/${dId}`);
+  t('interest preview: 200 with the formula, the rate and a number', r.s === 200 && /365/.test(r.j?.data?.formula || '') && typeof r.j.data.interest_inr === 'number' && typeof r.j.data.penal_rate_percent === 'number', r.s + JSON.stringify(r.j));
+  t('interest preview: unknown demand -> 404', (await A('GET', `/payments/interest/preview/${NIL}`)).s === 404);
+  t('interest preview: bad id -> 400', (await A('GET', '/payments/interest/preview/abc')).s === 400);
 }
 
 // ---------- clean up ----------

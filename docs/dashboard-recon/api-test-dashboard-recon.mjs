@@ -2,6 +2,7 @@
 // Numbers are checked against data this script builds itself (per project, so other data in the database does not matter), roles, hostile input, project scope, races, a random run.
 // Run against a local test API:  BASE=http://localhost:3010/api node api-test-dashboard-recon.mjs   (psql must reach the same database; SEED=n repeats the random run)
 import { execFileSync } from 'node:child_process';
+import { bizToday } from '../_shared/business-date.mjs';
 const B = process.env.BASE || 'http://localhost:3010/api';
 let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + (typeof x === 'string' ? x : JSON.stringify(x)).slice(0, 300))); };
@@ -78,7 +79,9 @@ r = await A('GET', '/dashboard/demand-status'); let d = row(r.j.data, 'project',
 t('demand status: only raised demands count (pending, cancelled and paid are left out)', d && d.total === 5, d);
 t('demand status: sent and unsent per instalment', d && d.demand_send === 1 && d.demand_unsend === 1 && d.rem1_unsend === 1 && d.rem2_unsend === 1 && d.term_unsend === 1 && d.rem1_send + d.rem2_send + d.term_send === 0, d);
 t('demand status: instalment 5 is in the 4+ bucket and the numbers are numbers', d && typeof d.total === 'number' && typeof d.outstanding === 'number', d);
-t('demand status: overdue is only the raised unpaid demand past its due date (30,000; due today is not overdue)', d && d.outstanding === 30000, d);
+t('demand status: O/S is every raised unpaid demand due up to today, the one due today included (30,000 overdue + 11,800 due today)', d && d.outstanding === 41800, d);
+{ const pw = await A('GET', `/reports/project-wise-dues?dueDate=${bizToday()}`); const pr = (pw.j?.data || []).find((x) => x.group_label === N1);
+  t('demand status: O/S equals Project-wise Dues (as of today) for the same project', pr && pr.outstanding_with_tax === d?.outstanding, JSON.stringify([pr?.outstanding_with_tax, d?.outstanding])); }
 r = await A('GET', '/dashboard/forthcoming-due'); d = row(r.j.data, 'project_name', N1);
 t('forthcoming due: today, 1-7, 8-14, 15-21 days from raised demands only', d && d.today_dues === 1 && d.days_1_7 === 1 && d.days_8_14 === 1 && d.days_15_21 === 1 && d.days_22_28 === 0, d);
 r = await A('GET', '/dashboard/pending-cheques'); d = row(r.j.data, 'project', N1);

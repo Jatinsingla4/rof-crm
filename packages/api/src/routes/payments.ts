@@ -20,6 +20,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { resolveGstForComponents, resolveRate } from '../utils/gst-resolver.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
+import { loadLedger, loadInterestCtx } from '../utils/report-ledger.js';
 import { getPenalRate, DEFAULT_PENAL_RATE } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
@@ -363,6 +364,41 @@ router.get('/gst-invoices-export', requireDownload, async (req: AuthRequest, res
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${type}-${month}.csv"`);
     res.send(out);
+  } catch (error) { fail(error, res, next); }
+});
+
+// POST /api/payments/receipts/quote: the GST inside a receipt amount, worked out the way a saved receipt is. Read-only.
+router.post('/receipts/quote', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = body(req);
+    const amount = num(b.amount, 'amount', 1e10, 2);
+    if (!(amount > 0)) throw bad('Amount must be more than 0', 422);
+    const projectId = uuid(b.project_id, 'project_id');
+    const date = has(b.received_date) ? day(b.received_date, 'received_date') : businessToday();
+    const g = await computeReceiptGstSplit(db, amount, projectId, date);
+    const pr = (await db.query(`SELECT name FROM projects WHERE id = $1`, [projectId])).rows[0];
+    if (!pr) throw bad('Project not found', 404);
+    const rate = await resolveRate(db, projectId, pr.name, 'BASIC', date);
+    res.json({ success: true, data: { amount_inr: amount, cgst_inr: g.cgstAmount, sgst_inr: g.sgstAmount, taxable_inr: r2(amount - g.cgstAmount - g.sgstAmount), cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, basis: 'GST is inside the amount received (inclusive), at the project BASIC rate on the receipt date' } });
+  } catch (error) { fail(error, res, next); }
+});
+
+// GET /api/payments/interest/preview/:demandId[?asOf=YYYY-MM-DD]: the late-payment interest on one demand, row by row, with the formula. Read-only.
+router.get('/interest/preview/:demandId', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const demandId = uuid(req.params.demandId, 'demandId');
+    const row = (await db.query(`SELECT d.installment_index, pp.consumer_id FROM demands d JOIN payment_plans pp ON pp.id = d.payment_plan_id WHERE d.id = $1`, [demandId])).rows[0];
+    if (!row) throw bad('Demand not found', 404);
+    const p = (await loadLedger({ consumerId: row.consumer_id })).find((x) => x.demands.some((d) => d.id === demandId));
+    if (!p) throw bad('This demand is not on a live booking', 404);
+    const asOf = has(req.query.asOf) ? day(req.query.asOf, 'asOf') : p.today;
+    const ctx = await loadInterestCtx([p]);
+    const st = ctx.settings.get(p.consumer_id) || { grace: 0, start: null };
+    const rows = buildInterestRows(p.raw.receipts as any, p.raw.demands.filter((d: any) => d.raised_flag).map((d: any) => ({ ...d, raised: true, installment_name: d.demand_type || String(d.installment_index), due_date: d.due_date })) as any,
+      ctx.penalRate, { asOfDate: new Date(asOf), gracePeriodDays: st.grace, interestStartDate: st.start }).filter((r) => r.installment_index === Number(row.installment_index));
+    res.json({ success: true, data: { demand_id: demandId, as_of: asOf, penal_rate_percent: ctx.penalRate, grace_days: st.grace,
+      formula: 'simple interest on the unpaid basic amount: amount x rate% x days late / 365, counted after the grace days; only cleared money reduces it',
+      rows, interest_inr: r2(rows.reduce((a, r) => a + r.interest_amount, 0)) } });
   } catch (error) { fail(error, res, next); }
 });
 
