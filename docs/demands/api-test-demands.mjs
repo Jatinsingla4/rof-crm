@@ -69,6 +69,9 @@ t('set-up: demand amounts follow the plan (20/30/50 of the total)', psql(`select
     r = await who('GET', '/payments/demand-status?limit=2'); t(`roles: ${n} can read the demand status`, r.s === 200, r.s);
   }
   t('roles: nothing changed by the refused calls', b.d.every(d => st(d) === 'pending'));
+  // CRM-CALC-025: the list says how many rows exist, so a page cut short is visible
+  r = await A('GET', `/payments/demands?consumerId=${b.c.id}&pageSize=2`); t('list: pageSize 2 of 3 demands gives 2 rows and total 3', r.s === 200 && r.j.data.length === 2 && r.j.pagination?.total === 3 && r.j.pagination.pageSize === 2 && r.j.pagination.page === 1, r.s + JSON.stringify(r.j.pagination));
+  r = await A('GET', `/payments/demands?consumerId=${b.c.id}&pageSize=2&page=2`); t('list: page 2 holds the last demand, total still 3', r.s === 200 && r.j.data.length === 1 && r.j.pagination?.total === 3, r.s + JSON.stringify(r.j.pagination));
   r = await AF('PATCH', '/payments/demands/activate', { demandIds: [b.d[0]], installmentDate: later(10) }); t('roles: accounts_finance can raise', r.s === 200 && r.j.raised === 1, r.s + JSON.stringify(r.j));
   r = await PM('PATCH', '/payments/demands/activate', { demandIds: [b.d[1]], installmentDate: later(10) }); t('roles: project_manager can raise', r.s === 200 && r.j.raised === 1, r.s + JSON.stringify(r.j));
   r = await fetch(B + '/payments/demands'); t('roles: no login -> 401', r.status === 401, r.status);

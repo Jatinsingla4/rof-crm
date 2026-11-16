@@ -227,6 +227,17 @@ router.get('/demands', async (req, res, next) => {
             where += ` AND d.generated_at < ${(0, business_date_js_1.sqlDayEnd)(add(rTo))}`;
         if (from && to && from > to)
             throw (0, input_js_1.bad)('from must not be after to');
+        // The same joins count and list, so the total is the number of rows the list can return (CRM-CALC-025: the list gave 50 rows and no total)
+        const LIST_FROM = `FROM demands d
+         JOIN consumers c ON d.consumer_id = c.id
+         JOIN payment_plans pp ON pp.id = d.payment_plan_id
+         JOIN units u ON u.id = pp.unit_id
+         JOIN projects p ON u.project_id = p.id
+         LEFT JOIN towers tw ON u.tower_id = tw.id
+         LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id = pp.unit_id
+         LEFT JOIN plan_schedule_templates pst
+           ON pst.project_id = u.project_id AND pst.installment_index = d.installment_index AND pst.plan_name = br.selected_plan_name`;
+        const whereParams = params.slice();
         const pageSize = int(q.pageSize, 'pageSize', 1, 1000, 50);
         const page = int(q.page, 'page', 1, 100000, 1);
         const result = await index_js_1.db.query(`SELECT d.id, d.installment_index, d.consumer_id, d.amount_due_inr, d.cgst_amount, d.sgst_amount,
@@ -237,15 +248,7 @@ router.get('/demands', async (req, res, next) => {
               u.unit_number AS unit_address, u.bhk_type AS unit_type, u.floor, tw.tower_name, p.name AS project_name,
               COALESCE(pst.installment_name, 'Instalment ' || d.installment_index::text) AS installment_name,
               (SELECT COALESCE(SUM(amount_received_inr), 0) FROM receipts WHERE consumer_id = c.id AND status != 'cancelled') AS total_paid
-         FROM demands d
-         JOIN consumers c ON d.consumer_id = c.id
-         JOIN payment_plans pp ON pp.id = d.payment_plan_id
-         JOIN units u ON u.id = pp.unit_id
-         JOIN projects p ON u.project_id = p.id
-         LEFT JOIN towers tw ON u.tower_id = tw.id
-         LEFT JOIN booking_records br ON br.consumer_id = c.id AND br.unit_id = pp.unit_id
-         LEFT JOIN plan_schedule_templates pst
-           ON pst.project_id = u.project_id AND pst.installment_index = d.installment_index AND pst.plan_name = br.selected_plan_name
+         ${LIST_FROM}
         WHERE TRUE ${where}
         ORDER BY d.installment_index ASC, d.due_date ASC, d.id ASC
         LIMIT ${add(pageSize)} OFFSET ${add((page - 1) * pageSize)}`, params);
@@ -274,7 +277,8 @@ router.get('/demands', async (req, res, next) => {
             const { due_reached, ...rest } = r;
             return { ...rest, status: rest.status === 'pending' && due_reached ? 'demanded' : rest.status, total_paid: totalPaid, balance: netDue - totalPaid };
         });
-        res.json({ success: true, data });
+        const total = Number((await index_js_1.db.query(`SELECT COUNT(*) AS n ${LIST_FROM} WHERE TRUE ${where}`, whereParams)).rows[0].n);
+        res.json({ success: true, data, pagination: { page, pageSize, total } });
     }
     catch (err) {
         fail(err, res, next);

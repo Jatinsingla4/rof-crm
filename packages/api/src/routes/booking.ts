@@ -129,6 +129,8 @@ const parseNew = (b: any) => {
   o.basic_price = has(b.basic_price) ? num(b.basic_price, 'Basic rate', 1e6, 4) : 0;
   o.carpet_area_sqft = has(b.carpet_area_sqft) ? num(b.carpet_area_sqft, 'Carpet area', 1e6, 3) : 0;
   if (has(b.carpet_area_sqft) && o.carpet_area_sqft <= 0) throw bad('Carpet area must be more than 0');
+  // A rate sent as 0 used to be accepted: priceEstimate then fell back to the unit master price while the booking kept rate 0 (CRM-CALC-009)
+  if (has(b.basic_price) && o.basic_price <= 0) throw bad('Rate per sq ft must be more than 0');
   return o;
 };
 

@@ -172,6 +172,9 @@ const parseNew = (b) => {
     o.carpet_area_sqft = (0, input_js_1.has)(b.carpet_area_sqft) ? (0, input_js_1.num)(b.carpet_area_sqft, 'Carpet area', 1e6, 3) : 0;
     if ((0, input_js_1.has)(b.carpet_area_sqft) && o.carpet_area_sqft <= 0)
         throw (0, input_js_1.bad)('Carpet area must be more than 0');
+    // A rate sent as 0 used to be accepted: priceEstimate then fell back to the unit master price while the booking kept rate 0 (CRM-CALC-009)
+    if ((0, input_js_1.has)(b.basic_price) && o.basic_price <= 0)
+        throw (0, input_js_1.bad)('Rate per sq ft must be more than 0');
     return o;
 };
 // Generate registration number with project-based prefix and sequential numbering
