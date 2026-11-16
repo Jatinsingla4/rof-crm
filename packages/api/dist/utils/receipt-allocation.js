@@ -1,7 +1,7 @@
 "use strict";
 // RC-3: which receipt settled which demand, and how much of it was principal and GST. Derived from the same money rules as the demand status
-// (cleared receipts, approved returns taken off, linked money first, unlinked money to the oldest gap first), so the rows always add up to the paid
-// amounts the screens show. Rebuilt on every recompute, so cancelling a receipt removes its rows. Written only while receipt_allocation_v1 is 'on'.
+// (cleared receipts, approved returns taken off; money that names a demand or an instalment settles that one; money that names neither is customer credit and
+// gets no row, as in the waterfall), so the rows always add up to the paid amounts the screens show. Rebuilt on every recompute, so cancelling a receipt removes its rows. Written only while receipt_allocation_v1 is 'on'.
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.allocationOn = void 0;
 exports.allocateReceipts = allocateReceipts;
@@ -32,16 +32,8 @@ function allocateReceipts(receipts, demands) {
         if (target && gap.has(target))
             put(r.id, target, r.amount);
     }
-    for (const r of receipts) { // money that names neither fills the oldest gap first
-        if (r.demand_id || r.installment_index != null)
-            continue;
-        let left = r.amount;
-        for (const d of ds) {
-            if (left <= 0.004)
-                break;
-            left = r2(left - put(r.id, String(d.id), left));
-        }
-    }
+    // money that names neither a demand nor an instalment is customer credit: the waterfall never spreads it over demands (it reaches one only through an approved
+    // credit allocation), so it gets no row here either. The pre-activation shadow report found this: an earlier version filled the oldest gap with it.
     return out;
 }
 // One row per receipt and demand: principal (instalment + add-on charge), CGST and SGST taken from the demand's own lines in proportion, never re-extracted from the gross.

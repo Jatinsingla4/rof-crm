@@ -6,7 +6,7 @@ Status: flag is OFF in production. Nothing below changes any payment, demand or 
 
 `receipt_allocation` records, for each cleared receipt, how much of it settled which instalment, split into principal, CGST and SGST.
 It follows the money rules already used for demand status (`money-basis.ts`): only cleared, non-advance money counts; approved returns are taken off the receipt;
-money that names an instalment goes to it first; money that names none fills the oldest gap. It is rebuilt on every recompute of a plan, so it cannot drift.
+money that names a demand or an instalment settles that one; money that names neither is customer credit and gets no row (it reaches a demand only through an approved credit allocation). It is rebuilt on every recompute of a plan, so it cannot drift.
 The GST part of a row is the demand's own GST in proportion, never extracted again from the gross.
 
 ## Evidence (local disposable database, flag ON, run on 2026-11-16)

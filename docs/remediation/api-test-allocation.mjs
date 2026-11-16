@@ -6,13 +6,15 @@ const D = (id, i, base, cg = 0, sg = 0) => ({ id, installment_index: i, status: 
 const sum = (rows, k, v) => Math.round(rows.filter((r) => r[k] === v).reduce((s, r) => s + r.amount, 0) * 100) / 100;
 
 let a = allocateReceipts([{ id: 'r1', amount: 10000, demand_id: null, installment_index: null }], [D('d1', 1, 5800, 100, 100), D('d2', 2, 6000)]);
-t('unlinked money fills the oldest demand first: 6,000 to d1, 4,000 to d2', sum(a, 'demand_id', 'd1') === 6000 && sum(a, 'demand_id', 'd2') === 4000, JSON.stringify(a));
+t('money that names neither a demand nor an instalment is customer credit: no row, as in the waterfall', a.length === 0, JSON.stringify(a));
 a = allocateReceipts([{ id: 'r1', amount: 5000, demand_id: null, installment_index: 1 }], [D('d1', 1, 2400, 63, 63), D('d2', 2, 9000)]);
 t('money filed under instalment 1 settles instalment 1 (2,526) and never more than its total', sum(a, 'demand_id', 'd1') === 2526 && sum(a, 'demand_id', 'd2') === 0, JSON.stringify(a));
 a = allocateReceipts([{ id: 'r1', amount: 20000, demand_id: 'd2', installment_index: null }], [D('d1', 1, 50000), D('d2', 2, 50500)]);
 t('money linked to a demand counts against that demand, not the oldest', sum(a, 'demand_id', 'd2') === 20000 && sum(a, 'demand_id', 'd1') === 0);
 a = allocateReceipts([{ id: 'r1', amount: 30000, demand_id: null, installment_index: null }, { id: 'r2', amount: 30000, demand_id: null, installment_index: null }], [D('d1', 1, 40000), D('d2', 2, 40000)]);
-t('two receipts: nothing is allocated twice (d1 40,000, d2 20,000) and each receipt is within its amount', sum(a, 'demand_id', 'd1') === 40000 && sum(a, 'demand_id', 'd2') === 20000 && sum(a, 'receipt_id', 'r1') <= 30000 && sum(a, 'receipt_id', 'r2') <= 30000, JSON.stringify(a));
+t('two unlinked receipts are both credit: no row', a.length === 0, JSON.stringify(a));
+a = allocateReceipts([{ id: 'r1', amount: 30000, demand_id: null, installment_index: 1 }, { id: 'r2', amount: 30000, demand_id: null, installment_index: 1 }], [D('d1', 1, 40000), D('d2', 2, 40000)]);
+t('two receipts filed under instalment 1: nothing is allocated twice (d1 40,000, d2 0) and each receipt is within its amount', sum(a, 'demand_id', 'd1') === 40000 && sum(a, 'demand_id', 'd2') === 0 && sum(a, 'receipt_id', 'r1') <= 30000 && sum(a, 'receipt_id', 'r2') <= 30000, JSON.stringify(a));
 a = allocateReceipts([{ id: 'r1', amount: 100, demand_id: null, installment_index: null }], [{ ...D('d1', 1, 500), status: 'cancelled' }].filter((d) => d.status !== 'cancelled'));
 t('no live demand: nothing is allocated', a.length === 0);
 const s1 = splitLines(20000, D('d', 1, 50000, 250, 250));
