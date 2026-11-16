@@ -16,6 +16,7 @@ exports.recomputePlan = recomputePlan;
 //  - A demand's status follows from that money and from its dates (D1): paid, partial, demanded (raised_at set or due_date reached, business
 //    timezone), otherwise pending. raised_at and due_date are never cleared here (D8).
 const payment_waterfall_js_1 = require("./payment-waterfall.js");
+const receipt_allocation_js_1 = require("./receipt-allocation.js");
 const business_date_js_1 = require("./business-date.js");
 // SQL predicate for eligible money on a receipts alias (before approved returns are taken off)
 const eligibleReceipt = (a = 'r') => `${a}.status = 'cleared' AND ${a}.is_advance IS NOT TRUE`;
@@ -116,6 +117,8 @@ async function recomputePlan(client, planId, userId = null) {
         }
         changed++;
     }
+    if (await (0, receipt_allocation_js_1.allocationOn)(client))
+        await (0, receipt_allocation_js_1.writeAllocations)(client, planId, ds); // flag receipt_allocation_v1 (off by default): which receipt settled which demand
     return changed;
 }
 //# sourceMappingURL=money-basis.js.map

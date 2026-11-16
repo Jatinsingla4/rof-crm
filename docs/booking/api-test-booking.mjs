@@ -411,6 +411,67 @@ let done1;
   t('random: 30 random edits / cancels on odd ids never gave a 500', five.length === 0, JSON.stringify(five.slice(0, 3)));
 }
 
+// ---------- the price quote: one server-side price, the same one the schedule bills (CRM-CALC-002, 006, 012) ----------
+{
+  const P4 = await mkProj('Q'), T4 = await tw(P4); const u4 = await unit(P4, T4, 100, 5000000); const plan4 = await plan(P4, 'PlanQ ' + U, [100]);
+  const tax = async (code, pct) => (await A('POST', '/gst-configuration/gst-tax-setup', { slabId: slab, gstCode: `${code} ${U}`, type: 'INTRA', cgstPct: pct, sgstPct: pct })).j.data.id;
+  const lowTax = await tax('QLOW', 0.5), midTax = await tax('QMID', 2.5);
+  await A('POST', '/gst-configuration/gst-charge-mapping', { projectId: P4, slabId: slab, gstTaxId: lowTax, chargeType: 'BASIC' });
+  for (const ct of ['PLC', 'OTHER CHARGE']) await A('POST', '/gst-configuration/gst-charge-mapping', { projectId: P4, slabId: slab, gstTaxId: midTax, chargeType: ct });
+  const before = psql('select count(*) from booking_records');
+  r = await A('POST', '/booking/quote', { unit_id: u4, basic_price: 500, plc_amount: 40000, booking_date: today });
+  t('quote: 100 sq ft x 500 + PLC 40,000 -> 200', r.s === 200, r.s + JSON.stringify(r.j));
+  const q = r.j?.data || {};
+  t('quote: basic 50,000, agreement value 90,000', q.basic_inr === 50000 && q.agreement_value_inr === 90000, JSON.stringify(q));
+  t('quote: GST per charge head: BASIC 250+250, PLC 1,000+1,000 (not one flat rate)', JSON.stringify((q.tax_lines || []).map(l => [l.charge_head, l.cgst, l.sgst])) === JSON.stringify([['BASIC', 250, 250], ['PLC', 1000, 1000]]), JSON.stringify(q.tax_lines));
+  t('quote: total with GST is 92,500', q.gst_inr === 2500 && q.total_with_gst_inr === 92500, JSON.stringify([q.gst_inr, q.total_with_gst_inr]));
+  t('quote: it saved nothing', psql('select count(*) from booking_records') === before);
+  r2 = await A('POST', '/booking/quote', { unit_id: u4, basic_price: 500, plc_amount: 40000, company_inaugural_disc: 10000 });
+  t('quote: a discount comes off the price, GST stays on the full price (as the demands bill it)', r2.s === 200 && r2.j.data.agreement_value_inr === 80000 && r2.j.data.gst_inr === 2500, JSON.stringify(r2.j));
+  t('quote: the browser sees what the quote says: read_only_viewer can ask for it', (await RO('POST', '/booking/quote', { unit_id: u4, basic_price: 500 })).s === 200);
+  for (const [n, body] of [['rate 0', { unit_id: u4, basic_price: 0 }], ['rate -5', { unit_id: u4, basic_price: -5 }], ['no rate', { unit_id: u4 }], ['discount above the basic price', { unit_id: u4, basic_price: 500, company_inaugural_disc: 60000 }]]) {
+    r = await A('POST', '/booking/quote', body);
+    t(`quote: ${n} -> 422 with {field, message}`, r.s === 422 && !!r.j?.field && !!r.j?.message, r.s + JSON.stringify(r.j));
+  }
+  t('quote: an unknown unit -> 404', (await A('POST', '/booking/quote', { unit_id: NIL, basic_price: 500 })).s === 404);
+  // quote = what the schedule bills
+  const c = await person(P4); const bk = await A('POST', '/booking', { consumer_id: c, project_id: P4, unit_id: u4, selected_plan_name: plan4, booking_date: today, basic_price: 500, carpet_area_sqft: 100, has_plc: true, plc_amount: 40000 });
+  t('quote = schedule: booking started', bk.s === 201, bk.s + JSON.stringify(bk.j));
+  r = await finish(bk.j.data.id, { booking_amount: 10000 }); t('quote = schedule: booking confirmed', r.s === 200, r.s + JSON.stringify(r.j));
+  const sched = psql(`select coalesce(sum(amount_due_inr),0) || '|' || coalesce(sum(cgst_amount + sgst_amount),0) from demands where consumer_id='${c}'`).split('|').map(Number);
+  t('quote = schedule: the demands add up to the quote (price 90,000 and GST 2,500)', sched[0] === q.agreement_value_inr && sched[1] === q.gst_inr, JSON.stringify([sched, q.agreement_value_inr, q.gst_inr]));
+  // the GST inside a receipt amount, and the interest preview: both read-only
+  r = await A('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4, received_date: today });
+  t('receipts quote: 10,100 at BASIC 0.5% + 0.5% inclusive -> taxable 10,000, CGST 50, SGST 50', r.s === 200 && r.j.data.taxable_inr === 10000 && r.j.data.cgst_inr === 50 && r.j.data.sgst_inr === 50, r.s + JSON.stringify(r.j));
+  for (const [n, body] of [['amount 0', { amount: 0, project_id: P4 }], ['no project', { amount: 500 }]]) { r = await A('POST', '/payments/receipts/quote', body); t(`receipts quote: ${n} is refused (4xx)`, r.s >= 400 && r.s < 500, r.s + JSON.stringify(r.j)); }
+  t('receipts quote: accounts_finance may ask; read_only_viewer keeps the payments rule (403)', (await AF('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4 })).s === 200 && (await RO('POST', '/payments/receipts/quote', { amount: 10100, project_id: P4 })).s === 403);
+  const dId = psql(`select id from demands where consumer_id='${c}' order by installment_index limit 1`);
+  r = await A('GET', `/payments/interest/preview/${dId}`);
+  t('interest preview: 200 with the formula, the rate and a number', r.s === 200 && /365/.test(r.j?.data?.formula || '') && typeof r.j.data.interest_inr === 'number' && typeof r.j.data.penal_rate_percent === 'number', r.s + JSON.stringify(r.j));
+  t('interest preview: unknown demand -> 404', (await A('GET', `/payments/interest/preview/${NIL}`)).s === 404);
+  t('interest preview: bad id -> 400', (await A('GET', '/payments/interest/preview/abc')).s === 400);
+  // agreement snapshot (flag agreement_snapshot_v1): off = nothing stored, on = version 1 stored once, immutable
+  t('snapshot: flag off by default and a booking confirmed with it off has no snapshot', psql(`select value from global_settings where key='agreement_snapshot_v1'`) === 'off' && (await A('GET', `/booking/${bk.j.data.id}/agreement`)).s === 404);
+  psql(`update global_settings set value='on' where key='agreement_snapshot_v1'`);
+  try {
+    const c2 = await person(P4), u5 = await unit(P4, T4, 100, 5000000);
+    const bk2 = await A('POST', '/booking', { consumer_id: c2, project_id: P4, unit_id: u5, selected_plan_name: plan4, booking_date: today, basic_price: 500, carpet_area_sqft: 100, has_plc: true, plc_amount: 40000 });
+    r = await finish(bk2.j.data.id, { booking_amount: 10000 }); t('snapshot: booking confirmed with the flag on', r.s === 200, r.s + JSON.stringify(r.j));
+    r = await A('GET', `/booking/${bk2.j.data.id}/agreement`); const ag = r.j?.data || {};
+    t('snapshot: version 1 is current: rate 500, basic 50,000, PLC 40,000, agreement 90,000, GST lines kept', r.s === 200 && ag.version === 1 && ag.is_current && Number(ag.rate_inr_sqft) === 500 && Number(ag.basic_inr) === 50000 && Number(ag.agreement_value_inr) === 90000 && ag.tax_lines.length === 2, r.s + JSON.stringify(r.j));
+    t('snapshot: total_price_inr on the booking is filled from it', psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`) === '90000.00' || psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`) === '90000', psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`));
+    t('snapshot: it equals what the schedule billed', Number(psql(`select coalesce(sum(amount_due_inr),0) from demands where consumer_id='${c2}'`)) === Number(ag.agreement_value_inr));
+    let blocked = 0; for (const sql of [`update booking_agreement set basic_inr = 1 where booking_id='${bk2.j.data.id}'`, `delete from booking_agreement where booking_id='${bk2.j.data.id}'`]) { try { psql(sql); } catch { blocked++; } }
+    t('snapshot: rows cannot be changed or deleted', blocked === 2);
+    r = await A('GET', '/booking/agreement-shadow'); const sh = (r.j?.data || []).find((x) => x.booking_id === bk2.j.data.id);
+    t('shadow report: lists the booking; quote, schedule and snapshot all say 90,000 (difference 0)', r.s === 200 && sh && sh.quote_value_inr === 90000 && sh.plan_total_inr === 90000 && sh.snapshot_value_inr === 90000 && sh.difference_inr === 0, r.s + JSON.stringify(sh));
+    r = await A('GET', '/booking/reconciliation');
+    t('reconciliation: five read-only checks, each with a count; nothing here has a paid demand with a balance', r.s === 200 && Object.keys(r.j.counts).length === 5 && Object.values(r.j.counts).every((n) => Number.isInteger(n)) && r.j.data.demands_paid_with_balance_over_1.filter((x) => x.registration_no).every((x) => x.balance > 1), r.s + JSON.stringify(r.j?.counts));
+    t('reconciliation: only finance may read it', (await RO('GET', '/booking/reconciliation')).s >= 401);
+    t('shadow report: only finance may read it', (await RO('GET', '/booking/agreement-shadow')).s === 403 || (await RO('GET', '/booking/agreement-shadow')).s === 401);
+  } finally { psql(`update global_settings set value='off' where key='agreement_snapshot_v1'`); }
+}
+
 // ---------- clean up ----------
 if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_id='${slab}'`, `delete from gst_tax_setup where slab_id='${slab}'`, `delete from gst_slabs where id='${slab}'`]) { try { psql(sql); } catch {} }
 {
@@ -419,6 +480,7 @@ if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_
     `delete from booking_documents where consumer_id in (${ids})`, `delete from receipts where consumer_id in (${ids})`, `delete from demands where consumer_id in (${ids})`,
     `delete from financial_audit_logs where consumer_id in (${ids})`, `delete from payment_plans where consumer_id in (${ids})`, `delete from allocations where consumer_id in (${ids})`,
     `delete from broker_commissions where consumer_id in (${ids})`, `delete from booking_payment_taxes where booking_record_id in (select id from booking_records where consumer_id in (${ids}))`,
+    `alter table booking_agreement disable trigger booking_agreement_immutable`, `delete from booking_agreement where booking_id in (select id from booking_records where consumer_id in (${ids}))`, `alter table booking_agreement enable trigger booking_agreement_immutable`,
     `delete from booking_records where consumer_id in (${ids})`, `delete from co_applicants where consumer_id in (${ids})`, `delete from consumers where id in (${ids})`,
     `delete from brokers where name like '% ${U}' or name like 'Brk ${U}'`,
   ]) { try { psql(sql); } catch (e) { /* leftovers are harmless, names carry the run id */ } }

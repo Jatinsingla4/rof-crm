@@ -124,7 +124,7 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
                   <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
-                  <input id="base-rate-input" type="number" value="${c.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" oninput="ConsumerDetailPage.recalcPricing(${c.carpet_area_sqft || 0})">
+                  <input id="base-rate-input" type="number" value="${c.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" data-unit="${latestBooking?.unit_id || c.allocated_unit_id || ''}" oninput="ConsumerDetailPage.recalcPricing()">
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                   <span style="color:var(--text3)">Basic Cost</span>
@@ -265,7 +265,7 @@ Pages.consumerDetail = async function(params = {}) {
 
     ConsumerDetailPage.loadPaymentData(id, c);
     ConsumerDetailPage.loadDocuments(id, c);
-    setTimeout(() => ConsumerDetailPage.recalcPricing(c.carpet_area_sqft || 0), 100);
+    setTimeout(() => ConsumerDetailPage.recalcPricing(), 100);
 
   } catch (err) {
     content.innerHTML = `<div class="alert alert-danger">${err.message}</div>`;
@@ -273,20 +273,19 @@ Pages.consumerDetail = async function(params = {}) {
 };
 
 const ConsumerDetailPage = {
-  recalcPricing(carpetArea) {
+  // The card shows the server's quote (POST /booking/quote): the browser does no tax maths
+  async recalcPricing() {
     const baseInput = document.getElementById('base-rate-input');
-    if (!baseInput) return;
-    const rate = parseFloat(baseInput.value || 0);
-    const basic = rate * carpetArea;
-    const plc = parseFloat(baseInput.dataset.plc || 0);
-    const cgst = (basic + plc) * 0.005;
-    const sgst = (basic + plc) * 0.005;
-    const total = basic + plc;
-
-    document.getElementById('basic-cost-val').textContent = Utils.currency(basic);
-    document.getElementById('plc-val').textContent = Utils.currency(plc);
-    document.getElementById('gst-val').textContent = Utils.currency(cgst + sgst);
-    document.getElementById('total-cons-val').textContent = Utils.currency(total);
+    if (!baseInput || !baseInput.dataset.unit || !(parseFloat(baseInput.value) > 0)) return;   // no rate on file: nothing to quote
+    const seq = this._quoteSeq = (this._quoteSeq || 0) + 1;
+    try {
+      const { data: q } = await Api.post('/booking/quote', { unit_id: baseInput.dataset.unit, basic_price: parseFloat(baseInput.value || 0), plc_amount: parseFloat(baseInput.dataset.plc || 0) });
+      if (seq !== this._quoteSeq) return;   // an older answer arriving late must not overwrite a newer one
+      document.getElementById('basic-cost-val').textContent = Utils.currency(q.basic_inr);
+      document.getElementById('plc-val').textContent = Utils.currency(q.plc_inr);
+      document.getElementById('gst-val').textContent = Utils.currency(q.gst_inr);
+      document.getElementById('total-cons-val').textContent = Utils.currency(q.total_with_gst_inr);
+    } catch (err) { if (seq === this._quoteSeq) Utils.error(err.message); }
   },
 
   async saveBaseRate(consumerId) {

@@ -23,6 +23,9 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const price_quote_js_1 = require("../utils/price-quote.js");
+const agreement_snapshot_js_1 = require("../utils/agreement-snapshot.js");
+const report_ledger_js_1 = require("../utils/report-ledger.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
@@ -81,6 +84,8 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
+    if (req.method === 'POST' && req.path === '/quote')
+        return next(); // read-only: a price on screen, nothing saved
     if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path))
         return next(); // decided by the company_rebate checker permission, checked on the route
     const confirmStep = req.method === 'PATCH' && /^\/[^/]+$/.test(req.path);
@@ -287,6 +292,111 @@ router.get('/check-cheque', async (req, res, next) => {
 });
 // GET /api/booking/check-form-no?formNo=XXXX[&excludeId=UUID]
 // Returns whether a form number is available (not used by any active booking).
+// POST /booking/quote: what this booking will cost, worked out on the server with the rules the schedule uses. Saves nothing.
+router.post('/quote', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req);
+        const field = (f, m) => Object.assign((0, input_js_1.bad)(m, 422), { field: f });
+        const unitId = (0, input_js_1.uuid)(b.unit_id, 'unit_id');
+        const rate = (0, input_js_1.has)(b.basic_price) ? Number(b.basic_price) : 0;
+        if (!(rate > 0 && rate <= 1e6))
+            throw field('basic_price', 'Rate per sq ft must be more than 0 and not more than 10,00,000');
+        const unit = (await index_js_1.db.query(`SELECT u.project_id, u.carpet_area_sqft, u.balcony_area_sqft, p.name AS project_name FROM units u JOIN projects p ON p.id = u.project_id WHERE u.id = $1`, [unitId])).rows[0];
+        if (!unit)
+            throw (0, input_js_1.bad)('Selected unit does not exist', 404);
+        const carpet = Number(unit.carpet_area_sqft) || 0;
+        if (carpet <= 0)
+            throw field('unit_id', 'This unit has no carpet area, so it cannot be priced');
+        const plc = money(b.plc_amount, 'PLC amount', 1e9), other = money(b.other_charge_amount, 'Other charge amount', 1e9), disc = money(b.company_inaugural_disc, 'Discount');
+        const bookingDate = bookingDay(b.booking_date, 'booking_date') || (0, business_date_js_1.businessToday)();
+        let isNri = false;
+        const NRI = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'];
+        if ((0, input_js_1.has)(b.consumer_id))
+            isNri = NRI.includes((await index_js_1.db.query(`SELECT nationality FROM consumers WHERE id = $1`, [(0, input_js_1.uuid)(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
+        else if ((0, input_js_1.has)(b.nationality))
+            isNri = NRI.includes(String(b.nationality));
+        const q = await (0, price_quote_js_1.priceQuote)(index_js_1.db, { projectId: unit.project_id, projectName: unit.project_name, bookingDate, isNri, rate, carpetArea: carpet, balconyArea: Number(unit.balcony_area_sqft) || 0, plc, other, discount: disc });
+        if (disc > q.basic_inr)
+            throw field('company_inaugural_disc', 'The discount is more than the basic price');
+        if (q.agreement_value_inr <= 0)
+            throw field('basic_price', 'The agreement value must be more than 0');
+        res.json({ success: true, data: q });
+    }
+    catch (err) {
+        if (err?.http === 422 || err?.field)
+            return res.status(422).json({ error: err.message, field: err.field, message: err.message });
+        fail(err, res, next);
+    }
+});
+// GET /booking/reconciliation: rows that break the money rules, found with read-only queries. Nothing is changed; finance decides each row (blueprint section 9).
+router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) => {
+    try {
+        const q = async (sql) => (await index_js_1.db.query(sql)).rows;
+        const paidShort = [];
+        for (const p of await (0, report_ledger_js_1.loadLedger)())
+            for (const d of p.demands)
+                if (d.status === 'paid' && d.balance > 1)
+                    paidShort.push({ booking_id: p.booking_id, registration_no: p.registration_no, demand_id: d.id, installment: d.index, total: d.total, paid: d.paid, balance: d.balance });
+        const sets = {
+            demands_paid_with_balance_over_1: paidShort,
+            invoices_on_cancelled_or_smaller_receipt: await q(`SELECT gi.id, gi.invoice_no, gi.total_amount_inr::float8 AS invoice_total, r.status AS receipt_status, r.amount_received_inr::float8 AS receipt_amount
+        FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
+       WHERE gi.status <> 'cancelled' AND (r.status IN ('cancelled','bounced') OR gi.total_amount_inr > r.amount_received_inr)`),
+            live_bookings_with_no_rate_or_area: await q(`SELECT br.id, br.registration_no, br.status, br.basic_rate_inr_sqft::float8 AS rate, u.carpet_area_sqft::float8 AS carpet
+        FROM booking_records br JOIN units u ON u.id = br.unit_id
+       WHERE br.status IN ('pending_payment','active','complete') AND (COALESCE(br.basic_rate_inr_sqft,0) <= 0 OR COALESCE(u.carpet_area_sqft,0) <= 0)`),
+            consumers_with_several_live_bookings: await q(`SELECT consumer_id, COUNT(*)::int AS bookings, (SELECT COUNT(*)::int FROM demands d WHERE d.consumer_id = br.consumer_id) AS demands
+        FROM booking_records br WHERE br.status IN ('pending_payment','active','complete') GROUP BY consumer_id HAVING COUNT(*) > 1`),
+            commissions_paid_with_no_cleared_receipt: await q(`SELECT bc.id, bc.broker_id, bc.consumer_id, bc.commission_amount_inr::float8 AS commission, bc.tds_amount::float8 AS tds
+        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.consumer_id = bc.consumer_id AND r.status = 'cleared')`),
+        };
+        res.json({ success: true, counts: Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.length])), data: sets });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
+// GET /booking/agreement-shadow: for every live booking, the price the schedule bills against the price a snapshot would store. Read-only, finance only.
+router.get('/agreement-shadow', input_js_1.financeOnly, async (_req, res, next) => {
+    try {
+        const bs = (await index_js_1.db.query(`SELECT br.*, u.carpet_area_sqft AS u_carpet, u.balcony_area_sqft AS u_balcony, u.base_price_inr, pp.total_amount_inr AS plan_total,
+        ba.agreement_value_inr AS snap_value
+      FROM booking_records br JOIN units u ON u.id = br.unit_id
+      LEFT JOIN allocations a ON a.consumer_id = br.consumer_id AND a.unit_id = br.unit_id AND a.status NOT IN ('cancelled','transferred')
+      LEFT JOIN payment_plans pp ON pp.allocation_id = a.id
+      LEFT JOIN booking_agreement ba ON ba.booking_id = br.id AND ba.is_current
+      WHERE br.status IN ('pending_payment','active','complete') ORDER BY br.created_at`)).rows;
+        const rows = [];
+        for (const b of bs) {
+            let q = null, err = null;
+            try {
+                q = await (0, agreement_snapshot_js_1.quoteBookingRow)(index_js_1.db, b, { carpet_area_sqft: b.u_carpet, balcony_area_sqft: b.u_balcony });
+            }
+            catch (e) {
+                err = e.message;
+            }
+            const planTotal = b.plan_total === null ? null : Number(b.plan_total), newValue = q ? q.agreement_value_inr : null;
+            rows.push({ booking_id: b.id, registration_no: b.registration_no, status: b.status, booking_rate: Number(b.basic_rate_inr_sqft) || 0, plan_total_inr: planTotal, snapshot_value_inr: b.snap_value === null ? null : Number(b.snap_value), quote_value_inr: newValue,
+                difference_inr: planTotal !== null && newValue !== null ? newValue - planTotal : null, note: err || (q ? null : 'no rate on the booking: the schedule uses the unit master price') });
+        }
+        res.json({ success: true, data: rows, differing: rows.filter((r) => r.difference_inr !== null && r.difference_inr !== 0).length, total: rows.length });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
+// GET /booking/:id/agreement: the current agreed price of a booking (empty until the snapshot flag has been on when it was confirmed)
+router.get('/:id/agreement', async (req, res, next) => {
+    try {
+        const r = (await index_js_1.db.query(`SELECT * FROM booking_agreement WHERE booking_id = $1 AND is_current`, [req.params.id])).rows[0];
+        if (!r)
+            return res.status(404).json({ error: 'This booking has no agreement snapshot' });
+        res.json({ success: true, data: r });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
 router.get('/check-form-no', async (req, res, next) => {
     try {
         const { formNo, excludeId } = req.query;
@@ -951,6 +1061,9 @@ router.patch('/:id', async (req, res, next) => {
                         - parseFloat(booking.company_inaugural_disc || 0)
                         - parseFloat(booking.approved_rebate_amount || 0)
                         + balconyChargeAmount;
+                    // RC-1 (flag agreement_snapshot_v1, off by default): keep the agreed price of this booking as version 1
+                    if (await (0, agreement_snapshot_js_1.snapshotOn)(client))
+                        await (0, agreement_snapshot_js_1.writeSnapshot)(client, booking, unitRow.rows[0], req.userId || null);
                     await client.query(`SELECT id FROM consumers WHERE id = $1 FOR UPDATE`, [booking.consumer_id]);
                     if (await holds(client, booking.consumer_id, booking.unit_id))
                         throw conflict('This applicant already holds another unit. Surrender or transfer that unit first, or create a new applicant.');

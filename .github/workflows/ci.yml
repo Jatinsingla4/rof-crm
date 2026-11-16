@@ -115,6 +115,13 @@ jobs:
             exit 1
           fi
 
+      - name: No tax rate typed into a page script (RC-2)
+        run: |
+          if grep -rnE "(\|\| *'?0\.5'?)|(\* *0\.(005|18|09|025)\b)" packages/web/public/js/pages --include='*.js'; then
+            echo "::error title=Tax rate in a page script::Price and GST come from POST /booking/quote, never from a number typed in a page."
+            exit 1
+          fi
+
       - name: No hidden code in source files (malware loader seen 2026-11-16)
         # The loader sat after ~2000 spaces on the last line of six files, or as eval(atob(...)). No real source line holds 300 spaces then code.
         run: |

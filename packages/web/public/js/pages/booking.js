@@ -2499,18 +2499,9 @@ const BookingPage = {
     const refNo     = gval(refIdMap[paymentMode] || '') || qval('[name="payment_ref"]') || '—';
     const bankName  = qval('[name="bank_name"]') || '—';
 
-    // ── CGST / SGST (mode-specific suffix) ──────────────────────
-    const sfxMap = { cheque: '', draft: '-d', online: '-o', cash: '-c', card: '' };
-    const sfx    = sfxMap[paymentMode] || '';
-    const cgstPct = parseFloat(gval('bk-cgst-pct' + sfx) || '0.5') || 0.5;
-    const sgstPct = parseFloat(gval('bk-sgst-pct' + sfx) || '0.5') || 0.5;
-
     // ── Costs ────────────────────────────────────────────────────
     const basicPrice  = parseFloat(qval('[name="basic_price"]') || '0') || 0;
     const selectedUnitId     = document.querySelector('[name="unit_id"]')?.value;
-    const selectedUnit       = this._units?.find(u => u.id === selectedUnitId);
-    const balconyAreaSqft    = parseFloat(selectedUnit?.balcony_area_sqft || '0') || 0;
-    const basicCost          = basicPrice * carpetAreaNum;
 
     const hasPLC  = gchk('bk-has-plc-chk');
     const plcAmt  = hasPLC ? parseFloat(gval('bk-plc-amount') || '0') || 0 : 0;
@@ -2519,37 +2510,20 @@ const BookingPage = {
     const otherAmt  = hasOther ? parseFloat(gval('bk-other-charge-amount') || '0') || 0 : 0;
     const otherDesc = hasOther ? (gval('bk-other-charge-desc') || 'Other Charges') : '';
 
-    // Balcony Charge is GST-inclusive and computed server-side (same
-    // formula as booking.ts's write-point, via computeBalconyCharge()) --
-    // fetch the real figure instead of re-deriving it here, so this
-    // preview can never drift from what actually gets stored.
-    let balconyChargeAmount = 0, balconyCgstAmount = 0, balconySgstAmount = 0;
-    const projectIdForBalcony = qval('[name="project_id"]');
-    if (projectIdForBalcony && balconyAreaSqft > 0) {
-      try {
-        const balconyRes = await Api.get('/charge-master/balcony-preview', {
-          params: { projectId: projectIdForBalcony, balconyAreaSqft, bookingDate }
-        });
-        const bd = balconyRes.data || {};
-        balconyChargeAmount = parseFloat(bd.balconyChargeAmount || 0) || 0;
-        balconyCgstAmount   = parseFloat(bd.balconyCgstAmount || 0) || 0;
-        balconySgstAmount   = parseFloat(bd.balconySgstAmount || 0) || 0;
-      } catch (err) {
-        console.warn('Balcony charge preview fetch failed:', err.message);
-        // without this the preview total silently leaves out the balcony charge
-        Utils.error('The balcony charge could not be worked out, so this preview does not include it. ' + err.message);
-      }
-    }
-    const balconyInclusiveTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
-
-    // Balcony is kept out of subTotal/cgstAmt/sgstAmt below -- its GST is
-    // already baked into balconyInclusiveTotal, so folding it into the
-    // generic subtotal would tax it a second time.
-    const subTotal    = basicCost + plcAmt + otherAmt;
-    const cgstAmt     = subTotal * cgstPct / 100;
-    const sgstAmt     = subTotal * sgstPct / 100;
-    const inauguralDisc = parseFloat(qval('[name="company_inaugural_disc"]') || '0') || 0;   // taken off the consideration, as the booking stores it (GST stays on the full price, as the demands bill it)
-    const grandTotal  = subTotal - inauguralDisc + cgstAmt + sgstAmt + balconyInclusiveTotal;
+    // The price, the GST per charge head and the balcony charge all come from the server (POST /booking/quote): no tax maths in the browser.
+    const inauguralDisc = parseFloat(qval('[name="company_inaugural_disc"]') || '0') || 0;
+    let quote;
+    try {
+      const qr = await Api.post('/booking/quote', {
+        unit_id: selectedUnitId, basic_price: basicPrice, plc_amount: plcAmt, other_charge_amount: otherAmt,
+        company_inaugural_disc: inauguralDisc, booking_date: bookingDate || undefined, nationality: qval('[name="nationality"]') || undefined,
+      });
+      quote = qr.data;
+    } catch (err) { Utils.error('The price could not be worked out. ' + err.message); return; }
+    const balLine = quote.tax_lines.find(l => l.charge_head === 'BALCONY');
+    const basicCost = quote.basic_inr, balconyInclusiveTotal = quote.balcony_inr + (balLine ? balLine.cgst + balLine.sgst : 0);
+    const subTotal = quote.basic_inr + quote.plc_inr + quote.other_charge_inr;
+    const grandTotal = quote.total_with_gst_inr;
     // the server refuses a discount above the basic price when the booking is saved; say so here instead of offering Save on a negative total
     if (basicCost > 0 && inauguralDisc > basicCost) {
       Utils.error('The inaugural discount (' + inauguralDisc.toLocaleString('en-IN') + ') is more than the basic price (' + basicCost.toLocaleString('en-IN') + '). Reduce the discount to continue.');
@@ -2631,8 +2605,7 @@ const BookingPage = {
           ${hasPLC         ? row('PLC (Preferential Location)', fmt(plcAmt)) : ''}
           ${hasOther       ? row(otherDesc || 'Other Charges', fmt(otherAmt)) : ''}
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f1f5f9;font-size:13px;color:#94a3b8"><span>Sub Total</span><span>${fmt(subTotal)}</span></div>
-          ${row('CGST (' + cgstPct + '%)', fmt(cgstAmt))}
-          ${row('SGST (' + sgstPct + '%)', fmt(sgstAmt))}
+          ${quote.tax_lines.filter(l => l.charge_head !== 'BALCONY').map(l => row(l.charge_head + ' CGST (' + l.cgst_pct + '%)', fmt(l.cgst)) + row(l.charge_head + ' SGST (' + l.sgst_pct + '%)', fmt(l.sgst))).join('')}
           ${balconyInclusiveTotal > 0 ? row('Balcony Charges (GST included)', fmt(balconyInclusiveTotal)) : ''}
           ${inauguralDisc > 0 ? row('Inaugural Discount', '− ' + fmt(inauguralDisc)) : ''}
           <div style="display:flex;justify-content:space-between;padding:10px 0 4px;font-size:15px;font-weight:700;color:#1a3a5c;border-top:2px solid #1a3a5c;margin-top:4px">
