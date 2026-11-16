@@ -6,8 +6,8 @@ import { loadAllocations, loadEligible, paidByDemand, DEMAND_COLS } from './mone
 const r2 = (x: number) => Math.round((x + Number.EPSILON) * 100) / 100;
 const num = (v: any) => (v == null || v === '' ? 0 : Number(v));
 
-export async function allocationShadow(db: any) {
-  const plans = (await db.query(`SELECT DISTINCT payment_plan_id FROM receipts WHERE payment_plan_id IS NOT NULL AND status = 'cleared' AND is_advance IS NOT TRUE`)).rows;
+export async function allocationShadow(db: any, projectId: string | null = null) {
+  const plans = (await db.query(`SELECT DISTINCT r.payment_plan_id FROM receipts r JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE AND ($1::uuid IS NULL OR pp.project_id = $1::uuid)`, [projectId])).rows;
   const mismatches: any[] = [];
   let demandsChecked = 0, rowsPlanned = 0, receiptsOverAllocated = 0;
   for (const { payment_plan_id: planId } of plans) {
