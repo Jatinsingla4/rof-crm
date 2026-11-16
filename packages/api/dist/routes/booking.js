@@ -24,6 +24,7 @@ const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
 const price_quote_js_1 = require("../utils/price-quote.js");
+const agreement_snapshot_js_1 = require("../utils/agreement-snapshot.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const addon_charges_js_1 = require("./addon-charges.js");
@@ -323,6 +324,47 @@ router.post('/quote', async (req, res, next) => {
     catch (err) {
         if (err?.http === 422 || err?.field)
             return res.status(422).json({ error: err.message, field: err.field, message: err.message });
+        fail(err, res, next);
+    }
+});
+// GET /booking/agreement-shadow: for every live booking, the price the schedule bills against the price a snapshot would store. Read-only, finance only.
+router.get('/agreement-shadow', input_js_1.financeOnly, async (_req, res, next) => {
+    try {
+        const bs = (await index_js_1.db.query(`SELECT br.*, u.carpet_area_sqft AS u_carpet, u.balcony_area_sqft AS u_balcony, u.base_price_inr, pp.total_amount_inr AS plan_total,
+        ba.agreement_value_inr AS snap_value
+      FROM booking_records br JOIN units u ON u.id = br.unit_id
+      LEFT JOIN allocations a ON a.consumer_id = br.consumer_id AND a.unit_id = br.unit_id AND a.status NOT IN ('cancelled','transferred')
+      LEFT JOIN payment_plans pp ON pp.allocation_id = a.id
+      LEFT JOIN booking_agreement ba ON ba.booking_id = br.id AND ba.is_current
+      WHERE br.status IN ('pending_payment','active','complete') ORDER BY br.created_at`)).rows;
+        const rows = [];
+        for (const b of bs) {
+            let q = null, err = null;
+            try {
+                q = await (0, agreement_snapshot_js_1.quoteBookingRow)(index_js_1.db, b, { carpet_area_sqft: b.u_carpet, balcony_area_sqft: b.u_balcony });
+            }
+            catch (e) {
+                err = e.message;
+            }
+            const planTotal = b.plan_total === null ? null : Number(b.plan_total), newValue = q ? q.agreement_value_inr : null;
+            rows.push({ booking_id: b.id, registration_no: b.registration_no, status: b.status, booking_rate: Number(b.basic_rate_inr_sqft) || 0, plan_total_inr: planTotal, snapshot_value_inr: b.snap_value === null ? null : Number(b.snap_value), quote_value_inr: newValue,
+                difference_inr: planTotal !== null && newValue !== null ? newValue - planTotal : null, note: err || (q ? null : 'no rate on the booking: the schedule uses the unit master price') });
+        }
+        res.json({ success: true, data: rows, differing: rows.filter((r) => r.difference_inr !== null && r.difference_inr !== 0).length, total: rows.length });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
+// GET /booking/:id/agreement: the current agreed price of a booking (empty until the snapshot flag has been on when it was confirmed)
+router.get('/:id/agreement', async (req, res, next) => {
+    try {
+        const r = (await index_js_1.db.query(`SELECT * FROM booking_agreement WHERE booking_id = $1 AND is_current`, [req.params.id])).rows[0];
+        if (!r)
+            return res.status(404).json({ error: 'This booking has no agreement snapshot' });
+        res.json({ success: true, data: r });
+    }
+    catch (err) {
         fail(err, res, next);
     }
 });
@@ -990,6 +1032,9 @@ router.patch('/:id', async (req, res, next) => {
                         - parseFloat(booking.company_inaugural_disc || 0)
                         - parseFloat(booking.approved_rebate_amount || 0)
                         + balconyChargeAmount;
+                    // RC-1 (flag agreement_snapshot_v1, off by default): keep the agreed price of this booking as version 1
+                    if (await (0, agreement_snapshot_js_1.snapshotOn)(client))
+                        await (0, agreement_snapshot_js_1.writeSnapshot)(client, booking, unitRow.rows[0], req.userId || null);
                     await client.query(`SELECT id FROM consumers WHERE id = $1 FOR UPDATE`, [booking.consumer_id]);
                     if (await holds(client, booking.consumer_id, booking.unit_id))
                         throw conflict('This applicant already holds another unit. Surrender or transfer that unit first, or create a new applicant.');

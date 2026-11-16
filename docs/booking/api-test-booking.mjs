@@ -450,6 +450,23 @@ let done1;
   t('interest preview: 200 with the formula, the rate and a number', r.s === 200 && /365/.test(r.j?.data?.formula || '') && typeof r.j.data.interest_inr === 'number' && typeof r.j.data.penal_rate_percent === 'number', r.s + JSON.stringify(r.j));
   t('interest preview: unknown demand -> 404', (await A('GET', `/payments/interest/preview/${NIL}`)).s === 404);
   t('interest preview: bad id -> 400', (await A('GET', '/payments/interest/preview/abc')).s === 400);
+  // agreement snapshot (flag agreement_snapshot_v1): off = nothing stored, on = version 1 stored once, immutable
+  t('snapshot: flag off by default and a booking confirmed with it off has no snapshot', psql(`select value from global_settings where key='agreement_snapshot_v1'`) === 'off' && (await A('GET', `/booking/${bk.j.data.id}/agreement`)).s === 404);
+  psql(`update global_settings set value='on' where key='agreement_snapshot_v1'`);
+  try {
+    const c2 = await person(P4), u5 = await unit(P4, T4, 100, 5000000);
+    const bk2 = await A('POST', '/booking', { consumer_id: c2, project_id: P4, unit_id: u5, selected_plan_name: plan4, booking_date: today, basic_price: 500, carpet_area_sqft: 100, has_plc: true, plc_amount: 40000 });
+    r = await finish(bk2.j.data.id, { booking_amount: 10000 }); t('snapshot: booking confirmed with the flag on', r.s === 200, r.s + JSON.stringify(r.j));
+    r = await A('GET', `/booking/${bk2.j.data.id}/agreement`); const ag = r.j?.data || {};
+    t('snapshot: version 1 is current: rate 500, basic 50,000, PLC 40,000, agreement 90,000, GST lines kept', r.s === 200 && ag.version === 1 && ag.is_current && Number(ag.rate_inr_sqft) === 500 && Number(ag.basic_inr) === 50000 && Number(ag.agreement_value_inr) === 90000 && ag.tax_lines.length === 2, r.s + JSON.stringify(r.j));
+    t('snapshot: total_price_inr on the booking is filled from it', psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`) === '90000.00' || psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`) === '90000', psql(`select total_price_inr from booking_records where id='${bk2.j.data.id}'`));
+    t('snapshot: it equals what the schedule billed', Number(psql(`select coalesce(sum(amount_due_inr),0) from demands where consumer_id='${c2}'`)) === Number(ag.agreement_value_inr));
+    let blocked = 0; for (const sql of [`update booking_agreement set basic_inr = 1 where booking_id='${bk2.j.data.id}'`, `delete from booking_agreement where booking_id='${bk2.j.data.id}'`]) { try { psql(sql); } catch { blocked++; } }
+    t('snapshot: rows cannot be changed or deleted', blocked === 2);
+    r = await A('GET', '/booking/agreement-shadow'); const sh = (r.j?.data || []).find((x) => x.booking_id === bk2.j.data.id);
+    t('shadow report: lists the booking; quote, schedule and snapshot all say 90,000 (difference 0)', r.s === 200 && sh && sh.quote_value_inr === 90000 && sh.plan_total_inr === 90000 && sh.snapshot_value_inr === 90000 && sh.difference_inr === 0, r.s + JSON.stringify(sh));
+    t('shadow report: only finance may read it', (await RO('GET', '/booking/agreement-shadow')).s === 403 || (await RO('GET', '/booking/agreement-shadow')).s === 401);
+  } finally { psql(`update global_settings set value='off' where key='agreement_snapshot_v1'`); }
 }
 
 // ---------- clean up ----------
@@ -460,6 +477,7 @@ if (madeSlab) for (const sql of [`delete from gst_tax_charge_mapping where slab_
     `delete from booking_documents where consumer_id in (${ids})`, `delete from receipts where consumer_id in (${ids})`, `delete from demands where consumer_id in (${ids})`,
     `delete from financial_audit_logs where consumer_id in (${ids})`, `delete from payment_plans where consumer_id in (${ids})`, `delete from allocations where consumer_id in (${ids})`,
     `delete from broker_commissions where consumer_id in (${ids})`, `delete from booking_payment_taxes where booking_record_id in (select id from booking_records where consumer_id in (${ids}))`,
+    `alter table booking_agreement disable trigger booking_agreement_immutable`, `delete from booking_agreement where booking_id in (select id from booking_records where consumer_id in (${ids}))`, `alter table booking_agreement enable trigger booking_agreement_immutable`,
     `delete from booking_records where consumer_id in (${ids})`, `delete from co_applicants where consumer_id in (${ids})`, `delete from consumers where id in (${ids})`,
     `delete from brokers where name like '% ${U}' or name like 'Brk ${U}'`,
   ]) { try { psql(sql); } catch (e) { /* leftovers are harmless, names carry the run id */ } }
