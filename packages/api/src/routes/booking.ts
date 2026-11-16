@@ -24,6 +24,7 @@ import { resolveGstForComponents, resolveRate, splitGstAcrossInstalments } from 
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { priceQuote } from '../utils/price-quote.js';
 import { snapshotOn, writeSnapshot, quoteBookingRow } from '../utils/agreement-snapshot.js';
+import { loadLedger } from '../utils/report-ledger.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
 import { computeReceiptGstSplit } from '../utils/gst-receipt-split.js';
 import { recomputeAddonDemands } from './addon-charges.js';
@@ -298,6 +299,29 @@ router.post('/quote', async (req: AuthRequest, res: Response, next: NextFunction
     if (err?.http === 422 || err?.field) return res.status(422).json({ error: err.message, field: err.field, message: err.message });
     fail(err, res, next);
   }
+});
+
+// GET /booking/reconciliation: rows that break the money rules, found with read-only queries. Nothing is changed; finance decides each row (blueprint section 9).
+router.get('/reconciliation', financeOnly, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const q = async (sql: string) => (await db.query(sql)).rows;
+    const paidShort: any[] = [];
+    for (const p of await loadLedger()) for (const d of p.demands) if (d.status === 'paid' && d.balance > 1) paidShort.push({ booking_id: p.booking_id, registration_no: p.registration_no, demand_id: d.id, installment: d.index, total: d.total, paid: d.paid, balance: d.balance });
+    const sets: Record<string, any[]> = {
+      demands_paid_with_balance_over_1: paidShort,
+      invoices_on_cancelled_or_smaller_receipt: await q(`SELECT gi.id, gi.invoice_no, gi.total_amount_inr::float8 AS invoice_total, r.status AS receipt_status, r.amount_received_inr::float8 AS receipt_amount
+        FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
+       WHERE gi.status <> 'cancelled' AND (r.status IN ('cancelled','bounced') OR gi.total_amount_inr > r.amount_received_inr)`),
+      live_bookings_with_no_rate_or_area: await q(`SELECT br.id, br.registration_no, br.status, br.basic_rate_inr_sqft::float8 AS rate, u.carpet_area_sqft::float8 AS carpet
+        FROM booking_records br JOIN units u ON u.id = br.unit_id
+       WHERE br.status IN ('pending_payment','active','complete') AND (COALESCE(br.basic_rate_inr_sqft,0) <= 0 OR COALESCE(u.carpet_area_sqft,0) <= 0)`),
+      consumers_with_several_live_bookings: await q(`SELECT consumer_id, COUNT(*)::int AS bookings, (SELECT COUNT(*)::int FROM demands d WHERE d.consumer_id = br.consumer_id) AS demands
+        FROM booking_records br WHERE br.status IN ('pending_payment','active','complete') GROUP BY consumer_id HAVING COUNT(*) > 1`),
+      commissions_paid_with_no_cleared_receipt: await q(`SELECT bc.id, bc.broker_id, bc.consumer_id, bc.commission_amount_inr::float8 AS commission, bc.tds_amount::float8 AS tds
+        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.consumer_id = bc.consumer_id AND r.status = 'cleared')`),
+    };
+    res.json({ success: true, counts: Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.length])), data: sets });
+  } catch (err) { fail(err, res, next); }
 });
 
 // GET /booking/agreement-shadow: for every live booking, the price the schedule bills against the price a snapshot would store. Read-only, finance only.

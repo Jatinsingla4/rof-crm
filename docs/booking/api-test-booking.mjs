@@ -465,6 +465,9 @@ let done1;
     t('snapshot: rows cannot be changed or deleted', blocked === 2);
     r = await A('GET', '/booking/agreement-shadow'); const sh = (r.j?.data || []).find((x) => x.booking_id === bk2.j.data.id);
     t('shadow report: lists the booking; quote, schedule and snapshot all say 90,000 (difference 0)', r.s === 200 && sh && sh.quote_value_inr === 90000 && sh.plan_total_inr === 90000 && sh.snapshot_value_inr === 90000 && sh.difference_inr === 0, r.s + JSON.stringify(sh));
+    r = await A('GET', '/booking/reconciliation');
+    t('reconciliation: five read-only checks, each with a count; nothing here has a paid demand with a balance', r.s === 200 && Object.keys(r.j.counts).length === 5 && Object.values(r.j.counts).every((n) => Number.isInteger(n)) && r.j.data.demands_paid_with_balance_over_1.filter((x) => x.registration_no).every((x) => x.balance > 1), r.s + JSON.stringify(r.j?.counts));
+    t('reconciliation: only finance may read it', (await RO('GET', '/booking/reconciliation')).s >= 401);
     t('shadow report: only finance may read it', (await RO('GET', '/booking/agreement-shadow')).s === 403 || (await RO('GET', '/booking/agreement-shadow')).s === 401);
   } finally { psql(`update global_settings set value='off' where key='agreement_snapshot_v1'`); }
 }
