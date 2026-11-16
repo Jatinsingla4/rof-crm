@@ -450,6 +450,23 @@ let done1;
   t('interest preview: 200 with the formula, the rate and a number', r.s === 200 && /365/.test(r.j?.data?.formula || '') && typeof r.j.data.interest_inr === 'number' && typeof r.j.data.penal_rate_percent === 'number', r.s + JSON.stringify(r.j));
   t('interest preview: unknown demand -> 404', (await A('GET', `/payments/interest/preview/${NIL}`)).s === 404);
   t('interest preview: bad id -> 400', (await A('GET', '/payments/interest/preview/abc')).s === 400);
+  // the payment screen's GST comes from the server and equals what the confirm step saved (never worked out in the browser)
+  const bkId = bk.j.data.id;
+  const saved = psql(`select cgst_amount || '|' || sgst_amount from booking_payment_taxes where booking_record_id='${bkId}'`).split('|').map(Number);
+  r = await A('POST', `/booking/${bkId}/payment-quote`, { amount: 10000 });
+  t('payment-quote: the GST on 10,000 equals what the confirm step saved', r.s === 200 && r.j.data.cgst_inr === saved[0] && r.j.data.sgst_inr === saved[1] && r.j.data.exempt === false, r.s + JSON.stringify([r.j, saved]));
+  r2 = await A('POST', `/booking/${bkId}/payment-quote`, { amount: 10000, interest_amount: 5000, cgst_pct: 9, sgst_pct: 9 });
+  t('payment-quote: interest and typed rates change nothing (GST is on the amount, at the server rate)', r2.s === 200 && r2.j.data.cgst_inr === r.j.data.cgst_inr && r2.j.data.cgst_pct === 0.5, r2.s + JSON.stringify(r2.j));
+  r = await A('POST', `/booking/${bkId}/payment-quote`, { amount: 10100 });
+  t('payment-quote: 10,100 -> taxable 10,000, CGST 50, SGST 50 (same as receipts quote)', r.s === 200 && r.j.data.taxable_inr === 10000 && r.j.data.cgst_inr === 50 && r.j.data.sgst_inr === 50, r.s + JSON.stringify(r.j));
+  const nat = psql(`select coalesce(nationality,'') from consumers where id='${c}'`);
+  psql(`update consumers set nationality='NRI' where id='${c}'`);
+  r = await A('POST', `/booking/${bkId}/payment-quote`, { amount: 10100 });
+  t('payment-quote: NRI buyer -> no GST', r.s === 200 && r.j.data.cgst_inr === 0 && r.j.data.sgst_inr === 0 && r.j.data.taxable_inr === 10100 && r.j.data.exempt === true, r.s + JSON.stringify(r.j));
+  psql(`update consumers set nationality=${nat ? `'${nat}'` : 'null'} where id='${c}'`);
+  for (const [n, body] of [['no amount', {}], ['negative', { amount: -5 }], ['text', { amount: 'abc' }]]) { r = await A('POST', `/booking/${bkId}/payment-quote`, body); t(`payment-quote: ${n} is refused (4xx)`, r.s >= 400 && r.s < 500, r.s + JSON.stringify(r.j)); }
+  t('payment-quote: unknown booking -> 404, bad id -> 400', (await A('POST', `/booking/${NIL}/payment-quote`, { amount: 100 })).s === 404 && (await A('POST', '/booking/abc/payment-quote', { amount: 100 })).s === 400);
+  t('payment-quote: nothing is saved (taxes row unchanged)', psql(`select cgst_amount || '|' || sgst_amount from booking_payment_taxes where booking_record_id='${bkId}'`).split('|').map(Number).join('|') === saved.join('|'), '');
   // agreement snapshot (flag agreement_snapshot_v1): off = nothing stored, on = version 1 stored once, immutable
   t('snapshot: flag off by default and a booking confirmed with it off has no snapshot', psql(`select value from global_settings where key='agreement_snapshot_v1'`) === 'off' && (await A('GET', `/booking/${bk.j.data.id}/agreement`)).s === 404);
   psql(`update global_settings set value='on' where key='agreement_snapshot_v1'`);

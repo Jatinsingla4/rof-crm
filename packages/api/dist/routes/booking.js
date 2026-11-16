@@ -84,7 +84,7 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
-    if (req.method === 'POST' && req.path === '/quote')
+    if (req.method === 'POST' && (req.path === '/quote' || /^\/[^/]+\/payment-quote$/.test(req.path)))
         return next(); // read-only: a price on screen, nothing saved
     if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path))
         return next(); // decided by the company_rebate checker permission, checked on the route
@@ -325,6 +325,27 @@ router.post('/quote', async (req, res, next) => {
     catch (err) {
         if (err?.http === 422 || err?.field)
             return res.status(422).json({ error: err.message, field: err.field, message: err.message });
+        fail(err, res, next);
+    }
+});
+// POST /booking/:id/payment-quote {amount, booking_date?}: the GST inside the payment amount, worked out the way the confirm step saves it
+// (server rate for the project and date, nil for NRI/OCI/PIO, on the amount only, never on interest). Saves nothing. The payment screen shows this, not browser arithmetic.
+router.post('/:id/payment-quote', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req);
+        const amount = money(b.amount, 'Amount');
+        if (!(amount > 0))
+            throw (0, input_js_1.bad)('Amount must be more than 0', 422);
+        const br = (await index_js_1.db.query(`SELECT br.project_id, br.booking_date, p.name AS project_name, c.nationality FROM booking_records br JOIN projects p ON p.id = br.project_id JOIN consumers c ON c.id = br.consumer_id WHERE br.id = $1`, [req.params.id])).rows[0];
+        if (!br)
+            throw (0, input_js_1.bad)('Booking not found', 404);
+        const date = bookingDay(b.booking_date, 'booking_date') || (br.booking_date ? new Date(br.booking_date).toISOString().split('T')[0] : (0, business_date_js_1.businessToday)());
+        const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(br.nationality);
+        const rate = isNri ? { cgstPct: 0, sgstPct: 0 } : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, br.project_id, br.project_name, 'BASIC', date);
+        const s = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(amount, rate.cgstPct * 100, rate.sgstPct * 100);
+        res.json({ success: true, data: { amount_inr: amount, taxable_inr: s.baseAmount, cgst_inr: s.cgstAmount, sgst_inr: s.sgstAmount, cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, exempt: isNri } });
+    }
+    catch (err) {
         fail(err, res, next);
     }
 });

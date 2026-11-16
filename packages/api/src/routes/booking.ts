@@ -77,7 +77,7 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 // Sales (consumers) rights are needed to write; confirming the payment step is also open to Accounts (payments edit)
 router.use((req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method === 'GET' || req.method === 'HEAD') return next();
-  if (req.method === 'POST' && req.path === '/quote') return next();   // read-only: a price on screen, nothing saved
+  if (req.method === 'POST' && (req.path === '/quote' || /^\/[^/]+\/payment-quote$/.test(req.path))) return next();   // read-only: a price on screen, nothing saved
   if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path)) return next();   // decided by the company_rebate checker permission, checked on the route
   const confirmStep = req.method === 'PATCH' && /^\/[^/]+$/.test(req.path);
   const need = req.method === 'POST' && req.path === '/' ? 'create' : 'edit';
@@ -299,6 +299,23 @@ router.post('/quote', async (req: AuthRequest, res: Response, next: NextFunction
     if (err?.http === 422 || err?.field) return res.status(422).json({ error: err.message, field: err.field, message: err.message });
     fail(err, res, next);
   }
+});
+
+// POST /booking/:id/payment-quote {amount, booking_date?}: the GST inside the payment amount, worked out the way the confirm step saves it
+// (server rate for the project and date, nil for NRI/OCI/PIO, on the amount only, never on interest). Saves nothing. The payment screen shows this, not browser arithmetic.
+router.post('/:id/payment-quote', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const b = body(req);
+    const amount = money(b.amount, 'Amount');
+    if (!(amount > 0)) throw bad('Amount must be more than 0', 422);
+    const br = (await db.query(`SELECT br.project_id, br.booking_date, p.name AS project_name, c.nationality FROM booking_records br JOIN projects p ON p.id = br.project_id JOIN consumers c ON c.id = br.consumer_id WHERE br.id = $1`, [req.params.id])).rows[0];
+    if (!br) throw bad('Booking not found', 404);
+    const date = bookingDay(b.booking_date, 'booking_date') || (br.booking_date ? new Date(br.booking_date).toISOString().split('T')[0] : businessToday());
+    const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(br.nationality);
+    const rate = isNri ? { cgstPct: 0, sgstPct: 0 } : await resolveRate(db, br.project_id, br.project_name, 'BASIC', date);
+    const s = computeInclusiveGstSplit(amount, rate.cgstPct * 100, rate.sgstPct * 100);
+    res.json({ success: true, data: { amount_inr: amount, taxable_inr: s.baseAmount, cgst_inr: s.cgstAmount, sgst_inr: s.sgstAmount, cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, exempt: isNri } });
+  } catch (err) { fail(err, res, next); }
 });
 
 // GET /booking/reconciliation: rows that break the money rules, found with read-only queries. Nothing is changed; finance decides each row (blueprint section 9).
