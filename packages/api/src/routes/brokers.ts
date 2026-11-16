@@ -5,7 +5,7 @@
  *  - a broker is registered as 'pending'; another person with checker access approves or rejects it (super_admin may do both)
  *  - commission is made by the booking (base price x rate, or a flat amount); here it can only be paid, once
  *  - paying works out GST and TDS from the broker's tax setup (default TDS 5%, GST 18%): net paid = commission + GST - TDS, to the paisa
- *  - a commission is paid only for a booking that has received its booking amount, and never to a suspended broker
+ *  - a commission is paid only for a booking that has received its booking amount (cleared, once commission_requires_cleared_v1 is on), and never to a suspended broker
  */
 import { Router, Response, NextFunction } from 'express';
 import { db } from '../index.js';
@@ -15,6 +15,7 @@ import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qte
 import { mobileNo, emailAddr, panNo, gstinNo } from '../utils/applicant.js';
 import { closeHold } from '../utils/holds.js';
 import { notOwn } from './financial-ops.js';
+import { eligibleSum } from '../utils/money-basis.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { sqlDay } from '../utils/business-date.js';
@@ -168,8 +169,15 @@ router.patch('/commission/:id', requireProcess('broker_payment_entry', 'maker'),
       if (!(amount > 0)) throw bad('There is no commission amount to pay', 400);
       const brk = (await c.query(`SELECT status, pan FROM brokers WHERE id = $1`, [cm.broker_id])).rows[0];
       if (!brk || !['active', 'inactive'].includes(brk.status)) throw bad(`The broker is ${brk?.status || 'missing'}, so commission cannot be paid`, 409);
-      const bk = (await c.query(`SELECT status FROM booking_records WHERE id = $1`, [cm.booking_id])).rows[0];
+      const bk = (await c.query(`SELECT status, consumer_id, booking_amount FROM booking_records WHERE id = $1`, [cm.booking_id])).rows[0];
       if (!bk || !['active', 'complete'].includes(bk.status)) throw bad('The booking has not received its booking amount (or is cancelled), so commission cannot be paid yet', 409);
+      // Flag commission_requires_cleared_v1 (off until finance turns it on): the booking amount must have CLEARED (BR-03), not only been written down.
+      // With the flag off a payout needs only the booking to be active/complete, as before; the reconciliation lists paid commissions with no cleared receipt.
+      if ((await c.query(`SELECT value FROM global_settings WHERE key = 'commission_requires_cleared_v1'`)).rows[0]?.value === 'on') {
+        const cleared = Number((await c.query(`SELECT ${eligibleSum('r')} AS n FROM receipts r WHERE r.consumer_id = $1`, [bk.consumer_id])).rows[0].n);
+        const need = Math.max(Number(bk.booking_amount || 0), 0.01);
+        if (cleared + 0.005 < need) throw bad(`No cleared money behind this booking yet (cleared ${r2(cleared)}, booking amount ${r2(need)}). A commission is paid on cleared money, so it cannot be paid yet`, 409);
+      }
       const cfg = (await c.query(`SELECT tds_rate_pct, gst_rate_pct, is_gst_exempt FROM broker_tax_config WHERE broker_id = $1`, [cm.broker_id])).rows[0];
       if (!cfg) throw bad('The tax setup (TDS and GST rate) of this broker is not done. Save it in Broker Setup first, then pay the commission.', 409);
       const own = Number(cfg.tds_rate_pct), tdsRate = brk.pan ? own : Math.max(own, NO_PAN_TDS), gstRate = cfg.is_gst_exempt ? 0 : Number(cfg.gst_rate_pct);

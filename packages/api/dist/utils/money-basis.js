@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.demandTotal = exports.eligibleSum = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
+exports.DEMAND_COLS = exports.demandTotal = exports.eligibleSum = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
 exports.deriveDemandStatus = deriveDemandStatus;
 exports.allocateEligible = allocateEligible;
 exports.loadEligible = loadEligible;
@@ -71,11 +71,11 @@ function paidByDemand(receipts, allocations, demands) {
             out.set(String(d.id), Math.min((0, exports.demandTotal)(d), (cleared.get(String(d.id)) || 0) + (allocations.get(String(d.id)) || 0)));
     return out;
 }
-const DEMAND_COLS = `id, consumer_id, installment_index, status, delivery_status, due_date::text AS due_date, (raised_at IS NOT NULL) AS raised,
+exports.DEMAND_COLS = `id, consumer_id, installment_index, status, delivery_status, due_date::text AS due_date, (raised_at IS NOT NULL) AS raised,
             amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount`;
 // Eligible money, what it paid on demands, what was allocated, and the credit left (>= 0 when the books are consistent)
 async function creditSummary(client, planId, further) {
-    const ds = (await client.query(`SELECT ${DEMAND_COLS} FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled'`, [planId])).rows;
+    const ds = (await client.query(`SELECT ${exports.DEMAND_COLS} FROM demands WHERE payment_plan_id = $1 AND status <> 'cancelled'`, [planId])).rows;
     const rs = await loadEligible(client, planId, further);
     const al = await loadAllocations(client, planId);
     const cleared = allocateEligible(rs, ds);
@@ -89,7 +89,7 @@ async function creditSummary(client, planId, further) {
 async function recomputePlan(client, planId, userId = null) {
     if (!planId)
         return 0;
-    const ds = (await client.query(`SELECT ${DEMAND_COLS} FROM demands WHERE payment_plan_id = $1 ORDER BY installment_index, created_at FOR UPDATE`, [planId])).rows;
+    const ds = (await client.query(`SELECT ${exports.DEMAND_COLS} FROM demands WHERE payment_plan_id = $1 ORDER BY installment_index, created_at FOR UPDATE`, [planId])).rows;
     if (!ds.length)
         return 0;
     const paid = paidByDemand(await loadEligible(client, planId), await loadAllocations(client, planId), ds);

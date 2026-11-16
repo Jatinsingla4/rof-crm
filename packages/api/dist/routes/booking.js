@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const applicant_fields_js_1 = require("../utils/applicant-fields.js");
 const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
+const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const price_quote_js_1 = require("../utils/price-quote.js");
 const agreement_snapshot_js_1 = require("../utils/agreement-snapshot.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
@@ -84,7 +85,7 @@ const AMOUNT_ROOM = 1.2; // GST, balcony and add-ons ride on top of the basic pr
 router.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD')
         return next();
-    if (req.method === 'POST' && req.path === '/quote')
+    if (req.method === 'POST' && (req.path === '/quote' || /^\/[^/]+\/payment-quote$/.test(req.path)))
         return next(); // read-only: a price on screen, nothing saved
     if (req.method === 'POST' && /^\/[^/]+\/rebate\/(approve|reject)$/.test(req.path))
         return next(); // decided by the company_rebate checker permission, checked on the route
@@ -328,6 +329,27 @@ router.post('/quote', async (req, res, next) => {
         fail(err, res, next);
     }
 });
+// POST /booking/:id/payment-quote {amount, booking_date?}: the GST inside the payment amount, worked out the way the confirm step saves it
+// (server rate for the project and date, nil for NRI/OCI/PIO, on the amount only, never on interest). Saves nothing. The payment screen shows this, not browser arithmetic.
+router.post('/:id/payment-quote', async (req, res, next) => {
+    try {
+        const b = (0, input_js_1.body)(req);
+        const amount = money(b.amount, 'Amount');
+        if (!(amount > 0))
+            throw (0, input_js_1.bad)('Amount must be more than 0', 422);
+        const br = (await index_js_1.db.query(`SELECT br.project_id, br.booking_date, p.name AS project_name, c.nationality FROM booking_records br JOIN projects p ON p.id = br.project_id JOIN consumers c ON c.id = br.consumer_id WHERE br.id = $1`, [req.params.id])).rows[0];
+        if (!br)
+            throw (0, input_js_1.bad)('Booking not found', 404);
+        const date = bookingDay(b.booking_date, 'booking_date') || (br.booking_date ? new Date(br.booking_date).toISOString().split('T')[0] : (0, business_date_js_1.businessToday)());
+        const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(br.nationality);
+        const rate = isNri ? { cgstPct: 0, sgstPct: 0 } : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, br.project_id, br.project_name, 'BASIC', date);
+        const s = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(amount, rate.cgstPct * 100, rate.sgstPct * 100);
+        res.json({ success: true, data: { amount_inr: amount, taxable_inr: s.baseAmount, cgst_inr: s.cgstAmount, sgst_inr: s.sgstAmount, cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, exempt: isNri } });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
 // GET /booking/reconciliation: rows that break the money rules, found with read-only queries. Nothing is changed; finance decides each row (blueprint section 9).
 router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) => {
     try {
@@ -339,9 +361,7 @@ router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) =>
                     paidShort.push({ booking_id: p.booking_id, registration_no: p.registration_no, demand_id: d.id, installment: d.index, total: d.total, paid: d.paid, balance: d.balance });
         const sets = {
             demands_paid_with_balance_over_1: paidShort,
-            invoices_on_cancelled_or_smaller_receipt: await q(`SELECT gi.id, gi.invoice_no, gi.total_amount_inr::float8 AS invoice_total, r.status AS receipt_status, r.amount_received_inr::float8 AS receipt_amount
-        FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
-       WHERE gi.status <> 'cancelled' AND (r.status IN ('cancelled','bounced') OR gi.total_amount_inr > r.amount_received_inr)`),
+            invoices_charging_more_than_the_receipt_behind_them: (await (0, invoice_exposure_js_1.invoicesOverReceipt)(index_js_1.db)).map((x) => ({ id: x.id, invoice_no: x.invoice_no, invoice_total: x.invoice_total, still_charged: x.still_charged, receipt_status: x.receipt_status, receipt_net: x.receipt_net })),
             live_bookings_with_no_rate_or_area: await q(`SELECT br.id, br.registration_no, br.status, br.basic_rate_inr_sqft::float8 AS rate, u.carpet_area_sqft::float8 AS carpet
         FROM booking_records br JOIN units u ON u.id = br.unit_id
        WHERE br.status IN ('pending_payment','active','complete') AND (COALESCE(br.basic_rate_inr_sqft,0) <= 0 OR COALESCE(u.carpet_area_sqft,0) <= 0)`),
@@ -690,7 +710,7 @@ router.get('/', async (req, res, next) => {
         }
         const offset = (page - 1) * pageSize;
         params.push(pageSize, offset);
-        const result = await index_js_1.db.query(`
+        const listSql = `
       SELECT br.*, c.name as consumer_name, c.mobile, p.name as project_name, u.unit_number
       FROM booking_records br
       JOIN consumers c ON c.id = br.consumer_id
@@ -699,8 +719,9 @@ router.get('/', async (req, res, next) => {
       ${where}
       ORDER BY br.created_at DESC
       LIMIT $${params.length - 1} OFFSET $${params.length}
-    `, params);
-        res.json({ success: true, data: result.rows });
+    `;
+        const result = await index_js_1.db.query(listSql, params);
+        res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
     }
     catch (err) {
         fail(err, res, next);

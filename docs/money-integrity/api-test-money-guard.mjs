@@ -20,8 +20,12 @@ const ALLOWED = {
   2
  ],
  "routes/booking.ts": [
-  9,
-  11
+  8,
+  9
+ ],
+ "routes/brokers.ts": [
+  1,
+  0
  ],
  "routes/consumers.ts": [
   5,
@@ -119,6 +123,18 @@ const ALLOWED = {
   1,
   7
  ],
+ "utils/invoice-exposure.ts": [
+  1,
+  2
+ ],
+ "routes/reports-ageing.ts": [
+  1,
+  0
+ ],
+ "scripts/historical-backfill.ts": [
+  1,
+  0
+ ],
  "utils/payment-waterfall.ts": [
   4,
   11
@@ -129,6 +145,10 @@ const ALLOWED = {
  ],
  "utils/receipt-allocation.ts": [
   2,
+  1
+ ],
+ "utils/receipt-allocation-shadow.ts": [
+  1,
   1
  ],
  "utils/receipt-number.ts": [

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.realRera = exports.isPlaceholderRera = exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.BIDI = exports.failWith = exports.bad = void 0;
+exports.countOf = exports.realRera = exports.isPlaceholderRera = exports.escHtml = exports.likeOf = exports.pos = exports.financeOnly = exports.lock = exports.oneOf = exports.qtext = exports.paging = exports.inTx = exports.r2 = exports.body = exports.flag = exports.day = exports.text = exports.num = exports.has = exports.uuid = exports.BIDI = exports.failWith = exports.bad = void 0;
 const index_js_1 = require("../index.js");
 const bad = (message, http = 400) => Object.assign(new Error(message), { http });
 exports.bad = bad;
@@ -133,4 +133,12 @@ const isPlaceholderRera = (v) => typeof v === 'string' && /(^|[-\s/])(X{3,}|NONE
 exports.isPlaceholderRera = isPlaceholderRera;
 const realRera = (v, fallback = 'N/A') => ((0, exports.has)(v) && !(0, exports.isPlaceholderRera)(v) ? String(v) : fallback);
 exports.realRera = realRera;
+// The number of rows a paged list query matches, whatever page was asked for. The query must end with LIMIT $a OFFSET $b, the last two parameters (the paged lists all do).
+const countOf = async (q, sql, params) => {
+    const m = /\s+LIMIT\s+\$\d+\s+OFFSET\s+\$\d+\s*$/i.exec(sql);
+    if (!m)
+        throw new Error('countOf: the query must end with LIMIT $n OFFSET $m');
+    return Number((await q.query(`SELECT COUNT(*)::int AS n FROM (${sql.slice(0, m.index)}) _c`, params.slice(0, -2))).rows[0].n);
+};
+exports.countOf = countOf;
 //# sourceMappingURL=input.js.map

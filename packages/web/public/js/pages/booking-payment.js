@@ -513,7 +513,9 @@ const BkPayPage = {
   _syncAmountFromCard(v)    { /* no-op; card has own field */ },
   _syncAmount_noop() {},
 
-  calculatePaymentTaxes() {
+  // The GST on the payment comes from the server (POST /booking/:id/payment-quote), the same figures the confirm step saves; nothing is worked out here.
+  // It is worked out on the amount only (interest carries its own GST and is not part of it), and is nil for NRI/OCI/PIO.
+  async calculatePaymentTaxes() {
     const tab = document.getElementById('bkp-payment-mode')?.value || 'cheque';
     const amtEl = tab === 'cheque' ? document.getElementById('bkp-amt-cheque')
                 : tab === 'draft'  ? document.getElementById('bkp-amt-draft')
@@ -521,44 +523,25 @@ const BkPayPage = {
                 : tab === 'cash'   ? document.getElementById('bkp-amt-cash')
                 : tab === 'card'   ? document.getElementById('bkp-amt-card')
                 : null;
-    const intEl = document.getElementById('bkp-interest-amt');
-    const amt   = parseFloat(amtEl?.value || 0);
-    const intr  = parseFloat(intEl?.value || 0);
-    const base  = amt + intr;
-    const sfxMap = { cheque:'', draft:'-d', online:'-o', cash:'-c', card:'' };
-    const sfx   = sfxMap[tab] || '';
-    // Cheque's bkp-cgst-pct/bkp-sgst-pct boxes are repurposed to display the
-    // computed amount (see updateTaxLabels()), so their live .value is no longer
-    // the rate -- read the rate from the persistent data-rate stash instead.
-    const cgstPct = sfx === ''
-      ? parseFloat(document.getElementById('bkp-cgst-pct')?.dataset.rate || 0)
-      : parseFloat(document.getElementById('bkp-cgst-pct' + sfx)?.value || 0);
-    const sgstPct = sfx === ''
-      ? parseFloat(document.getElementById('bkp-sgst-pct')?.dataset.rate || 0)
-      : parseFloat(document.getElementById('bkp-sgst-pct' + sfx)?.value || 0);
-    // GST-inclusive backward derivation (mirrors server-side
-    // computeInclusiveGstSplit() in gst-backward-derive.ts) -- base+cgst+sgst
-    // sums exactly to `base` (the gross figure), not base*(1+rate). This is a
-    // display-only mirror; the backend independently recomputes the
-    // authoritative amount at PATCH /:id and does not trust this value.
-    const grossPaise = Math.round(base * 100);
-    const combinedRate = cgstPct + sgstPct;
-    let cgstAmt = 0, sgstAmt = 0;
-    if (combinedRate > 0) {
-      const basePaise = Math.floor(grossPaise / (1 + combinedRate / 100));
-      const totalTaxPaise = grossPaise - basePaise;
-      let cgstPaise;
-      if (cgstPct === sgstPct) {
-        cgstPaise = Math.floor(totalTaxPaise / 2);
-      } else {
-        cgstPaise = Math.round(totalTaxPaise * (cgstPct / combinedRate));
-      }
-      const sgstPaise = totalTaxPaise - cgstPaise;
-      cgstAmt = cgstPaise / 100;
-      sgstAmt = sgstPaise / 100;
+    const amt = parseFloat(amtEl?.value || 0);
+    const seq = this._quoteSeq = (this._quoteSeq || 0) + 1;
+    let q = { cgst_inr: 0, sgst_inr: 0, cgst_pct: 0, sgst_pct: 0 };
+    if (amt > 0 && this._bookingId) {
+      try {
+        const r = await Api.post(`/booking/${this._bookingId}/payment-quote`, { amount: amt, booking_date: document.getElementById('bkp-receipt-date')?.value || undefined });
+        q = r.data ?? r;
+      } catch { return; }   // keep the figures on screen; the server works them out again on save
     }
-    const cgstH = document.getElementById('bkp-cgst-amount'); if (cgstH) cgstH.value = cgstAmt.toFixed(2);
-    const sgstH = document.getElementById('bkp-sgst-amount'); if (sgstH) sgstH.value = sgstAmt.toFixed(2);
+    if (seq !== this._quoteSeq) return;   // a newer amount was typed while this answer was on its way
+    const set = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
+    set('bkp-cgst-pct', el => { el.dataset.rate = q.cgst_pct; });
+    set('bkp-sgst-pct', el => { el.dataset.rate = q.sgst_pct; });
+    ['d', 'o', 'c'].forEach(x => {   // the rate boxes only show the server rate; the server ignores anything typed in them
+      set(`bkp-cgst-pct-${x}`, el => { el.value = q.cgst_pct; el.readOnly = true; });
+      set(`bkp-sgst-pct-${x}`, el => { el.value = q.sgst_pct; el.readOnly = true; });
+    });
+    set('bkp-cgst-amount', el => { el.value = Number(q.cgst_inr).toFixed(2); });
+    set('bkp-sgst-amount', el => { el.value = Number(q.sgst_inr).toFixed(2); });
     this.updateTaxLabels();
   },
 

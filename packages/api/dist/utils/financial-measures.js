@@ -1,0 +1,53 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.MEASURE_DEFINITIONS = void 0;
+exports.financialMeasures = financialMeasures;
+// The money measures every report and dashboard is built from, each with one name and one meaning, worked out from the same ledger (report-ledger.ts).
+// They are different numbers on purpose and are never added or relabelled into one "outstanding":
+//   contract_balance   everything still to be paid on the contract (all instalments, billed or not, less money collected)
+//   billed_outstanding what was billed (raised) and is not yet paid by the money applied to it
+//   due_outstanding    billed_outstanding that is due on or before the day
+//   overdue            billed, due before the day and still unpaid
+const report_ledger_js_1 = require("./report-ledger.js");
+exports.MEASURE_DEFINITIONS = {
+    agreement_value_excl_gst: 'Price of the unit(s): basic + PLC + other charges, before GST',
+    agreement_value_incl_gst: 'Every instalment of the payment plan with its GST (billed or not)',
+    total_demanded_excl_gst: 'Raised instalments, before GST',
+    total_demanded_incl_gst: 'Raised instalments with GST',
+    valid_collections: 'Cleared, non-advance receipts less approved bank returns. Pending, deposited, bounced and cancelled money is not in it',
+    uncleared_receipts: 'Receipts recorded but not cleared yet (not collected)',
+    applied_to_billed: 'Part of the valid collections that has paid raised instalments',
+    unallocated_credit: 'Valid collections not applied to a raised instalment. It stays credit until a checker allocates it',
+    billed_outstanding: 'Raised instalments with GST less the money applied to them',
+    due_outstanding: 'billed_outstanding on instalments due on or before the day (what the dashboard calls outstanding)',
+    overdue: 'Raised instalments due before the day and still unpaid',
+    contract_balance: 'agreement_value_incl_gst less valid_collections (not the same as outstanding)',
+    demanded_cgst: 'CGST on raised instalments', demanded_sgst: 'SGST on raised instalments',
+    received_cgst: 'CGST stored on the cleared receipts, before approved bank returns', received_sgst: 'SGST stored on the cleared receipts, before approved bank returns',
+};
+function financialMeasures(plans, asOn) {
+    const day = asOn || plans[0]?.today || null;
+    const t = plans.map((p) => (0, report_ledger_js_1.customerTotals)(p));
+    const td = plans.map((p) => (0, report_ledger_js_1.customerTotals)(p, day));
+    const agreementIncl = (0, report_ledger_js_1.sum)(plans, (p) => (0, report_ledger_js_1.sum)(p.demands, (d) => d.total));
+    const collections = (0, report_ledger_js_1.sum)(plans, (p) => p.received);
+    const m = {
+        plans: plans.length,
+        agreement_value_excl_gst: (0, report_ledger_js_1.sum)(plans, (p) => p.unit_cost),
+        agreement_value_incl_gst: agreementIncl,
+        total_demanded_excl_gst: (0, report_ledger_js_1.sum)(t, (x) => x.base),
+        total_demanded_incl_gst: (0, report_ledger_js_1.sum)(t, (x) => x.demanded),
+        valid_collections: collections,
+        uncleared_receipts: (0, report_ledger_js_1.sum)(plans, (p) => p.received_pending),
+        applied_to_billed: (0, report_ledger_js_1.sum)(t, (x) => x.paid),
+        unallocated_credit: (0, report_ledger_js_1.sum)(t, (x) => x.credit),
+        billed_outstanding: (0, report_ledger_js_1.sum)(t, (x) => x.outstanding),
+        due_outstanding: (0, report_ledger_js_1.sum)(td, (x) => x.outstanding),
+        overdue: (0, report_ledger_js_1.sum)(plans, (p) => (0, report_ledger_js_1.sum)((0, report_ledger_js_1.overdueOf)(p, day), (o) => o.d.balance)),
+        contract_balance: (0, report_ledger_js_1.r2)(agreementIncl - collections),
+        demanded_cgst: (0, report_ledger_js_1.sum)(t, (x) => x.cgst), demanded_sgst: (0, report_ledger_js_1.sum)(t, (x) => x.sgst),
+        received_cgst: (0, report_ledger_js_1.sum)(plans, (p) => p.received_cgst), received_sgst: (0, report_ledger_js_1.sum)(plans, (p) => p.received_sgst),
+    };
+    return m;
+}
+//# sourceMappingURL=financial-measures.js.map

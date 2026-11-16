@@ -22,6 +22,8 @@ const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const gst_receipt_split_js_1 = require("../utils/gst-receipt-split.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const penal_rate_js_1 = require("../utils/penal-rate.js");
+const receipt_allocation_shadow_js_1 = require("../utils/receipt-allocation-shadow.js");
+const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
@@ -421,6 +423,16 @@ router.post('/receipts/quote', async (req, res, next) => {
         fail(error, res, next);
     }
 });
+// GET /api/payments/receipt-allocation-shadow: what the receipt allocation would settle on every plan, against what the status rules say each demand has paid.
+// Read-only, finance only, safe while the flag is off. Every mismatch is a demand finance must look at before the allocation is switched on.
+router.get('/receipt-allocation-shadow', input_js_1.financeOnly, async (_req, res, next) => {
+    try {
+        res.json({ success: true, ...(await (0, receipt_allocation_shadow_js_1.allocationShadow)(index_js_1.db)) });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
 // GET /api/payments/interest/preview/:demandId[?asOf=YYYY-MM-DD]: the late-payment interest on one demand, row by row, with the formula. Read-only.
 router.get('/interest/preview/:demandId', async (req, res, next) => {
     try {
@@ -575,8 +587,9 @@ router.patch('/receipts/:id/bounce', (0, processPermission_js_1.requireProcess)(
         await client.query(`INSERT INTO cheque_bounce_logs (receipt_id, consumer_id, bounce_date, penalty_amount_inr, reason)
        VALUES ($1, $2, ${business_date_js_1.SQL_TODAY}, $3, $4)`, [id, consumer_id, penaltyAmount, reason || 'Cheque Bounced']);
         await (0, auditLogger_js_1.auditChange)(client, req, res, 'update', 'receipt', id, { status: receiptRes.rows[0].status }, { status: 'bounced', penalty_amount_inr: penaltyAmount, reason });
+        const toReverse = (await (0, invoice_exposure_js_1.invoicesOverReceipt)(client, id)).map((x) => x.invoice_no);
         await client.query('COMMIT');
-        res.json({ success: true, message: 'Receipt marked as bounced.' });
+        res.json({ success: true, message: toReverse.length ? `Receipt marked as bounced. GST invoice ${toReverse.join(', ')} was made for it and now has to be cancelled or credited by a checker.` : 'Receipt marked as bounced.', invoiceToReverse: toReverse });
     }
     catch (error) {
         await client.query('ROLLBACK').catch(() => { });
@@ -615,6 +628,12 @@ router.post('/receipts/:id/cancel', async (req, res, next) => {
         if (receipt.status === 'cleared') {
             await client.query('ROLLBACK');
             return res.status(409).json({ error: 'A cleared receipt cannot be cancelled. A bank return after clearing is recorded through the receipt return workflow.' });
+        }
+        // A receipt that has a live GST invoice is not cancelled from under it: the invoice is cancelled first by a checker (which issues its credit note), then the receipt
+        const liveInvoice = (await client.query(`SELECT invoice_no FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled' LIMIT 1`, [id])).rows[0];
+        if (liveInvoice) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({ error: `GST invoice ${liveInvoice.invoice_no} was made for this receipt. Cancel the invoice first (GST Invoicing, Cancel), then cancel the receipt.` });
         }
         // Owner decision (D-RECEIPTCTRL): the creator may withdraw a receipt that is still pending (audited); a pending receipt is otherwise rejected, and an authorised one
         // cancelled, only by a different user who holds the receipt checker right, with a reason. Neither is open to any user with payment access.

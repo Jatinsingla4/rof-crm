@@ -317,7 +317,7 @@ const listUnits = async (req, res, next, lookup = false) => {
         innerParams.push(pageSize, (page - 1) * pageSize);
         const query = `SELECT * FROM (${innerQuery}) sub ORDER BY sub.tower_name, sub.floor, sub.unit_number LIMIT $${innerParams.length - 1} OFFSET $${innerParams.length}`;
         const result = await index_js_1.db.query(query, innerParams);
-        res.json({ success: true, data: idOnly ? result.rows.map((r) => Object.fromEntries(LOOKUP_IDENTIFIERS.map((k) => [k, r[k]]))) : result.rows });
+        res.json({ success: true, data: idOnly ? result.rows.map((r) => Object.fromEntries(LOOKUP_IDENTIFIERS.map((k) => [k, r[k]]))) : result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, query, innerParams) } });
     }
     catch (error) {
         fail(error, res, next);

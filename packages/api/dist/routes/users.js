@@ -9,6 +9,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Bad = void 0;
 exports.updateUser = updateUser;
+const input_js_1 = require("../utils/input.js");
 const express_1 = require("express");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const index_js_1 = require("../index.js");
@@ -343,10 +344,11 @@ router.get('/', guard(async (req, res) => {
         where.push(`assigned_project_ids @> $${params.length}::jsonb`);
     }
     params.push(pageSize, (page - 1) * pageSize);
-    const result = await index_js_1.db.query(`SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
+    const listSql = `SELECT id, name, email, mobile, role, assigned_project_ids, is_active, last_login_at, created_at
      FROM users ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-    res.json({ success: true, data: result.rows });
+     ORDER BY created_at DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    const result = await index_js_1.db.query(listSql, params);
+    res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
 }));
 // GET /api/users/audit-logs - who did what
 router.get('/audit-logs', guard(async (req, res) => {
@@ -373,11 +375,12 @@ router.get('/audit-logs', guard(async (req, res) => {
         add(op === '>=' ? `a."timestamp" >= ?::date` : `a."timestamp" < (?::date + 1)`, v);
     }
     params.push(pageSize, (page - 1) * pageSize);
-    const result = await index_js_1.db.query(`SELECT a.id, a.user_id, u.name AS user_name, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
+    const listSql = `SELECT a.id, a.user_id, u.name AS user_name, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
      FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-     ORDER BY a."timestamp" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`, params);
-    res.json({ success: true, data: result.rows });
+     ORDER BY a."timestamp" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;
+    const result = await index_js_1.db.query(listSql, params);
+    res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
 }));
 // GET /api/users/activity - actions per user in the last N days
 router.get('/activity', guard(async (req, res) => {

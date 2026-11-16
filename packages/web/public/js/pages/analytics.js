@@ -143,7 +143,7 @@ const AnalyticsPage = {
         <div class="kpi c-blue"><div class="kpi-lbl">Applications</div><div class="kpi-val">${Number(sales.application_filed || 0)}</div><div class="kpi-sub">Filed, in the chosen dates</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">Allotted</div><div class="kpi-val">${Number(sales.allotted || 0)}</div><div class="kpi-sub">Leads at allotted stage</div></div>
         <div class="kpi c-teal"><div class="kpi-lbl">Collection</div><div class="kpi-val">${Utils.currency(fin.total_collected || 0)}</div><div class="kpi-sub">Total cleared receipts</div></div>
-        <div class="kpi c-warn"><div class="kpi-lbl">Outstanding</div><div class="kpi-val">${Utils.currency(fin.outstanding || 0)}</div><div class="kpi-sub">Pending collection, as of today</div></div>
+        <div class="kpi c-warn"><div class="kpi-lbl">Contract balance</div><div class="kpi-val">${Utils.currency(fin.contract_balance ?? fin.outstanding ?? 0)}</div><div class="kpi-sub">Still to pay on all instalments. Billed and unpaid: ${Utils.currency(fin.billed_outstanding || 0)}, overdue: ${Utils.currency(fin.overdue_amount || 0)}</div></div>
         <div class="kpi c-red"><div class="kpi-lbl">Conversion Rate</div><div class="kpi-val">${Number(sales.conversion_rate || 0)}%</div><div class="kpi-sub">Lead to allotment, in the chosen dates</div></div>
       `;
       const stage = document.getElementById('an-stage-chart');

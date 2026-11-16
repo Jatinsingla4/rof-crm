@@ -7,6 +7,7 @@ import { Router } from 'express';
 import { db } from '../db/pool.js';
 import { bad } from '../utils/input.js';
 import { h, Q, flt, totalsOf } from './reports-dues.js';
+import { financialMeasures, MEASURE_DEFINITIONS } from '../utils/financial-measures.js';
 import { loadLedger, LedgerPlan, LedgerDemand, dueOf, overdueOf, sum, r2, pct, BUCKETS_A, BUCKETS_B, bucketOf, MON, monthLabel } from '../utils/report-ledger.js';
 
 const router = Router();
@@ -205,8 +206,20 @@ router.get('/collection-pivot', h(async (req, res) => {
 // ---- dashboards (money part) ----
 const dashboardMoney = (plans: LedgerPlan[]) => {
   const receivables = sum(plans, (p) => sum(p.demands, (d) => d.total)), collected = sum(plans, (p) => p.received);
-  return { total_receivables: receivables, total_collected: collected, outstanding: r2(receivables - collected) };
+  const fm = financialMeasures(plans);
+  // `outstanding` has always been receivables less collected (the contract balance); the named measures say which "outstanding" is which
+  return { total_receivables: receivables, total_collected: collected, outstanding: r2(receivables - collected),
+    contract_balance: fm.contract_balance, billed_outstanding: fm.billed_outstanding, overdue_amount: fm.overdue, unallocated_credit: fm.unallocated_credit };
 };
+
+// GET /reports/financial-measures[?projectId=&asOn=]: every money measure with one name and one meaning (see utils/financial-measures.ts)
+router.get('/financial-measures', h(async (req, res) => {
+  const x = Q(req);
+  const plans = await loadLedger({ projectId: x.projectId || undefined });
+  const returned = Number((await db.query(`SELECT COALESCE(SUM(rr.amount), 0)::float8 AS n FROM receipt_returns rr JOIN receipts r ON r.id = rr.receipt_id
+      LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE rr.status = 'approved' AND ($1::uuid IS NULL OR pp.project_id = $1::uuid)`, [x.projectId || null])).rows[0].n);
+  res.json({ success: true, data: { as_on: x.asOn || plans[0]?.today || null, ...financialMeasures(plans, x.asOn || null), approved_bank_returns: r2(returned) }, definitions: MEASURE_DEFINITIONS });
+}));
 
 router.get('/financial-dashboard', h(async (req, res) => {
   const plans = await loadLedger({ projectId: Q(req).projectId || undefined });
