@@ -108,6 +108,8 @@ const brk = (id) => psql(`select status from booking_records where id='${id}'`);
   await bad400('basic rate 10 lakh a sq ft x 10', { basic_price: 1e7 });
   await bad400('carpet area "x"', { carpet_area_sqft: 'x' });
   await bad400('carpet area 0', { carpet_area_sqft: 0 });
+  await bad400('basic rate 0 (billing must not fall back to the unit master price)', { basic_price: 0 });
+  { const x = await book(c, u, { basic_price: 0 }); t('start: basic rate 0 says why', /Rate per sq ft must be more than 0/.test(x.j?.error || ''), JSON.stringify(x.j).slice(0, 110)); }
   await bad400('basic rate with 5 decimals', { basic_price: 7857.14286 });
   await bad400('booking_type "weird"', { booking_type: 'weird' });
   await bad400('commission type "x"', { broker_commission_type: 'x' });

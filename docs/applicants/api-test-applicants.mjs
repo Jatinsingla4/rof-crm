@@ -237,7 +237,7 @@ t('link: the same token does not open another applicant\'s page -> 401', await r
 t('link: nor another kind of page -> 401', await rawGet(`/consumers/${ua}/remarks?token=${lt}`) === 401);
 r = await fetch(B + `/consumers?pageSize=1`, { headers: { authorization: 'Bearer ' + lt } }); t('link: a link token is not accepted as a login (header) -> 401', r.status === 401, r.status);
 const claims = JSON.parse(Buffer.from(lt.split('.')[1], 'base64url').toString());
-t('link: it lives about 2 minutes', claims.exp - claims.iat === 120, claims.exp - claims.iat);
+t('link: it lives 60 seconds', claims.exp - claims.iat === 60, claims.exp - claims.iat);
 t('link: expired link token -> 401', await rawGet(`${filePath}?token=${forge({ ...claims, exp: Math.floor(Date.now() / 1000) - 5 })}`) === 401);
 t('link: link token signed with another secret -> 401', await rawGet(`${filePath}?token=${forge(claims, 'wrong')}`) === 401);
 t('link: link token with the page changed after signing -> 401', await rawGet(`/consumers/${ub}/applicant-file?token=${lt.split('.').slice(0, 2).join('.')}.${lt.split('.')[2]}`) === 401);

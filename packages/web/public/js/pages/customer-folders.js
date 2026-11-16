@@ -115,7 +115,7 @@ const CustomerFoldersPage = {
             <div class="cfn-top">
               <div class="cfn-av">${(name.trim().charAt(0) || '?').toUpperCase()}</div>
               <div class="cfn-id">
-                <div class="cfn-name"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" title="View Applicant File">${name}</a></div>
+                <div class="cfn-name"><a href="/api/consumers/${c.id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" title="View Applicant File">${name}</a></div>
                 <div class="cfn-mob">${c.mobile||'—'}</div>
               </div>
               ${Utils.chip(stage)}

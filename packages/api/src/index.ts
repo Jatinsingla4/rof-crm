@@ -106,6 +106,7 @@ const authLimiter = rateLimit({
   message: { error: 'Too many login attempts, please try again after 15 minutes' },
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // only failed attempts (status 400 and up) use the budget, so an office signing in at 9 am is not locked out by its own successes
 });
 
 const apiLimiter = rateLimit({
@@ -120,6 +121,10 @@ const apiLimiter = rateLimit({
 // BODY PARSING
 // ============================================
 
+// A login body is a few dozen bytes. This route gets a small limit, registered BEFORE the global 10 MB parsers (body-parser skips a request whose
+// body was already read, so nothing is parsed twice). An oversized body ends in the error handler below as 413. Other routes keep the 10 MB limit.
+const LOGIN_BODY_LIMIT = '4kb';
+app.use('/api/auth/login', express.json({ limit: LOGIN_BODY_LIMIT }), express.urlencoded({ extended: true, limit: LOGIN_BODY_LIMIT }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -390,14 +395,14 @@ const loginThrottle = makeThrottle('login', 5, 24 * 60 * 60 * 1000, 15 * 60 * 10
 // Tokens must never be cached by browsers or proxies
 app.use('/api/auth', (req: Request, res: Response, next: NextFunction) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
-// Opening a letter, receipt or applicant file in a new tab needs a link: valid 2 minutes, for that one page only
+// Opening a letter, receipt or applicant file in a new tab needs a link: valid 60 seconds, for that one page only
 app.post('/api/auth/link-token', authenticateToken, (req: AuthRequest, res: Response) => {
   const path = (req.body || {}).path;
   if (typeof path !== 'string' || !/^\/api\/[A-Za-z0-9/_.\-]+$/.test(path) || path.includes('..')) return res.status(400).json({ error: 'path is not valid' });
   // The address is read by logs, history and bookmarks, so the link token carries only who (userId) and which session version (tv), never the email, name, role or permissions;
   // the server loads those from the database on every request.
   const { userId, tv } = jwt.decode(req.headers['authorization']!.split(' ')[1]) as any;
-  res.json({ token: jwt.sign({ userId, tv, purpose: 'link', p: path }, JWT_SECRET!, { algorithm: 'HS256', expiresIn: '2m' }) });
+  res.json({ token: jwt.sign({ userId, tv, purpose: 'link', p: path }, JWT_SECRET!, { algorithm: 'HS256', expiresIn: '60s' }) });
 });
 
 app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => {
@@ -413,9 +418,11 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     return res.status(401).json({ error: 'Invalid email or password' });
   }
 
-  // Per account and per IP lockout on top of the per IP limiter
+  // Per account and per IP lockout on top of the per IP limiter. The attempt is COUNTED here, before the slow password check, for every e-mail
+  // alike (real, unknown, inactive), so parallel attempts cannot all slip past a check that only later sees the failures and the answers do not
+  // show which accounts exist. Every path below ends it: confirmFailure (wrong), clear (right and allowed), release (server error).
   const failKey = `${req.ip}|${email.toLowerCase().trim()}`;
-  if ((await loginThrottle.blockedFor(failKey)) > 0) {
+  if ((await loginThrottle.reserve(failKey)) > 0) {
     return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
   }
 
@@ -430,6 +437,7 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     // Always return same error to prevent email enumeration
     if (!user || user.is_active === false) {
       await bcrypt.compare(password, DUMMY_HASH);
+      await loginThrottle.confirmFailure(failKey);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -453,15 +461,17 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     }
 
     if (!validPassword) {
-      await loginThrottle.fail(failKey);
+      await loginThrottle.confirmFailure(failKey);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    await loginThrottle.clear(failKey);
+    // The address rule comes BEFORE the count is cleared: a right password from a blocked address stays a counted failure
     if (ipBlocked(await loadAuthUser(user.id), req)) {
       auditBlocked(user.id, req, 'login');
+      await loginThrottle.confirmFailure(failKey);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    await loginThrottle.clear(failKey);
     db.query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]).catch(() => {});
     logAudit(db, user.id, 'login', 'auth', user.id, {}, { ip: clientIp(req) }).catch(() => {});
     const token = jwt.sign(
@@ -477,6 +487,7 @@ app.post('/api/auth/login', authLimiter, async (req: Request, res: Response) => 
     });
   } catch (err) {
     console.error('Login error:', err);
+    await loginThrottle.release(failKey);   // a server error says nothing about the password: the reserved attempt is given back
     return res.status(500).json({ error: 'Internal server error' });
   }
 });

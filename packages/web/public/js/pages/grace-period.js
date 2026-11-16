@@ -143,7 +143,7 @@
       return `<tr class="${firstCls}" data-consumer-id="${c.consumer_id}">
         <td style="text-align:center;">${i + 1}</td>
         <td>${c.registration_no || '&mdash;'}</td>
-        <td style="font-weight:500;"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.name || ''}</a></td>
+        <td style="font-weight:500;"><a href="/api/consumers/${c.consumer_id}/applicant-file?token=1" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:500;cursor:pointer" title="View Applicant File">${c.name || ''}</a></td>
         <td>${c.unit_address || '&mdash;'}</td>
         <td>${c.payment_plan || '&mdash;'}</td>
         <td style="text-align:center;">

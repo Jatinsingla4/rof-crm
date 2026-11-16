@@ -195,7 +195,7 @@ const InterestWaiver = (() => {
       return `<tr class="${i === 0 ? 'iwn-first' : ''}">
         <td class="c">${i + 1}</td>
         <td>${r.registration_no || ''}</td>
-        <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.name || ''}</a></td>
+        <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" title="View Applicant File">${r.name || ''}</a></td>
         <td>${r.unit_address || ''}</td>
         <td>${r.type || ''}</td>
         <td class="r">${fmt(r.total_interest_inr)}</td>
@@ -571,7 +571,7 @@ const InterestWaiver = (() => {
         return `<tr class="${i === 0 ? 'iwn-first' : ''}">
           <td class="c">${i+1}</td>
           <td>${r.registration_no || ''}</td>
-          <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" title="View Applicant File">${r.consumer_name || ''}</a></td>
+          <td><a class="iwn-link" href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" title="View Applicant File">${r.consumer_name || ''}</a></td>
           <td>${r.unit_address || ''}</td>
           <td class="r">${fmt(r.total_interest_inr)}</td>
           <td class="r">${fmt(r.total_waived_inr)}</td>

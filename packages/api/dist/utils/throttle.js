@@ -28,6 +28,10 @@ async function refreshThrottleBackend(force = false) {
     }
     return backend;
 }
+// The process-local map holds at most this many keys that are not locked. Past it the oldest unlocked keys go first; a key whose lock is
+// still running is never evicted, so flooding the form with made-up e-mail addresses cannot release anyone's lock (the old code cleared the whole map).
+// Active locks are few: a lock needs maxFails failures and every address is held to the sign-in rate limit.
+const MAX_LOCAL_KEYS = 5000;
 function makeThrottle(name, maxFails, windowMs, lockMs) {
     const local = new Map();
     const k = (key) => `${name}:${key}`;
@@ -43,6 +47,21 @@ function makeThrottle(name, maxFails, windowMs, lockMs) {
             local.delete(key);
         return 0;
     };
+    // Stores a key as the newest entry (Map keeps insertion order) and trims the map; locked keys are skipped, never evicted
+    const touch = (key, f) => {
+        local.delete(key);
+        local.set(key, f);
+        if (local.size <= MAX_LOCAL_KEYS)
+            return;
+        const now = Date.now();
+        for (const [other, v] of local) {
+            if (local.size <= MAX_LOCAL_KEYS)
+                break;
+            if (v.until > now)
+                continue;
+            local.delete(other);
+        }
+    };
     const localFail = (key) => {
         const now = Date.now();
         const f = local.get(key);
@@ -50,9 +69,31 @@ function makeThrottle(name, maxFails, windowMs, lockMs) {
         cur.count += 1;
         if (cur.count >= maxFails)
             cur.until = now + lockMs;
-        local.set(key, cur);
-        if (local.size > 5000)
-            local.clear();
+        touch(key, cur);
+    };
+    // Reserve / confirm / release (used by the sign-in): the attempt is counted BEFORE the slow password check, so a burst of parallel
+    // attempts cannot all pass a check that only later sees the failures. These run without an await, so each is atomic in this process.
+    const localReserve = (key) => {
+        const now = Date.now();
+        const f = local.get(key);
+        if (f && f.until > now)
+            return f.until - now;
+        const cur = f && !f.until && now - f.first <= windowMs ? f : { count: 0, first: now, until: 0 };
+        if (cur.count >= maxFails)
+            return 1000; // maxFails attempts are already counted and still unresolved: no more until one resolves
+        cur.count += 1;
+        touch(key, cur);
+        return 0;
+    };
+    const localConfirm = (key) => {
+        const f = local.get(key);
+        if (f && !f.until && f.count >= maxFails)
+            f.until = Date.now() + lockMs;
+    };
+    const localRelease = (key) => {
+        const f = local.get(key);
+        if (f && !f.until && f.count > 0 && --f.count === 0)
+            local.delete(key);
     };
     return {
         // Milliseconds this key must still wait (0 = free to try)
@@ -92,6 +133,44 @@ function makeThrottle(name, maxFails, windowMs, lockMs) {
                 }
             }
             localFail(key);
+        },
+        // Counts one attempt before it is checked. Returns the milliseconds to wait (0 = the attempt may go on). At most maxFails attempts are
+        // counted-and-unresolved per key; a lock that is running refuses everything. Pair it with confirmFailure (wrong), clear (right) or release (error).
+        async reserve(key) {
+            if ((await refreshThrottleBackend()) === 'shared') {
+                try {
+                    const r = await pool_js_1.db.query(`INSERT INTO auth_throttle (key, count, first_at, locked_until) VALUES ($1, 1, now(), NULL)
+             ON CONFLICT (key) DO UPDATE SET
+               count = CASE WHEN auth_throttle.locked_until IS NOT NULL OR auth_throttle.first_at < now() - $2::interval THEN 1 ELSE auth_throttle.count + 1 END,
+               first_at = CASE WHEN auth_throttle.locked_until IS NOT NULL OR auth_throttle.first_at < now() - $2::interval THEN now() ELSE auth_throttle.first_at END,
+               locked_until = NULL
+             WHERE auth_throttle.locked_until <= now()
+                OR (auth_throttle.locked_until IS NULL AND (auth_throttle.first_at < now() - $2::interval OR auth_throttle.count < $3::int))
+             RETURNING count`, [k(key), iv(windowMs), maxFails]);
+                    if (r.rowCount)
+                        return 0;
+                    return (await this.blockedFor(key)) || 1000;
+                }
+                catch (e) {
+                    console.error('throttle (shared) reserve failed, counting process-locally:', e);
+                }
+            }
+            return localReserve(key);
+        },
+        // The reserved attempt failed: when maxFails attempts are counted the lock starts (a no-op while the count is lower or a lock already runs)
+        async confirmFailure(key) {
+            localConfirm(key);
+            if (backend === 'shared') {
+                await pool_js_1.db.query(`UPDATE auth_throttle SET locked_until = now() + $3::interval WHERE key = $1 AND locked_until IS NULL AND count >= $2::int`, [k(key), maxFails, iv(lockMs)])
+                    .catch((e) => console.error('throttle (shared) confirm failed:', e));
+            }
+        },
+        // The reserved attempt ended in a server error, not in a verdict on the password: give its count back (never from a running lock)
+        async release(key) {
+            localRelease(key);
+            if (backend === 'shared') {
+                await pool_js_1.db.query(`UPDATE auth_throttle SET count = GREATEST(count - 1, 0) WHERE key = $1 AND locked_until IS NULL`, [k(key)]).catch(() => { });
+            }
         },
         async clear(key) {
             local.delete(key);

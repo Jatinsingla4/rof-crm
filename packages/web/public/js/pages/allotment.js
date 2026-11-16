@@ -528,7 +528,7 @@ const AllotmentPage = {
                        <td>${i+1}</td>
                        <td>${a.registration_no||'—'}</td>
                        <td class="td-bold">
-                         <a class="aln-link" href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}"
+                         <a class="aln-link" href="/api/consumers/${a.consumer_id}/applicant-file?token=1"
                             target="_blank"
                             title="View Applicant File">
                            ${a.first_name||a.consumer_name||'—'}
@@ -563,7 +563,7 @@ const AllotmentPage = {
               <tbody>
                 ${list.map((a,i) => `<tr>
                   <td>${i+1}</td>
-                  <td class="td-bold"><a href="/api/consumers/${a.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${a.consumer_name||a.consumerName||'—'}</a></td>
+                  <td class="td-bold"><a href="/api/consumers/${a.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${a.consumer_name||a.consumerName||'—'}</a></td>
                   <td>${a.unit_number||a.unitNumber||'—'}</td>
                   <td style="font-size:10.5px">${a.project_name||a.projectName||'—'}</td>
                   <td style="font-size:10.5px">${Utils.date(a.allotment_date||a.allocated_date||a.allotmentDate||a.created_at)}</td>
@@ -668,7 +668,7 @@ const AllotmentPage = {
             <thead><tr><th>Consumer</th><th>From Unit</th><th>To Unit</th><th>Date</th><th>Reason</th></tr></thead>
             <tbody>
               ${list.map(s => `<tr>
-                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
                 <td>${s.old_unit_number||'—'}</td>
                 <td>${s.new_unit_number||'—'}</td>
                 <td>${Utils.date(s.shift_date||s.created_at)}</td>
@@ -701,7 +701,7 @@ const AllotmentPage = {
             <tbody>
               ${list.map((s,i) => `<tr>
                 <td>${i+1}</td>
-                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${s.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${s.consumer_name||'—'}</a></td>
                 <td>${s.mobile||'—'}</td>
                 <td>${s.old_unit_number||'—'}</td>
                 <td>${s.new_unit_number||'—'}</td>
@@ -749,7 +749,7 @@ const AllotmentPage = {
             <tbody>
               ${list.map(w => `<tr>
                 <td style="font-weight:700;color:var(--teal)">#${w.position||w.waitlist_position||'—'}</td>
-                <td class="td-bold"><a href="/api/consumers/${w.consumer_id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${w.consumer_name||w.consumerName||'—'}</a></td>
+                <td class="td-bold"><a href="/api/consumers/${w.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" class="aln-link" title="View Applicant File">${w.consumer_name||w.consumerName||'—'}</a></td>
                 <td>${w.consumer_mobile||w.mobile||'—'}</td>
                 <td>${w.project_name||w.projectName||'—'}</td>
                 <td>${Utils.date(w.applied_date||w.created_at)}</td>

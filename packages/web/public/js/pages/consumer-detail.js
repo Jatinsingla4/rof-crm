@@ -84,7 +84,7 @@ Pages.consumerDetail = async function(params = {}) {
             <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--border)">
               <div class="cdn-av">${initials}</div>
               <div style="flex:1">
-                <div style="font-size:15px;font-weight:700;color:var(--text)"><a href="/api/consumers/${c.id}/applicant-file?token=${Auth.getToken()||''}" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:700;cursor:pointer" title="View Applicant File">${fullName}</a></div>
+                <div style="font-size:15px;font-weight:700;color:var(--text)"><a href="/api/consumers/${c.id}/applicant-file?token=1" target="_blank" style="color:var(--teal);text-decoration:none;font-weight:700;cursor:pointer" title="View Applicant File">${fullName}</a></div>
                 <div style="font-size:10px;color:var(--text3)">${c.registration_no || c.id || ''} · ${c.project_name || c.projectName || '—'}</div>
                 <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
                   ${Utils.chip(c.lead_stage || c.leadStage || 'enquiry')}
