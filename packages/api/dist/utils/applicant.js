@@ -145,7 +145,7 @@ const phoneNo = (v, label) => {
 exports.phoneNo = phoneNo;
 const children = (v, label = 'Number of children') => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, label, 20, 0) : null);
 exports.children = children;
-const titleCase = (s) => s.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+const titleCase = (s) => s.trim().split(/\s+/).join(' ').toLowerCase().replace(/(^|[\s\-'\u2019.])([a-z])/g, (_m, p, c) => p + c.toUpperCase());
 exports.titleCase = titleCase;
 exports.LEAD_STAGES = ['enquiry', 'interested', 'application_filed', 'draw_entered', 'allotted', 'onboarded', 'cancelled', 'transferred'];
 exports.INCOME_CATS = ['EWS', 'LIG', 'MIG'];

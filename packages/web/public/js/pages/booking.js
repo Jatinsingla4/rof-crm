@@ -1652,7 +1652,7 @@ const BookingPage = {
 
     sel.innerHTML = `<option value="">— Select Unit —</option>` +
       filtered.map(u => {
-        const label = [u.unit_number, u.tower_name&&`Tower ${u.tower_name}`, u.floor&&`Floor ${u.floor}`, showBhk&&u.bhk_type, (u.super_area_sqft||u.carpet_area_sqft)&&`${u.super_area_sqft||u.carpet_area_sqft} sqft`].filter(Boolean).join(' | ');
+        const label = [u.unit_number, u.tower_name&&`Tower ${u.tower_name}`, u.floor&&`Floor ${u.floor}`, showBhk&&u.bhk_type, (u.carpet_area_sqft||u.super_area_sqft)&&`${u.carpet_area_sqft ? 'Carpet' : 'Super'} ${u.carpet_area_sqft||u.super_area_sqft} sqft`].filter(Boolean).join(' | ');
         const isAvailable = !u.status || u.status === 'available';
         if (isAvailable) {
           return `<option value="${u.id}" data-carpet="${u.carpet_area_sqft||0}" data-super="${u.super_area_sqft||0}" data-price="${u.base_price_inr||0}" data-bhk="${u.bhk_type||''}">${label}</option>`;

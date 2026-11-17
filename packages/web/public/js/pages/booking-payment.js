@@ -524,6 +524,15 @@ const BkPayPage = {
                 : tab === 'card'   ? document.getElementById('bkp-amt-card')
                 : null;
     const amt = parseFloat(amtEl?.value || 0);
+    // A typed amount that is zero or below cannot be saved: say so next to the box (the GST shown for it is 0 because there is nothing to tax)
+    const badAmt = !!amtEl && String(amtEl.value).trim() !== '' && !(amt > 0);
+    document.querySelectorAll('.bkp-amt-bad').forEach(el => { el.style.borderColor = ''; });
+    let hint = document.getElementById('bkp-amt-hint');
+    if (badAmt) {
+      amtEl.classList.add('bkp-amt-bad'); amtEl.style.borderColor = 'var(--red)';
+      if (!hint) { hint = document.createElement('div'); hint.id = 'bkp-amt-hint'; hint.style.cssText = 'color:var(--red);font-size:12px;margin-top:4px'; }
+      hint.textContent = 'The amount must be more than 0'; amtEl.insertAdjacentElement('afterend', hint);
+    } else if (hint) hint.remove();
     const seq = this._quoteSeq = (this._quoteSeq || 0) + 1;
     let q = { cgst_inr: 0, sgst_inr: 0, cgst_pct: 0, sgst_pct: 0 };
     if (amt > 0 && this._bookingId) {

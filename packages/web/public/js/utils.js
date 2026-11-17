@@ -17,7 +17,7 @@ const Utils = {
 
   toTitleCase(str) {
     if (!str) return '';
-    return String(str).trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    return String(str).trim().split(/\s+/).join(' ').toLowerCase().replace(/(^|[\s\-'\u2019.])([a-z])/g, (_m, p, c) => p + c.toUpperCase());
   },
 
   formatName(firstName, lastName, name) {
