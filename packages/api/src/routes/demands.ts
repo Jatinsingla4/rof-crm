@@ -437,7 +437,7 @@ router.get('/demand-status', async (req: AuthRequest, res: Response, next: NextF
     // Only the demands of this booking's own payment plan, and never the cancelled ones
     const FROM = `
       FROM consumers c
-      JOIN booking_records br ON br.consumer_id = c.id
+      JOIN booking_records br ON br.consumer_id = c.id AND br.status IN ('complete', 'pending_payment', 'active')   -- a cancelled or surrendered booking is not a customer with dues
       JOIN units u ON u.id = br.unit_id
       LEFT JOIN towers t ON t.id = u.tower_id
       JOIN projects p ON p.id = u.project_id

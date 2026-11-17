@@ -165,8 +165,8 @@ test('Customer Wise Balance: KPI totals, rows and footer match the database; the
   await openTab('customer-balance'); await pickProject(); await pressFetch();
   const dem = demandedOf(S.p1), rec = liveClearedOf(S.p1);
   expect(await kpi('TOTAL CONSUMERS')).toBe(liveCount(S.p1));
-  expect(near(await kpi('TOTAL RECEIVED'), rec)).toBe(true);
-  expect(near(await kpi('TOTAL BALANCE'), dem - rec)).toBe(true);
+  expect(near(await kpi('CLEARED RECEIVED'), rec)).toBe(true);        // labelled: cleared money of the live bookings in these rows
+  expect(near(await kpi('BILLED BALANCE'), dem - rec)).toBe(true);
   const body = page.locator('#rpt-result tbody tr');
   expect(await body.count()).toBe(liveCount(S.p1));
   await expect(page.locator('#rpt-result')).not.toContainText(new RegExp(S.e4.name, 'i'));

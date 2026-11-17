@@ -804,9 +804,9 @@ const BkPayPage = {
       overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
 
       document.getElementById('bkp-print-btn').onclick = () => {
-        const token = localStorage.getItem('rof-jwt') || '';
+        // links.js swaps "?token=1" for a 60-second link token made for this one page; the login token never goes in an address
         window.open(
-          '/api/booking/' + this._bookingId + '/receipt-html?token=' + encodeURIComponent(token),
+          '/api/booking/' + this._bookingId + '/receipt-html?token=1',
           '_blank',
           'width=960,height=720,scrollbars=yes,resizable=yes'
         );

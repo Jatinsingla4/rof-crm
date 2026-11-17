@@ -1613,8 +1613,11 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const demandSgstSum = activeDemands.reduce((s, d) => s + Number(d.sgst_amount || 0), 0);
     const holisticCgst = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
     const holisticSgst = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
-    const cgst = (activeDemands.length > 0 && Math.abs(demandCgstSum - holisticCgst) <= 1000) ? demandCgstSum : holisticCgst;
-    const sgst = (activeDemands.length > 0 && Math.abs(demandSgstSum - holisticSgst) <= 1000) ? demandSgstSum : holisticSgst;
+    // The GST that the schedule actually bills is the figure shown. A difference from the booking rate is never called rounding unless it is within 1 rupee per instalment
+    // (it used to be absorbed up to 1,000 rupees under the name "Rounding", which hid a real rate difference).
+    const roundingTol = Math.max(1, activeDemands.length);
+    const cgst = activeDemands.length > 0 ? demandCgstSum : holisticCgst;
+    const sgst = activeDemands.length > 0 ? demandSgstSum : holisticSgst;
     const totalTax = cgst + sgst;
     const totalWithTax = totalConsideration + totalTax;
     const interestWaived = Math.min(Math.max(0, totalWaivedInr), interest);
@@ -1777,7 +1780,9 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     ${taxSubRow(`CGST @ ${cgstPct}%`, `<span data-field-key="taxBreakupBalconyCgst" data-field-label="Balcony CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconyCgstAmount)}</span>`)}
     ${taxSubRow(`SGST @ ${sgstPct}%`, `<span data-field-key="taxBreakupBalconySgst" data-field-label="Balcony SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(balconySgstAmount)}</span>`)}` : ''}
     ${(cgst !== basicPlusPlcCgst + otherChargeCgstAmt + balconyCgstAmount || sgst !== basicPlusPlcSgst + otherChargeSgstAmt + balconySgstAmount) ? `
-    ${taxSubHeaderRow('Rounding (tax billed on each instalment is rounded separately)')}
+    ${taxSubHeaderRow(Math.abs(cgst - (basicPlusPlcCgst + otherChargeCgstAmt + balconyCgstAmount)) <= roundingTol && Math.abs(sgst - (basicPlusPlcSgst + otherChargeSgstAmt + balconySgstAmount)) <= roundingTol
+        ? 'Rounding (tax billed on each instalment is rounded separately)'
+        : 'DIFFERENCE, NOT ROUNDING: the schedule bills GST at other rates or on other charges than the booking rate above. Needs review.')}
     ${taxSubRow('CGST', fmtIndianCurrency(cgst - (basicPlusPlcCgst + otherChargeCgstAmt + balconyCgstAmount)))}
     ${taxSubRow('SGST', fmtIndianCurrency(sgst - (basicPlusPlcSgst + otherChargeSgstAmt + balconySgstAmount)))}` : ''}
     ${addonTotal > 0 ? `
@@ -2061,15 +2066,15 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <thead><tr>
         <th ${thStyle}>TOTAL INTEREST</th><th ${thStyle}>WAIVE OFF</th>
         <th ${thStyle}>PAID</th><th ${thStyle}>PAID GST</th>
-        <th ${thStyle}>BALANCE GST</th><th ${thStyle}>TOTAL INTEREST</th>
+        <th ${thStyle}>BALANCE GST</th><th ${thStyle}>BALANCE INTEREST</th>
       </tr></thead>
       <tbody><tr>
         <td ${tdR}>${fmtIndianNumber(interest)}</td>
         <td ${tdR}>${fmtIndianNumber(totalWaivedInr)}</td>
-        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>${fmtIndianNumber(clearedInterest)}</td>
         <td ${tdR}>0.00</td>
         <td ${tdR}>0.00</td>
-        <td ${tdR}>${fmtIndianNumber(interest)}</td>
+        <td ${tdR}>${fmtIndianNumber(Math.max(0, interest - totalWaivedInr - clearedInterest))}</td>
       </tr></tbody>
     </table>`;
     // ── FOOTER ───────────────────────────────

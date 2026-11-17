@@ -95,6 +95,10 @@ const ALLOWED = {
   3,
   15
  ],
+ "routes/reports-dues.ts": [
+  1,
+  0
+ ],
  "routes/reports.ts": [
   8,
   2

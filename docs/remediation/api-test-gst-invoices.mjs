@@ -11,6 +11,8 @@ const status = (no) => psql(`select status from gst_invoices where invoice_no='$
 const exposure = async () => (await E.A('GET', '/booking/reconciliation')).j?.data?.invoices_charging_more_than_the_receipt_behind_them ?? [];
 const key = () => 'k' + Math.random().toString(36).slice(2, 10);
 const invoicesBefore = num(psql(`select count(*) from gst_invoices`));
+psql(`insert into global_settings (key, value) values ('gst_invoice_requires_cleared', 'false') on conflict (key) do update set value = 'false'`);
+process.on('exit', () => { try { psql(`delete from global_settings where key = 'gst_invoice_requires_cleared'`); } catch {} });   // this file makes invoices on receipts that are not cleared yet; the default rule is tested in api-test-invoice-cleared.mjs
 
 // ---- an invoice is the receipt's own tax and a second one for the same receipt is refused (also in a race) ----
 {

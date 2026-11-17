@@ -204,7 +204,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (q.address) add(`c.present_address ILIKE ? ESCAPE '\\'`, likeOf(q.address));
     if (q.state) add(`c.present_state ILIKE ? ESCAPE '\\'`, likeOf(q.state));
     if (q.email) add(`c.email ILIKE ? ESCAPE '\\'`, likeOf(q.email));
-    if (q.firstName) add(`c.first_name ILIKE ? ESCAPE '\\'`, likeOf(q.firstName));
+    if (q.firstName) add(`COALESCE(NULLIF(c.first_name, ''), split_part(c.name, ' ', 1)) ILIKE ? ESCAPE '\\'`, likeOf(q.firstName));   // a customer saved with one full name has no first_name column
     if (q.middleName) add(`c.middle_name ILIKE ? ESCAPE '\\'`, likeOf(q.middleName));
     if (q.lastName) add(`c.last_name ILIKE ? ESCAPE '\\'`, likeOf(q.lastName));
     if (q.secondApplicant) add(`co.name ILIKE ? ESCAPE '\\'`, likeOf(q.secondApplicant));
@@ -214,7 +214,7 @@ router.get('/', async (req: AuthRequest, res: Response, next: NextFunction) => {
     if (q.hasLoan === 'true') w.push(`c.loan_amount > 0`);
     const where = w.length ? 'WHERE ' + w.join(' AND ') : '';
     const sql = `SELECT c.id, c.name, c.first_name, c.last_name, c.mobile, c.email, c.lead_stage, c.project_id, c.allocated_unit_id, c.created_at,
-                        u.unit_number, u.super_area_sqft as unit_area, t.tower_name,
+                        u.unit_number, u.bhk_type, u.super_area_sqft as unit_area, t.tower_name,
                         COALESCE(c.registration_no, br.registration_no) as registration_no, br.booking_date as registration_date,
                         b.name as broker_name, b.firm_name as broker_company_name,
                         co.name as second_applicant_name,
@@ -896,10 +896,18 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
       installment_name:      templateNameMap[d.installment_index] || `Installment ${d.installment_index}`,
       interest_rate_percent: templateRateMap[d.installment_index] ?? null,
     }));
+    // A cancelled booking stops owing interest on the day it was cancelled (it must not keep growing to today)
+    let interestAsOf: Date = businessDayStart();
+    const bk = (await db.query(`SELECT id, status, updated_at FROM booking_records WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1`, [consumerId, row.unit_id])).rows[0];
+    if (bk?.status === 'cancelled') {
+      const cd = (await db.query(`SELECT MAX(cancellation_date) AS d FROM cancellations WHERE booking_record_id = $1`, [bk.id])).rows[0]?.d || bk.updated_at;
+      const stop = cd ? new Date(cd) : null;
+      if (stop && stop < interestAsOf) interestAsOf = stop;
+    }
     const interestCalcRows = buildInterestRows(wfRcptsRes.rows, demandsForInterest, penalRate, {
       interestStartDate: consumer.interest_start_date ? new Date(String(consumer.interest_start_date)) : null,
       gracePeriodDays:   parseInt(String(consumer.grace_period_days || 0)),
-      asOfDate:          businessDayStart(),
+      asOfDate:          interestAsOf,
     });
     // ─────────────────────────────────────────
 

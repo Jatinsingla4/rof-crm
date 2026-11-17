@@ -158,7 +158,8 @@ body { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); backgr
     </form>
 
     <div class="secure-note"><span><b>Authorised access only.</b> Activity is logged for audit.</span></div>
-    <div class="version-badge">ROF Group Internal Platform, CRM v2.0</div>
+    <div class="version-badge">ROF Group Internal Platform, CRM v2.0<span id="build-id"></span></div>
+    <script>fetch("/api/health").then(function(r){return r.json()}).then(function(h){if(h&&h.commit)document.getElementById("build-id").textContent=" · build "+h.commit}).catch(function(){})</script>
   </div>
 </section>
 

@@ -233,6 +233,12 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
         const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
         if (!rc || rc.consumer_id !== consumerId) throw bad('That receipt does not belong to this applicant', 400);
         if (['cancelled', 'bounced'].includes(rc.status)) throw bad(`That receipt is ${rc.status}`, 409);
+        // Owner default: GST is invoiced on money that has actually cleared. A cheque or transfer still waiting for the bank is not yet taxed, so a later bounce needs no reversal.
+        // Finance can allow invoicing on a recorded receipt by setting gst_invoice_requires_cleared to 'false' (the tax-timing rule is theirs to confirm).
+        if (rc.status !== 'cleared') {
+          const gate = (await c.query(`SELECT value FROM global_settings WHERE key = 'gst_invoice_requires_cleared'`)).rows[0]?.value;
+          if (String(gate ?? 'true').toLowerCase() !== 'false') throw bad(`An invoice can be made only after the receipt has cleared (this one is ${rc.status}).`, 409);
+        }
         // an invoice against a receipt cannot tax more than the money received (a 2.8 lakh receipt once got a 30 crore invoice)
         if (base > Number(rc.amount_received_inr)) throw bad(`The taxable amount cannot be more than the receipt amount (₹${Number(rc.amount_received_inr).toLocaleString('en-IN')})`, 400);
         // An invoice made for a receipt is that receipt's own tax: the money received less the GST stored on the receipt, which is the same figure the receipt,
