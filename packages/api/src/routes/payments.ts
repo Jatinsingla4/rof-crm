@@ -1929,7 +1929,7 @@ router.get('/receipt-form/:consumerId', requirePrint, async (req: AuthRequest, r
         COALESCE((
           SELECT SUM(r.interest_amount)
           FROM receipts r
-          WHERE r.consumer_id = c.id AND r.status != 'cancelled'
+          WHERE r.consumer_id = c.id AND r.status = 'cleared'
         ), 0) AS interest_paid,
         COALESCE(pco.name, (SELECT value FROM global_settings WHERE key = 'company_name' LIMIT 1)) AS company_name
       FROM consumers c
