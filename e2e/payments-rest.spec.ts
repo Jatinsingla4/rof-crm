@@ -294,6 +294,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await page.locator('#gst-gen-consumer').selectOption(b.c);
   await expect(page.locator(`#gst-gen-receipt option[value="${S.receipt}"]`)).toBeAttached({ timeout: 15000 });
   await page.locator('button', { hasText: /generate invoice/i }).first().click(); await expect(toast(/taxable amount/i)).toBeVisible();
+  sql(`update receipts set status = 'cleared', clearing_date = '${today}' where id = '${S.receipt}'`);   // an invoice is made only on a cleared receipt
   await page.locator('#gst-gen-receipt').selectOption(S.receipt);
   // the receipt of 5,000 already holds its 5% GST, so the taxable part is 4,761.90 and the invoice comes back to the 5,000 that was paid
   await expect(page.locator('#gst-gen-amount')).toHaveValue('4761.9');
@@ -397,6 +398,9 @@ test('GST Invoicing: reversal, cancellation, credit and debit note (fetch the in
 test('GST Invoicing: pending invoices (generate from the list), report with month and project filters, user rights', async () => {
   const b = S.buyers[1];
   const rc = (await must('receipt', api('POST', '/payments/receipts', { consumerId: b.c, amountReceivedInr: 3000, paymentMode: 'neft', referenceNumber: `PR${U}R2`, paymentDate: today, installmentIndex: 1 }))).id;
+  // an invoice is made only on money that has cleared: a second, still pending receipt shows a disabled "Awaiting clearance" instead of "Gen Invoice"
+  const rcPending = (await must('receipt', api('POST', '/payments/receipts', { consumerId: b.c, amountReceivedInr: 1234, paymentMode: 'neft', referenceNumber: `PR${U}R3`, paymentDate: today, installmentIndex: 1 }))).id;
+  sql(`update receipts set status = 'cleared', clearing_date = '${today}' where id = '${rc}'`);
   await go('/gst-invoicing');
   await tab('pending-invoice');
   await expect(page.locator('#pending-kpis')).toContainText(/pending receipts/i);
@@ -406,7 +410,9 @@ test('GST Invoicing: pending invoices (generate from the list), report with mont
   await page.locator('[data-panel="pending-invoice"] button', { hasText: /^FETCH$/ }).click();
   const row = page.locator('#pending-body tr', { hasText: b.name });
   await expect(row.first()).toBeVisible();
-  await expect(row.first()).toContainText(/3,000|10,000/);
+  await expect(row.filter({ hasText: '3,000' }).first()).toBeVisible();
+  await expect(row.filter({ hasText: '1,234' }).locator('button', { hasText: /awaiting clearance/i })).toBeDisabled();
+  expect(sql(`select count(*) from gst_invoices where receipt_id = '${rcPending}'`)).toBe('0');
   await row.filter({ hasText: '3,000' }).locator('button', { hasText: /gen invoice/i }).click();
   await expect(toast(/created/i)).toBeVisible();
   expect(sql(`select count(*) from gst_invoices where receipt_id = '${rc}' and status = 'generated'`)).toBe('1');

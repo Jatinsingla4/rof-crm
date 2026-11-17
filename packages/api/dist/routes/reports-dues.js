@@ -10,6 +10,7 @@ const express_1 = require("express");
 const pool_js_1 = require("../db/pool.js");
 const input_js_1 = require("../utils/input.js");
 const report_input_js_1 = require("../utils/report-input.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const router = (0, express_1.Router)();
 const h = (fn) => async (req, res, next) => {
@@ -77,9 +78,17 @@ router.get('/customer-balance', (0, exports.h)(async (req, res) => {
             balance: (0, report_ledger_js_1.r2)(t.demanded - p.received), receipt_count: p.receipt_count,
         };
     }).filter((r) => balanceType === 'all' || (balanceType === 'outstanding' ? r.balance > 0 : r.balance < 0));
+    // This report is one row per LIVE booking, so cleared money of a cancelled booking or of a receipt with no plan is not in any row. It is shown as its own figure,
+    // so the report can be tied to the dashboard's cleared collections instead of silently being lower (QA-013). Only when no row filter narrows the people.
+    let receivedNotInRows = null;
+    if (!x.name && !x.registrationNo && !x.towerId && !x.bhkType && !x.brokerId && !x.planName && !x.bookingFromDate && !x.bookingToDate && !x.companyId && !x.consumerId) {
+        const clearedAll = Number((await pool_js_1.db.query(`SELECT ${(0, money_basis_js_1.eligibleSum)('r')} AS n FROM receipts r JOIN consumers c ON c.id = r.consumer_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0);
+        receivedNotInRows = (0, report_ledger_js_1.r2)(clearedAll - (0, report_ledger_js_1.sum)(plans, (p) => p.received));
+    }
     res.json({
         success: true, data: rows.slice(offset, offset + size), total: rows.length, page, pageSize: size,
-        summary: { totalConsumers: rows.length, totalUnitCost: (0, report_ledger_js_1.sum)(rows, (r) => r.unit_cost), totalReceived: (0, report_ledger_js_1.sum)(rows, (r) => r.total_received), totalBalance: (0, report_ledger_js_1.sum)(rows, (r) => r.balance) },
+        summary: { totalConsumers: rows.length, totalUnitCost: (0, report_ledger_js_1.sum)(rows, (r) => r.unit_cost), totalReceived: (0, report_ledger_js_1.sum)(rows, (r) => r.total_received), totalBalance: (0, report_ledger_js_1.sum)(rows, (r) => r.balance),
+            receivedNotInRows },
     });
 }));
 // ---------------------------------------------------------------------------------------------------------------------

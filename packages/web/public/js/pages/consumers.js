@@ -65,7 +65,7 @@ Pages.consumers = async function(params = {}) {
         <div class="search-tabs">
           <button class="s-tab active" data-key="unitNo">Unit No.</button>
           <button class="s-tab" data-key="regNo">Reg. No.</button>
-          <button class="s-tab" data-key="name">First Name</button>
+          <button class="s-tab" data-key="firstName">First Name</button>
           <button class="s-tab" data-key="middleName">Middle Name</button>
           <button class="s-tab" data-key="lastName">Last Name</button>
           <button class="s-tab" data-key="dob">Date Of Birth</button>

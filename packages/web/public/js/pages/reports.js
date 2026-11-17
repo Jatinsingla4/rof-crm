@@ -1310,11 +1310,12 @@ const ReportsPage = {
       this._kpis([
         { label: 'TOTAL CONSUMERS',  value: parseInt(summ.totalConsumers || 0).toLocaleString('en-IN'), color: 'var(--accent)' },
         { label: 'TOTAL UNIT COST',  value: fmtA(summ.totalUnitCost),  color: 'var(--accent)' },
-        { label: 'TOTAL RECEIVED',   value: fmtA(summ.totalReceived),  color: '#198754' },
-        { label: 'TOTAL BALANCE',    value: fmtA(summ.totalBalance),   color: parseFloat(summ.totalBalance||0) > 0 ? '#dc3545' : '#198754' },
+        { label: 'CLEARED RECEIVED (live bookings in these rows)', value: fmtA(summ.totalReceived),  color: '#198754' },
+        ...(summ.receivedNotInRows != null && Math.abs(summ.receivedNotInRows) >= 0.01 ? [{ label: 'CLEARED, NOT IN THESE ROWS (cancelled booking or no plan)', value: fmtA(summ.receivedNotInRows), color: '#b8860b' }] : []),
+        { label: 'BILLED BALANCE (demanded - cleared)',    value: fmtA(summ.totalBalance),   color: parseFloat(summ.totalBalance||0) > 0 ? '#dc3545' : '#198754' },
       ]);
       const kpiEl = document.getElementById('rpt-kpis');
-      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(4,1fr)';
+      if (kpiEl) kpiEl.style.gridTemplateColumns = 'repeat(auto-fit,minmax(170px,1fr))';
 
       if (!rows || rows.length === 0) {
         if (el) el.innerHTML = '<div class="empty-state"><h3>No records found</h3><p>Adjust filters and try again</p></div>';
@@ -1916,7 +1917,7 @@ const ReportsPage = {
 
     const cols = ['S.NO','REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','AREA','BROKER','PAYMENT PLAN','LOAN','RATE',
       'A (' + ({net_basic_price:'Net Basic Price',basic_with_plc:'Basic With PLC',total_unit_cost:'Total Unit Cost',due_amount:'Due Amount',due_amount_with_tax:'Due Amount With Tax'})[tab] + ')',
-      'DUE AMOUNT AS ON DATE (B)','DUE AMOUNT % (C)','10% DUE','PENDING','CLEAR','TOTAL (D)','% (E)','BALANCE (F)','AS ON DATE (G)'];
+      'DUE AMOUNT AS ON DATE (B)','DUE AMOUNT % (C)','10% DUE','PENDING (not deducted)','CLEARED','TOTAL PENDING + CLEARED (D)','% CLEARED (E)','BALANCE (F) = A - CLEARED','AS ON DATE (G) = B - CLEARED'];
 
     const bodyRows = rows.map((r, i) => {
       const A = parseFloat(r[tab] || 0);
@@ -1925,9 +1926,10 @@ const ReportsPage = {
       const pending = parseFloat(r.received_pending || 0);
       const clear   = parseFloat(r.received_clear   || 0);
       const D = parseFloat(r.received_total || 0);
-      const E = A > 0 ? (D * 100 / A) : 0;
-      const F = A - D;
-      const G = B - D;
+      // Only CLEARED money reduces what is due. A pending cheque or transfer is shown in its own column and in the total (D), but never deducted.
+      const E = A > 0 ? (clear * 100 / A) : 0;
+      const F = A - clear;
+      const G = B - clear;
       return `<tr>
         <td>${i+1}</td>
         <td>${Utils.esc(r.registration_no || '—')}</td>

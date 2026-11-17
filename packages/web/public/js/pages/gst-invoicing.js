@@ -805,7 +805,7 @@ const GSTPage = {
                 <td>${r.payment_method||'—'}</td>
                 <td>${Utils.date(r.received_date||r.created_at)}</td>
                 <td>${Utils.chip(r.status||r.approval_status||'pending')}</td>
-                <td><button class="btn btn-teal btn-sm" onclick="GSTPage.quickGenerate('${r.id}','${r.consumer_id}',${Number(r.amount_received_inr)},this)">Gen Invoice</button></td>
+                <td>${r.status === 'cleared' ? `<button class="btn btn-teal btn-sm" onclick="GSTPage.quickGenerate('${r.id}','${r.consumer_id}',${Number(r.amount_received_inr)},this)">Gen Invoice</button>` : `<button class="btn btn-ghost btn-sm" disabled title="An invoice can be made only after the receipt has cleared">Awaiting clearance</button>`}</td>
               </tr>`).join('')}
             </tbody>
           </table>`;

@@ -195,6 +195,8 @@ const rq = (c, over = {}, who = AF) => who('POST', '/payments/refunds', { consum
 const cleanRefunds = (c) => psql(`update payment_refunds set status='rejected' where consumer_id='${c}' and status in ('pending','approved') returning 1`);
 {
   const B1 = await buyer(), c = B1.c, rc1 = await receipt(B1, 5000), rc2 = await receipt(B1, 3000), PAID = 10000 + 5000 + 3000, other = await receipt(S1, 1000);
+psql(`insert into global_settings (key, value) values ('gst_invoice_requires_cleared', 'false') on conflict (key) do update set value = 'false'`);
+process.on('exit', () => { try { psql(`delete from global_settings where key = 'gst_invoice_requires_cleared'`); } catch {} });   // this file makes invoices on receipts that are not cleared yet; the default rule is tested in api-test-invoice-cleared.mjs
   const clearBy = async (id) => { for (const [step, b] of [['approve', {}], ['clear', { clearing_date: today }]]) { const x = await fetch(B + `/payments/receipts/${id}/${step}`, { method: 'PATCH', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + ckTok }, body: JSON.stringify(b) }); if (!x.ok) throw new Error('clear ' + step + ' ' + x.status); } };   // only cleared money counts (Q13)
   for (const id of [rc1, rc2, psql(`select id from receipts where consumer_id='${c}' and installment_index is null order by created_at limit 1`)]) await clearBy(id);   // a refund can only be made from cleared money
   grant(afId, 'jv_refund_drcr', true, false); grant(pmId, 'jv_refund_drcr', false, true);

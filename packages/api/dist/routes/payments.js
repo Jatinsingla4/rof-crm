@@ -245,6 +245,13 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
                     throw (0, input_js_1.bad)('That receipt does not belong to this applicant', 400);
                 if (['cancelled', 'bounced'].includes(rc.status))
                     throw (0, input_js_1.bad)(`That receipt is ${rc.status}`, 409);
+                // Owner default: GST is invoiced on money that has actually cleared. A cheque or transfer still waiting for the bank is not yet taxed, so a later bounce needs no reversal.
+                // Finance can allow invoicing on a recorded receipt by setting gst_invoice_requires_cleared to 'false' (the tax-timing rule is theirs to confirm).
+                if (rc.status !== 'cleared') {
+                    const gate = (await c.query(`SELECT value FROM global_settings WHERE key = 'gst_invoice_requires_cleared'`)).rows[0]?.value;
+                    if (String(gate ?? 'true').toLowerCase() !== 'false')
+                        throw (0, input_js_1.bad)(`An invoice can be made only after the receipt has cleared (this one is ${rc.status}).`, 409);
+                }
                 // an invoice against a receipt cannot tax more than the money received (a 2.8 lakh receipt once got a 30 crore invoice)
                 if (base > Number(rc.amount_received_inr))
                     throw (0, input_js_1.bad)(`The taxable amount cannot be more than the receipt amount (₹${Number(rc.amount_received_inr).toLocaleString('en-IN')})`, 400);
