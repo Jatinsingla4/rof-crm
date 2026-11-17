@@ -17,7 +17,8 @@ const Utils = {
 
   toTitleCase(str) {
     if (!str) return '';
-    return String(str).trim().split(/\s+/).join(' ').toLowerCase().replace(/(^|[\s\-'\u2019.])([a-z])/g, (_m, p, c) => p + c.toUpperCase());
+    // same rule as the server (utils/applicant.ts): a capital for each run of letters, two capitals in a row (QA) stay
+    return String(str).trim().split(/\s+/).join(' ').replace(/\p{L}+/gu, w => /^\p{Lu}{2}$/u.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
   },
 
   formatName(firstName, lastName, name) {

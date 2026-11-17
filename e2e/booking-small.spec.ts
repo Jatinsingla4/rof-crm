@@ -70,6 +70,13 @@ test('a name keeps a capital after a hyphen (server and browser)', async () => {
   expect(o.j.data.name).toBe("D'Souza O'Brien");
   const shown = await page.evaluate(() => (0, eval)("Utils").toTitleCase("mary-jane o'neil"));
   expect(shown).toBe("Mary-Jane O'Neil");
+  // two capitals in a row (QA, AK) stay as typed on both sides; a long shout (RAM) is normalised
+  const qa = await api('POST', '/consumers', { name: 'QA-Alok RAM', mobile: mob(), project_id: S.p });
+  expect(qa.j.data.name).toBe('QA-Alok Ram');
+  expect(await page.evaluate(() => (0, eval)("Utils").toTitleCase("QA-Alok RAM"))).toBe('QA-Alok Ram');
+  // the customer card shows the same normalised name as the other screens
+  await go(`#/consumer?id=${S.c.id}`);
+  await expect(page.locator('.cdn h1').first()).toHaveText('Qa-Alok One');
 });
 
 test('payment screen: a zero amount is flagged next to the box, a good one is not and shows the GST the server works out, and the server refuses to save it', async () => {

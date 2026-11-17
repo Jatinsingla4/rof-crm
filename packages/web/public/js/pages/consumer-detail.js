@@ -21,7 +21,7 @@ Pages.consumerDetail = async function(params = {}) {
     const bookingPlcAmount = parseFloat(latestBooking?.plc_amount || 0);
 
     const initials = (((c.first_name || c.name || '?')[0]) + ((c.last_name || '')[0] || '')).toUpperCase();
-    const fullName = c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : (c.name || 'Unknown');
+    const fullName = Utils.formatName(c.first_name, c.last_name, c.name);   // the same normalised name as every other screen
 
     content.innerHTML = `
       <style>

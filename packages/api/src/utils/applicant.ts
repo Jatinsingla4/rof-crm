@@ -91,7 +91,8 @@ export const phoneNo = (v: any, label: string): string | null => {
   return t;
 };
 export const children = (v: any, label = 'Number of children'): number | null => (has(v) ? num(v, label, 20, 0) : null);
-export const titleCase = (s: string) => s.trim().split(/\s+/).join(' ').toLowerCase().replace(/(^|[\s\-'\u2019.])([a-z])/g, (_m, p, c) => p + c.toUpperCase());
+// Each run of letters gets a capital (also after - ' .); a run of exactly two capitals (QA, AK) stays as typed, so initials and short acronyms survive. RAM becomes Ram.
+export const titleCase = (s: string) => s.trim().split(/\s+/).join(' ').replace(/\p{L}+/gu, w => /^\p{Lu}{2}$/u.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 export const LEAD_STAGES = ['enquiry', 'interested', 'application_filed', 'draw_entered', 'allotted', 'onboarded', 'cancelled', 'transferred'];
 export const INCOME_CATS = ['EWS', 'LIG', 'MIG'];
 // Escapes % and _ so a search for "50%" finds the text, not everything
