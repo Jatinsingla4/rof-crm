@@ -146,7 +146,7 @@ exports.phoneNo = phoneNo;
 const children = (v, label = 'Number of children') => ((0, input_js_1.has)(v) ? (0, input_js_1.num)(v, label, 20, 0) : null);
 exports.children = children;
 // Each run of letters gets a capital (also after - ' .); a run of exactly two capitals (QA, AK) stays as typed, so initials and short acronyms survive. RAM becomes Ram.
-const titleCase = (s) => s.trim().split(/\s+/).join(' ').replace(/\p{L}+/gu, w => /^\p{Lu}{2}$/u.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+const titleCase = (s) => s.trim().split(/\s+/).join(' ').replace(/[^\s\-'’.]+/gu, w => /^\p{Lu}{2}$/u.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
 exports.titleCase = titleCase;
 exports.LEAD_STAGES = ['enquiry', 'interested', 'application_filed', 'draw_entered', 'allotted', 'onboarded', 'cancelled', 'transferred'];
 exports.INCOME_CATS = ['EWS', 'LIG', 'MIG'];
