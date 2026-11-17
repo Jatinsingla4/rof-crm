@@ -139,6 +139,7 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
       let receiptNumber: string;
       if ((await projectSettings(c, consumerRow.project_id)).receipt_number_mode === 'Manual') {
         receiptNumber = text(b.receiptNumber, 'Receipt number', 40, true)!;
+        if (/^(null|undefined|nan|none|n\/a)$/i.test(receiptNumber)) throw bad('Enter a real receipt number');
         await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-no:${receiptNumber.toLowerCase()}`]);
         if ((await c.query(`SELECT 1 FROM receipts WHERE lower(receipt_number) = lower($1)`, [receiptNumber])).rows.length) throw bad(`Receipt number "${receiptNumber}" is already used`, 409);
       } else receiptNumber = await nextReceiptNumber(c, '', consumerRow.project_id);

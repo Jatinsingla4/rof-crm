@@ -799,7 +799,16 @@ const ReceiptsPage = {
 
       if (this._pendingConsumerId) {
         const sel = document.getElementById('rec-consumer-sel');
-        if (sel) { sel.value = this._pendingConsumerId; this.fetchConsumer(); }
+        if (sel) {
+          // the customer may sit beyond the first 300 of the list: fetch it and add it, so "New Receipt" never opens empty
+          if (![...sel.options].some(o => o.value === this._pendingConsumerId)) {
+            try {
+              const one = (await Api.get(`/consumers/${this._pendingConsumerId}`)).data;
+              if (one?.id) sel.insertAdjacentHTML('beforeend', `<option value="${Utils.esc(one.id)}">${Utils.esc(one.name || ((one.first_name || '') + ' ' + (one.last_name || '')).trim())} · ${Utils.esc(one.mobile || '')}</option>`);
+            } catch {}
+          }
+          sel.value = this._pendingConsumerId; if (sel.value) this.fetchConsumer();
+        }
         this._pendingConsumerId = null;
       }
     } catch (err) { console.error(err); }
@@ -862,12 +871,21 @@ const ReceiptsPage = {
         <div style="text-align:center"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Unit Cost</div><div style="font-size:14px;font-weight:700">${unitCost == null ? '—' : Utils.currency(unitCost)}</div></div>
         <div style="text-align:center"><div style="font-size:10px;color:var(--teal);margin-bottom:2px">Paid (cleared)</div><div style="font-size:14px;font-weight:700;color:var(--teal)">${Utils.currency(totalPaid)}</div></div>
         <div style="text-align:center"><div style="font-size:10px;color:var(--warn);margin-bottom:2px">Awaiting clearance</div><div style="font-size:14px;font-weight:700;color:var(--warn)">${Utils.currency(awaiting)}</div></div>
-        <div style="text-align:center"><div style="font-size:10px;color:var(--red);margin-bottom:2px">No. of Receipts</div><div style="font-size:14px;font-weight:700;color:var(--red)">${receipts.length}</div></div>
+        <div style="text-align:center"><div style="font-size:10px;color:var(--red);margin-bottom:2px">No. of Receipts</div><div style="font-size:14px;font-weight:700;color:var(--red)">${receipts.filter(r => r.status !== 'cancelled').length}</div></div>
       `;
 
       document.getElementById('rec-fin-hdr').style.display = 'block';
       document.getElementById('receipt-form').style.display = 'block';
       document.getElementById('rec-consumer-id').value = id;
+
+      // Instalment: the customer's own demands; left on Automatic the server directs the receipt to the first open one
+      const instSel = document.getElementById('rec-instalment');
+      if (instSel) {
+        let dem = [];
+        try { const r = await Api.get('/payments/demands', { params: { consumerId: id, pageSize: 50 } }); dem = (r.data || r || []).filter(d => d.status !== 'cancelled' && d.installment_index != null); } catch {}
+        instSel.innerHTML = '<option value="">Automatic (first open instalment)</option>' +
+          dem.map(d => `<option value="${Utils.esc(String(d.installment_index))}">${Utils.esc(d.installment_name || ('Instalment ' + d.installment_index))}${d.status === 'paid' ? ' (paid)' : ''}</option>`).join('');
+      }
 
       const bankSel = document.getElementById('rec-company-bank-account');
       if (bankSel) {
@@ -943,6 +961,7 @@ const ReceiptsPage = {
       bankName: document.getElementById('rec-bank')?.value || undefined,
       companyBankAccountId: document.getElementById('rec-company-bank-account')?.value || undefined,
       remarks: document.getElementById('rec-remarks')?.value || undefined,
+      installmentIndex: document.getElementById('rec-instalment')?.value ? Number(document.getElementById('rec-instalment').value) : undefined,
     };
 
     try {
