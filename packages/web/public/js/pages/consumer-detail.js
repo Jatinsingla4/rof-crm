@@ -21,7 +21,7 @@ Pages.consumerDetail = async function(params = {}) {
     const bookingPlcAmount = parseFloat(latestBooking?.plc_amount || 0);
 
     const initials = (((c.first_name || c.name || '?')[0]) + ((c.last_name || '')[0] || '')).toUpperCase();
-    const fullName = c.first_name ? `${c.first_name} ${c.last_name || ''}`.trim() : (c.name || 'Unknown');
+    const fullName = Utils.formatName(c.first_name, c.last_name, c.name);   // the same normalised name as every other screen
 
     content.innerHTML = `
       <style>
@@ -124,7 +124,7 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
                   <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
-                  <input id="base-rate-input" type="number" value="${c.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" data-unit="${latestBooking?.unit_id || c.allocated_unit_id || ''}" oninput="ConsumerDetailPage.recalcPricing()">
+                  <input id="base-rate-input" type="number" value="${c.basic_price || latestBooking?.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" data-unit="${latestBooking?.unit_id || c.allocated_unit_id || ''}" oninput="ConsumerDetailPage.recalcPricing()">
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                   <span style="color:var(--text3)">Basic Cost</span>

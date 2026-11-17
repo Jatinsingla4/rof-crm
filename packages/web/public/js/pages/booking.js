@@ -1650,6 +1650,7 @@ const BookingPage = {
     const floor = floorSel?.value ?? '';
     if (floor !== '') filtered = filtered.filter(u => u.floor === Number(floor));
 
+    const prevUnit = sel.value;   // keep the chosen unit when it still fits the filters (changing the type used to wipe it)
     sel.innerHTML = `<option value="">— Select Unit —</option>` +
       filtered.map(u => {
         const label = [u.unit_number, u.tower_name&&`Tower ${u.tower_name}`, u.floor&&`Floor ${u.floor}`, showBhk&&u.bhk_type, (u.carpet_area_sqft||u.super_area_sqft)&&`${u.carpet_area_sqft ? 'Carpet' : 'Super'} ${u.carpet_area_sqft||u.super_area_sqft} sqft`].filter(Boolean).join(' | ');
@@ -1659,6 +1660,7 @@ const BookingPage = {
         }
         return `<option value="" disabled style="color:#999;background:#f5f5f5">${label} — ${u.status === 'held' ? 'Held' : 'Booked'}</option>`;
       }).join('');
+    if (prevUnit && [...sel.options].some(o => o.value === prevUnit)) sel.value = prevUnit;
     // Extract BHK code from full value (e.g., "Type-A (3 BHK)" → "3BHK")
     const extractBhk = (bhkType) => {
       if (!bhkType) return '';
