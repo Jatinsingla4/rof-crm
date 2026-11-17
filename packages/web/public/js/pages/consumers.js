@@ -164,7 +164,7 @@ const ConsumersPage = {
           <td class="td-mono">${c.registration_no || '—'}</td>
           <td class="td-bold"><a href="/api/consumers/${c.id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${c.name || (c.first_name + ' ' + (c.last_name || ''))}</a></td>
           <td>${c.second_applicant_name || 'N/A'}</td>
-          <td>${c.bhk_type || 'Type-C'}</td>
+          <td>${c.bhk_type || '—'}</td>
           <td class="td-mono">${c.unit_area || '—'}</td>
           <td>${c.tower_name || '—'}</td>
           <td class="td-bold" style="color:var(--teal)">${c.unit_no || '—'}</td>
