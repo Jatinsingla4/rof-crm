@@ -257,9 +257,13 @@ Pages.receipts = async function(params = {}) {
             <div class="fg"><label class="fl">Status</label>
               <select class="fc" id="list-status">
                 <option value="">— All Status —</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
+                <option value="pending">Pending (awaiting approval)</option>
+                <option value="authorized">Approved (authorised)</option>
+                <option value="deposited">Deposited</option>
+                <option value="on_hold">On hold</option>
+                <option value="cleared">Cleared</option>
+                <option value="bounced">Bounced</option>
+                <option value="cancelled">Cancelled (includes rejected)</option>
               </select>
             </div>
           </div>

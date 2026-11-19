@@ -104,12 +104,13 @@ async function manualSchedule(s) {
 function fileSchedule(s) {
     const basePrice = s.basePrice ?? s.basicCost;
     const cgstPct = s.fileCgstPct ?? 0, sgstPct = s.fileSgstPct ?? 0;
+    const inauguralDisc = s.fileDiscount ?? (basePrice + s.plc + s.other + s.balconyCharge - s.totalAmount), balconyChargeAmount = s.balconyCharge;
     return s.templates.map((t) => {
         const pct = t.percentage || 0;
         const netBsp = basePrice * pct / 100;
         const otherInst = (s.plc + s.other) * pct / 100;
         const dbAmt = s.demandRows?.[t.installment_index];
-        const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst);
+        const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst - inauguralDisc * pct / 100 + (t.flat_amount_inr ? 0 : balconyChargeAmount * pct / 100)); // QA-005
         const addonInst = dbAmt ? (dbAmt.addon || 0) : 0;
         const independentBalcony = t.flat_amount_inr ? 0 : Math.round(s.balconyCharge * pct / 100);
         const remainderBalcony = t.flat_amount_inr ? 0 : Math.max(0, instAmt - netBsp - otherInst - addonInst);

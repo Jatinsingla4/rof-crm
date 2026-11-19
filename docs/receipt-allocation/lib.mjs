@@ -31,6 +31,9 @@ export async function project(E, { tag, plan = [10, 20, 30, 40], gst = 5, gstSla
   const co = (await must('company', E.A('POST', '/companies', { name: `Tear Co ${tag} ${U}` }))).id;
   const proj = (await must('project', E.A('POST', '/projects', { companyId: co, name: `Tear ${tag} ${U}`, reraNumber: `TR${tag}${U}`, tcpLicence: 'x', totalUnits: 200, landAreaSqft: 50000 }))).id;
   const tw = (await must('tower', E.A('POST', `/projects/${proj}/towers`, { towerName: `T${tag}${U}` }))).id;
+  // QA-003: an invoice needs the project's GSTIN and a financial year that holds its date; a test GSTIN and a year around today are set here (CI database only)
+  psql(`insert into project_gstin (project_id, gstin) values ('${proj}', '06ABCDE1234F1Z5') on conflict do nothing`);
+  psql(`insert into financial_years (name, from_date, to_date, is_active) select 'FY test ' || '${U}', current_date - 400, current_date + 400, true where not exists (select 1 from financial_years where from_date <= current_date and to_date >= current_date and is_active)`);
   const planName = `Plan ${tag} ${U}`;
   for (const [i, p] of plan.entries()) await must('plan row', E.A('POST', `/projects/${proj}/plan-templates`, { plan_name: planName, installment_name: `Row ${i + 1}`, installment_type: i === 0 ? 'booking' : 'installment', percentage: p, due_date_offset_days: i * 30, installment_index: i + 1 }));
   const td = today();

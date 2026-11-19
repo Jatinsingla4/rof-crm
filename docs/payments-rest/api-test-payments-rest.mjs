@@ -23,7 +23,13 @@ let r, r2;
 
 // ---------- set-up: two projects, plan, GST, buyers with receipts ----------
 const co = (await A('POST', '/companies', { name: 'TDS Co ' + U })).j.data.id;
-const mkProj = async (tag) => (await A('POST', '/projects', { companyId: co, name: `PayR ${tag} ${U}`, reraNumber: `PR${tag}-${U}`, tcpLicence: 'x' })).j.data.id;
+const mkProj = async (tag) => {
+  const id = (await A('POST', '/projects', { companyId: co, name: `PayR ${tag} ${U}`, reraNumber: `PR${tag}-${U}`, tcpLicence: 'x' })).j.data.id;
+  // QA-003: an invoice needs the project's GSTIN and a financial year that holds its date; a test GSTIN and a year around today are set here (CI database only)
+  psql(`insert into project_gstin (project_id, gstin) values ('${id}', '06ABCDE1234F1Z5') on conflict do nothing`);
+  psql(`insert into financial_years (name, from_date, to_date, is_active) select 'FY test ' || '${U}', current_date - 400, current_date + 400, true where not exists (select 1 from financial_years where from_date <= current_date and to_date >= current_date and is_active)`);
+  return id;
+};
 const P1 = await mkProj('A'), P2 = await mkProj('B');
 const tw = async (P) => (await A('POST', `/projects/${P}/towers`, { towerName: 'T' + U })).j.data.id;
 const T1 = await tw(P1), T2 = await tw(P2);
@@ -571,7 +577,7 @@ const alloc2 = async (P, T, name) => {   // an applicant with a unit and an allo
   r = await A('PATCH', '/users/employee-login/' + afId, { assignedProjectIds: [P1] }); t('scope: (set-up) accounts_finance limited to project 1', r.s === 200, r.s + JSON.stringify(r.j)); await new Promise(x => setTimeout(x, 100));
   const cp2 = SP2.c;
   r = await AF('GET', `/payments/clearing-banks/${P1}`); t('scope: own project\'s banks readable', r.s === 200, r.s); r = await AF('GET', `/payments/clearing-banks/${P2}`); t('scope: the other project\'s banks -> 404', r.s === 404, r.s);
-  r = await AF('POST', '/payments/gst-invoices', { consumerId: cp2, baseAmount: 100 }); t('scope: an invoice for an applicant of the other project -> 404', r.s === 404, r.s);
+  r = await AF('POST', '/payments/gst-invoices', { consumerId: cp2, baseAmount: 100, gstRate: 5 }); t('scope: an invoice for an applicant of the other project -> 404', r.s === 404, r.s);
   r = await AF('GET', `/payments/gst-invoices?projectId=${P2}`); t('scope: the other project\'s invoices are not listed', r.s === 200 && r.j.data.length === 0, r.s);
   r = await AF('GET', `/payments/customer-wise-consumers?project_id=${P2}`); t('scope: the other project\'s applicants are not listed', r.s === 200 && r.j.data.length === 0, r.s);
   r = await AF('POST', '/payments/interest-scheduler', { project_id: P2, persist: true }); t('scope: the scheduler for the other project -> 404', r.s === 404, r.s);

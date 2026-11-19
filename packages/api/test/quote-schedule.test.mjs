@@ -53,9 +53,9 @@ async function legacy(s) {
   // applicant file page 2 rows
   const demandAmountMap = {};
   for (const [k, v] of Object.entries(s.demandRows || {})) demandAmountMap[k] = { amt: v.amt, cgst: v.cgst, sgst: v.sgst, addon: v.addon || 0, addonCgst: v.addonCgst || 0, addonSgst: v.addonSgst || 0 };
-  const fileFn = new Function('t', 'basePrice', 'plcAmount', 'otherCharge', 'balconyChargeAmount', 'cgstPct', 'sgstPct', 'demandAmountMap',
+  const fileFn = new Function('t', 'basePrice', 'plcAmount', 'otherCharge', 'balconyChargeAmount', 'cgstPct', 'sgstPct', 'demandAmountMap', 'inauguralDisc',
     js(`${FILE_SRC}\n return { netBsp, otherInst, instAmt, balconyInst, instCgst, instSgst, netDue };`));
-  const fileRows = templates.rows.map((t) => fileFn({ ...t, percentage: t.percentage }, s.basePrice, s.plc, s.other, s.balconyCharge, s.fileCgstPct, s.fileSgstPct, demandAmountMap));
+  const fileRows = templates.rows.map((t) => fileFn({ ...t, percentage: t.percentage }, s.basePrice, s.plc, s.other, s.balconyCharge, s.fileCgstPct, s.fileSgstPct, demandAmountMap, s.basePrice + s.plc + s.other + s.balconyCharge - s.totalAmount));
   return { save: saveRows, manual: manualRows, file: fileRows };
 }
 
@@ -93,4 +93,12 @@ test('documented schedule differences are real in the golden data', () => {
   assert.equal(sum(g.save, 'cgst') + sum(g.save, 'sgst'), 55600); // GST on the PRE-discount basic price (55,000) + balcony (600)
   assert.ok(sum(g.manual, 'cgst') + sum(g.manual, 'sgst') < 55600); // manual generator taxes the post-discount basic price
   assert.ok(sum(g.file, 'netBsp') > sum(g.file, 'instAmt'));       // NET BSP column is pre-discount, INST AMT is post-discount
+});
+
+// QA-005: with no stored demand row the file rows must still add up to the agreement value (discount off, balcony on), as the saved schedule does.
+test('file schedule without demands reconciles to the agreement value (ZZREG-2026-000014 shape)', () => {
+  const rows = PLAN9.map((t, i) => new Function('t', 'basePrice', 'plcAmount', 'otherCharge', 'balconyChargeAmount', 'cgstPct', 'sgstPct', 'demandAmountMap', 'inauguralDisc',
+    js(`${FILE_SRC}\n return { instAmt };`))({ ...t, installment_index: i }, 5500000, 0, 60000, 0, 0.5, 0.5, {}, 100000));
+  const principal = rows.reduce((a, r) => a + r.instAmt, 0);
+  assert.ok(Math.abs(principal - 5460000) <= PLAN9.length, `principal ${principal} vs agreement 5460000`);   // 55,00,000 - 1,00,000 + 60,000
 });

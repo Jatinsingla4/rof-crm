@@ -12,6 +12,7 @@ const express_1 = require("express");
 const multer_1 = __importDefault(require("multer"));
 const index_js_1 = require("../index.js");
 const booking_js_1 = require("./booking.js");
+const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const rbac_js_1 = require("../middleware/rbac.js");
@@ -322,7 +323,8 @@ router.get('/:id', async (req, res, next) => {
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
               COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
-              p.name as project_name
+              p.name as project_name,
+              (EXISTS (SELECT 1 FROM booking_records bx WHERE bx.consumer_id = c.id) AND NOT EXISTS (SELECT 1 FROM booking_records by2 WHERE by2.consumer_id = c.id AND by2.status <> 'cancelled')) AS booking_cancelled
        FROM consumers c
        LEFT JOIN units u ON c.allocated_unit_id = u.id
        LEFT JOIN projects p ON c.project_id = p.id
@@ -1012,7 +1014,18 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
                 console.warn(`[GST] No OTHER CHARGE mapping for project ${projectId} — using BASIC rate for APF display.`);
             }
         }
-        const html = await (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, consumerId);
+        // QA-001: the breakup uses the same per-charge-head rate, at the booking date, as the schedule (not one booking rate for BASIC and PLC).
+        let headRates;
+        try {
+            const bday = row.booking_date ? new Date(row.booking_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            const bs = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, row.project_name || projectId, 'BASIC', bday);
+            const pl = await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, projectId, row.project_name || projectId, 'PLC', bday);
+            headRates = { basicCgst: bs.cgstPct * 100, basicSgst: bs.sgstPct * 100, plcCgst: pl.cgstPct * 100, plcSgst: pl.sgstPct * 100 };
+        }
+        catch {
+            headRates = undefined;
+        } // no mapping for the date: the file keeps the booking rate and the variance stays visible
+        const html = await (0, booking_js_1.buildApplicantFileHtml)(row, consumer, coApplicantsRes.rows, settings, allocationRes.rows[0] || null, parkingRes.rows, templatesRes.rows, dispatchRes.rows, receiptsRes.rows, demandsRes.rows, interestCalcRows, addonCharges, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, consumerId, headRates);
         // Persist to documents table on first view so it can be edited later
         let applicantDocId = null;
         try {

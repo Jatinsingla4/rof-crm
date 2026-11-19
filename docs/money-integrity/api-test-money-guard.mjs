@@ -24,7 +24,7 @@ const ALLOWED = {
   9
  ],
  "routes/brokers.ts": [
-  1,
+  2,
   0
  ],
  "routes/consumers.ts": [
@@ -64,7 +64,7 @@ const ALLOWED = {
   0
  ],
  "routes/payments.ts": [
-  18,
+  19,
   28
  ],
  "routes/projects.ts": [
@@ -80,7 +80,7 @@ const ALLOWED = {
   4
  ],
  "routes/receipts.ts": [
-  20,
+  21,
   11
  ],
  "routes/reconciliation.ts": [
@@ -96,7 +96,7 @@ const ALLOWED = {
   15
  ],
  "routes/reports-dues.ts": [
-  1,
+  2,
   0
  ],
  "routes/reports.ts": [

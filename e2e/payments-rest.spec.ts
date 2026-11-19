@@ -35,6 +35,9 @@ test.beforeAll(async ({ browser }) => {
   const co = (await must('company', api('POST', '/companies', { name: `PR Co ${U}` }))).id;
   S.projectName = `PR Project ${U}`;
   S.project = (await must('project', api('POST', '/projects', { companyId: co, name: S.projectName, reraNumber: `PRX-${U}`, tcpLicence: 'x' }))).id;
+  // QA-003: an invoice needs the project's GSTIN and a financial year that holds its date (test values, CI database only)
+  sql(`insert into project_gstin (project_id, gstin) values ('${S.project}', '06ABCDE1234F1Z5') on conflict do nothing`);
+  sql(`insert into financial_years (name, from_date, to_date, is_active) select 'FY pr ${U}', current_date - 400, current_date + 400, true where not exists (select 1 from financial_years where from_date <= current_date and to_date >= current_date and is_active)`);
   S.towerName = `PRT-${U}`;
   S.tower = (await must('tower', api('POST', `/projects/${S.project}/towers`, { towerName: S.towerName }))).id;
   S.plan = `PR Plan ${U}`; let k = 0;
@@ -318,6 +321,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await tab('manual-invoice');
   await page.locator('#gst-man-consumer').selectOption(b.c);
   await page.locator('button', { hasText: /generate manual invoice/i }).click(); await expect(toast(/taxable amount/i)).toBeVisible();   // no amount yet
+  await page.locator('#gst-man-rate').selectOption('5');   // QA-003: no rate is preselected any more
   await page.locator('#gst-man-amount').fill('1000'); await page.locator('#gst-man-gstin').fill('06AAAAA0000A1Z5'); await page.locator('#gst-man-desc').fill('Manual');
   await page.locator('button', { hasText: /generate manual invoice/i }).click();
   await expect(page.locator('#gst-man-result')).toContainText(/INV\/\d{4}\/\d{5}/);
@@ -326,6 +330,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   // advance
   await tab('invoice-advance');
   await page.locator('#adv-consumer').selectOption(b.c); await page.locator('#adv-amount').fill('2000');
+  await page.locator('#gst-adv-rate').selectOption('5');   // QA-003: no rate is preselected any more
   await expect(page.locator('#gst-adv-calc')).toContainText('2,100');
   await page.locator('button', { hasText: /generate receipt voucher/i }).click();
   await expect(page.locator('#gst-adv-result')).toContainText(/INV\/\d{4}\/\d{5}/);

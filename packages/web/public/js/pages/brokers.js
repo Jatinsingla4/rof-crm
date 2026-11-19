@@ -529,7 +529,7 @@ const BrkPage = {
                 <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.gst_amount) : '—'}</td>
                 <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.tds_amount) : '—'}</td>
                 <td class="txt-right">${c.status==='paid' ? Utils.currencyFull(c.net_amount_inr) : '—'}</td>
-                <td>${Utils.chip(c.status||'pending')}</td>
+                <td>${Utils.chip(c.status||'pending')}${c.status==='paid' && c.cleared_basis_ok===false ? `<div style="font-size:10px;color:var(--danger,#b42318)" title="No cleared money behind this booking amount (cleared ${Utils.currencyFull(c.cleared_money_inr||0)}). Recorded as paid by finance; needs finance review.">Paid, no cleared receipt</div>` : ''}</td>
                 <td>${c.status==='pending'||c.status==='approved'?`<button class="btn btn-teal btn-sm" onclick="BrkPage.markPaid('${c.id}')">Mark Paid</button>`:'—'}</td>
               </tr>`).join('')}
             </tbody>
@@ -592,7 +592,7 @@ const BrkPage = {
                 <td>${e(c.unit_number||'—')}</td>
                 <td class="txt-right">${Utils.currencyFull(c.booking_amount)}</td>
                 <td class="txt-right" style="font-weight:700;color:var(--teal)">${Utils.currencyFull(c.commission_amount_inr)}</td>
-                <td>${Utils.chip(c.status||'pending')}</td>
+                <td>${Utils.chip(c.status||'pending')}${c.status==='paid' && c.cleared_basis_ok===false ? `<div style="font-size:10px;color:var(--danger,#b42318)" title="No cleared money behind this booking amount (cleared ${Utils.currencyFull(c.cleared_money_inr||0)}). Recorded as paid by finance; needs finance review.">Paid, no cleared receipt</div>` : ''}</td>
                 <td style="font-size:10.5px">${Utils.date(c.created_at)}</td>
               </tr>`).join('')}
             </tbody>

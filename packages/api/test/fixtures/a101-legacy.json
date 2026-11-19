@@ -1,0 +1,29 @@
+{
+  "_source": "ROF ALANTE A-101, legacy customer 2191. Receipts and schedule rows are the legacy figures recorded in docs/applicant-file-reconciliation/results.md (the legacy side of the comparison). Not invented. Rows are as the legacy statement prints them (whole rupees).",
+  "agreement_value": 2632972,
+  "main_gst_pct_each_side": 0.5,
+  "addon_ex_gst": 127915,
+  "addon_gst_pct_each_side": 9,
+  "interest_rate_pct": 15,
+  "rows": [
+    { "n": 1, "due": "2019-12-18", "inst": 131649, "cgst": 658,  "sgst": 658,  "net_due": 132966 },
+    { "n": 2, "due": "2020-04-03", "inst": 526594, "cgst": 2633, "sgst": 2633, "net_due": 531860 },
+    { "n": 3, "due": "2020-09-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 },
+    { "n": 4, "due": "2021-03-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 },
+    { "n": 5, "due": "2021-09-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 },
+    { "n": 6, "due": "2022-03-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 },
+    { "n": 7, "due": "2022-09-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 },
+    { "n": 8, "due": "2023-03-03", "inst": 329122, "cgst": 1646, "sgst": 1646, "net_due": 332413 }
+  ],
+  "receipts": [
+    { "n": 1, "date": "2019-12-18", "amount": 131640 },
+    { "n": 2, "date": "2020-03-17", "amount": 533185.43 },
+    { "n": 3, "date": "2020-09-01", "amount": 332413.57 },
+    { "n": 4, "date": "2021-03-02", "amount": 332413 },
+    { "n": 5, "date": "2021-09-03", "amount": 332414 },
+    { "n": 6, "date": "2022-03-02", "amount": 332413 },
+    { "n": 7, "date": "2022-09-05", "amount": 332462 },
+    { "n": 8, "date": "2023-03-01", "amount": 332635 },
+    { "n": 9, "date": "2024-10-05", "amount": 151211 }
+  ]
+}

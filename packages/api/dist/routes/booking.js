@@ -25,6 +25,7 @@ const gst_resolver_js_1 = require("../utils/gst-resolver.js");
 const balcony_charge_js_1 = require("../utils/balcony-charge.js");
 const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const price_quote_js_1 = require("../utils/price-quote.js");
+const agreement_reconcile_js_1 = require("../utils/agreement-reconcile.js");
 const agreement_snapshot_js_1 = require("../utils/agreement-snapshot.js");
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const gst_backward_derive_js_1 = require("../utils/gst-backward-derive.js");
@@ -1561,8 +1562,7 @@ function amtWords(amount) {
     const capitalised = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
     return capitalised.replace(/\bonly\b$/i, 'only.');
 }
-// ── PAGE 1 BUILDER ───────────────────────
-function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, demands = []) {
+function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots = [], addonCharges = [], receiptRows = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, demands = [], headRates) {
     // ── derived values ──────────────────────
     const projectName = esc(b.project_name || '—');
     const fullName = [consumer.salutation, consumer.first_name,
@@ -1608,11 +1608,15 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const totalConsideration = agreementValue + addonTotal;
     // Split GST: basic+PLC at booking rate, other charges at their own GST rate
     const basicPlusPLC = basePrice + plcAmount;
-    const activeDemands = demands.filter((d) => d.status !== 'cancelled');
+    const activeDemands = (0, agreement_reconcile_js_1.billableDemands)(b, demands); // QA-032: a cancelled booking or demand bills nothing, so it feeds no header, schedule or payable figure
     const demandCgstSum = activeDemands.reduce((s, d) => s + Number(d.cgst_amount || 0), 0);
     const demandSgstSum = activeDemands.reduce((s, d) => s + Number(d.sgst_amount || 0), 0);
-    const holisticCgst = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
-    const holisticSgst = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+    // QA-001: BASIC and PLC each at their own mapped rate (the schedule's rule); the booking rate only when no mapping resolved
+    const bCg = isGstExempt ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = isGstExempt ? 0 : (headRates ? headRates.basicSgst : sgstPct);
+    const pCg = isGstExempt ? 0 : (headRates ? headRates.plcCgst : cgstPct), pSg = isGstExempt ? 0 : (headRates ? headRates.plcSgst : sgstPct);
+    const rateTxt = (b, p) => (b === p || !(plcAmount > 0)) ? `${b}%` : `Basic ${b}% / PLC ${p}%`;
+    const holisticCgst = isGstExempt ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
+    const holisticSgst = isGstExempt ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
     // The GST that the schedule actually bills is the figure shown. A difference from the booking rate is never called rounding unless it is within 1 rupee per instalment
     // (it used to be absorbed up to 1,000 rupees under the name "Rounding", which hid a real rate difference).
     const roundingTol = Math.max(1, activeDemands.length);
@@ -1762,15 +1766,15 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       <td style="${baseFont}font-style:italic;color:#444;padding:1px 8px;text-align:right;">${valueHtml}</td>
     </tr>`;
     }
-    const basicPlusPlcCgst = Math.round(basicPlusPLC * cgstPct / 100);
-    const basicPlusPlcSgst = Math.round(basicPlusPLC * sgstPct / 100);
+    const basicPlusPlcCgst = (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bCg, pCg);
+    const basicPlusPlcSgst = (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bSg, pSg);
     const otherChargeCgstAmt = Math.round(otherCharge * otherChargeCgstPct / 100);
     const otherChargeSgstAmt = Math.round(otherCharge * otherChargeSgstPct / 100);
     const taxBreakupBlock = isGstExempt ? '' : `
     <tr><td colspan="2" style="${baseFont}font-weight:700;padding:4px 8px 1px;">Tax Breakup:</td></tr>
     ${taxSubHeaderRow(`Basic Price + PLC (Rs. ${fmtIndianNumber(basicPlusPLC)})`)}
-    ${taxSubRow(`CGST @ ${cgstPct}%`, `<span data-field-key="taxBreakupBasicPlcCgst" data-field-label="Basic+PLC CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcCgst)}</span>`)}
-    ${taxSubRow(`SGST @ ${sgstPct}%`, `<span data-field-key="taxBreakupBasicPlcSgst" data-field-label="Basic+PLC SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcSgst)}</span>`)}
+    ${taxSubRow(`CGST @ ${rateTxt(bCg, pCg)}`, `<span data-field-key="taxBreakupBasicPlcCgst" data-field-label="Basic+PLC CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcCgst)}</span>`)}
+    ${taxSubRow(`SGST @ ${rateTxt(bSg, pSg)}`, `<span data-field-key="taxBreakupBasicPlcSgst" data-field-label="Basic+PLC SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcSgst)}</span>`)}
     ${otherCharge > 0 ? `
     ${taxSubHeaderRow(`Other Charges (Rs. ${fmtIndianNumber(otherCharge)})`)}
     ${taxSubRow(`CGST @ ${otherChargeCgstPct}%`, `<span data-field-key="taxBreakupOtherChargeCgst" data-field-label="Other Charges CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(otherChargeCgstAmt)}</span>`)}
@@ -2149,8 +2153,10 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     const tdBR = `style="${baseFont}border:1px solid #999;padding:2px 3px;text-align:right;font-weight:700;"`;
     const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;text-align:center;"`;
     // ── demand due date map: installment_index → due_date ──
+    const liveDemands = (0, agreement_reconcile_js_1.billableDemands)(b, demands);
+    const inauguralDisc = parseFloat(b.company_inaugural_disc || 0);
     const demandDueDateMap = {};
-    demands.forEach((d) => {
+    liveDemands.forEach((d) => {
         if (d.due_date != null && d.installment_index != null) {
             demandDueDateMap[Number(d.installment_index)] = d.due_date;
         }
@@ -2158,7 +2164,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
     // ── demand amount map: installment_index → DB-stored amounts ──
     // Use these instead of recalculating from percentages to avoid JS float rounding gaps
     const demandAmountMap = {};
-    demands.forEach((d) => {
+    liveDemands.forEach((d) => {
         if (d.installment_index != null) {
             demandAmountMap[Number(d.installment_index)] = {
                 amt: Number(d.amount_due_inr || 0),
@@ -2214,7 +2220,7 @@ function buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRo
             const otherInst = (plcAmount + otherCharge) * pct / 100;
             const dbAmt = demandAmountMap[t.installment_index];
             // Use DB-stored amounts when available — avoids JS float rounding gap (e.g. 626.45 vs 626.00)
-            const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst);
+            const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst - inauguralDisc * pct / 100 + (t.flat_amount_inr ? 0 : balconyChargeAmount * pct / 100)); // QA-005: with no demand row the rows must still add up to the agreement value (discount off the price, balcony on), as the saved schedule does; GST below stays on the full price
             const addonInst = dbAmt ? dbAmt.addon : 0;
             // Remainder-derived so netBsp + balconyInst + otherInst + addonInst
             // reconciles to instAmt exactly -- but some already-paid legacy demand
@@ -2777,12 +2783,12 @@ async function buildApplicantPage3(b, consumer, settings, documentDispatches, co
     </div>`;
 }
 // ── APPLICANT FILE HTML WRAPPER ───────────
-async function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, consumerId = '') {
+async function buildApplicantFileHtml(b, consumer, coApplicants, settings, allocation, parkingSlots, scheduleTemplates, documentDispatches, receiptRows = [], demands = [], interestCalcRows = [], addonCharges = [], totalWaivedInr = 0, otherChargeCgstPct = 0, otherChargeSgstPct = 0, consumerId = '', headRates) {
     // One interest figure for the whole file: the total of the interest table (page 2), not the old value stored on the booking row
     const interestTotal = Math.round(interestCalcRows.reduce((a, r) => a + (parseFloat(r.interest_amount) || 0), 0));
     if (interestCalcRows.length)
         b = { ...b, interest_amount: interestTotal };
-    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands);
+    const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands, headRates);
     const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
     const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);
     const regNo = esc(b.registration_no || consumer.registration_no || 'Applicant File');

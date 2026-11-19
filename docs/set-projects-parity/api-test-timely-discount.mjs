@@ -16,6 +16,9 @@ let seq = 0; const mob = () => '9' + String((Date.now() % 1e7) * 100 + ++seq + 1
 const co = (await A('GET', '/companies')).j?.data?.[0]?.id || (await A('POST', '/companies', { name: `Co ${U}` })).j?.data?.id;
 const mkProject = async (tag) => {
   const P = (await A('POST', '/projects', { name: `UC ${tag} ${U}`, reraNumber: `U${tag}-${U}`, tcpLicence: 'x', companyId: co })).j.data.id;
+  // QA-003: an invoice needs the project's GSTIN and a financial year that holds its date; a test GSTIN and a year around today are set here (CI database only)
+  psql(`insert into project_gstin (project_id, gstin) values ('${P}', '06ABCDE1234F1Z5') on conflict do nothing`);
+  psql(`insert into financial_years (name, from_date, to_date, is_active) select 'FY test ' || '${U}', current_date - 400, current_date + 400, true where not exists (select 1 from financial_years where from_date <= current_date and to_date >= current_date and is_active)`);
   const T = (await A('POST', `/projects/${P}/towers`, { towerName: 'T' + U })).j.data.id;
   let slab = (await A('GET', '/gst-configuration/gst-slabs')).j.data.find((x) => x.from_date <= today && x.to_date >= today)?.id;
   if (!slab) slab = (await A('POST', '/gst-configuration/gst-slabs', { fromDate: bizDate(Date.now() - 3 * 864e5), toDate: bizDate(Date.now() + 40 * 864e5) })).j.data.id;

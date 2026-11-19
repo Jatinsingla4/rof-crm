@@ -9,6 +9,7 @@ import { createHash } from 'crypto';
 import multer from 'multer';
 import { db } from '../index.js';
 import { buildApplicantFileHtml } from './booking.js';
+import { resolveRate } from '../utils/gst-resolver.js';
 import { AuthRequest } from '../index.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { requireProcess } from '../middleware/processPermission.js';
@@ -265,7 +266,8 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
               COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
-              p.name as project_name
+              p.name as project_name,
+              (EXISTS (SELECT 1 FROM booking_records bx WHERE bx.consumer_id = c.id) AND NOT EXISTS (SELECT 1 FROM booking_records by2 WHERE by2.consumer_id = c.id AND by2.status <> 'cancelled')) AS booking_cancelled
        FROM consumers c
        LEFT JOIN units u ON c.allocated_unit_id = u.id
        LEFT JOIN projects p ON c.project_id = p.id
@@ -963,6 +965,15 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
       }
     }
 
+    // QA-001: the breakup uses the same per-charge-head rate, at the booking date, as the schedule (not one booking rate for BASIC and PLC).
+    let headRates: { basicCgst: number; basicSgst: number; plcCgst: number; plcSgst: number } | undefined;
+    try {
+      const bday = row.booking_date ? new Date(row.booking_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const bs = await resolveRate(db, projectId, row.project_name || projectId, 'BASIC', bday);
+      const pl = await resolveRate(db, projectId, row.project_name || projectId, 'PLC', bday);
+      headRates = { basicCgst: bs.cgstPct * 100, basicSgst: bs.sgstPct * 100, plcCgst: pl.cgstPct * 100, plcSgst: pl.sgstPct * 100 };
+    } catch { headRates = undefined; }   // no mapping for the date: the file keeps the booking rate and the variance stays visible
+
     const html = await buildApplicantFileHtml(
       row,
       consumer,
@@ -980,6 +991,7 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
       otherChargeCgstPct,
       otherChargeSgstPct,
       consumerId,
+      headRates,
     );
 
     // Persist to documents table on first view so it can be edited later

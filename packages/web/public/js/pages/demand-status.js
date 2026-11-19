@@ -140,7 +140,7 @@ const DS = {
                   <th>FLOOR NAME</th>
                   <th>MOBILE NO.</th>
                   <th style="text-align:right;">PAID</th>
-                  <th style="text-align:right;">BALANCE</th>
+                  <th style="text-align:right;" title="Contract balance: every instalment of the plan with GST, raised or not, less the cleared money applied. It is not what is overdue.">CONTRACT BALANCE</th>
                   <th style="text-align:center;width:40px;">D</th>
                 </tr></thead>
                 <tbody id="ds-tbody"></tbody>
@@ -257,7 +257,7 @@ const DS = {
           <td>${r.tower_name||'—'}</td>
           <td>${Utils.esc(Utils.floorLabel(r.floor_number, r.floor_name))}</td>
           <td>${r.mobile||'—'}</td>
-          <td style="text-align:right">${Utils.currency(r.paid_amount||0)}${r.unadjusted_credit>0?`<div style="font-size:10px;color:var(--teal)">+ ${Utils.currency(r.unadjusted_credit)} paid beyond the plan</div>`:''}</td>
+          <td style="text-align:right">${Utils.currency(r.paid_amount||0)}${r.unadjusted_credit>0?`<div style="font-size:10px;color:var(--teal)">+ ${Utils.currency(r.unadjusted_credit)} ${r.balance_amount>0?'customer credit, not yet allocated to the open dues (needs a checker allocation)':'paid beyond the plan'}</div>`:''}</td>
           <td style="text-align:right;font-weight:600">${Utils.currency(r.balance_amount||0)}</td>
           <td style="text-align:center">
             <button onclick="DS.openLetter('${r.consumer_id}')" class="ds-btn-d">D</button>

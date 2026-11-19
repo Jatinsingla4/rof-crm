@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MEASURE_DEFINITIONS = void 0;
+exports.scheduleGap = scheduleGap;
 exports.financialMeasures = financialMeasures;
 // The money measures every report and dashboard is built from, each with one name and one meaning, worked out from the same ledger (report-ledger.ts).
 // They are different numbers on purpose and are never added or relabelled into one "outstanding":
@@ -22,9 +23,19 @@ exports.MEASURE_DEFINITIONS = {
     due_outstanding: 'billed_outstanding on instalments due on or before the day (what the dashboard calls outstanding)',
     overdue: 'Raised instalments due before the day and still unpaid',
     contract_balance: 'agreement_value_incl_gst less valid_collections (not the same as outstanding)',
+    plans_with_schedule_gap: 'Bookings whose payment schedule does not add up to the price before GST (historical exceptions, listed, not repaired)',
     demanded_cgst: 'CGST on raised instalments', demanded_sgst: 'SGST on raised instalments',
     received_cgst: 'CGST stored on the cleared receipts, before approved bank returns', received_sgst: 'SGST stored on the cleared receipts, before approved bank returns',
 };
+// QA-030: the price of a booking against what its payment schedule asks for, before GST. A gap beyond 1 rupee per instalment means the schedule is
+// incomplete or stale (a historical reconciliation exception): it is reported, never repaired here, and it is why contract_balance can be below the real cost.
+function scheduleGap(p) {
+    const rows = p.demands.filter((d) => d.status !== 'cancelled');
+    if (!rows.length)
+        return { gap: 0, exception: false };
+    const gap = (0, report_ledger_js_1.r2)(p.unit_cost - (0, report_ledger_js_1.sum)(rows, (d) => d.base));
+    return { gap, exception: Math.abs(gap) > Math.max(1, rows.length) };
+}
 function financialMeasures(plans, asOn) {
     const day = asOn || plans[0]?.today || null;
     const t = plans.map((p) => (0, report_ledger_js_1.customerTotals)(p));
@@ -45,6 +56,7 @@ function financialMeasures(plans, asOn) {
         due_outstanding: (0, report_ledger_js_1.sum)(td, (x) => x.outstanding),
         overdue: (0, report_ledger_js_1.sum)(plans, (p) => (0, report_ledger_js_1.sum)((0, report_ledger_js_1.overdueOf)(p, day), (o) => o.d.balance)),
         contract_balance: (0, report_ledger_js_1.r2)(agreementIncl - collections),
+        plans_with_schedule_gap: plans.filter((p) => scheduleGap(p).exception).length, // QA-030
         demanded_cgst: (0, report_ledger_js_1.sum)(t, (x) => x.cgst), demanded_sgst: (0, report_ledger_js_1.sum)(t, (x) => x.sgst),
         received_cgst: (0, report_ledger_js_1.sum)(plans, (p) => p.received_cgst), received_sgst: (0, report_ledger_js_1.sum)(plans, (p) => p.received_sgst),
     };

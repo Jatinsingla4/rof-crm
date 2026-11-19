@@ -24,6 +24,7 @@ import { resolveGstForComponents, resolveRate, splitGstAcrossInstalments } from 
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 import { priceQuote } from '../utils/price-quote.js';
+import { billableDemands, headGst } from '../utils/agreement-reconcile.js';
 import { snapshotOn, writeSnapshot, quoteBookingRow } from '../utils/agreement-snapshot.js';
 import { loadLedger } from '../utils/report-ledger.js';
 import { computeInclusiveGstSplit } from '../utils/gst-backward-derive.js';
@@ -1605,6 +1606,8 @@ function amtWords(amount: number): string {
 
 // ── PAGE 1 BUILDER ───────────────────────
 
+export interface HeadRates { basicCgst: number; basicSgst: number; plcCgst: number; plcSgst: number }
+
 function buildApplicantPage1(
   b: any,
   consumer: any,
@@ -1618,6 +1621,7 @@ function buildApplicantPage1(
   otherChargeCgstPct: number = 0,
   otherChargeSgstPct: number = 0,
   demands: any[] = [],
+  headRates?: HeadRates,
 ): string {
 
   // ── derived values ──────────────────────
@@ -1667,11 +1671,15 @@ function buildApplicantPage1(
   const totalConsideration = agreementValue + addonTotal;
   // Split GST: basic+PLC at booking rate, other charges at their own GST rate
   const basicPlusPLC  = basePrice + plcAmount;
-  const activeDemands = demands.filter((d: any) => d.status !== 'cancelled');
+  const activeDemands = billableDemands(b, demands);   // QA-032: a cancelled booking or demand bills nothing, so it feeds no header, schedule or payable figure
   const demandCgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.cgst_amount || 0), 0);
   const demandSgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.sgst_amount || 0), 0);
-  const holisticCgst  = (!isGstExempt && cgstPct > 0) ? Math.round(basicPlusPLC * cgstPct / 100) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount : 0;
-  const holisticSgst  = (!isGstExempt && sgstPct > 0) ? Math.round(basicPlusPLC * sgstPct / 100) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount : 0;
+  // QA-001: BASIC and PLC each at their own mapped rate (the schedule's rule); the booking rate only when no mapping resolved
+  const bCg = isGstExempt ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = isGstExempt ? 0 : (headRates ? headRates.basicSgst : sgstPct);
+  const pCg = isGstExempt ? 0 : (headRates ? headRates.plcCgst : cgstPct),   pSg = isGstExempt ? 0 : (headRates ? headRates.plcSgst : sgstPct);
+  const rateTxt = (b: number, p: number) => (b === p || !(plcAmount > 0)) ? `${b}%` : `Basic ${b}% / PLC ${p}%`;
+  const holisticCgst  = isGstExempt ? 0 : headGst(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
+  const holisticSgst  = isGstExempt ? 0 : headGst(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
   // The GST that the schedule actually bills is the figure shown. A difference from the booking rate is never called rounding unless it is within 1 rupee per instalment
   // (it used to be absorbed up to 1,000 rupees under the name "Rounding", which hid a real rate difference).
   const roundingTol   = Math.max(1, activeDemands.length);
@@ -1834,17 +1842,17 @@ function buildApplicantPage1(
     </tr>`;
   }
 
-  const basicPlusPlcCgst   = Math.round(basicPlusPLC * cgstPct / 100);
-  const basicPlusPlcSgst   = Math.round(basicPlusPLC * sgstPct / 100);
+  const basicPlusPlcCgst   = headGst(basePrice, plcAmount, bCg, pCg);
+  const basicPlusPlcSgst   = headGst(basePrice, plcAmount, bSg, pSg);
   const otherChargeCgstAmt = Math.round(otherCharge * otherChargeCgstPct / 100);
   const otherChargeSgstAmt = Math.round(otherCharge * otherChargeSgstPct / 100);
 
   const taxBreakupBlock = isGstExempt ? '' : `
     <tr><td colspan="2" style="${baseFont}font-weight:700;padding:4px 8px 1px;">Tax Breakup:</td></tr>
     ${taxSubHeaderRow(`Basic Price + PLC (Rs. ${fmtIndianNumber(basicPlusPLC)})`)}
-    ${taxSubRow(`CGST @ ${cgstPct}%`,
+    ${taxSubRow(`CGST @ ${rateTxt(bCg, pCg)}`,
       `<span data-field-key="taxBreakupBasicPlcCgst" data-field-label="Basic+PLC CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcCgst)}</span>`)}
-    ${taxSubRow(`SGST @ ${sgstPct}%`,
+    ${taxSubRow(`SGST @ ${rateTxt(bSg, pSg)}`,
       `<span data-field-key="taxBreakupBasicPlcSgst" data-field-label="Basic+PLC SGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcSgst)}</span>`)}
     ${otherCharge > 0 ? `
     ${taxSubHeaderRow(`Other Charges (Rs. ${fmtIndianNumber(otherCharge)})`)}
@@ -2277,8 +2285,10 @@ function buildApplicantPage2(
   const sectionHd = `style="${baseFont}font-weight:700;font-size:12px;border-bottom:1px solid #000;padding-bottom:2px;margin:14px 0 6px;text-align:center;"`;
 
   // ── demand due date map: installment_index → due_date ──
+  const liveDemands = billableDemands(b, demands);
+  const inauguralDisc = parseFloat(b.company_inaugural_disc || 0);
   const demandDueDateMap: Record<number, string> = {};
-  demands.forEach((d: any) => {
+  liveDemands.forEach((d: any) => {
     if (d.due_date != null && d.installment_index != null) {
       demandDueDateMap[Number(d.installment_index)] = d.due_date;
     }
@@ -2287,7 +2297,7 @@ function buildApplicantPage2(
   // ── demand amount map: installment_index → DB-stored amounts ──
   // Use these instead of recalculating from percentages to avoid JS float rounding gaps
   const demandAmountMap: Record<number, { amt: number; cgst: number; sgst: number; addon: number; addonCgst: number; addonSgst: number }> = {};
-  demands.forEach((d: any) => {
+  liveDemands.forEach((d: any) => {
     if (d.installment_index != null) {
       demandAmountMap[Number(d.installment_index)] = {
         amt:       Number(d.amount_due_inr      || 0),
@@ -2346,7 +2356,7 @@ function buildApplicantPage2(
       const otherInst  = (plcAmount + otherCharge) * pct / 100;
       const dbAmt      = demandAmountMap[t.installment_index];
       // Use DB-stored amounts when available — avoids JS float rounding gap (e.g. 626.45 vs 626.00)
-      const instAmt    = dbAmt ? dbAmt.amt   : Math.round(netBsp + otherInst);
+      const instAmt    = dbAmt ? dbAmt.amt   : Math.round(netBsp + otherInst - inauguralDisc * pct / 100 + (t.flat_amount_inr ? 0 : balconyChargeAmount * pct / 100));   // QA-005: with no demand row the rows must still add up to the agreement value (discount off the price, balcony on), as the saved schedule does; GST below stays on the full price
       const addonInst  = dbAmt ? dbAmt.addon : 0;
       // Remainder-derived so netBsp + balconyInst + otherInst + addonInst
       // reconciles to instAmt exactly -- but some already-paid legacy demand
@@ -2979,11 +2989,12 @@ export async function buildApplicantFileHtml(
   otherChargeCgstPct: number = 0,
   otherChargeSgstPct: number = 0,
   consumerId: string = '',
+  headRates?: HeadRates,
 ): Promise<string> {
   // One interest figure for the whole file: the total of the interest table (page 2), not the old value stored on the booking row
   const interestTotal = Math.round(interestCalcRows.reduce((a: number, r: any) => a + (parseFloat(r.interest_amount) || 0), 0));
   if (interestCalcRows.length) b = { ...b, interest_amount: interestTotal };
-  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands);
+  const page1 = buildApplicantPage1(b, consumer, coApplicants, settings, allocation, parkingSlots, addonCharges, receiptRows, totalWaivedInr, otherChargeCgstPct, otherChargeSgstPct, demands, headRates);
   const page2 = buildApplicantPage2(b, consumer, scheduleTemplates, settings, receiptRows, demands, interestCalcRows, otherChargeCgstPct, otherChargeSgstPct);
   const page3 = await buildApplicantPage3(b, consumer, settings, documentDispatches, consumerId);
 

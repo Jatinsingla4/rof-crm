@@ -109,7 +109,7 @@ export interface ScheduleInput {
   manualNri?: boolean;
   rates: Record<string, { cgstPct: number; sgstPct: number }>;  // percent units, per charge type
   basePrice?: number;           // file: Math.round(rate x carpet), before discount
-  fileCgstPct?: number; fileSgstPct?: number;
+  fileCgstPct?: number; fileSgstPct?: number; fileDiscount?: number;
   demandRows?: Record<number, { amt: number; cgst: number; sgst: number; addon?: number; addonCgst?: number; addonSgst?: number }>;
 }
 const rateDb = (rates: ScheduleInput['rates']) => ({
@@ -166,12 +166,13 @@ export async function manualSchedule(s: ScheduleInput) {
 export function fileSchedule(s: ScheduleInput) {
   const basePrice = s.basePrice ?? s.basicCost;
   const cgstPct = s.fileCgstPct ?? 0, sgstPct = s.fileSgstPct ?? 0;
+  const inauguralDisc = s.fileDiscount ?? (basePrice + s.plc + s.other + s.balconyCharge - s.totalAmount), balconyChargeAmount = s.balconyCharge;
   return s.templates.map((t) => {
     const pct = t.percentage || 0;
     const netBsp = basePrice * pct / 100;
     const otherInst = (s.plc + s.other) * pct / 100;
     const dbAmt = s.demandRows?.[(t as any).installment_index];
-    const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst);
+    const instAmt = dbAmt ? dbAmt.amt : Math.round(netBsp + otherInst - inauguralDisc * pct / 100 + (t.flat_amount_inr ? 0 : balconyChargeAmount * pct / 100));   // QA-005
     const addonInst = dbAmt ? (dbAmt.addon || 0) : 0;
     const independentBalcony = t.flat_amount_inr ? 0 : Math.round(s.balconyCharge * pct / 100);
     const remainderBalcony = t.flat_amount_inr ? 0 : Math.max(0, instAmt - netBsp - otherInst - addonInst);
