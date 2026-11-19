@@ -19,9 +19,19 @@ export const MEASURE_DEFINITIONS: Record<string, string> = {
   due_outstanding: 'billed_outstanding on instalments due on or before the day (what the dashboard calls outstanding)',
   overdue: 'Raised instalments due before the day and still unpaid',
   contract_balance: 'agreement_value_incl_gst less valid_collections (not the same as outstanding)',
+  plans_with_schedule_gap: 'Bookings whose payment schedule does not add up to the price before GST (historical exceptions, listed, not repaired)',
   demanded_cgst: 'CGST on raised instalments', demanded_sgst: 'SGST on raised instalments',
   received_cgst: 'CGST stored on the cleared receipts, before approved bank returns', received_sgst: 'SGST stored on the cleared receipts, before approved bank returns',
 };
+
+// QA-030: the price of a booking against what its payment schedule asks for, before GST. A gap beyond 1 rupee per instalment means the schedule is
+// incomplete or stale (a historical reconciliation exception): it is reported, never repaired here, and it is why contract_balance can be below the real cost.
+export function scheduleGap(p: LedgerPlan) {
+  const rows = p.demands.filter((d) => d.status !== 'cancelled');
+  if (!rows.length) return { gap: 0, exception: false };
+  const gap = r2(p.unit_cost - sum(rows, (d) => d.base));
+  return { gap, exception: Math.abs(gap) > Math.max(1, rows.length) };
+}
 
 export function financialMeasures(plans: LedgerPlan[], asOn?: string | null) {
   const day = asOn || plans[0]?.today || null;
@@ -43,6 +53,7 @@ export function financialMeasures(plans: LedgerPlan[], asOn?: string | null) {
     due_outstanding: sum(td, (x) => x.outstanding),
     overdue: sum(plans, (p) => sum(overdueOf(p, day), (o) => o.d.balance)),
     contract_balance: r2(agreementIncl - collections),
+    plans_with_schedule_gap: plans.filter((p) => scheduleGap(p).exception).length,   // QA-030
     demanded_cgst: sum(t, (x) => x.cgst), demanded_sgst: sum(t, (x) => x.sgst),
     received_cgst: sum(plans, (p) => p.received_cgst), received_sgst: sum(plans, (p) => p.received_sgst),
   };

@@ -6,6 +6,7 @@
  * Project scope applies (a user sees only the projects given to them).
  */
 Object.defineProperty(exports, "__esModule", { value: true });
+const booking_state_js_1 = require("../utils/booking-state.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const input_js_1 = require("../utils/input.js");
@@ -18,7 +19,7 @@ const RAISED = `(d.status IN ('demanded','raised') OR (d.status = 'partial' AND 
 const LIVE_RECEIPT = `r.status NOT IN ('cancelled','bounced')`;
 const GROSS = `(d.amount_due_inr + COALESCE(d.cgst_amount,0) + COALESCE(d.sgst_amount,0) + COALESCE(d.addon_charge_amount,0) + COALESCE(d.addon_cgst_amount,0) + COALESCE(d.addon_sgst_amount,0))`;
 const SALE = `br.status IN ('complete','pending_payment','active')`; // the same rule the reports use for a sale
-const CHEQUE = `r.payment_method::text IN ('cheque','bank_transfer')`;
+const CHEQUE = `r.payment_method::text = 'cheque'`; // QA-015: a bank transfer is not a cheque waiting for the bank
 // What a Daily Status number counts, written once: the card sums these and the list behind a number shows these rows.
 const SALE_DAY = `COALESCE(br.booking_date, (br.created_at AT TIME ZONE 'Asia/Kolkata')::date)`;
 const COLLECTED = `r.status = 'cleared' AND r.is_advance IS NOT TRUE`; // D-COLLECTED: cleared money counts, surrendered units and plan-less receipts included, approved returns deducted in the sums
@@ -36,7 +37,7 @@ const panels = {
            COALESCE(SUM(r.amount_received_inr) FILTER (WHERE r.payment_method::text = 'demand_draft'), 0)::float AS pdc_amount
       FROM projects p
       JOIN payment_plans pp ON pp.project_id = p.id
-      JOIN receipts r ON r.payment_plan_id = pp.id AND ${IN_FLIGHT}
+      JOIN receipts r ON r.payment_plan_id = pp.id AND ${IN_FLIGHT} AND NOT ${(0, booking_state_js_1.cancelledPlanSql)('pp')}   -- QA-015: an instrument of a cancelled booking is settled by refund, not waiting for the bank
      GROUP BY p.id, p.name ORDER BY p.name`),
     // raised demands per project: letters sent and not sent for instalment 1, 2, 3 and 4+, and what is overdue
     // O/S is the dues reports' number: what is still unpaid on raised demands due up to today (India), after the cleared receipts are spread over them (same ledger as Project-wise Dues)
@@ -69,14 +70,14 @@ const panels = {
     pendingApproval: async () => {
         const rows = await index_js_1.db.query(`
       SELECT r.id, r.amount_received_inr, r.payment_method, r.received_date, r.received_date AS payment_date, r.transaction_ref AS reference_number, r.status,
-             c.name AS consumer_name, c.mobile, p.name AS project_name, u.unit_number
+             c.name AS consumer_name, c.mobile, p.name AS project_name, u.unit_number, COALESCE(${(0, booking_state_js_1.cancelledPlanSql)('pp')}, false) AS booking_cancelled
         FROM receipts r
         JOIN consumers c ON c.id = r.consumer_id
         LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id
         LEFT JOIN projects p ON p.id = pp.project_id
         LEFT JOIN units u ON u.id = pp.unit_id
-       WHERE r.status = 'pending' ORDER BY r.received_date DESC, r.created_at DESC, r.id LIMIT 50`);
-        const n = (await index_js_1.db.query(`SELECT COUNT(*)::int AS n FROM receipts WHERE status = 'pending'`)).rows[0].n;
+       WHERE r.status = 'pending' AND r.is_advance IS NOT TRUE ORDER BY r.received_date DESC, r.created_at DESC, r.id LIMIT 50`); // QA-014: the Receipt List hides the advance copy of an overpayment, so the queue must too (it is the same cash)
+        const n = (await index_js_1.db.query(`SELECT COUNT(*)::int AS n FROM receipts WHERE status = 'pending' AND is_advance IS NOT TRUE`)).rows[0].n;
         return { rows: rows.rows, count: n };
     },
     // sales (live bookings) and collection (cleared receipts) per project: today, this month, in all. Two separate sums, so a booking is never counted once per receipt.

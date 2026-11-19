@@ -442,12 +442,14 @@ router.get('/towers', async (req: AuthRequest, res: Response, next: NextFunction
     const g = grantSql(req, 'un.status', tp);
     // only towers that hold a unit the grant covers (none: an empty selector)
     const result = await db.query(
-      `SELECT id, tower_name, tower_name AS name, project_id FROM towers
-       WHERE deleted_at IS NULL ${projectId ? 'AND project_id = $1' : ''}
-       ${g ? `AND EXISTS (SELECT 1 FROM units un WHERE un.tower_id = towers.id${g})` : ''} ORDER BY sort_order, tower_name`,
+      `SELECT towers.id, ${projectId ? 'towers.tower_name' : `CASE WHEN EXISTS (SELECT 1 FROM towers t2 WHERE t2.tower_name = towers.tower_name AND t2.id <> towers.id AND t2.deleted_at IS NULL)
+                                         THEN towers.tower_name || ' (' || pj.name || ')' ELSE towers.tower_name END`} AS tower_name, towers.tower_name AS plain_name, towers.project_id   -- QA-023: with no project chosen, a name shared by two projects carries its project
+         FROM towers JOIN projects pj ON pj.id = towers.project_id
+       WHERE towers.deleted_at IS NULL ${projectId ? 'AND towers.project_id = $1' : ''}
+       ${g ? `AND EXISTS (SELECT 1 FROM units un WHERE un.tower_id = towers.id${g})` : ''} ORDER BY towers.sort_order, towers.tower_name`,
       tp
     );
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows.map((r: any) => ({ ...r, name: r.tower_name })) });
   } catch (err) { fail(err, res, next); }
 });
 

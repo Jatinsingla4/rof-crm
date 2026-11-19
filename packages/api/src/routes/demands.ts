@@ -2,10 +2,11 @@
  * Demand routes (mounted at /api/payments): create the demand rows of a payment plan, raise / unraise them,
  * mark them sent, and the list / stage / status views. Every id and filter is checked before it reaches SQL.
  */
+import { planIsCancelled } from '../utils/booking-state.js';
 import { Router, Response, NextFunction } from 'express';
 import { db, AuthRequest } from '../index.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand } from '../utils/payment-waterfall.js';
-import { recomputePlan, returnedSql } from '../utils/money-basis.js';
+import { recomputePlan, returnedSql, paidByDemand, loadAllocations } from '../utils/money-basis.js';
 import { resolveGstForComponents } from '../utils/gst-resolver.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { pgErrorHandler } from '../middleware/pg-errors.js';
@@ -253,7 +254,7 @@ router.get('/demands', async (req: AuthRequest, res: Response, next: NextFunctio
       const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
       const [rc, dm] = await Promise.all([
         db.query(`SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
-                   WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
+                   WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [consumerId, unitId]),
         db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan}`, [consumerId, unitId]),
       ]);
@@ -300,6 +301,7 @@ router.patch('/demands/activate', async (req: AuthRequest, res: Response, next: 
         // A demand is raised once raised_at is set. One that is only due by its date (D1) or part covered by cleared money (partial) can still be raised.
         if ((d.status === 'demanded' || d.status === 'raised' || d.status === 'partial') && d.raised_at) { skippedIds.push({ id: d.id, reason: 'Already raised' }); continue; }
         if (d.status === 'paid') { skippedIds.push({ id: d.id, reason: 'Already paid' }); continue; }
+        if (await planIsCancelled(c, d.payment_plan_id)) { skippedIds.push({ id: d.id, reason: 'Booking is cancelled' }); continue; }   // QA-012
         if (!['pending', 'demanded', 'partial'].includes(d.status)) { skippedIds.push({ id: d.id, reason: `Demand is ${d.status}` }); continue; }
         if (d.installment_index > 0) {
           const prior = await c.query(
@@ -468,12 +470,15 @@ router.get('/demand-status', async (req: AuthRequest, res: Response, next: NextF
       const plan = `(SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1)`;
       const [rc, dm] = await Promise.all([
         db.query(`SELECT id, amount_received_inr - ${returnedSql('receipts')} AS amount_received_inr, demand_id, installment_index, status, is_advance, received_date, created_at FROM receipts
-                   WHERE consumer_id = $1 AND status = 'cleared' AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
+                   WHERE consumer_id = $1 AND status = 'cleared' AND is_advance IS NOT TRUE AND payment_plan_id = ${plan} ORDER BY received_date ASC, created_at ASC`, [r.consumer_id, r.unit_id]),
         db.query(`SELECT id, installment_index, amount_due_inr, cgst_amount, sgst_amount, addon_charge_amount, addon_cgst_amount, addon_sgst_amount
                     FROM demands WHERE consumer_id = $1 AND payment_plan_id = ${plan} AND status <> 'cancelled'`, [r.consumer_id, r.unit_id]),
       ]);
       const due = (dm.rows as any[]).reduce((t, d) => t + ['amount_due_inr', 'cgst_amount', 'sgst_amount', 'addon_charge_amount', 'addon_cgst_amount', 'addon_sgst_amount'].reduce((x, k) => x + Number(d[k] || 0), 0), 0);
-      const paid = applyWaterfall(rc.rows as WaterfallReceipt[], dm.rows as WaterfallDemand[]).reduce((t, w) => t + w.paid, 0);
+      // QA-033: the same money rule as the ledger and the recompute (cleared, not the synthetic advance copy of an overpayment, plus approved credit allocations)
+      const planRow = (await db.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1`, [r.consumer_id, r.unit_id])).rows[0];
+      const al = planRow ? await loadAllocations(db, planRow.id) : new Map<string, number>();
+      const paid = [...paidByDemand(rc.rows as any[], al, dm.rows as any[]).values()].reduce((t, v) => t + v, 0);
       r.paid_amount = Math.round(paid * 100) / 100;
       r.balance_amount = Math.max(0, Math.round((due - paid) * 100) / 100);
       r.unadjusted_credit = Math.max(0, Math.round(((rc.rows as any[]).reduce((t, x) => t + Number(x.amount_received_inr), 0) - paid) * 100) / 100);

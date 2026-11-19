@@ -127,7 +127,9 @@ router.get('/commission', async (req: AuthRequest, res: Response, next: NextFunc
               bc.project_id, p.name AS project_name, bc.unit_id, u.unit_number,
               bc.commission_amount_inr, bc.gst_amount, bc.tds_amount, bc.net_amount_inr, bc.status, bc.paid_at, bc.created_at, bc.notes,
               bk.booking_amount, bk.status AS booking_status, bk.registration_no,
-              bk.broker_commission AS commission_value, bk.broker_commission_type AS commission_type
+              bk.broker_commission AS commission_value, bk.broker_commission_type AS commission_type,
+              -- QA-009: the status is what finance recorded; this is what backs it. Cleared money of the booking against its booking amount (read only, nothing is reversed)
+              cl.cleared AS cleared_money_inr, (cl.cleared + 0.005 >= GREATEST(COALESCE(bk.booking_amount, 0), 0.01)) AS cleared_basis_ok
          FROM broker_commissions bc
          LEFT JOIN brokers b ON bc.broker_id = b.id
          LEFT JOIN consumers c ON bc.consumer_id = c.id
@@ -135,6 +137,7 @@ router.get('/commission', async (req: AuthRequest, res: Response, next: NextFunc
          LEFT JOIN units u ON bc.unit_id = u.id
          LEFT JOIN LATERAL (SELECT booking_amount, status, registration_no, broker_commission, broker_commission_type FROM booking_records
                              WHERE id = bc.booking_id) bk ON true
+         LEFT JOIN LATERAL (SELECT ${eligibleSum('r')} AS cleared FROM receipts r WHERE r.consumer_id = bc.consumer_id) cl ON true
         WHERE 1=1 ${w}
         ORDER BY bc.created_at DESC, bc.id LIMIT ${size} OFFSET ${offset}`, params)).rows;
     // totals over the whole filter, not just this page (a cancelled commission is not owed)

@@ -190,7 +190,7 @@ const ConsumersPage = {
             <th>First Applicant</th>
             <th>Second Applicant</th>
             <th>Unit Type</th>
-            <th>Unit Area</th>
+            <th title="Super area of the unit, in sq ft">Super Area (sq ft)</th>
             <th>Tower Name</th>
             <th>Unit Address</th>
             <th>Broker Company Name</th>

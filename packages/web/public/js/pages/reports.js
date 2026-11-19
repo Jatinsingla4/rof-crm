@@ -1098,6 +1098,7 @@ const ReportsPage = {
         Cheque:           parseFloat(r.cheque_amount  || 0),
         Draft:            parseFloat(r.draft_amount   || 0),
         Online:           parseFloat(r.online_amount  || 0),
+        Cash:             parseFloat(r.cash_amount    || 0),
         'Total Amount':   parseFloat(r.total_amount   || 0),
         Normal:           parseInt(r.normal_count     || 0),
         Cancel:           parseInt(r.cancel_count     || 0),
@@ -1120,6 +1121,7 @@ const ReportsPage = {
           <td style="${amtStyle}">${fmtA(r.cheque_amount)}</td>
           <td style="${amtStyle}">${fmtA(r.draft_amount)}</td>
           <td style="${amtStyle}">${fmtA(r.online_amount)}</td>
+          <td style="${amtStyle}">${fmtA(r.cash_amount)}</td>
           <td style="${amtStyle}">${fmtA(r.total_amount)}</td>
           <td style="${cntStyle}">${fmtN(r.normal_count)}</td>
           <td style="${cntStyle}">${fmtN(r.cancel_count)}</td>
@@ -1149,6 +1151,7 @@ const ReportsPage = {
         <td style="${amtStyle}">${fmtA(tot.cheque_amount)}</td>
         <td style="${amtStyle}">${fmtA(tot.draft_amount)}</td>
         <td style="${amtStyle}">${fmtA(tot.online_amount)}</td>
+        <td style="${amtStyle}">${fmtA(tot.cash_amount)}</td>
         <td style="${amtStyle}">${fmtA(tot.total_amount)}</td>
         <td style="${cntStyle}">${fmtN(tot.normal_count)}</td>
         <td style="${cntStyle}">${fmtN(tot.cancel_count)}</td>
@@ -1167,7 +1170,7 @@ const ReportsPage = {
               <tr>
                 <th rowspan="2" style="${thS}">SR.NO</th>
                 <th rowspan="2" style="${thS}">PROJECT</th>
-                <th colspan="4" style="${thS}">HEAD</th>
+                <th colspan="5" style="${thS}">HEAD</th>
                 <th colspan="4" style="${thS}">NO OF RECEIPT</th>
                 <th colspan="2" style="${thS}">REFUND</th>
                 <th rowspan="2" style="${thS}">TOTAL COLLECTION</th>
@@ -1176,6 +1179,7 @@ const ReportsPage = {
                 <th style="${thS}">CHEQUE</th>
                 <th style="${thS}">DRAFT</th>
                 <th style="${thS}">ONLINE</th>
+                <th style="${thS}">CASH</th>
                 <th style="${thS}">TOTAL AMOUNT</th>
                 <th style="${thS}">NORMAL</th>
                 <th style="${thS}">CANCEL</th>
@@ -1311,7 +1315,8 @@ const ReportsPage = {
         { label: 'TOTAL CONSUMERS',  value: parseInt(summ.totalConsumers || 0).toLocaleString('en-IN'), color: 'var(--accent)' },
         { label: 'TOTAL UNIT COST',  value: fmtA(summ.totalUnitCost),  color: 'var(--accent)' },
         { label: 'CLEARED RECEIVED (live bookings in these rows)', value: fmtA(summ.totalReceived),  color: '#198754' },
-        ...(summ.receivedNotInRows != null && Math.abs(summ.receivedNotInRows) >= 0.01 ? [{ label: 'CLEARED, NOT IN THESE ROWS (cancelled booking or no plan)', value: fmtA(summ.receivedNotInRows), color: '#b8860b' }] : []),
+        ...[['CLEARED ON CANCELLED BOOKINGS (settled by refund)', summ.receivedCancelled], ['CLEARED WITH NO PLAN (credit, no booking)', summ.receivedNoPlan], ['CLEARED, OTHER (not in these rows)', summ.receivedOther]]
+          .filter(([, v]) => v != null && Math.abs(v) >= 0.01).map(([label, v]) => ({ label, value: fmtA(v), color: '#b8860b' })),
         { label: 'BILLED BALANCE (demanded - cleared)',    value: fmtA(summ.totalBalance),   color: parseFloat(summ.totalBalance||0) > 0 ? '#dc3545' : '#198754' },
       ]);
       const kpiEl = document.getElementById('rpt-kpis');
@@ -1577,7 +1582,7 @@ const ReportsPage = {
       </tr>`;
 
       // Build header row 2
-      const custHdrs = ['REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','AREA','AGREEMENT DATE','BROKER','PAYMENT PLAN','LOAN','MOBILE NO.','EMAIL','NET BSP','UNIT COST'];
+      const custHdrs = ['REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','CARPET AREA (SQ FT)','AGREEMENT DATE','BROKER','PAYMENT PLAN','LOAN','MOBILE NO.','EMAIL','NET BSP','UNIT COST'];
       const duesHdrsWT  = ['DATE','AMOUNT','S.TAX','CGST','SGST','ITC','TOTAL DUE'];
       const duesHdrsNT  = ['DATE','AMOUNT','TOTAL DUE'];
       const rcvdHdrsWT  = ['PENDING','CLEAR','S.TAX','CGST','SGST','ITC','TOTAL'];
@@ -1915,9 +1920,9 @@ const ReportsPage = {
     const fmtA = v => parseFloat(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
     const fmtD = v => v ? String(v).slice(0,10) : '—';
 
-    const cols = ['S.NO','REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','AREA','BROKER','PAYMENT PLAN','LOAN','RATE',
+    const cols = ['S.NO','REG. NO.','BOOKING DATE','NAME','TOWER','UNIT NO.','UNIT TYPE','CARPET AREA (SQ FT)','BROKER','PAYMENT PLAN','LOAN','RATE',
       'A (' + ({net_basic_price:'Net Basic Price',basic_with_plc:'Basic With PLC',total_unit_cost:'Total Unit Cost',due_amount:'Due Amount',due_amount_with_tax:'Due Amount With Tax'})[tab] + ')',
-      'DUE AMOUNT AS ON DATE (B)','DUE AMOUNT % (C)','10% DUE','PENDING (not deducted)','CLEARED','TOTAL PENDING + CLEARED (D)','% CLEARED (E)','BALANCE (F) = A - CLEARED','AS ON DATE (G) = B - CLEARED'];
+      'DUE AMOUNT AS ON DATE (B)','DUE AMOUNT % (C)','10% DUE','PENDING (not deducted)','CLEARED','TOTAL PENDING + CLEARED (D)','% CLEARED (E)','BALANCE (F) = A - CLEARED' + (tab === 'due_amount_with_tax' ? '' : ' (without GST)'),'AS ON DATE (G) = B - CLEARED'];
 
     const bodyRows = rows.map((r, i) => {
       const A = parseFloat(r[tab] || 0);
@@ -1927,8 +1932,10 @@ const ReportsPage = {
       const clear   = parseFloat(r.received_clear   || 0);
       const D = parseFloat(r.received_total || 0);
       // Only CLEARED money reduces what is due. A pending cheque or transfer is shown in its own column and in the total (D), but never deducted.
-      const E = A > 0 ? (clear * 100 / A) : 0;
-      const F = A - clear;
+      // QA-034: A is without GST on every tab except Due Amount With Tax, so it is reduced by the cleared money without GST; with-GST A is reduced by the full cleared money
+      const clearOnA = tab === 'due_amount_with_tax' ? clear : parseFloat(r.received_clear_ex_gst ?? clear);
+      const E = A > 0 ? (clearOnA * 100 / A) : 0;
+      const F = A - clearOnA;
       const G = B - clear;
       return `<tr>
         <td>${i+1}</td>
@@ -1951,7 +1958,7 @@ const ReportsPage = {
         <td style="text-align:right;color:#198754">${fmtA(clear)}</td>
         <td style="text-align:right;font-weight:600">${fmtA(D)}</td>
         <td style="text-align:right">${E.toFixed(2)}%</td>
-        <td style="text-align:right">${fmtA(F)}</td>
+        <td style="text-align:right">${fmtA(F)}${r.schedule_exception ? `<div style="font-size:10px;color:#b45309" title="The payment schedule does not add up to the price before GST. Historical exception, needs finance review.">Schedule gap ${fmtA(r.schedule_gap_excl_gst)}</div>` : ''}</td>
         <td style="text-align:right">${fmtA(G)}</td>
       </tr>`;
     });

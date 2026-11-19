@@ -109,10 +109,10 @@ Pages.consumerDetail = async function(params = {}) {
             </div>
 
             <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
-              <button class="btn btn-teal btn-sm" onclick="Router.navigate('/receipts',{consumerId:'${id}'})">New Receipt</button>
-              <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/demand-raise',{consumerId:'${id}'})">Raise Demand</button>
+              <button class="btn btn-teal btn-sm"${c.booking_cancelled ? ' disabled title="This booking is cancelled"' : ''}  onclick="Router.navigate('/receipts',{consumerId:'${id}'})">New Receipt</button>
+              <button class="btn btn-ghost btn-sm"${c.booking_cancelled ? ' disabled title="This booking is cancelled"' : ''}  onclick="Router.navigate('/demand-raise',{consumerId:'${id}'})">Raise Demand</button>
               <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/documents',{consumerId:'${id}'})">Generate Letter</button>
-              <button class="btn btn-ghost btn-sm" onclick="Router.navigate('/allotment',{tab:'shifting',consumerId:'${id}'})">Unit Shift</button>
+              <button class="btn btn-ghost btn-sm"${c.booking_cancelled ? ' disabled title="This booking is cancelled"' : ''}  onclick="Router.navigate('/allotment',{tab:'shifting',consumerId:'${id}'})">Unit Shift</button>
             </div>
           </div>
           <div class="card">
@@ -165,7 +165,7 @@ Pages.consumerDetail = async function(params = {}) {
           <div class="tbl-hdr">
             <div class="tbl-title">Receipt History</div>
             <div class="tbl-actions">
-              <button class="btn btn-teal btn-sm" onclick="Router.navigate('/receipts',{consumerId:'${id}'})">New Receipt</button>
+              <button class="btn btn-teal btn-sm"${c.booking_cancelled ? ' disabled title="This booking is cancelled"' : ''}  onclick="Router.navigate('/receipts',{consumerId:'${id}'})">New Receipt</button>
             </div>
           </div>
           <div id="receipts-tbl-${id}"><div class="page-loading"><div class="spinner"></div></div></div>

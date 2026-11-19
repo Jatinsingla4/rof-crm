@@ -220,7 +220,10 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
     } else if (has(b.gstRate)) {
       const g = rate(b.gstRate, 'gstRate');
       [cgstRate, sgstRate, igstRate] = supply === 'interstate' ? [0, 0, g] : [r2(g / 2), r2(g / 2), 0];
-    } else { cgstRate = 9; sgstRate = 9; igstRate = 0; }
+    } else if (!receiptId) {
+      // QA-003: no rate is assumed. An 18% default once went on invoices that nobody had rated; a receipt invoice takes its tax from the receipt itself (below)
+      throw bad('Give the GST rate (gstRate, or cgstRate and sgstRate). No default rate is assumed.');
+    } else { cgstRate = 0; sgstRate = 0; igstRate = 0; }
     let cgst = r2(base * cgstRate / 100), sgst = r2(base * sgstRate / 100), igst = r2(base * igstRate / 100);
 
     const row = await inTx(async (c) => {
@@ -229,6 +232,9 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
       const projectId = projectArg || al?.project_id;
       if (!projectId) throw bad('This applicant has no unit yet, send projectId');
       if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length) throw bad('Project not found', 404);
+      // QA-003: an invoice needs the seller's GSTIN and a financial year that holds its date. Neither is invented here: finance configures them (effective-dated) in Set Master.
+      if (!(await c.query(`SELECT 1 FROM project_gstin WHERE project_id = $1 AND is_active IS NOT FALSE LIMIT 1`, [projectId])).rows.length) throw bad('This project has no GSTIN configured. Add it in Set Master, GST Configuration, before making an invoice.', 409);
+      if (!(await c.query(`SELECT 1 FROM financial_years WHERE from_date <= $1::date AND to_date >= $1::date AND is_active IS NOT FALSE LIMIT 1`, [invoiceDate])).rows.length) throw bad(`No financial year is configured for ${invoiceDate}. Add it in Set Master before making an invoice for that date.`, 409);
       if (receiptId) {
         const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
         if (!rc || rc.consumer_id !== consumerId) throw bad('That receipt does not belong to this applicant', 400);
@@ -250,6 +256,13 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
         const pct = (x: number) => base > 0 ? Math.round(x / base * 10000) / 100 : 0;
         cgstRate = pct(cgst); sgstRate = pct(sgst); igstRate = pct(igst);
         if ((await c.query(`SELECT 1 FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled'`, [receiptId])).rows.length) throw bad('An invoice was already generated for this receipt', 409);
+      } else {
+        // QA-004: an invoice not tied to a receipt cannot tax more than the applicant's live booking is worth, counting what is already invoiced (a 30 crore invoice was once accepted)
+        const bk = Number((await c.query(`SELECT COALESCE(MAX(total_price_inr), 0) AS v FROM booking_records WHERE consumer_id = $1 AND status <> 'cancelled'`, [consumerId])).rows[0].v);
+        if (bk > 0) {
+          const done = Number((await c.query(`SELECT COALESCE(SUM(taxable_amount_inr), 0) AS v FROM gst_invoices WHERE consumer_id = $1 AND status <> 'cancelled'`, [consumerId])).rows[0].v);
+          if (done + base > bk) throw bad(`The taxable amount (₹${base.toLocaleString('en-IN')}) plus what is already invoiced (₹${done.toLocaleString('en-IN')}) is more than the booking value (₹${bk.toLocaleString('en-IN')}).`, 400);
+        }
       }
       const invoiceNo = await nextNumber(c, 'gst_invoices', 'invoice_no', 'INV', 5);
       return (await c.query(
@@ -336,6 +349,16 @@ ${row('Taxable amount', '&#8377; ' + m(r.base_amount))}${r.cgst_amount ? row(`CG
 <p style="margin-top:20px"><button onclick="window.print()">Print</button></p></body></html>`);
   } catch (error) { fail(error, res, next); }
 };
+// QA-002: live invoices whose receipt is cancelled or bounced. Read only. Finance cancels each one through the checker route (which issues the credit note); nothing is cancelled here.
+router.get('/gst-invoices/exceptions', financeOnly, async (_req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const r = await db.query(
+      `SELECT gi.invoice_no AS invoice_number, gi.invoice_date, gi.taxable_amount_inr::float8 AS taxable, gi.total_amount_inr::float8 AS total, r.receipt_number, r.status AS receipt_status
+         FROM gst_invoices gi JOIN receipts r ON r.id = gi.receipt_id
+        WHERE gi.status <> 'cancelled' AND r.status IN ('cancelled', 'bounced') ORDER BY gi.invoice_date, gi.invoice_no`);
+    res.json({ success: true, data: r.rows, count: r.rows.length });
+  } catch (error) { fail(error, res, next); }
+});
 router.get('/gst-invoices/:id/html', requirePrint, invoicePage);
 router.get('/gst-invoices/:id/pdf', requirePrintAndDownload, invoicePage);
 

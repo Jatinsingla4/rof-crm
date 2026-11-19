@@ -68,11 +68,12 @@ Pages.gstInvoicing = async function(params = {}) {
                 <option value="other">Other State (Interstate)</option>
               </select>
             </div>
-            <div class="fg"><label class="fl">Default GST Rate</label>
+            <div class="fg"><label class="fl">GST Rate (no default is assumed)</label>
               <select class="fc" id="gst-default-rate" onchange="GSTPage.updateRatePreview()">
-                <option value="5" selected>5% — Affordable Housing (AHP/EWS/LIG/MIG)</option>
-                <option value="12">12% — Regular Residential</option>
-                <option value="18">18% — Commercial / Services</option>
+                <option value="" selected disabled>Select rate</option>
+                <option value="5">5%</option>
+                <option value="12">12%</option>
+                <option value="18">18%</option>
               </select>
             </div>
             <div class="fg"><label class="fl">Invoice Prefix</label>
@@ -131,7 +132,7 @@ Pages.gstInvoicing = async function(params = {}) {
             </div>
             <div class="fg"><label class="fl">GST Rate</label>
               <select class="fc" id="gst-gen-rate" onchange="GSTPage.calcInvoice('gen')">
-                <option value="5" selected>5% (AHP)</option>
+                <option value="" selected disabled>Select rate</option><option value="5">5%</option>
                 <option value="12">12%</option>
                 <option value="18">18%</option>
               </select>
@@ -179,7 +180,7 @@ Pages.gstInvoicing = async function(params = {}) {
             </div>
             <div class="fg"><label class="fl">GST Rate</label>
               <select class="fc" id="gst-man-rate" onchange="GSTPage.calcInvoice('man')">
-                <option value="5" selected>5% (AHP)</option>
+                <option value="" selected disabled>Select rate</option><option value="5">5%</option>
                 <option value="12">12%</option>
                 <option value="18">18%</option>
               </select>
@@ -291,7 +292,7 @@ Pages.gstInvoicing = async function(params = {}) {
             </div>
             <div class="fg"><label class="fl">GST Rate</label>
               <select class="fc" id="gst-adv-rate" onchange="GSTPage.calcInvoice('adv')">
-                <option value="5" selected>5% (AHP)</option>
+                <option value="" selected disabled>Select rate</option><option value="5">5%</option>
                 <option value="18">18%</option>
               </select>
             </div>
@@ -334,7 +335,7 @@ Pages.gstInvoicing = async function(params = {}) {
             </div>
             <div class="fg"><label class="fl">GST Rate</label>
               <select class="fc" id="gst-cdn-rate" onchange="GSTPage.calcInvoice('cdn')">
-                <option value="5" selected>5%</option>
+                <option value="" selected disabled>Select rate</option><option value="5">5%</option>
                 <option value="12">12%</option>
                 <option value="18">18%</option>
               </select>
@@ -476,12 +477,12 @@ const GSTPage = {
       const live = list.filter(i => i.status !== 'cancelled'); // a cancelled invoice is not turnover
       const totalBase = live.reduce((s,i) => s + parseFloat(i.base_amount||i.baseAmount||i.amount||0), 0);
       const totalGst  = live.reduce((s,i) => s + parseFloat(i.gst_amount||i.gstAmount||0), 0);
-      const active    = list.filter(i => (i.status||'active') === 'active').length;
+      const active    = list.filter(i => i.status !== 'cancelled').length;   // a generated or pending invoice is live; only a cancelled one is not
       const cancelled = list.filter(i => i.status === 'cancelled').length;
 
       const kpis = document.getElementById('gst-kpis');
       if (kpis) kpis.innerHTML = `
-        <div class="kpi c-accent"><div class="kpi-lbl">Total Invoices</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">${active} active · ${cancelled} cancelled</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Live Invoices</div><div class="kpi-val">${active}</div><div class="kpi-sub">live, all periods · ${cancelled} cancelled</div></div>
         <div class="kpi c-teal"><div class="kpi-lbl">Taxable Amount</div><div class="kpi-val">${Utils.currency(totalBase)}</div><div class="kpi-sub">Base value</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">GST Collected</div><div class="kpi-val">${Utils.currency(totalGst)}</div><div class="kpi-sub">CGST: ${Utils.currency(totalGst/2)} + SGST: ${Utils.currency(totalGst/2)}</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">Total (incl. GST)</div><div class="kpi-val">${Utils.currency(totalBase+totalGst)}</div><div class="kpi-sub">Gross turnover</div></div>
@@ -490,7 +491,7 @@ const GSTPage = {
     } catch {
       const kpis = document.getElementById('gst-kpis');
       if (kpis) kpis.innerHTML = `
-        <div class="kpi c-accent"><div class="kpi-lbl">Total Invoices</div><div class="kpi-val">—</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Live Invoices</div><div class="kpi-val">—</div></div>
         <div class="kpi c-teal"><div class="kpi-lbl">Taxable Amount</div><div class="kpi-val">—</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">GST Collected</div><div class="kpi-val">—</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">Total</div><div class="kpi-val">—</div></div>
@@ -611,7 +612,8 @@ const GSTPage = {
 
     if (!(baseAmount > 0)) { Utils.warn('Please enter the taxable amount'); return; }
 
-    const rate    = parseFloat(rateEl?.value || '5');
+    if (!receiptId && !(rateEl && rateEl.value !== '')) { Utils.warn('Select the GST rate. No rate is assumed.'); return; }
+    const rate    = parseFloat(rateEl?.value || '0');
     const intra   = !supplyEl || supplyEl.value !== 'interstate';
     const gstAmt  = Math.round(baseAmount * rate / 100);
     const total   = baseAmount + gstAmt;
@@ -848,7 +850,7 @@ const GSTPage = {
       const igst      = live.reduce((s,i) => s + parseFloat(i.igst_amount||i.igstAmount||0), 0);
 
       if (kpiEl) kpiEl.innerHTML = `
-        <div class="kpi c-accent"><div class="kpi-lbl">Invoices</div><div class="kpi-val">${list.length}</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Invoices (live)</div><div class="kpi-val">${live.length}</div><div class="kpi-sub">${list.length - live.length} cancelled, selected period</div></div>
         <div class="kpi c-teal"><div class="kpi-lbl">Taxable Value</div><div class="kpi-val">${Utils.currency(totalBase)}</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">CGST</div><div class="kpi-val">${Utils.currency(cgst)}</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">SGST</div><div class="kpi-val">${Utils.currency(sgst)}</div></div>
@@ -863,7 +865,7 @@ const GSTPage = {
             <tbody>
               ${list.map(inv => {
                 const base   = parseFloat(inv.base_amount||inv.amount||0);
-                const rate   = inv.gst_rate||5;
+                const rate   = base > 0 ? Math.round(parseFloat(inv.gst_amount||0) / base * 10000) / 100 : 0;   // the rate the invoice actually carries, never a default
                 const gstAmt = parseFloat(inv.gst_amount||0);
                 const cgstA  = parseFloat(inv.cgst_amount||inv.cgstAmount||0) || gstAmt/2;
                 const sgstA  = parseFloat(inv.sgst_amount||inv.sgstAmount||0) || gstAmt/2;

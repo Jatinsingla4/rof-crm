@@ -8,8 +8,10 @@ import { AuthRequest } from '../index.js';
 import { db } from '../db/pool.js';
 import { failWith } from '../utils/input.js';
 import { pick, pageOf } from '../utils/report-input.js';
-import { eligibleSum } from '../utils/money-basis.js';
+import { eligibleSum, eligibleAmountSql } from '../utils/money-basis.js';
+import { cancelledPlanSql } from '../utils/booking-state.js';
 import { loadLedger, LedgerPlan, LedgerDemand, LedgerFilter, dueOf, sum, r2, pct, contains, principalOf, split, daysBetween } from '../utils/report-ledger.js';
+import { scheduleGap } from '../utils/financial-measures.js';
 
 const router = Router();
 export const h = (fn: (req: AuthRequest, res: Response) => Promise<any>) => async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -73,16 +75,21 @@ router.get('/customer-balance', h(async (req, res) => {
   }).filter((r) => balanceType === 'all' || (balanceType === 'outstanding' ? r.balance > 0 : r.balance < 0));
   // This report is one row per LIVE booking, so cleared money of a cancelled booking or of a receipt with no plan is not in any row. It is shown as its own figure,
   // so the report can be tied to the dashboard's cleared collections instead of silently being lower (QA-013). Only when no row filter narrows the people.
-  let receivedNotInRows: number | null = null;
+  let receivedNotInRows: number | null = null, receivedCancelled: number | null = null, receivedNoPlan: number | null = null;
   if (!x.name && !x.registrationNo && !x.towerId && !x.bhkType && !x.brokerId && !x.planName && !x.bookingFromDate && !x.bookingToDate && !x.companyId && !x.consumerId) {
     const clearedAll = Number((await db.query(
       `SELECT ${eligibleSum('r')} AS n FROM receipts r JOIN consumers c ON c.id = r.consumer_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0);
     receivedNotInRows = r2(clearedAll - sum(plans, (p) => p.received));
-  }
+    // QA-013: the two reasons are different money. Cleared money of a cancelled booking is settled by refund; cleared money with no plan is credit with no booking.
+    const sp = (await db.query(
+      `SELECT COALESCE(SUM(${eligibleAmountSql('r')}) FILTER (WHERE pp.id IS NOT NULL AND ${cancelledPlanSql('pp')}), 0) AS cancelled,
+              COALESCE(SUM(${eligibleAmountSql('r')}) FILTER (WHERE r.payment_plan_id IS NULL), 0) AS noplan
+         FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0];
+    receivedCancelled = r2(Number(sp.cancelled)); receivedNoPlan = r2(Number(sp.noplan));  }
   res.json({
     success: true, data: rows.slice(offset, offset + size), total: rows.length, page, pageSize: size,
     summary: { totalConsumers: rows.length, totalUnitCost: sum(rows, (r) => r.unit_cost), totalReceived: sum(rows, (r) => r.total_received), totalBalance: sum(rows, (r) => r.balance),
-      receivedNotInRows },
+      receivedNotInRows, receivedCancelled, receivedNoPlan, receivedOther: receivedNotInRows === null ? null : r2(receivedNotInRows - (receivedCancelled || 0) - (receivedNoPlan || 0)) },
   });
 }));
 
@@ -120,6 +127,30 @@ router.get('/customer-dues', h(async (req, res) => {
 }));
 
 // ---------------------------------------------------------------------------------------------------------------------
+// GET /booking-exceptions (QA-017, QA-024): live bookings and registrations that need a data decision. Read only: nothing is repriced, re-statused or deleted here.
+router.get('/booking-exceptions', h(async (_req, res) => {
+  const live = `br.status IN ('pending_payment','active','complete')`;
+  const base = `FROM booking_records br JOIN consumers c ON c.id = br.consumer_id LEFT JOIN units u ON u.id = br.unit_id LEFT JOIN booking_payment_taxes bpt ON bpt.booking_record_id = br.id`;
+  const cols = `br.id AS booking_id, br.registration_no, c.name AS consumer_name, u.unit_number, br.status AS booking_status`;
+  const q = async (sql: string) => (await db.query(`${sql} LIMIT 200`)).rows;
+  const [zero_rate, zero_gst, unit_status_mismatch, awaiting_payment, duplicate_registrations, registrations_without_booking] = await Promise.all([
+    q(`SELECT ${cols}, br.basic_rate_inr_sqft::float8 AS rate ${base} WHERE ${live} AND COALESCE(br.basic_rate_inr_sqft, 0) = 0 ORDER BY br.created_at`),
+    q(`SELECT ${cols}, COALESCE(bpt.cgst_pct, 0)::float8 AS cgst_pct, COALESCE(bpt.sgst_pct, 0)::float8 AS sgst_pct ${base}
+        WHERE ${live} AND LOWER(COALESCE(c.nationality, '')) NOT IN ('nri','oci','pio') AND COALESCE(bpt.cgst_pct, 0) + COALESCE(bpt.sgst_pct, 0) = 0
+          AND COALESCE(bpt.cgst_amount, 0) + COALESCE(bpt.sgst_amount, 0) = 0 ORDER BY br.created_at`),
+    q(`SELECT ${cols}, u.status AS unit_status ${base} WHERE br.status IN ('active','complete') AND u.status = 'available' ORDER BY br.created_at`),
+    q(`SELECT ${cols}, u.status AS unit_status ${base} WHERE br.status = 'pending_payment' ORDER BY br.created_at`),
+    q(`SELECT registration_no, COUNT(*)::int AS rows FROM booking_records br WHERE ${live} AND registration_no IS NOT NULL GROUP BY registration_no HAVING COUNT(*) > 1 ORDER BY registration_no`),
+    q(`SELECT c.id AS consumer_id, c.registration_no, c.name AS consumer_name FROM consumers c WHERE c.registration_no IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM booking_records b WHERE b.consumer_id = c.id) ORDER BY c.created_at`),
+  ]);
+  res.json({ success: true, data: { zero_rate, zero_gst, unit_status_mismatch, awaiting_payment, duplicate_registrations, registrations_without_booking },
+    counts: { zero_rate: zero_rate.length, zero_gst: zero_gst.length, unit_status_mismatch: unit_status_mismatch.length, awaiting_payment: awaiting_payment.length,
+      duplicate_registrations: duplicate_registrations.length, registrations_without_booking: registrations_without_booking.length },
+    note: 'Read only. A pending_payment booking keeps its unit Available until the payment is recorded (by design), so it is listed apart. The rest are data exceptions for finance and sales review.' });
+}));
+
+// ---------------------------------------------------------------------------------------------------------------------
 // GET /customer-due-summary (Customer Due Details, one row per booking)
 router.get('/customer-due-summary', h(async (req, res) => {
   const x = Q(req);
@@ -138,6 +169,8 @@ router.get('/customer-due-summary', h(async (req, res) => {
       total_cost_with_gst: r2(p.unit_cost + allGst(p)),   // D-TOTALCOST: unit cost plus the GST of ALL demands, the same figure as the balance report (not the GST of the booking payment alone)
       due_amount: t.amount, due_amount_with_tax: t.demanded, ten_pct_due: Math.round(p.unit_cost * 0.1),
       received_pending: p.received_pending, received_clear: p.received, received_total: r2(p.received + p.received_pending),
+      schedule_gap_excl_gst: scheduleGap(p).gap, schedule_exception: scheduleGap(p).exception,   // QA-030
+      received_clear_ex_gst: r2(Math.max(0, p.received - p.received_cgst - p.received_sgst)),   // QA-034: cleared money without the GST stored on the receipts, to set against the ex-GST costs
     };
   });
   res.json({ success: true, data, total: data.length });

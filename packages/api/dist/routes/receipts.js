@@ -6,6 +6,7 @@ exports.RECEIPT_MODES = void 0;
  * and move a cheque through deposit, hold and clearing. Bounce, cancel and the printable page stay in payments.ts.
  * Every id, date, amount and filter is checked before it reaches SQL.
  */
+const booking_state_js_1 = require("../utils/booking-state.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
@@ -124,6 +125,8 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
             else {
                 planId = (await c.query(`SELECT id FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at DESC LIMIT 1`, [consumerId])).rows[0]?.id || null;
             }
+            if (await (0, booking_state_js_1.planIsCancelled)(c, planId))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409);
             if (bankAccount && !(await c.query(`SELECT 1 FROM company_bank_accounts WHERE id = $1 AND ($2::uuid[] IS NULL OR company_id = ANY($2::uuid[]))`, [bankAccount, req.companyIds ?? null])).rows.length)
                 throw (0, input_js_1.bad)('Company bank account not found', 400);
             if (chequeNo)
@@ -426,6 +429,8 @@ router.patch('/receipts/:id', async (req, res, next) => {
 router.patch('/receipts/:id/approve', (0, processPermission_js_1.requireProcess)('receipt', 'checker'), async (req, res, next) => {
     try {
         const id = (0, input_js_1.uuid)(req.params.id, 'Receipt id');
+        if (await (0, booking_state_js_1.planIsCancelled)(index_js_1.db, (await index_js_1.db.query(`SELECT payment_plan_id FROM receipts WHERE id = $1`, [id])).rows[0]?.payment_plan_id))
+            throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409);
         // Strict maker-checker: whoever recorded the receipt cannot authorize it (super_admin included); a receipt with no known recorder waits for remediation.
         // One statement, so the check and the change cannot be separated by a concurrent request.
         const r = await index_js_1.db.query(`UPDATE receipts SET status = 'authorized', approval_status = 'approved', authorized_by = $1, authorized_at = NOW(), updated_at = NOW()
@@ -477,6 +482,8 @@ const move = async (req, res, next, o) => {
                 (0, financial_ops_js_1.notOwn)(req, cur.received_by_user_id);
             if (!INSTRUMENTS.includes(cur.payment_method))
                 throw (0, input_js_1.bad)(`This payment mode cannot be ${o.verb}`);
+            if ((o.to === 'cleared' || o.to === 'deposited') && await (0, booking_state_js_1.planIsCancelled)(c, cur.payment_plan_id))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409);
             if (!o.from.includes(cur.status))
                 throw (0, input_js_1.bad)(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
             // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
