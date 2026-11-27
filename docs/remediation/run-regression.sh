@@ -30,7 +30,7 @@ SRV=$!
 trap 'kill $SRV 2>/dev/null' EXIT
 for i in $(seq 1 40); do curl -s -m 2 "localhost:$PORT/api/health" >/dev/null 2>&1 && break; sleep 1; done
 
-for t in db-cancelled-booking http-cancelled-booking http-gst-invoices http-booked-pricing http-rebate-reprice http-overdue-interest http-receipt-approval http-reports-batch5 http-security; do
+for t in db-cancelled-booking http-cancelled-booking http-gst-invoices http-booked-pricing http-booked-price-readers http-rebate-reprice http-overdue-interest http-receipt-approval http-reports-batch5 http-security; do
   step "$t"
   BASE="http://localhost:$PORT/api" DB_NAME="$DB" JWT_SECRET=x npx tsx "test/$t.check.mjs" 2>&1 | grep -E "^(PASS|FAIL)|all passed|FAILED|Error" || fail=1
 done

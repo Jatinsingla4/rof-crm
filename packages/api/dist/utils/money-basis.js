@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEMAND_COLS = exports.demandTotal = exports.eligibleSum = exports.commissionBackedSql = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
+exports.DEMAND_COLS = exports.demandTotal = exports.eligibleSum = exports.bookedBasicSql = exports.commissionBackedSql = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
 exports.deriveDemandStatus = deriveDemandStatus;
 exports.allocateEligible = allocateEligible;
 exports.loadEligible = loadEligible;
@@ -32,6 +32,11 @@ exports.eligibleAmountSql = eligibleAmountSql;
 const commissionBackedSql = (bc = 'bc') => `(COALESCE((SELECT ${(0, exports.eligibleSum)('r')} FROM receipts r WHERE r.consumer_id = ${bc}.consumer_id), 0) + 0.005
     >= GREATEST(COALESCE((SELECT bkx.booking_amount FROM booking_records bkx WHERE bkx.id = ${bc}.booking_id), 0), 0.01))`;
 exports.commissionBackedSql = commissionBackedSql;
+// SQL scalar (QA-001/005/030/032): the basic price a booking was SOLD at, read from its payment plan (plan total = basic + plc + other + balcony - discount - rebate), never from the
+// unit master, so a unit that was edited, re-measured or shifted after booking cannot change it. NULL when the booking has no plan yet. br = booking_records alias.
+const bookedBasicSql = (br = 'br') => `(SELECT ROUND(pp.total_amount_inr - COALESCE(${br}.plc_amount,0) - COALESCE(${br}.other_charge_amount,0) - COALESCE(${br}.balcony_charge_amount,0) + COALESCE(${br}.company_inaugural_disc,0) + COALESCE(${br}.approved_rebate_amount,0))
+      FROM payment_plans pp WHERE pp.consumer_id = ${br}.consumer_id AND pp.unit_id = ${br}.unit_id AND COALESCE(pp.total_amount_inr,0) > 0 ORDER BY pp.created_at DESC LIMIT 1)`;
+exports.bookedBasicSql = bookedBasicSql;
 // SQL expression: sum of eligible money of the receipts in scope
 const eligibleSum = (a = 'r') => `COALESCE(SUM(${(0, exports.eligibleAmountSql)(a)}), 0)`;
 exports.eligibleSum = eligibleSum;

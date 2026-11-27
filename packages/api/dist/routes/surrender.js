@@ -181,9 +181,13 @@ router.get('/detail/:consumerId', async (req, res, next) => {
         // ── derive financials ─────────────────────────────────────────────────────
         const carpetArea = parseFloat(row.carpet_area_sqft || 0);
         const basicRate = parseFloat(row.basic_rate_inr_sqft || 0);
-        const grossBasicPrice = basicRate > 0 && carpetArea > 0
-            ? Math.round(basicRate * carpetArea)
-            : parseFloat(row.booking_amount || 0);
+        // QA-001/005: the price the booking was sold at is its plan total (basic + plc + other + balcony - discount - rebate), not rate x an area that may hold carpet + balcony
+        const planTotal = parseFloat(row.total_amount_inr || 0);
+        const grossBasicPrice = planTotal > 0
+            ? Math.round(planTotal - parseFloat(row.plc_amount || 0) - parseFloat(row.other_charge_amount || 0) - parseFloat(row.balcony_charge_amount || 0) + parseFloat(row.company_inaugural_disc || 0) + parseFloat(row.approved_rebate_amount || 0))
+            : basicRate > 0 && carpetArea > 0
+                ? Math.round(basicRate * carpetArea)
+                : parseFloat(row.booking_amount || 0);
         const inauguralDiscount = parseFloat(row.company_inaugural_disc || 0);
         const approvedRebate = parseFloat(row.approved_rebate_amount || 0); // an approved company rebate comes off the basic price too (QA-007)
         const netBasicPrice = grossBasicPrice - inauguralDiscount - approvedRebate; // the same net price the payment plan and the demand letter use

@@ -22,6 +22,11 @@ export const eligibleAmountSql = (a = 'r', asOf?: string) =>
 export const commissionBackedSql = (bc = 'bc') =>
   `(COALESCE((SELECT ${eligibleSum('r')} FROM receipts r WHERE r.consumer_id = ${bc}.consumer_id), 0) + 0.005
     >= GREATEST(COALESCE((SELECT bkx.booking_amount FROM booking_records bkx WHERE bkx.id = ${bc}.booking_id), 0), 0.01))`;
+// SQL scalar (QA-001/005/030/032): the basic price a booking was SOLD at, read from its payment plan (plan total = basic + plc + other + balcony - discount - rebate), never from the
+// unit master, so a unit that was edited, re-measured or shifted after booking cannot change it. NULL when the booking has no plan yet. br = booking_records alias.
+export const bookedBasicSql = (br = 'br') =>
+  `(SELECT ROUND(pp.total_amount_inr - COALESCE(${br}.plc_amount,0) - COALESCE(${br}.other_charge_amount,0) - COALESCE(${br}.balcony_charge_amount,0) + COALESCE(${br}.company_inaugural_disc,0) + COALESCE(${br}.approved_rebate_amount,0))
+      FROM payment_plans pp WHERE pp.consumer_id = ${br}.consumer_id AND pp.unit_id = ${br}.unit_id AND COALESCE(pp.total_amount_inr,0) > 0 ORDER BY pp.created_at DESC LIMIT 1)`;
 // SQL expression: sum of eligible money of the receipts in scope
 export const eligibleSum = (a = 'r') => `COALESCE(SUM(${eligibleAmountSql(a)}), 0)`;
 

@@ -834,7 +834,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                     throw conflict('The broker commission for this booking is already processed, so the broker or the commission can no longer be changed here.');
                 if (cm) {
                     const kind = bk.broker_commission_type ?? cur.broker_commission_type, val = bk.broker_commission ?? cur.broker_commission;
-                    const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                    const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                     const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
                     if (kind === 'flat' && basic > 0 && Number(val) > basic)
                         throw (0, input_js_1.bad)('The broker commission is more than the basic price of the unit');
@@ -842,7 +842,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                 }
             }
             if (bkChanged.includes('basic_rate_inr_sqft') || bkChanged.includes('company_inaugural_disc')) {
-                const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                 const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
                 if ((bk.company_inaugural_disc ?? cur.company_inaugural_disc) > basic && basic > 0)
                     throw (0, input_js_1.bad)('The inaugural discount is more than the basic price of the unit');
@@ -857,7 +857,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                 const touched = REB.some(k => bkChanged.includes(k)) || (cur.company_rebate_status === 'approved' && ['basic_rate_inr_sqft', 'carpet_area_sqft', 'company_inaugural_disc'].some(k => bkChanged.includes(k)));
                 const resubmit = b.resubmit_rebate === true && ['legacy', 'rejected'].includes(cur.company_rebate_status);
                 if (touched || resubmit) {
-                    const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                    const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                     const basic = (0, rebate_js_1.basicPriceOf)(eff('basic_rate_inr_sqft'), u);
                     const rb = (0, rebate_js_1.checkRebate)(eff('company_rebate_rs'), eff('company_rebate_sqft'), eff('company_rebate_pct'), basic, u, eff('company_inaugural_disc'));
                     const was = cur.company_rebate_status;

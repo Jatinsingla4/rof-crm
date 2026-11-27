@@ -2021,7 +2021,7 @@ router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (
         c.loan_amount,
         u.unit_number,
         u.floor,
-        COALESCE(NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price, not the price of a unit the customer was shifted to
+        COALESCE(${(0, money_basis_js_1.bookedBasicSql)('br')}, NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price (from the plan), not the price of a unit the customer was shifted to
         u.total_price_inr,
         t.tower_name,
         p.name AS project_name,

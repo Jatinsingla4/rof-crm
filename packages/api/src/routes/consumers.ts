@@ -26,7 +26,7 @@ import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, 
 import { penalRateFrom } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
-import { returnedSql } from '../utils/money-basis.js';
+import { returnedSql, bookedBasicSql } from '../utils/money-basis.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -266,9 +266,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
               COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
-              (SELECT ROUND(pp.total_amount_inr - COALESCE(bb.plc_amount,0) - COALESCE(bb.other_charge_amount,0) - COALESCE(bb.balcony_charge_amount,0) + COALESCE(bb.company_inaugural_disc,0) + COALESCE(bb.approved_rebate_amount,0))
-                 FROM booking_records bb JOIN payment_plans pp ON pp.consumer_id = bb.consumer_id AND pp.unit_id = bb.unit_id AND COALESCE(pp.total_amount_inr,0) > 0
-                WHERE bb.consumer_id = c.id AND COALESCE(bb.status,'') <> 'cancelled' ORDER BY bb.created_at DESC, pp.created_at DESC LIMIT 1) AS booked_basic_inr,
+              (SELECT ${bookedBasicSql('bb')} FROM booking_records bb WHERE bb.consumer_id = c.id AND COALESCE(bb.status,'') <> 'cancelled' ORDER BY bb.created_at DESC LIMIT 1) AS booked_basic_inr,
               p.name as project_name,
               (EXISTS (SELECT 1 FROM booking_records bx WHERE bx.consumer_id = c.id) AND NOT EXISTS (SELECT 1 FROM booking_records by2 WHERE by2.consumer_id = c.id AND by2.status <> 'cancelled')) AS booking_cancelled
        FROM consumers c

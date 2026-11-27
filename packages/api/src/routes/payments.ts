@@ -9,7 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes } from '../utils/payment-waterfall.js';
-import { recomputePlan, returnedSql } from '../utils/money-basis.js';
+import { recomputePlan, returnedSql, bookedBasicSql } from '../utils/money-basis.js';
 import { hasProcessRight } from './receipt-returns.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2, flag, financeOnly } from '../utils/input.js';
@@ -1993,7 +1993,7 @@ router.get('/receipt-form/:consumerId', requirePrint, async (req: AuthRequest, r
         c.loan_amount,
         u.unit_number,
         u.floor,
-        COALESCE(NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price, not the price of a unit the customer was shifted to
+        COALESCE(${bookedBasicSql('br')}, NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price (from the plan), not the price of a unit the customer was shifted to
         u.total_price_inr,
         t.tower_name,
         p.name AS project_name,
