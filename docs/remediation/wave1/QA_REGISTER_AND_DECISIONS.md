@@ -15,7 +15,7 @@ Status words used below, in order of strength: **not started**, **partial** (par
 | 005 | Discount basis | partial | plan total is the sold price; Applicant File Net Basic now takes the rebate off. Left: D2 |
 | 006, 011, 015, 016, 020, 021, 023, 025, 034, 035 | passed in V1.1 | not retested independently | the docs suites that cover them still pass locally; no independent retest was done |
 | 007 | Interest "PAID" column | preserved | PAID is still the sum of cleared receipts' `interest_amount` |
-| 008, 014, 033, 037, 039 | Allocation | partial | credit split into advance on unraised instalments and surplus; one "raised" rule. Left: allocation ledger, flag `receipt_allocation_v1` still off, D5 |
+| 008, 014, 033, 037, 039 | Allocation | partial | credit split into advance on unraised instalments and surplus; one "raised" rule. derived read-only allocation ledger and reconciliation (implementation complete, tested locally, not deployed). Left: persisted ledger, flag `receipt_allocation_v1` still off, shadow reconciliation on real data, D5 |
 | 009 | Commission trigger | partial | one "backed by cleared money" definition for payout, list and reconciliation; receipt lock; dry-run for paid-without-backing. Gate flag still off (D6) |
 | 010 | Receipt maker-checker | impl + tested | cleared needs approved, in DB and API. Left: Super Admin policy (D8) |
 | 012 | Cancelled booking | partial | API refuses receipt edit, hold, credit allocation, tax invoices on a cancelled booking. Left: screens, pending-receipt refund-or-reject policy (D11) |
