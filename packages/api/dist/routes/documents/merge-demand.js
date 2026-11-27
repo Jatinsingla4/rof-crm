@@ -10,6 +10,7 @@ const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
 const business_date_js_1 = require("../../utils/business-date.js");
 const money_basis_js_1 = require("../../utils/money-basis.js");
+const gst_exempt_js_1 = require("../../utils/gst-exempt.js");
 // Fills ctx.mergeData for a demand letter
 async function demandLetterData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -138,7 +139,7 @@ async function demandLetterData(ctx) {
     const planName = plan.plan_name || 'CLP';
     const totalAmountInr = parseFloat(plan.total_amount_inr || 0);
     const allotmentDate = plan.allotment_date ? new Date(plan.allotment_date) : null;
-    const isNri = ['nri', 'oci', 'pio'].includes((plan.nationality || '').toLowerCase());
+    const isNri = (0, gst_exempt_js_1.isGstExempt)(plan.nationality);
     // AHP GST: 1% total (0.5% CGST + 0.5% SGST) for residents, 0 for NRI
     const defaultCgstPct = isNri ? 0 : 0.5;
     const defaultSgstPct = isNri ? 0 : 0.5;

@@ -30,6 +30,7 @@ const financial_measures_js_1 = require("../utils/financial-measures.js");
 const booking_state_js_1 = require("../utils/booking-state.js");
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const gst_exempt_js_1 = require("../utils/gst-exempt.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -996,7 +997,7 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
     const consumerName = [primaryName, ...coNames].join(' ').trim() || '—';
     const addrParts = [r.present_address, r.present_city, r.present_state].filter(Boolean);
     const address = addrParts.join(', ') + (r.present_pin ? ` - ${r.present_pin}` : '');
-    const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
+    const isNri = (0, gst_exempt_js_1.isGstExempt)(r.nationality);
     const totalAmount = parseFloat(r.amount_received_inr || 0);
     const amountWords = pmtNumberToWords(totalAmount);
     const floorOrdinal = r.floor != null ? pmtOrdinal(parseInt(r.floor)) : '—';
@@ -2131,7 +2132,7 @@ async function buildReceiptDetailHtml(rows) {
     const dthStyle = `border:1px solid #2d4d7a;padding:5px 6px;text-align:center;font-size:11px;font-weight:bold;white-space:nowrap;`;
     const dtdStyle = `border:1px solid #dee2e6;padding:4px 6px;font-size:11px;`;
     const buildDetailRows = async (r) => {
-        const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
+        const isNri = (0, gst_exempt_js_1.isGstExempt)(r.nationality);
         const drows = [];
         let sno = 1;
         const basicAmt = parseFloat(String(r.amount_received_inr || 0));

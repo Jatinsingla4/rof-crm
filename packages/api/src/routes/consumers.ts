@@ -27,6 +27,7 @@ import { penalRateFrom } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
 import { returnedSql, bookedBasicSql } from '../utils/money-basis.js';
+import { isGstExempt } from '../utils/gst-exempt.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -810,7 +811,7 @@ router.get('/:id/applicant-file', requirePrint, async (req: AuthRequest, res: Re
     // the fallback backward-derive above computes a rate regardless of
     // nationality, so zero it out here for NRI (mirrors the existing
     // isNri gate used elsewhere for demand-linked amounts).
-    if (['nri', 'oci', 'pio'].includes((row.nationality || '').toLowerCase())) {
+    if (isGstExempt(row.nationality)) {
       receiptsRes.rows.forEach((rr: any) => {
         rr.cgst_amount = 0;
         rr.sgst_amount = 0;

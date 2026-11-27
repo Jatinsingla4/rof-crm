@@ -37,6 +37,7 @@ import { nextReceiptNumber } from '../utils/receipt-number.js';
 import { businessDayStart, businessToday, businessTomorrow, businessYear } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
 import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
+import { isGstExempt } from '../utils/gst-exempt.js';
 
 const router = Router();
 
@@ -292,9 +293,8 @@ router.post('/quote', async (req: AuthRequest, res: Response, next: NextFunction
     const plc = money(b.plc_amount, 'PLC amount', 1e9), other = money(b.other_charge_amount, 'Other charge amount', 1e9), disc = money(b.company_inaugural_disc, 'Discount');
     const bookingDate = bookingDay(b.booking_date, 'booking_date') || businessToday();
     let isNri = false;
-    const NRI = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'];
-    if (has(b.consumer_id)) isNri = NRI.includes((await db.query(`SELECT nationality FROM consumers WHERE id = $1`, [uuid(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
-    else if (has(b.nationality)) isNri = NRI.includes(String(b.nationality));
+    if (has(b.consumer_id)) isNri = isGstExempt((await db.query(`SELECT nationality FROM consumers WHERE id = $1`, [uuid(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
+    else if (has(b.nationality)) isNri = isGstExempt(String(b.nationality));
     const q = await priceQuote(db, { projectId: unit.project_id, projectName: unit.project_name, bookingDate, isNri, rate, carpetArea: carpet, balconyArea: Number(unit.balcony_area_sqft) || 0, plc, other, discount: disc });
     if (disc > q.basic_inr) throw field('company_inaugural_disc', 'The discount is more than the basic price');
     if (q.agreement_value_inr <= 0) throw field('basic_price', 'The agreement value must be more than 0');
@@ -315,7 +315,7 @@ router.post('/:id/payment-quote', async (req: AuthRequest, res: Response, next: 
     const br = (await db.query(`SELECT br.project_id, br.booking_date, p.name AS project_name, c.nationality FROM booking_records br JOIN projects p ON p.id = br.project_id JOIN consumers c ON c.id = br.consumer_id WHERE br.id = $1`, [req.params.id])).rows[0];
     if (!br) throw bad('Booking not found', 404);
     const date = bookingDay(b.booking_date, 'booking_date') || (br.booking_date ? new Date(br.booking_date).toISOString().split('T')[0] : businessToday());
-    const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(br.nationality);
+    const isNri = isGstExempt(br.nationality);
     const rate = isNri ? { cgstPct: 0, sgstPct: 0 } : await resolveRate(db, br.project_id, br.project_name, 'BASIC', date);
     const s = computeInclusiveGstSplit(amount, rate.cgstPct * 100, rate.sgstPct * 100);
     res.json({ success: true, data: { amount_inr: amount, taxable_inr: s.baseAmount, cgst_inr: s.cgstAmount, sgst_inr: s.sgstAmount, cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, exempt: isNri } });
@@ -604,7 +604,7 @@ router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, 
       // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
       const bookingDateForGstCreate = booking_date || businessToday();
       const projectNameForGstCreate = (await client.query('SELECT name FROM projects WHERE id = $1', [project_id])).rows[0]?.name || project_id;
-      const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
+      const isNriForGstCreate = isGstExempt(consumerRow.nationality);
 
       const gstRateForBptCreate = isNriForGstCreate
         ? { cgstPct: 0, sgstPct: 0 }
@@ -977,8 +977,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
         'SELECT nationality FROM consumers WHERE id = $1',
         [booking.consumer_id]
       );
-      const isNriForGst = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
-        .includes(consumerRowForGst.rows[0]?.nationality);
+      const isNriForGst = isGstExempt(consumerRowForGst.rows[0]?.nationality);
 
       const gstRateForBpt = isNriForGst
         ? { cgstPct: 0, sgstPct: 0 }
@@ -1158,8 +1157,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
               'SELECT nationality FROM consumers WHERE id = $1',
               [booking.consumer_id]
             );
-            const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
-              .includes(consumerRes.rows[0]?.nationality);
+            const isNri = isGstExempt(consumerRes.rows[0]?.nationality);
 
             // A plan made of percentages is split on the running share, so the instalments add up to the whole price and the whole GST
             // (rounding each instalment alone drifted by a rupee or more, and the screens then disagreed by that much).
@@ -1681,9 +1679,9 @@ function buildApplicantPage1(
   const balconyCgstAmount   = b.balcony_cgst_amount   != null ? parseFloat(b.balcony_cgst_amount)   : 0;
   const balconySgstAmount   = b.balcony_sgst_amount   != null ? parseFloat(b.balcony_sgst_amount)   : 0;
   const balconyChargeTotal  = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
-  const isGstExempt   = ['nri','oci','pio'].includes((consumer.nationality || '').toLowerCase());
-  const cgstPct       = isGstExempt ? 0 : parseFloat(b.cgst_pct          || 0);
-  const sgstPct       = isGstExempt ? 0 : parseFloat(b.sgst_pct          || 0);
+  const gstExemptApplicant = isGstExempt(consumer.nationality);
+  const cgstPct       = gstExemptApplicant ? 0 : parseFloat(b.cgst_pct          || 0);
+  const sgstPct       = gstExemptApplicant ? 0 : parseFloat(b.sgst_pct          || 0);
   const interest      = parseFloat(b.interest_amount   || 0);
   const bookingAmt    = parseFloat(b.booking_amount    || 0);
 
@@ -1703,11 +1701,11 @@ function buildApplicantPage1(
   const demandCgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.cgst_amount || 0), 0);
   const demandSgstSum = activeDemands.reduce((s: number, d: any) => s + Number(d.sgst_amount || 0), 0);
   // QA-001: BASIC and PLC each at their own mapped rate (the schedule's rule); the booking rate only when no mapping resolved
-  const bCg = isGstExempt ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = isGstExempt ? 0 : (headRates ? headRates.basicSgst : sgstPct);
-  const pCg = isGstExempt ? 0 : (headRates ? headRates.plcCgst : cgstPct),   pSg = isGstExempt ? 0 : (headRates ? headRates.plcSgst : sgstPct);
+  const bCg = gstExemptApplicant ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = gstExemptApplicant ? 0 : (headRates ? headRates.basicSgst : sgstPct);
+  const pCg = gstExemptApplicant ? 0 : (headRates ? headRates.plcCgst : cgstPct),   pSg = gstExemptApplicant ? 0 : (headRates ? headRates.plcSgst : sgstPct);
   const rateTxt = (b: number, p: number) => (b === p || !(plcAmount > 0)) ? `${b}%` : `Basic ${b}% / PLC ${p}%`;
-  const holisticCgst  = isGstExempt ? 0 : headGst(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
-  const holisticSgst  = isGstExempt ? 0 : headGst(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
+  const holisticCgst  = gstExemptApplicant ? 0 : headGst(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
+  const holisticSgst  = gstExemptApplicant ? 0 : headGst(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
   // The GST that the schedule actually bills is the figure shown. A difference from the booking rate is never called rounding unless it is within 1 rupee per instalment
   // (it used to be absorbed up to 1,000 rupees under the name "Rounding", which hid a real rate difference).
   const roundingTol   = Math.max(1, activeDemands.length);
@@ -1875,7 +1873,7 @@ function buildApplicantPage1(
   const otherChargeCgstAmt = Math.round(otherCharge * otherChargeCgstPct / 100);
   const otherChargeSgstAmt = Math.round(otherCharge * otherChargeSgstPct / 100);
 
-  const taxBreakupBlock = isGstExempt ? '' : `
+  const taxBreakupBlock = gstExemptApplicant ? '' : `
     <tr><td colspan="2" style="${baseFont}font-weight:700;padding:4px 8px 1px;">Tax Breakup:</td></tr>
     ${taxSubHeaderRow(`Basic Price + PLC (Rs. ${fmtIndianNumber(basicPlusPLC)})`)}
     ${taxSubRow(`CGST @ ${rateTxt(bCg, pCg)}`,
@@ -1932,7 +1930,7 @@ function buildApplicantPage1(
         `<span data-field-key="cgstAmount" data-field-label="CGST Amount" data-value-type="currency" data-section="pricing" data-cgst-pct="${cgstPct}">${fmtIndianCurrency(cgst)}</span>`)}
       ${pRow('SGST (Rs.)',
         `<span data-field-key="sgstAmount" data-field-label="SGST Amount" data-value-type="currency" data-section="pricing" data-sgst-pct="${sgstPct}">${fmtIndianCurrency(sgst)}</span>`)}
-      ${isGstExempt ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
+      ${gstExemptApplicant ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
       ${pRow('',                     fmtIndianCurrency(totalTax))}
       ${pRow('Total Consideration With Tax',
         `<span data-field-key="totalAmountWithGst" data-field-label="Total with GST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalWithTax)}</span>`, true)}

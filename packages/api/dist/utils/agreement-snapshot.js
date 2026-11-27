@@ -5,9 +5,9 @@ exports.quoteBookingRow = quoteBookingRow;
 exports.writeSnapshot = writeSnapshot;
 // RC-1: the agreed price of a booking, stored once per version (booking_agreement). Written only while the flag agreement_snapshot_v1 is 'on'.
 const price_quote_js_1 = require("./price-quote.js");
+const gst_exempt_js_1 = require("./gst-exempt.js");
 const snapshotOn = async (db) => (await db.query(`SELECT value FROM global_settings WHERE key = 'agreement_snapshot_v1'`)).rows[0]?.value === 'on';
 exports.snapshotOn = snapshotOn;
-const NRI = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'];
 // The price a confirmed booking is billed on, from the booking's own rate and the unit's true areas (the same inputs the schedule uses).
 async function quoteBookingRow(db, b, unit) {
     const rate = Number(b.basic_rate_inr_sqft) || 0, carpet = Number(unit.carpet_area_sqft) || 0;
@@ -16,7 +16,7 @@ async function quoteBookingRow(db, b, unit) {
     const proj = (await db.query(`SELECT name FROM projects WHERE id = $1`, [b.project_id])).rows[0];
     const nat = (await db.query(`SELECT nationality FROM consumers WHERE id = $1`, [b.consumer_id])).rows[0]?.nationality;
     const day = b.booking_date ? new Date(b.booking_date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-    return (0, price_quote_js_1.priceQuote)(db, { projectId: b.project_id, projectName: proj?.name || b.project_id, bookingDate: day, isNri: NRI.includes(nat),
+    return (0, price_quote_js_1.priceQuote)(db, { projectId: b.project_id, projectName: proj?.name || b.project_id, bookingDate: day, isNri: (0, gst_exempt_js_1.isGstExempt)(nat),
         rate, carpetArea: carpet, balconyArea: Number(unit.balcony_area_sqft) || 0, plc: Number(b.plc_amount) || 0, other: Number(b.other_charge_amount) || 0,
         discount: Number(b.company_inaugural_disc) || 0, rebate: Number(b.approved_rebate_amount) || 0 });
 }

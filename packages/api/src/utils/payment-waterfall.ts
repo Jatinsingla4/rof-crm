@@ -16,6 +16,7 @@ import { computeReceiptGstSplit } from './gst-receipt-split.js';
 
 import { nextReceiptNumber } from './receipt-number.js';
 import { SQL_TODAY, businessToday } from './business-date.js';
+import { isGstExempt } from './gst-exempt.js';
 export interface WaterfallReceipt {
   id: string;
   amount_received_inr: number;
@@ -417,7 +418,7 @@ export async function recomputeBookingPaymentTaxes(
   const projectName = projectRow.rows[0]?.name || projectId;
 
   const consumerRow = await client.query('SELECT nationality FROM consumers WHERE id = $1', [consumerId]);
-  const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.rows[0]?.nationality);
+  const isNri = isGstExempt(consumerRow.rows[0]?.nationality);
 
   const gstRate = isNri
     ? { cgstPct: 0, sgstPct: 0 }

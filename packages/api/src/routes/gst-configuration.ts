@@ -10,6 +10,7 @@ import { hasPermission } from '../middleware/rbac.js';
 import { auditChange } from '../middleware/auditLogger.js';
 import { bad, failWith, uuid, has, num, text, day, flag, body, inTx } from '../utils/input.js';
 import { businessToday } from '../utils/business-date.js';
+import { statutoryReadiness } from '../utils/statutory-readiness.js';
 
 const router = Router();
 
@@ -433,6 +434,17 @@ router.get('/resolve', async (req: AuthRequest, res: Response, next: NextFunctio
     if (!row && ct !== 'BASIC') { row = await find('BASIC'); fallback = !!row; }
     if (!row) return res.status(404).json({ success: false, error: `No GST mapping for ${ct} on ${proj.name}` });
     res.json({ success: true, data: { cgstPct: parseFloat(row.cgst_pct), sgstPct: parseFloat(row.sgst_pct), fallback } });
+  } catch (err) { fail(err, res, next); }
+});
+
+// GET /api/gst-configuration/readiness?from=YYYY-MM-DD&to=YYYY-MM-DD[&projectId=X]: what finance has and has not configured for a date range (default: 1 April 2019 to today).
+// Read only. Each item says who has to act: the client's finance team (configuration), the software (a code path that reads another source) or a decision. Nothing is invented or repaired.
+router.get('/readiness', async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const projectId = optId(req.query.projectId, 'projectId');
+    const to = day(req.query.to, 'to') || businessToday(), from = day(req.query.from, 'from') || '2019-04-01';
+    if (from > to) throw bad('from must not be after to');
+    res.json({ success: true, data: await statutoryReadiness(db, { projectId, from, to }) });
   } catch (err) { fail(err, res, next); }
 });
 

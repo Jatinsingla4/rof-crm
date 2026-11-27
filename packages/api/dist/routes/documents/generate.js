@@ -9,6 +9,7 @@ const merge_letters_js_1 = require("./merge-letters.js");
 const shells_js_1 = require("./shells.js");
 const business_date_js_1 = require("../../utils/business-date.js");
 const printDownload_js_1 = require("../../middleware/printDownload.js");
+const statutory_readiness_js_1 = require("../../utils/statutory-readiness.js");
 const router = (0, express_1.Router)();
 // What the caller may send. Ids must be real, the type a plain word, figures that the caller supplies are page text (escaped) and may not carry markup.
 const DELIVERY = ['email', 'whatsapp', 'sms', 'print', 'none'];
@@ -194,7 +195,7 @@ router.post('/generate', printDownload_js_1.requirePrint, async (req, res, next)
                     mobile: d.mobile || '—',
                     email: d.email || '—',
                     customerId: d.registration_no || d.id?.slice(0, 8).toUpperCase() || '—',
-                    reraNo: d.project_rera || '75 OF 2019 Dated 09.12.19',
+                    reraNo: (0, statutory_readiness_js_1.reraLooksReal)(d.project_rera) ? d.project_rera : '—', // QA-029: the project's own number, never a number typed into the code
                     projectName: d.project_name || '—',
                     projectSector: d.project_sector || '—',
                     unitNumber: d.unit_number || '—',

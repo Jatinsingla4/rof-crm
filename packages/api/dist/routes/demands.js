@@ -15,6 +15,7 @@ const pg_errors_js_1 = require("../middleware/pg-errors.js");
 const input_js_1 = require("../utils/input.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const gst_exempt_js_1 = require("../utils/gst-exempt.js");
 const router = (0, express_1.Router)();
 const STATUSES = ['pending', 'demanded', 'partial', 'paid', 'cancelled', 'raised'];
 // A partial demand (part covered by cleared money, D3) is raised or not by its raised_at; 'demanded' keeps its old meaning of raised
@@ -89,7 +90,7 @@ router.post('/demands/generate', async (req, res, next) => {
                 const plc = Number(plan.plc_amount || 0), other = Number(plan.other_charge_amount || 0), balcony = Number(plan.balcony_charge_amount || 0);
                 const basic = total - plc - other - balcony;
                 const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : (0, business_date_js_1.businessToday)();
-                const isNri = String(plan.nationality).toLowerCase() === 'nri';
+                const isNri = (0, gst_exempt_js_1.isGstExempt)(plan.nationality); // NRI, OCI and PIO alike, the same as the booking
                 for (const t of templates.rows) {
                     const exists = await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND installment_index = $2`, [plan.payment_plan_id, t.installment_index]);
                     if (exists.rows.length)

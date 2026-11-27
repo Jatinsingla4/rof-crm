@@ -30,6 +30,7 @@ import { financialMeasures } from '../utils/financial-measures.js';
 import { planIsCancelled } from '../utils/booking-state.js';
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
+import { isGstExempt } from '../utils/gst-exempt.js';
 
 const router = Router();
 
@@ -920,7 +921,7 @@ function buildPaymentReceiptCopy(r: any, settings: Record<string, string>, copyT
   const addrParts    = [r.present_address, r.present_city, r.present_state].filter(Boolean);
   const address      = addrParts.join(', ') + (r.present_pin ? ` - ${r.present_pin}` : '');
 
-  const isNri       = ['nri','oci','pio'].includes((r.nationality || '').toLowerCase());
+  const isNri       = isGstExempt(r.nationality);
   const totalAmount = parseFloat(r.amount_received_inr || 0);
   const amountWords = pmtNumberToWords(totalAmount);
   const floorOrdinal = r.floor != null ? pmtOrdinal(parseInt(r.floor)) : '—';
@@ -2103,7 +2104,7 @@ async function buildReceiptDetailHtml(rows: any[]): Promise<string> {
   const dtdStyle = `border:1px solid #dee2e6;padding:4px 6px;font-size:11px;`;
 
   const buildDetailRows = async (r: any): Promise<any[]> => {
-    const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
+    const isNri = isGstExempt(r.nationality);
     const drows: any[] = [];
     let sno = 1;
     const basicAmt  = parseFloat(String(r.amount_received_inr || 0));

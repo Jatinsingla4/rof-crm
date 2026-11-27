@@ -46,6 +46,7 @@ const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
 const business_date_js_1 = require("../../utils/business-date.js");
 const money_basis_js_1 = require("../../utils/money-basis.js");
+const gst_exempt_js_1 = require("../../utils/gst-exempt.js");
 // Check list
 async function checkListData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -123,7 +124,7 @@ async function checkListData(ctx) {
     // which folds addon charges into the Basic row. Sourcing
     // independently here avoids double-counting addon amounts that
     // are listed as their own rows below.
-    const isNriCL = ['nri', 'oci', 'pio'].includes((planCL.nationality || '').toLowerCase());
+    const isNriCL = (0, gst_exempt_js_1.isGstExempt)(planCL.nationality);
     const gstPctCL = isNriCL ? 0 : 0.5;
     const bspRateCL = parseFloat(planCL.booking_basic_rate_inr_sqft || 0);
     const bspCarpetCL = parseFloat(planCL.booking_carpet_area_sqft || 0);

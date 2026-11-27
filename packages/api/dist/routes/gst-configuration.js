@@ -10,6 +10,7 @@ const index_js_1 = require("../index.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const input_js_1 = require("../utils/input.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const statutory_readiness_js_1 = require("../utils/statutory-readiness.js");
 const router = (0, express_1.Router)();
 const VALID_CHARGE_TYPES = ['BASIC', 'PLC', 'OTHER CHARGE', 'IFMS', 'EXTRA ADD ON', 'OTHERS'];
 const VALID_GST_TYPES = ['INTER', 'INTRA', 'UT'];
@@ -549,6 +550,20 @@ router.get('/resolve', async (req, res, next) => {
         if (!row)
             return res.status(404).json({ success: false, error: `No GST mapping for ${ct} on ${proj.name}` });
         res.json({ success: true, data: { cgstPct: parseFloat(row.cgst_pct), sgstPct: parseFloat(row.sgst_pct), fallback } });
+    }
+    catch (err) {
+        fail(err, res, next);
+    }
+});
+// GET /api/gst-configuration/readiness?from=YYYY-MM-DD&to=YYYY-MM-DD[&projectId=X]: what finance has and has not configured for a date range (default: 1 April 2019 to today).
+// Read only. Each item says who has to act: the client's finance team (configuration), the software (a code path that reads another source) or a decision. Nothing is invented or repaired.
+router.get('/readiness', async (req, res, next) => {
+    try {
+        const projectId = optId(req.query.projectId, 'projectId');
+        const to = (0, input_js_1.day)(req.query.to, 'to') || (0, business_date_js_1.businessToday)(), from = (0, input_js_1.day)(req.query.from, 'from') || '2019-04-01';
+        if (from > to)
+            throw (0, input_js_1.bad)('from must not be after to');
+        res.json({ success: true, data: await (0, statutory_readiness_js_1.statutoryReadiness)(index_js_1.db, { projectId, from, to }) });
     }
     catch (err) {
         fail(err, res, next);
