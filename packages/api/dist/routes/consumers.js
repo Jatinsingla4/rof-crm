@@ -438,7 +438,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {
                 if (STAGE_NEEDS_UNIT.includes(upd.lead_stage) && !cur.allocated_unit_id)
                     throw (0, applicant_fields_js_1.conflict)(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);
-                if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('active','complete') LIMIT 1`, [id])).rows.length) {
+                if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('pending_payment','active','complete') LIMIT 1`, [id])).rows.length) { // QA-019: a booking waiting for payment is live too
                     throw (0, applicant_fields_js_1.conflict)(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
                 }
             }

@@ -26,6 +26,8 @@ const receipt_allocation_shadow_js_1 = require("../utils/receipt-allocation-shad
 const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const applicant_js_1 = require("../utils/applicant.js");
+const booking_state_js_1 = require("../utils/booking-state.js");
+const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const router = (0, express_1.Router)();
 /**
@@ -285,9 +287,11 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
             if (!(await c.query(`SELECT 1 FROM financial_years WHERE from_date <= $1::date AND to_date >= $1::date AND is_active IS NOT FALSE LIMIT 1`, [invoiceDate])).rows.length)
                 throw (0, input_js_1.bad)(`No financial year is configured for ${invoiceDate}. Add it in Set Master before making an invoice for that date.`, 409);
             if (receiptId) {
-                const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
+                const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr, payment_plan_id FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
                 if (!rc || rc.consumer_id !== consumerId)
                     throw (0, input_js_1.bad)('That receipt does not belong to this applicant', 400);
+                if (await (0, booking_state_js_1.planIsCancelled)(c, rc.payment_plan_id))
+                    throw (0, input_js_1.bad)(INVOICE_CANCELLED_MSG, 409); // QA-041/044: the booking behind this receipt is cancelled
                 if (['cancelled', 'bounced'].includes(rc.status))
                     throw (0, input_js_1.bad)(`That receipt is ${rc.status}`, 409);
                 // Owner default: GST is invoiced on money that has actually cleared. A cheque or transfer still waiting for the bank is not yet taxed, so a later bounce needs no reversal.
@@ -323,6 +327,9 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
                     throw (0, input_js_1.bad)('An invoice was already generated for this receipt', 409);
             }
             else {
+                // QA-041/044: no new direct tax invoice for an applicant whose bookings are all cancelled
+                if ((await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM booking_records b2 WHERE b2.consumer_id = $1 AND b2.status <> 'cancelled') LIMIT 1`, [consumerId])).rows.length)
+                    throw (0, input_js_1.bad)(INVOICE_CANCELLED_MSG, 409);
                 // QA-004: an invoice not tied to a receipt cannot tax more than the applicant's live booking is worth, counting what is already invoiced (a 30 crore invoice was once accepted)
                 const bk = Number((await c.query(`SELECT COALESCE(MAX(total_price_inr), 0) AS v FROM booking_records WHERE consumer_id = $1 AND status <> 'cancelled'`, [consumerId])).rows[0].v);
                 if (bk > 0) {

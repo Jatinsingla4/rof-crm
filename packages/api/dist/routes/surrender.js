@@ -372,6 +372,7 @@ const performSurrender = async (c, req, res, p) => {
     await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
     if (booking)
         await c.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [booking.id]);
+    await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) SELECT id, status, $2::public.unit_status, $3, $4 FROM units WHERE id = $1 AND status IS DISTINCT FROM $2::public.unit_status`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender', req.userId || null, isCancel ? 'Allocation cancelled' : 'Unit surrendered']); // QA-017: the history had no row for this change
     await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender']);
     // the parking slots of this unit go back to the pool (a restore does not take them back: someone else may hold them by then)
     await c.query(`UPDATE parking_slots SET status = 'available', allotted_to_consumer_id = NULL, allotted_unit_id = NULL, allotted_at = NULL WHERE allotted_to_consumer_id = $1 AND (allotted_unit_id = $2 OR allotted_unit_id IS NULL)`, [consumerId, alloc.unit_id]);
@@ -506,6 +507,7 @@ router.post('/restore', async (req, res, next) => {
             await c.query(`UPDATE consumers SET lead_stage = $2, allocated_unit_id = $3 WHERE id = $1`, [s.consumer_id, pre.lead_stage && pre.lead_stage !== 'cancelled' ? pre.lead_stage : 'allotted', alloc.unit_id]);
             if (s.booking_record_id)
                 await c.query(`UPDATE booking_records SET status = $2 WHERE id = $1`, [s.booking_record_id, pre.booking_status || 'complete']);
+            await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) SELECT id, status, $2::public.unit_status, $3, 'Surrender / cancellation restored' FROM units WHERE id = $1 AND status IS DISTINCT FROM $2::public.unit_status`, [alloc.unit_id, s.pre_surrender_unit_status || 'locked', req.userId || null]);
             await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, s.pre_surrender_unit_status || 'locked']);
             const snap = Array.isArray(s.cancelled_demand_snapshot) ? s.cancelled_demand_snapshot : [];
             for (const e of snap)

@@ -322,12 +322,13 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
 
     const out = await inTx(async (c) => {
       const cur = (await c.query(
-        `SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
+        `SELECT id, receipt_number, consumer_id, payment_plan_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
            FROM receipts WHERE id = $1 FOR UPDATE`, [id]
       )).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
       if (cur.approval_status === 'approved') throw bad('Cannot edit an approved receipt', 403);
       if (cur.status === 'cancelled' || cur.status === 'bounced') throw bad(`Cannot edit a ${cur.status} receipt`, 403);
+      if (await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044: a receipt of a cancelled booking is settled by a checker (cancel or bounce) or by a refund, not edited
       const editParts = cur.approval_status === 'pending';   // the charge parts are locked once approved (kept as before)
       const p = parts(b, parseFloat(cur.amount_received_inr));
       if (ref && ref !== cur.transaction_ref) await reference(c, 'transaction_ref', ref, id, 'Reference');
@@ -417,7 +418,7 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
       // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
       if (o.checker) notOwn(req, cur.received_by_user_id);
       if (!INSTRUMENTS.includes(cur.payment_method)) throw bad(`This payment mode cannot be ${o.verb}`);
-      if ((o.to === 'cleared' || o.to === 'deposited') && await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);
+      if (await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044: deposit, clear, hold and release-hold alike. The checker cancels or bounces such a receipt instead.
       if (!o.from.includes(cur.status)) throw bad(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
       // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
       if (o.to === 'cleared' && (!cur.authorized_by || cur.approval_status !== 'approved')) throw bad('Cannot clear: the receipt has not been authorized by a checker yet', 409);   // QA-010/036/042: approval_status too, not only authorized_by

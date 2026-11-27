@@ -17,6 +17,7 @@ const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const rebate_js_1 = require("../utils/rebate.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const booking_state_js_1 = require("../utils/booking-state.js");
 const input_js_1 = require("../utils/input.js");
 const holds_js_1 = require("../utils/holds.js");
 const broker_js_1 = require("../utils/broker.js");
@@ -372,6 +373,27 @@ router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) =>
             commissions_paid_with_no_cleared_receipt: await q(`SELECT bc.id, bc.broker_id, bc.consumer_id, bc.commission_amount_inr::float8 AS commission, bc.tds_amount::float8 AS tds
         FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT ${(0, money_basis_js_1.commissionBackedSql)('bc')}`), // QA-009: the same test the payout gate uses, not just "some receipt cleared"
         };
+        // QA-012/017/019/044/045: lifecycle states that disagree. Listed only; each row is a case for a person to look at.
+        const LIVE_ALLOC = `('booked','allotted','agreement_signed')`;
+        Object.assign(sets, {
+            live_bookings_whose_unit_is_available: await q(`SELECT br.id, br.registration_no, br.status, br.consumer_id, br.unit_id, u.unit_number FROM booking_records br JOIN units u ON u.id = br.unit_id
+        WHERE br.status IN ('active','complete') AND u.status = 'available'`),
+            complete_bookings_with_no_live_allocation: await q(`SELECT br.id, br.registration_no, br.consumer_id, br.unit_id FROM booking_records br
+        WHERE br.status = 'complete' AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.consumer_id = br.consumer_id AND a.unit_id = br.unit_id AND a.status IN ${LIVE_ALLOC})`),
+            live_allocations_whose_unit_is_available: await q(`SELECT a.id, a.consumer_id, a.unit_id, a.status, u.unit_number FROM allocations a JOIN units u ON u.id = a.unit_id WHERE a.status IN ${LIVE_ALLOC} AND u.status = 'available'`),
+            applicants_linked_to_a_unit_they_do_not_hold: await q(`SELECT c.id AS consumer_id, c.allocated_unit_id AS unit_id FROM consumers c WHERE c.allocated_unit_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.consumer_id = c.id AND a.unit_id = c.allocated_unit_id AND a.status IN ${LIVE_ALLOC})`),
+            units_linked_to_several_applicants: await q(`SELECT allocated_unit_id AS unit_id, COUNT(*)::int AS applicants FROM consumers WHERE allocated_unit_id IS NOT NULL GROUP BY allocated_unit_id HAVING COUNT(*) > 1`),
+            units_reserved_with_no_live_booking_or_allocation: await q(`SELECT u.id AS unit_id, u.unit_number, u.status FROM units u WHERE u.status IN ('booked','allotted','locked')
+        AND NOT EXISTS (SELECT 1 FROM booking_records br WHERE br.unit_id = u.id AND br.status IN ('pending_payment','active','complete'))
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.unit_id = u.id AND a.status IN ${LIVE_ALLOC})`),
+            live_demands_on_a_cancelled_booking: await q(`SELECT d.id, d.payment_plan_id, d.consumer_id, d.installment_index, d.status FROM demands d JOIN payment_plans pp ON pp.id = d.payment_plan_id
+        WHERE ${(0, booking_state_js_1.cancelledPlanSql)('pp')} AND d.status NOT IN ('cancelled','paid')`),
+            cancelled_stage_with_a_live_booking: await q(`SELECT c.id AS consumer_id, c.lead_stage, br.id AS booking_id, br.status FROM consumers c JOIN booking_records br ON br.consumer_id = c.id
+        WHERE c.lead_stage = 'cancelled' AND br.status IN ('pending_payment','active','complete')`),
+            complete_booking_stage_before_allotment: await q(`SELECT c.id AS consumer_id, c.lead_stage, br.id AS booking_id FROM consumers c JOIN booking_records br ON br.consumer_id = c.id
+        WHERE br.status = 'complete' AND c.lead_stage IN ('enquiry','interested','application_filed','draw_entered')`), // informational: the stage is moved by allotment, not by confirming a booking (a business decision)
+        });
         res.json({ success: true, counts: Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.length])), data: sets });
     }
     catch (err) {

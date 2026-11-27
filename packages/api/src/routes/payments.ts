@@ -26,6 +26,8 @@ import { allocationShadow } from '../utils/receipt-allocation-shadow.js';
 import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { gstinOk } from '../utils/applicant.js';
+import { planIsCancelled } from '../utils/booking-state.js';
+const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
 
 const router = Router();
@@ -258,8 +260,9 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
       }
       if (!(await c.query(`SELECT 1 FROM financial_years WHERE from_date <= $1::date AND to_date >= $1::date AND is_active IS NOT FALSE LIMIT 1`, [invoiceDate])).rows.length) throw bad(`No financial year is configured for ${invoiceDate}. Add it in Set Master before making an invoice for that date.`, 409);
       if (receiptId) {
-        const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
+        const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr, payment_plan_id FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
         if (!rc || rc.consumer_id !== consumerId) throw bad('That receipt does not belong to this applicant', 400);
+        if (await planIsCancelled(c, rc.payment_plan_id)) throw bad(INVOICE_CANCELLED_MSG, 409);   // QA-041/044: the booking behind this receipt is cancelled
         if (['cancelled', 'bounced'].includes(rc.status)) throw bad(`That receipt is ${rc.status}`, 409);
         // Owner default: GST is invoiced on money that has actually cleared. A cheque or transfer still waiting for the bank is not yet taxed, so a later bounce needs no reversal.
         // Finance can allow invoicing on a recorded receipt by setting gst_invoice_requires_cleared to 'false' (the tax-timing rule is theirs to confirm).
@@ -279,6 +282,8 @@ router.post('/gst-invoices', financeOnly, async (req: AuthRequest, res: Response
         cgstRate = pct(cgst); sgstRate = pct(sgst); igstRate = pct(igst);
         if ((await c.query(`SELECT 1 FROM gst_invoices WHERE receipt_id = $1 AND status <> 'cancelled'`, [receiptId])).rows.length) throw bad('An invoice was already generated for this receipt', 409);
       } else {
+        // QA-041/044: no new direct tax invoice for an applicant whose bookings are all cancelled
+        if ((await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM booking_records b2 WHERE b2.consumer_id = $1 AND b2.status <> 'cancelled') LIMIT 1`, [consumerId])).rows.length) throw bad(INVOICE_CANCELLED_MSG, 409);
         // QA-004: an invoice not tied to a receipt cannot tax more than the applicant's live booking is worth, counting what is already invoiced (a 30 crore invoice was once accepted)
         const bk = Number((await c.query(`SELECT COALESCE(MAX(total_price_inr), 0) AS v FROM booking_records WHERE consumer_id = $1 AND status <> 'cancelled'`, [consumerId])).rows[0].v);
         if (bk > 0) {

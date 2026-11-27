@@ -10,6 +10,7 @@
  *  - POST /credit-allocation-reversals/:id/approve | /reject (checker)
  * Same lock order as every money path: the consumer lock first (also taken when a receipt is recorded), then the rows, then the status recompute.
  */
+import { planIsCancelled, CANCELLED_MSG } from '../utils/booking-state.js';
 import { Router, Response, NextFunction } from 'express';
 import { db, AuthRequest } from '../index.js';
 import { requireProcess } from '../middleware/processPermission.js';
@@ -81,6 +82,7 @@ router.post('/credit-allocations', requireProcess('credit_allocation', 'maker'),
         if (dup.demand_id !== demandId || Number(dup.amount) !== amount) throw bad('This idempotency key was already used for a different request', 409);
         return { row: dup, replay: true };
       }
+      if (await planIsCancelled(c, d0.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044
       await checkDemand(c, demandId, d0.payment_plan_id, amount);
       const sum = await creditSummary(c, d0.payment_plan_id);
       if (amount > sum.credit + 0.005) throw bad(`The allocation (${amount}) is more than the customer credit available (${Math.max(0, sum.credit)})`, 409);
@@ -112,6 +114,7 @@ const decide = (verb: 'approve' | 'reject') => async (req: AuthRequest, res: Res
         await auditChange(c, req, res, 'update', 'credit_allocation', id, { status: 'pending' }, { status: 'rejected', reason });
         return up.rows[0];
       }
+      if (await planIsCancelled(c, a.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044: approving would move money on a cancelled booking; rejecting it stays possible
       await checkDemand(c, a.demand_id, a.payment_plan_id, Number(a.amount));
       const sum = await creditSummary(c, a.payment_plan_id);
       if (Number(a.amount) > sum.credit + 0.005) throw bad(`The customer credit available (${Math.max(0, sum.credit)}) is now less than the allocation (${a.amount})`, 409);
