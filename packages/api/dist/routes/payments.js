@@ -27,6 +27,7 @@ const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const financial_measures_js_1 = require("../utils/financial-measures.js");
+const allocation_ledger_js_1 = require("../utils/allocation-ledger.js");
 const booking_state_js_1 = require("../utils/booking-state.js");
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 const printDownload_js_1 = require("../middleware/printDownload.js");
@@ -556,6 +557,36 @@ router.post('/receipts/quote', async (req, res, next) => {
 router.get('/receipt-allocation-shadow', input_js_1.financeOnly, async (_req, res, next) => {
     try {
         res.json({ success: true, ...(await (0, receipt_allocation_shadow_js_1.allocationShadow)(index_js_1.db)) });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/payments/allocation-ledger/:consumerId: where every rupee of every receipt of an applicant went, plan by plan (applied, returned, unapplied with its reason, credit allocations, receipts that are not money),
+// with the checks that show the books agree. Derived from the facts, read only, finance only (QA-008, 014, 033, 037, 039). See utils/allocation-ledger.ts.
+router.get('/allocation-ledger/:consumerId', input_js_1.financeOnly, async (req, res, next) => {
+    try {
+        const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'consumerId');
+        if (!(await index_js_1.db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length)
+            throw (0, input_js_1.bad)('Applicant not found', 404);
+        const plans = (await index_js_1.db.query(`SELECT id, unit_id, total_amount_inr FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at`, [consumerId])).rows;
+        const out = [];
+        for (const p of plans) {
+            const input = await (0, allocation_ledger_js_1.loadLedgerInput)(index_js_1.db, p.id);
+            const ds = (await index_js_1.db.query(`SELECT ${money_basis_js_1.DEMAND_COLS} FROM demands WHERE payment_plan_id = $1`, [p.id])).rows;
+            const paid = (0, money_basis_js_1.paidByDemand)(await (0, money_basis_js_1.loadEligible)(index_js_1.db, p.id), await (0, money_basis_js_1.loadAllocations)(index_js_1.db, p.id), ds);
+            out.push({ payment_plan_id: p.id, unit_id: p.unit_id, plan_total: Number(p.total_amount_inr), booking_cancelled: await (0, booking_state_js_1.planIsCancelled)(index_js_1.db, p.id), ...(0, allocation_ledger_js_1.buildAllocationLedger)({ ...input, paidByDemandCheck: paid }) });
+        }
+        res.json({ success: true, data: { consumer_id: consumerId, plans: out } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/payments/allocation-reconciliation[?projectId=]: the ledger of every plan with a receipt, checked. Read only, finance only. Run before the allocation flag is considered.
+router.get('/allocation-reconciliation', input_js_1.financeOnly, async (req, res, next) => {
+    try {
+        res.json({ success: true, data: await (0, allocation_ledger_js_1.ledgerReconciliation)(index_js_1.db, optId(req.query.projectId, 'projectId')) });
     }
     catch (error) {
         fail(error, res, next);

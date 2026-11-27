@@ -9,7 +9,7 @@ import { db } from '../index.js';
 import { AuthRequest } from '../index.js';
 import { buildEditScript, applyOverridesToHtml } from '../utils/document-recalc.js';
 import { applyWaterfall, WaterfallReceipt, WaterfallDemand, buildInterestRows, resolveBookingScope, recomputeBookingAmount, recomputeBookingPaymentTaxes } from '../utils/payment-waterfall.js';
-import { recomputePlan, returnedSql, bookedBasicSql } from '../utils/money-basis.js';
+import { recomputePlan, returnedSql, bookedBasicSql, loadEligible, loadAllocations, paidByDemand, DEMAND_COLS } from '../utils/money-basis.js';
 import { hasProcessRight } from './receipt-returns.js';
 import { requireProcess } from '../middleware/processPermission.js';
 import { bad, failWith, uuid, has, num, text, day, body, inTx, lock, paging, qtext, oneOf, pos, r2, flag, financeOnly } from '../utils/input.js';
@@ -27,6 +27,7 @@ import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { gstinOk } from '../utils/applicant.js';
 import { financialMeasures } from '../utils/financial-measures.js';
+import { buildAllocationLedger, loadLedgerInput, ledgerReconciliation } from '../utils/allocation-ledger.js';
 import { planIsCancelled } from '../utils/booking-state.js';
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
@@ -479,6 +480,29 @@ router.post('/receipts/quote', async (req: AuthRequest, res: Response, next: Nex
 // Read-only, finance only, safe while the flag is off. Every mismatch is a demand finance must look at before the allocation is switched on.
 router.get('/receipt-allocation-shadow', financeOnly, async (_req: AuthRequest, res: Response, next: NextFunction) => {
   try { res.json({ success: true, ...(await allocationShadow(db)) }); } catch (error) { fail(error, res, next); }
+});
+
+// GET /api/payments/allocation-ledger/:consumerId: where every rupee of every receipt of an applicant went, plan by plan (applied, returned, unapplied with its reason, credit allocations, receipts that are not money),
+// with the checks that show the books agree. Derived from the facts, read only, finance only (QA-008, 014, 033, 037, 039). See utils/allocation-ledger.ts.
+router.get('/allocation-ledger/:consumerId', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const consumerId = uuid(req.params.consumerId, 'consumerId');
+    if (!(await db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);
+    const plans = (await db.query(`SELECT id, unit_id, total_amount_inr FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at`, [consumerId])).rows;
+    const out: any[] = [];
+    for (const p of plans) {
+      const input = await loadLedgerInput(db, p.id);
+      const ds = (await db.query(`SELECT ${DEMAND_COLS} FROM demands WHERE payment_plan_id = $1`, [p.id])).rows;
+      const paid = paidByDemand(await loadEligible(db, p.id), await loadAllocations(db, p.id), ds);
+      out.push({ payment_plan_id: p.id, unit_id: p.unit_id, plan_total: Number(p.total_amount_inr), booking_cancelled: await planIsCancelled(db, p.id), ...buildAllocationLedger({ ...input, paidByDemandCheck: paid }) });
+    }
+    res.json({ success: true, data: { consumer_id: consumerId, plans: out } });
+  } catch (error) { fail(error, res, next); }
+});
+
+// GET /api/payments/allocation-reconciliation[?projectId=]: the ledger of every plan with a receipt, checked. Read only, finance only. Run before the allocation flag is considered.
+router.get('/allocation-reconciliation', financeOnly, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try { res.json({ success: true, data: await ledgerReconciliation(db, optId(req.query.projectId, 'projectId')) }); } catch (error) { fail(error, res, next); }
 });
 
 // GET /api/payments/interest/preview/:demandId[?asOf=YYYY-MM-DD]: the late-payment interest on one demand, row by row, with the formula. Read-only.
