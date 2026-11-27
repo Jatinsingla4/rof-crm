@@ -326,7 +326,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await page.locator('button', { hasText: /generate manual invoice/i }).click();
   await expect(page.locator('#gst-man-result')).toContainText(/INV\/\d{4}\/\d{5}/);
   await page.locator('#gst-man-gstin').fill('bad'); await page.locator('button', { hasText: /generate manual invoice/i }).click();
-  await expect(page.locator('#gst-man-result')).toContainText(/15 letters/i);
+  await expect(page.locator('#gst-man-result')).toContainText(/not a valid GSTIN/i);
   // advance
   await tab('invoice-advance');
   await page.locator('#adv-consumer').selectOption(b.c); await page.locator('#adv-amount').fill('2000');
