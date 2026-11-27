@@ -322,7 +322,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await page.locator('#gst-man-consumer').selectOption(b.c);
   await page.locator('button', { hasText: /generate manual invoice/i }).click(); await expect(toast(/taxable amount/i)).toBeVisible();   // no amount yet
   await page.locator('#gst-man-rate').selectOption('5');   // QA-003: no rate is preselected any more
-  await page.locator('#gst-man-amount').fill('1000'); await page.locator('#gst-man-gstin').fill('06AAAAA0000A1Z5'); await page.locator('#gst-man-desc').fill('Manual');
+  await page.locator('#gst-man-amount').fill('1000'); await page.locator('#gst-man-gstin').fill('06AAAAA0000A1Z6');   // a buyer GSTIN with a valid check character (QA-049); same state as the project's, so an intra-state supply await page.locator('#gst-man-desc').fill('Manual');
   await page.locator('button', { hasText: /generate manual invoice/i }).click();
   await expect(page.locator('#gst-man-result')).toContainText(/INV\/\d{4}\/\d{5}/);
   await page.locator('#gst-man-gstin').fill('bad'); await page.locator('button', { hasText: /generate manual invoice/i }).click();
