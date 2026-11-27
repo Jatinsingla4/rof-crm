@@ -30,6 +30,7 @@
 
 import { createHash } from 'crypto';
 import { extractFieldValue } from './document-recalc.js';
+import { checkNumbers, personName } from './applicant-fields.js';
 
 type WritebackContext = {
   documentId: string;
@@ -196,6 +197,7 @@ const WRITEBACK_MAP: Record<string, WritebackFn> = {
 
   registrationNo: async (v, ctx, client) => {
     if (!ctx.consumerId) return { written: false, error: 'no consumer_id' };
+    try { await checkNumbers(client, ctx.consumerId, v.trim(), null); } catch (e: any) { return { written: false, error: e.message }; }   // QA-022: not written when another applicant has it
     await client.query(
       `UPDATE consumers SET registration_no = $1, updated_at = NOW() WHERE id = $2`,
       [v.trim(), ctx.consumerId]
@@ -521,9 +523,10 @@ const WRITEBACK_MAP: Record<string, WritebackFn> = {
     const parts = v.trim().split(/\s+/);
     const firstName = parts[0] || '';
     const lastName  = parts.length > 1 ? parts.slice(1).join(' ') : '';
+    const typ = (await client.query(`SELECT applicant_type FROM consumers WHERE id = $1`, [ctx.consumerId])).rows[0]?.applicant_type;
     await client.query(
-      `UPDATE consumers SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3`,
-      [firstName, lastName, ctx.consumerId]
+      `UPDATE consumers SET first_name = $1, last_name = $2, name = COALESCE(NULLIF($4, ''), name), updated_at = NOW() WHERE id = $3`,
+      [firstName, lastName, ctx.consumerId, personName(undefined, firstName, lastName, typ) || '']   // QA-022: `name` follows the parts (it used to go stale)
     );
     return { written: true, table: 'consumers', column: 'first_name+last_name' };
   },
@@ -552,9 +555,10 @@ const WRITEBACK_MAP: Record<string, WritebackFn> = {
     const parts = v.trim().split(/\s+/);
     const firstName = parts[0] || '';
     const lastName = parts.length > 1 ? parts.slice(1).join(' ') : '';
+    const typ = (await client.query(`SELECT applicant_type FROM consumers WHERE id = $1`, [ctx.consumerId])).rows[0]?.applicant_type;
     await client.query(
-      `UPDATE consumers SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3`,
-      [firstName, lastName, ctx.consumerId]
+      `UPDATE consumers SET first_name = $1, last_name = $2, name = COALESCE(NULLIF($4, ''), name), updated_at = NOW() WHERE id = $3`,
+      [firstName, lastName, ctx.consumerId, personName(undefined, firstName, lastName, typ) || '']   // QA-022: `name` follows the parts (it used to go stale)
     );
     return { written: true, table: 'consumers', column: 'first_name+last_name' };
   },

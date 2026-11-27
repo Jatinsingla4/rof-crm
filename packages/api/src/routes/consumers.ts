@@ -22,12 +22,13 @@ import {
   mobileNo, emailAddr, panNo, aadhaarNo, gstinNo, passportNo, pastDay, birthDay, genderOf, pinCode, phoneNo,
   children, titleCase, LEAD_STAGES, INCOME_CATS, likeOf,
 } from '../utils/applicant.js';
-import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, sha, lock, conflict, checkIdentity, personName, hasLetter } from '../utils/applicant-fields.js';
+import { FIELDS, ALIAS, CO_COLS, cleanFields, coSource, asText, mask, forAudit, sha, lock, conflict, checkIdentity, personName, hasLetter, checkNumbers } from '../utils/applicant-fields.js';
 import { penalRateFrom } from '../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart } from '../utils/business-date.js';
 import { requirePrint } from '../middleware/printDownload.js';
 import { returnedSql, bookedBasicSql } from '../utils/money-basis.js';
 import { isGstExempt } from '../utils/gst-exempt.js';
+import { maskPeople, peopleFullRoles, dropMaskedIds } from '../utils/people-mask.js';
 
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC: [string, number[]][] = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
@@ -299,7 +300,7 @@ router.get('/:id', async (req: AuthRequest, res: Response, next: NextFunction) =
     res.json({
       success: true,
       data: {
-        ...result.rows[0],
+        ...maskPeople(result.rows[0], req.userRole, await peopleFullRoles(db)),   // QA-027: unchanged until ROF sets people_id_full_roles
         kycDocuments: kycResult.rows,
         paymentSummary: paymentResult.rows[0],
       },
@@ -316,6 +317,7 @@ router.patch('/:id', requireProcess('edit_applicant', 'maker'), async (req: Auth
   try {
     const id = req.params.id;
     const b = body(req);
+    dropMaskedIds(b);   // QA-027: a masked number shown to this role is never written back
     const errs: Record<string, { e: any; raw: any }> = {};
     const f = cleanFields(b, undefined, errs);
     const upd: Record<string, any> = {};
@@ -357,6 +359,7 @@ router.patch('/:id', requireProcess('edit_applicant', 'maker'), async (req: Auth
         upd.name = nm;
       }
       if (upd.mobile !== undefined || upd.pan_no) await checkIdentity(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
+      await checkNumbers(c, id, upd.registration_no && upd.registration_no !== cur.registration_no ? upd.registration_no : null, upd.form_no && upd.form_no !== cur.form_no ? upd.form_no : null);   // QA-022
       if (upd.dob !== undefined && cur.applicant_type === 'company') delete upd.dob;
       if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {
         if (STAGE_NEEDS_UNIT.includes(upd.lead_stage) && !cur.allocated_unit_id) throw conflict(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);

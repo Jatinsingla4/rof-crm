@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const financial_ops_js_1 = require("./financial-ops.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const cash_limit_js_1 = require("../utils/cash-limit.js");
 const router = (0, express_1.Router)();
 // What the receipt form sends -> what the database keeps
 exports.RECEIPT_MODES = {
@@ -150,6 +151,13 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                     idx = 1; // nothing raised yet: the first receipt belongs to instalment 1
                 else
                     warnings.push('Every instalment raised so far is already covered by the money recorded, so this receipt is not matched to an instalment. Once it clears it stays as customer credit until it is allocated.');
+            }
+            if (method === 'cash') { // QA-018: the configured cash control (off until ROF sets a limit)
+                const cl = await (0, cash_limit_js_1.cashLimitCheck)(c, { consumerId, amount, date });
+                if (cl?.block)
+                    throw (0, input_js_1.bad)(cl.block, 422);
+                if (cl?.warn)
+                    warnings.push(cl.warn);
             }
             // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
             let receiptNumber;

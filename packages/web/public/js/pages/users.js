@@ -445,15 +445,17 @@ SEC.screens['role-menu'] = async (el) => {
 SEC.audit = { page: 1, rows: [] };
 
 SEC.screens.audit = async (el) => {
-  let people = [];
-  try { people = (await Api.get('/users/directory')).data || []; } catch { /* the filter then lists nobody */ }
+  let people = [], types = ['user', 'role', 'auth', 'consumer', 'project', 'company', 'booking', 'receipt'];
+  // QA-024: every login (active or not, super admins too), and the kinds of record the log really holds
+  try { people = (await Api.get('/users/audit-directory')).data || []; } catch { try { people = (await Api.get('/users/directory')).data || []; } catch { /* the filter then lists nobody */ } }
+  try { const t = (await Api.get('/users/audit-resource-types')).data || []; if (t.length) types = t; } catch { /* the fixed list stays */ }
   el.innerHTML = `
     <div class="sm-panel">
       <div class="sm-panel-h"><div><div class="sm-panel-t">Audit Log</div><div class="sm-panel-s">Every add, change, delete and sign in. Entries cannot be edited.</div></div></div>
       <div class="sm-addrow multi" style="grid-template-columns:repeat(5,1fr) auto;align-items:end">
-        <div><label class="sm-label" for="au-user">User</label><select class="sm-input" id="au-user"><option value="">Everyone</option>${people.map((p) => `<option value="${sesc(p.id)}">${sesc(p.name)}</option>`).join('')}</select></div>
+        <div><label class="sm-label" for="au-user">User</label><select class="sm-input" id="au-user"><option value="">Everyone</option><option value="system">System (no user)</option>${people.map((p) => `<option value="${sesc(p.id)}">${sesc(p.name)}${p.email ? ' · ' + sesc(p.email) : ''}${p.is_active === false ? ' (inactive)' : ''}</option>`).join('')}</select></div>
         <div><label class="sm-label" for="au-action">Action</label><select class="sm-input" id="au-action"><option value="">Any</option><option value="create">Create</option><option value="update">Update</option><option value="delete">Delete</option><option value="login">Sign in</option></select></div>
-        <div><label class="sm-label" for="au-type">What</label><select class="sm-input" id="au-type"><option value="">Anything</option>${['user', 'role', 'auth', 'consumer', 'project', 'company', 'booking', 'receipt'].map((t) => `<option value="${t}">${t}</option>`).join('')}</select></div>
+        <div><label class="sm-label" for="au-type">What</label><select class="sm-input" id="au-type"><option value="">Anything</option>${types.map((t) => `<option value="${t}">${t}</option>`).join('')}</select></div>
         <div><label class="sm-label" for="au-from">From</label><input class="sm-input" type="date" id="au-from" value="${Utils.monthStart()}"></div>
         <div><label class="sm-label" for="au-to">To</label><input class="sm-input" type="date" id="au-to" value="${Utils.today()}"></div>
         <button class="sm-btn sm-btn--primary" id="au-go">Show</button>
@@ -480,11 +482,11 @@ SEC.loadAudit = async (fresh) => {
     const res = await Api.get('/users/audit-logs', { params: { userId: q('au-user'), action: q('au-action'), resourceType: q('au-type'), fromDate: q('au-from'), toDate: q('au-to'), pageSize: 100, page: SEC.audit.page } });
     const rows = res.data || [];
     SEC.audit.rows = SEC.audit.rows.concat(rows);
-    SEC.audit.more = rows.length === 100;
+    SEC.audit.more = res.pagination ? SEC.audit.rows.length < res.pagination.total : rows.length === 100;   // from the total, not from a page that happened to be full
   } catch (e) { body.innerHTML = SM.empty('Could not load', e.message); return; }
   const tagKind = { create: 'ok', delete: 'warn', login: 'info' };
   body.innerHTML = SEC.audit.rows.length ? `<div class="sm-scroll" style="max-height:none"><table class="sm-tbl"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>What</th><th>Details</th></tr></thead>
-    <tbody>${SEC.audit.rows.map((l) => `<tr><td class="sm-muted">${sesc(SEC.when(l.timestamp))}</td><td>${sesc(l.user_name || 'System')}</td>
+    <tbody>${SEC.audit.rows.map((l) => `<tr><td class="sm-muted">${sesc(SEC.when(l.timestamp))}</td><td>${sesc(l.user_name || (l.user_removed ? 'Removed user' : 'System'))}${l.user_email ? `<div class="sm-muted" style="font-size:11px">${sesc(l.user_email)}</div>` : ''}</td>
       <td>${SEC.tag(l.action === 'login' ? 'sign in' : l.action, tagKind[l.action])}</td><td>${sesc(l.resource_type)}</td>
       <td class="sm-muted" style="max-width:360px;overflow-wrap:anywhere">${sesc(SEC.summary(l))}</td></tr>`).join('')}</tbody></table></div>
     ${SEC.audit.more ? '<div style="padding:12px 16px"><button class="sm-btn" onclick="SEC.audit.page++;SEC.loadAudit()">Load more</button></div>' : ''}`

@@ -21,7 +21,7 @@ import { bad, uuid, has, realRera, num, text, day, flag, body, inTx, financeOnly
 import { settleHold } from '../utils/holds.js';
 import { brokerOk, flagPaidCommission } from '../utils/broker.js';
 import { pinCode, mobileNo } from '../utils/applicant.js';
-import { cleanFields, checkIdentity, personName, hasLetter, forAudit, asText, lock, sha } from '../utils/applicant-fields.js';
+import { cleanFields, checkIdentity, personName, hasLetter, forAudit, asText, lock, sha, checkNumbers } from '../utils/applicant-fields.js';
 import { resolveGstForComponents, resolveRate, splitGstAcrossInstalments } from '../utils/gst-resolver.js';
 import { computeBalconyCharge } from '../utils/balcony-charge.js';
 import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
@@ -38,6 +38,8 @@ import { businessDayStart, businessToday, businessTomorrow, businessYear } from 
 import { requirePrint } from '../middleware/printDownload.js';
 import { applyUnitStatusFilter, assertUnitGrant } from '../middleware/unitStatusAccess.js';
 import { isGstExempt } from '../utils/gst-exempt.js';
+import { cashLimitCheck } from '../utils/cash-limit.js';
+import { dropMaskedIds } from '../utils/people-mask.js';
 
 const router = Router();
 
@@ -744,6 +746,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
   try {
     const { id } = req.params;
     const b = body(req);
+    dropMaskedIds(b);   // QA-027
     // ---- booking fields (a blank number is ignored, a blank link or note clears it) ----
     const bk: Record<string, any> = {};
     const numeric: [string, number, number][] = [['basic_rate_inr_sqft', 1e6, 4], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
@@ -833,6 +836,7 @@ router.patch('/:id/edit', async (req: AuthRequest, res: Response, next: NextFunc
       if (bk.form_no) cons.form_no = bk.form_no;
       const consChanged = changed(cons, consCur);
       if (cons.mobile !== undefined || cons.pan_no) await lock(c, `consumer:${consCur.project_id || ''}:${cons.mobile ?? consCur.mobile}`);
+      await checkNumbers(c, consCur.id, cons.registration_no && cons.registration_no !== consCur.registration_no ? cons.registration_no : null, cons.form_no && cons.form_no !== consCur.form_no && cons.form_no !== bk.form_no ? cons.form_no : null);   // QA-022: the booking's own form number is checked above
       if (cons.mobile !== undefined || cons.pan_no) await checkIdentity(c, consCur.project_id, consCur.id, cons.mobile && cons.mobile !== consCur.mobile ? cons.mobile : null, cons.pan_no && String(cons.pan_no).toUpperCase() !== String(consCur.pan_no || '').toUpperCase() ? cons.pan_no : null);
       const bkRow = (bkChanged.length || Object.keys(extra).length) ? (await setCols(c, 'booking_records', id, { ...Object.fromEntries(bkChanged.map(k => [k, bk[k]])), ...extra }, '*')).rows[0] : cur;
       const cRow = (await (consChanged.length ? setCols(c, 'consumers', consCur.id, Object.fromEntries(consChanged.map(k => [k, cons[k]])), CONSUMER_SHOWN) : c.query(`SELECT ${CONSUMER_SHOWN} FROM consumers WHERE id = $1`, [consCur.id]))).rows[0];
@@ -1233,6 +1237,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response, next: NextFunction)
             const bookingDateStr = booking.booking_date
               ? safeLocalDate(booking.booking_date)
               : safeLocalDate(businessDayStart());
+            if (payMethod === 'cash') { const cl = await cashLimitCheck(client, { consumerId: booking.consumer_id, amount: bookingAmt, date: String(bookingDateStr).slice(0, 10) }); if (cl?.block) throw bad(cl.block, 422); }   // QA-018 (off until ROF sets a limit; a warning has no place on this step)
             const receiptNum = await nextReceiptNumber(client, '', booking.project_id);
             const stepGReceiptRes = await client.query(
               `INSERT INTO receipts

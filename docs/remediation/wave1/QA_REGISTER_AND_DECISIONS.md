@@ -21,7 +21,7 @@ Status words used below, in order of strength: **not started**, **partial** (par
 | 012 | Cancelled booking | partial | API refuses receipt edit, hold, credit allocation, tax invoices on a cancelled booking. Left: screens, pending-receipt refund-or-reject policy (D11) |
 | 013, 043 | Report definitions | partial | refund labels removed, dashboard on canonical measures, overdue vs Demand Status relation pinned. Left: merge or label the remaining differences (D12) |
 | 017, 019, 044, 045 | Lifecycle sync | partial | reconciliation lists, allotment and stage guards, unit history. Left: D13, D14, DB backstops after a production-copy check |
-| 018, 022, 024, 027, 028 | Wave 4 | not started | registration uniqueness and duplicates, display names, audit log user filter, cash controls, sensitive-data visibility |
+| 018, 022, 024, 027, 028 | Wave 4 | partial | registration and form numbers can no longer be duplicated by an edit; duplicate finder and plan (no merge); one display-name fragment; Audit Log filter by every login, by system and by e-mail; identity numbers masked in the audit log; cash limit and role-based ID masking built but OFF. Left: D17 and the Wave 4 decisions in WAVE1_STATUS (uniqueness scope, cash limit, who sees what) |
 | 026, 038 | Interest | partial | `/payments/overdue` on the engine; no whole-instalment figure; waiver and letters double counts. Left: D15 (weekend rule, receipt date, GST on interest, allocation order) |
 | 029 | RERA | partial | readiness check lists the dead RERA tab; no typed-in number. Left: D3 |
 | 030, 032, 040, 048 | Schedule, Sh Tester price | partial | tested on the Sh Tester shape; real data not examined. 040 and 048 need the report |
@@ -73,7 +73,7 @@ Before the simulation: ROF enters the historical financial years, GST slabs, pro
 
 ## 4. What is not done (so nobody reads this as "finished")
 
-- Wave 4 (QA-018, 022, 024, 027, 028): not started.
+- Wave 4 (QA-018, 022, 024, 027, 028): first part done (see WAVE1_STATUS, Wave 4 pass); the cash limit and the role-based masking are OFF until ROF decides; duplicate customers are only listed, never merged.
 - The authoritative allocation ledger (reversals, bounces, refunds, cancellation adjustments, GST/principal split, one receipt over several instalments) and its shadow reconciliation against production.
 - Invoice financial-year series, charge-head taxability on receipt invoices, place of supply for buyers without a GSTIN.
 - Statutory software items S1 to S11 in the checklist.

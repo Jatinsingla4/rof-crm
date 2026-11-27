@@ -31,6 +31,7 @@ const booking_state_js_1 = require("../utils/booking-state.js");
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const person_name_js_1 = require("../utils/person-name.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -2027,7 +2028,7 @@ router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (
         c.id AS consumer_id,
         c.registration_no,
         c.salutation,
-        c.first_name || ' ' || COALESCE(c.last_name,'') AS consumer_name,
+        ${(0, person_name_js_1.personNameSql)('c')} AS consumer_name,
         c.finance_bank,
         c.loan_amount,
         u.unit_number,
@@ -2346,7 +2347,7 @@ router.get('/receipt-detail/:consumerId', printDownload_js_1.requirePrint, async
             THEN 'Booking Amount'
           ELSE 'General Payment'
         END                                                    AS installment_name,
-        c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
+        ${(0, person_name_js_1.personNameSql)('c')} AS consumer_name,
         c.registration_no,
         c.nationality,
         p.id    AS project_id,

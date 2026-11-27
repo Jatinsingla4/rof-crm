@@ -11,6 +11,11 @@ let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 // file -> [clusters that touch the receipts table, mentions of amount_received_inr]
 const ALLOWED = {
+ // reviewed (QA-018, V1.1): the cash control counts cash receipts RECORDED (not cancelled, not bounced, no ADV copies), cleared or not, because a limit must see a receipt when it is made. It is a control, not a money measure: it reads no balance and changes no figure.
+ "utils/cash-limit.ts": [
+  1,
+  1
+ ],
  "routes/addon-charges.ts": [
   2,
   1

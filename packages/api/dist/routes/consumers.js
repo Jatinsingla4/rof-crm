@@ -27,6 +27,7 @@ const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
 const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -344,7 +345,7 @@ router.get('/:id', async (req, res, next) => {
         res.json({
             success: true,
             data: {
-                ...result.rows[0],
+                ...(0, people_mask_js_1.maskPeople)(result.rows[0], req.userRole, await (0, people_mask_js_1.peopleFullRoles)(index_js_1.db)), // QA-027: unchanged until ROF sets people_id_full_roles
                 kycDocuments: kycResult.rows,
                 paymentSummary: paymentResult.rows[0],
             },
@@ -360,6 +361,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
     try {
         const id = req.params.id;
         const b = (0, input_js_1.body)(req);
+        (0, people_mask_js_1.dropMaskedIds)(b); // QA-027: a masked number shown to this role is never written back
         const errs = {};
         const f = (0, applicant_fields_js_1.cleanFields)(b, undefined, errs);
         const upd = {};
@@ -434,6 +436,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             }
             if (upd.mobile !== undefined || upd.pan_no)
                 await (0, applicant_fields_js_1.checkIdentity)(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
+            await (0, applicant_fields_js_1.checkNumbers)(c, id, upd.registration_no && upd.registration_no !== cur.registration_no ? upd.registration_no : null, upd.form_no && upd.form_no !== cur.form_no ? upd.form_no : null); // QA-022
             if (upd.dob !== undefined && cur.applicant_type === 'company')
                 delete upd.dob;
             if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {

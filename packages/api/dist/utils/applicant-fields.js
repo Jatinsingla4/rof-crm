@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.hasLetter = exports.personName = exports.checkIdentity = exports.conflict = exports.lock = exports.sha = exports.forAudit = exports.mask = exports.asText = exports.coSource = exports.cleanFields = exports.CO_COLS = exports.ALIAS = exports.FIELDS = exports.addr = exports.flagOf = exports.money = exports.T = void 0;
+exports.hasLetter = exports.personName = exports.checkNumbers = exports.checkIdentity = exports.conflict = exports.lock = exports.sha = exports.forAudit = exports.mask = exports.asText = exports.coSource = exports.cleanFields = exports.CO_COLS = exports.ALIAS = exports.FIELDS = exports.addr = exports.flagOf = exports.money = exports.T = void 0;
 // Rules for the personal fields of an applicant, shared by Applicants and Booking edit (one table drives create, update, co-applicant and additional applicants).
 const crypto_1 = require("crypto");
 const input_js_1 = require("./input.js");
@@ -122,6 +122,18 @@ const checkIdentity = async (c, project, selfId, mobile, pan) => {
     }
 };
 exports.checkIdentity = checkIdentity;
+// QA-022 (V1.1): a registration number or a form number belongs to ONE applicant. Editing an applicant, editing a booking and editing a document could each write
+// consumers.registration_no or form_no with no check, so two applicants could end up with the same number. Case and spaces do not make a number different.
+// Only a number that actually changes is checked (an old record that already shares one can still be saved unchanged).
+const checkNumbers = async (c, selfId, registration, form) => {
+    const taken = async (col, v) => (await c.query(`SELECT 1 FROM consumers WHERE lower(btrim(${col})) = lower(btrim($1)) AND id <> $2 LIMIT 1`, [v, selfId])).rows.length > 0
+        || (await c.query(`SELECT 1 FROM booking_records WHERE lower(btrim(${col})) = lower(btrim($1)) AND consumer_id <> $2 LIMIT 1`, [v, selfId])).rows.length > 0;
+    if (registration && await taken('registration_no', registration))
+        throw (0, exports.conflict)(`The registration number ${registration} already belongs to another applicant.`);
+    if (form && await taken('form_no', form))
+        throw (0, exports.conflict)(`The form number ${form} already belongs to another applicant.`);
+};
+exports.checkNumbers = checkNumbers;
 // Names for the NOT NULL name column
 const personName = (name, first, last, type) => {
     const n = (0, input_js_1.has)(name) ? (0, input_js_1.text)(name, 'Name', 255, false) : null;

@@ -31,6 +31,7 @@ import { planIsCancelled } from '../utils/booking-state.js';
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
 import { isGstExempt } from '../utils/gst-exempt.js';
+import { personNameSql } from '../utils/person-name.js';
 
 const router = Router();
 
@@ -1994,7 +1995,7 @@ router.get('/receipt-form/:consumerId', requirePrint, async (req: AuthRequest, r
         c.id AS consumer_id,
         c.registration_no,
         c.salutation,
-        c.first_name || ' ' || COALESCE(c.last_name,'') AS consumer_name,
+        ${personNameSql('c')} AS consumer_name,
         c.finance_bank,
         c.loan_amount,
         u.unit_number,
@@ -2325,7 +2326,7 @@ router.get('/receipt-detail/:consumerId', requirePrint, async (req: AuthRequest,
             THEN 'Booking Amount'
           ELSE 'General Payment'
         END                                                    AS installment_name,
-        c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
+        ${personNameSql('c')} AS consumer_name,
         c.registration_no,
         c.nationality,
         p.id    AS project_id,

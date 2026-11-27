@@ -20,6 +20,7 @@ import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { notOwn } from './financial-ops.js';
 import { requirePrint } from '../middleware/printDownload.js';
+import { cashLimitCheck } from '../utils/cash-limit.js';
 
 const router = Router();
 
@@ -137,6 +138,11 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         else warnings.push('Every instalment raised so far is already covered by the money recorded, so this receipt is not matched to an instalment. Once it clears it stays as customer credit until it is allocated.');
       }
 
+      if (method === 'cash') {   // QA-018: the configured cash control (off until ROF sets a limit)
+        const cl = await cashLimitCheck(c, { consumerId, amount, date });
+        if (cl?.block) throw bad(cl.block, 422);
+        if (cl?.warn) warnings.push(cl.warn);
+      }
       // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
       let receiptNumber: string;
       if ((await projectSettings(c, consumerRow.project_id)).receipt_number_mode === 'Manual') {

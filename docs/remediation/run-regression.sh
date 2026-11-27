@@ -22,7 +22,7 @@ step "type check"
 npx tsc --noEmit || fail=1
 
 step "unit tests (no database)"
-npx tsx --test test/agreement-reconcile.test.mjs test/money-rules.test.mjs test/quote-schedule.test.mjs test/a101-simulation.test.mjs test/allocation-position.test.mjs test/interest-intervals.test.mjs test/statutory-readiness.test.mjs 2>&1 | grep -E "^# (tests|pass|fail)" || fail=1
+npx tsx --test test/agreement-reconcile.test.mjs test/money-rules.test.mjs test/quote-schedule.test.mjs test/a101-simulation.test.mjs test/allocation-position.test.mjs test/interest-intervals.test.mjs test/statutory-readiness.test.mjs test/wave4.test.mjs 2>&1 | grep -E "^# (tests|pass|fail)" || fail=1
 
 step "API on port $PORT"
 DB_NAME="$DB" DB_PASSWORD="$PGPASSWORD" PORT="$PORT" JWT_SECRET=local-test-secret-not-real-0123456789abcdef NODE_ENV=development npx tsx src/index.ts >/tmp/rof_remed_regress_server.log 2>&1 &

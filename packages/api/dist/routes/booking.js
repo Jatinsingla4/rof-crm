@@ -39,6 +39,8 @@ const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
 const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const cash_limit_js_1 = require("../utils/cash-limit.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 const router = (0, express_1.Router)();
 // ---------- input rules for Booking ----------
 // Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
@@ -769,6 +771,7 @@ router.patch('/:id/edit', async (req, res, next) => {
     try {
         const { id } = req.params;
         const b = (0, input_js_1.body)(req);
+        (0, people_mask_js_1.dropMaskedIds)(b); // QA-027
         // ---- booking fields (a blank number is ignored, a blank link or note clears it) ----
         const bk = {};
         const numeric = [['basic_rate_inr_sqft', 1e6, 4], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
@@ -902,6 +905,7 @@ router.patch('/:id/edit', async (req, res, next) => {
             const consChanged = changed(cons, consCur);
             if (cons.mobile !== undefined || cons.pan_no)
                 await (0, applicant_fields_js_1.lock)(c, `consumer:${consCur.project_id || ''}:${cons.mobile ?? consCur.mobile}`);
+            await (0, applicant_fields_js_1.checkNumbers)(c, consCur.id, cons.registration_no && cons.registration_no !== consCur.registration_no ? cons.registration_no : null, cons.form_no && cons.form_no !== consCur.form_no && cons.form_no !== bk.form_no ? cons.form_no : null); // QA-022: the booking's own form number is checked above
             if (cons.mobile !== undefined || cons.pan_no)
                 await (0, applicant_fields_js_1.checkIdentity)(c, consCur.project_id, consCur.id, cons.mobile && cons.mobile !== consCur.mobile ? cons.mobile : null, cons.pan_no && String(cons.pan_no).toUpperCase() !== String(consCur.pan_no || '').toUpperCase() ? cons.pan_no : null);
             const bkRow = (bkChanged.length || Object.keys(extra).length) ? (await setCols(c, 'booking_records', id, { ...Object.fromEntries(bkChanged.map(k => [k, bk[k]])), ...extra }, '*')).rows[0] : cur;
@@ -1209,6 +1213,11 @@ router.patch('/:id', async (req, res, next) => {
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
                             : safeLocalDate((0, business_date_js_1.businessDayStart)());
+                        if (payMethod === 'cash') {
+                            const cl = await (0, cash_limit_js_1.cashLimitCheck)(client, { consumerId: booking.consumer_id, amount: bookingAmt, date: String(bookingDateStr).slice(0, 10) });
+                            if (cl?.block)
+                                throw (0, input_js_1.bad)(cl.block, 422);
+                        } // QA-018 (off until ROF sets a limit; a warning has no place on this step)
                         const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client, '', booking.project_id);
                         const stepGReceiptRes = await client.query(`INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
