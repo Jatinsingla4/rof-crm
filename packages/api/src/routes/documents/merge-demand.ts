@@ -9,6 +9,7 @@ import { numberToWordsIndian, ordinalFloor, fmtDateIndia, fmtIndianNumber, fmtIn
 import { penalRateFrom } from '../../utils/penal-rate.js';
 import { SQL_TODAY, businessDayStart, businessYear } from '../../utils/business-date.js';
 import { returnedSql } from '../../utils/money-basis.js';
+import { isGstExempt } from '../../utils/gst-exempt.js';
 export interface GenCtx {
   req: any; consumerId: string; allocationId?: string; template: any; d: any;
   includeAllDemands?: boolean; dueDate?: string; mergeData: any; htmlContent: string;
@@ -154,7 +155,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
           const planName = plan.plan_name || 'CLP';
           const totalAmountInr = parseFloat(plan.total_amount_inr || 0);
           const allotmentDate = plan.allotment_date ? new Date(plan.allotment_date) : null;
-          const isNri = ['nri','oci','pio'].includes((plan.nationality || '').toLowerCase());
+          const isNri = isGstExempt(plan.nationality);
           // AHP GST: 1% total (0.5% CGST + 0.5% SGST) for residents, 0 for NRI
           const defaultCgstPct = isNri ? 0 : 0.5;
           const defaultSgstPct = isNri ? 0 : 0.5;
@@ -306,7 +307,7 @@ export async function demandLetterData(ctx: GenCtx): Promise<void> {
           // Build map: installment_index → net interest
           const piMap = new Map<number, number>();
           piRes.rows.forEach(r => {
-            piMap.set(r.installment_index, Number(r.net_interest_inr));
+            piMap.set(r.installment_index, (piMap.get(r.installment_index) || 0) + Number(r.net_interest_inr));   // a part-paid instalment has several rows: add them, do not keep the last
           });
 
           // Sum total interest from DB

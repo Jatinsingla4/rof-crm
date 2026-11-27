@@ -124,7 +124,7 @@ Pages.consumerDetail = async function(params = {}) {
               <div style="background:var(--bg2);padding:12px;border-radius:6px;font-size:11px">
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
                   <span style="color:var(--text3)">Base Rate (per sq.ft)</span>
-                  <input id="base-rate-input" type="number" value="${c.basic_price || latestBooking?.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-plc="${bookingPlcAmount}" data-unit="${latestBooking?.unit_id || c.allocated_unit_id || ''}" oninput="ConsumerDetailPage.recalcPricing()">
+                  <input id="base-rate-input" type="number" value="${c.basic_price || latestBooking?.basic_price || 0}" class="fc" style="width:100px;padding:4px;font-size:11px;text-align:right" data-booked="${c.booked_basic_inr || ''}" data-rate0="${c.basic_price || latestBooking?.basic_price || 0}" data-plc="${bookingPlcAmount}" data-unit="${latestBooking?.unit_id || c.allocated_unit_id || ''}" oninput="ConsumerDetailPage.recalcPricing()">
                 </div>
                 <div style="display:flex;justify-content:space-between;margin-bottom:6px">
                   <span style="color:var(--text3)">Basic Cost</span>
@@ -281,7 +281,9 @@ const ConsumerDetailPage = {
     try {
       const { data: q } = await Api.post('/booking/quote', { unit_id: baseInput.dataset.unit, basic_price: parseFloat(baseInput.value || 0), plc_amount: parseFloat(baseInput.dataset.plc || 0) });
       if (seq !== this._quoteSeq) return;   // an older answer arriving late must not overwrite a newer one
-      document.getElementById('basic-cost-val').textContent = Utils.currency(q.basic_inr);
+      // QA-001/030/032: at the booked rate the Basic line is the price the booking was sold at (from its plan), not rate x the unit's CURRENT area; a rate the user types is quoted as before
+      const booked = parseFloat(baseInput.dataset.booked || 0), atBookedRate = parseFloat(baseInput.value) === parseFloat(baseInput.dataset.rate0);
+      document.getElementById('basic-cost-val').textContent = Utils.currency(booked > 0 && atBookedRate ? booked : q.basic_inr);
       document.getElementById('plc-val').textContent = Utils.currency(q.plc_inr);
       document.getElementById('gst-val').textContent = Utils.currency(q.gst_inr);
       document.getElementById('total-cons-val').textContent = Utils.currency(q.total_with_gst_inr);

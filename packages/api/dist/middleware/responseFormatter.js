@@ -1,7 +1,11 @@
 "use strict";
+/**
+ * Response Formatter Middleware
+ * Fixes field name mismatches between backend and frontend
+ * Converts units, renames fields, adds computed fields
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.responseFormatter = void 0;
-const penal_rate_js_1 = require("../utils/penal-rate.js");
 const business_date_js_1 = require("../utils/business-date.js");
 // ============================================
 // UNIT STATUS → COLOR MAPPING
@@ -64,11 +68,8 @@ const formatConsumer = (consumer) => {
  */
 const formatAllocation = (allocation) => {
     const formatted = { ...allocation };
-    // Add forfeiture and refund calculations if cancelled
-    if (allocation.status === 'cancelled' && allocation.total_paid) {
-        formatted.forfeiture_amount = 25000; // Base forfeiture
-        formatted.refund_amount = Math.max(0, allocation.total_paid - formatted.forfeiture_amount);
-    }
+    // QA-043: no forfeiture or refund figure is made up here any more (a fixed 25,000 forfeiture and total_paid less it as "refund_amount", with no refund behind it).
+    // What was refunded is in payment_refunds; what a cancellation charges is worked out by the surrender / cancellation process.
     // Add payment_pct if total_amount exists
     if (allocation.total_amount && allocation.total_paid !== undefined) {
         formatted.payment_pct = Math.round((allocation.total_paid / allocation.total_amount) * 100);
@@ -83,20 +84,10 @@ const formatDemand = (demand) => {
     // Calculate penal interest if overdue (default rate from utils/penal-rate.ts)
     // Handle both amount_inr and amount_due_inr field names
     const amountInr = demand.amount_inr || demand.amount_due_inr;
-    if (demand.due_date && amountInr) {
-        const now = new Date();
-        const dueDate = new Date(demand.due_date);
-        if (now > dueDate) {
-            const daysOverdue = Math.floor((now.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-            const penalInterest = Math.round((amountInr * (penal_rate_js_1.DEFAULT_PENAL_RATE / 100) * daysOverdue / 365) * 100) / 100;
-            formatted.penal_interest_amount = penalInterest;
-            formatted.penal_interest = penalInterest; // Also add alias for compatibility
-        }
-        else {
-            formatted.penal_interest_amount = 0;
-            formatted.penal_interest = 0;
-        }
-    }
+    // QA-026/038: no interest figure is made up here any more. This used to charge the WHOLE instalment (amountInr x 15% x days since the due date) on every demand
+    // response, ignoring part payments, grace days, the interest start date and the project rate (5,14,000 x 15% x 17 / 365 = 3,591 for an instalment that was paid but 14,000).
+    // Interest comes from the one engine (utils/payment-waterfall.ts buildInterestRows) through the interest scheduler, the applicant file and /payments/overdue.
+    void amountInr;
     return formatted;
 };
 /**

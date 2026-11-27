@@ -245,7 +245,7 @@ const lateCons = booked[booked.length - 1];
 if (addTotalPct > 0) {
   const ch = psql(`select id from consumer_addon_charges where consumer_id='${first.cons}' and status='active' limit 1`);
   const pp = psql(`select id from payment_plans where consumer_id='${first.cons}'`);
-  psql(`insert into receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) values ('${first.cons}','${pp}',1,5000,'cash','cleared',current_date) returning id`);
+  psql(`insert into receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, approval_status, received_date) values ('${first.cons}','${pp}',1,5000,'cash','cleared','approved',current_date) returning id`);
   // the booking money already sits on the first instalment (booking-type rows included), so an add-on planned there moves to the next one: ask the demand itself
   const firstHas = Number(psql(`select coalesce(sum(addon_charge_amount),0) from demands where payment_plan_id='${pp}' and installment_index=1 and status<>'cancelled'`)) > 0;
   r = await AO('PATCH', `/addon-charges/consumer/${ch}/cancel`);

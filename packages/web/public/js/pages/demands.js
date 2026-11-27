@@ -128,7 +128,7 @@ Pages.demands = async function(params = {}) {
     <!-- PENAL INTEREST TAB -->
     <div data-panel-group="dem" data-panel="penal" style="display:none">
       <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">HRERA Rule 15 — Penal Interest (11.10% p.a.)</div></div>
+        <div class="sp-hdr"><div class="sp-title">HRERA Rule 15 — Penal Interest</div></div>
         <div class="sp-body">
           <div class="sp-grid">
             <div class="fg"><label class="fl">Project</label>
@@ -201,14 +201,15 @@ const DemandsPage = {
       const r1    = list.filter(d => d.demand_type === 'reminder_1');
       const r2    = list.filter(d => d.demand_type === 'reminder_2');
       const term  = list.filter(d => d.demand_type === 'termination');
-      const osAmt = list.reduce((s,d) => s + parseFloat(d.amount_due_inr||d.amount||0), 0);
+      // the unpaid balance of these demands with their GST and add-ons (the API's balance = demand total less what was paid), not the sum of the instalment amounts
+      const osAmt = list.reduce((s,d) => s + (d.balance != null ? Math.max(0, parseFloat(d.balance)) : parseFloat(d.amount_due_inr||d.amount||0)), 0);
 
       document.getElementById('demand-kpis').innerHTML = `
         <div class="kpi c-accent"><div class="kpi-lbl">Total Demands</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">All stages</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">Main Demand</div><div class="kpi-val">${main.length}</div><div class="kpi-sub">${main.filter(d=>d.sent_at).length} sent · ${main.filter(d=>!d.sent_at).length} unsent</div></div>
         <div class="kpi c-warn"><div class="kpi-lbl">Reminders</div><div class="kpi-val">${r1.length + r2.length}</div><div class="kpi-sub">R1: ${r1.length} · R2: ${r2.length}</div></div>
         <div class="kpi c-red"><div class="kpi-lbl">Termination</div><div class="kpi-val">${term.length}</div><div class="kpi-sub">${term.filter(d=>d.sent_at).length} sent</div></div>
-        <div class="kpi c-gold"><div class="kpi-lbl">O/S Amount</div><div class="kpi-val">${Utils.currency(osAmt)}</div><div class="kpi-sub">Total outstanding</div></div>
+        <div class="kpi c-gold"><div class="kpi-lbl">Unpaid Balance</div><div class="kpi-val">${Utils.currency(osAmt)}</div><div class="kpi-sub">These demands, with GST, less money paid</div></div>
       `;
 
       this.renderTable(list);
@@ -401,7 +402,7 @@ const DemandsPage = {
       if (kpiEl) kpiEl.innerHTML = `
         <div class="kpi c-red"><div class="kpi-lbl">Overdue Cases</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">Min ${minDays} day(s)</div></div>
         <div class="kpi c-warn"><div class="kpi-lbl">Overdue Principal</div><div class="kpi-val">${Utils.currency(totalOverdue)}</div><div class="kpi-sub">Total outstanding</div></div>
-        <div class="kpi c-accent"><div class="kpi-lbl">Penal Interest</div><div class="kpi-val">${Utils.currency(totalPenal)}</div><div class="kpi-sub">@11.10% p.a. (HRERA Rule 15)</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Penal Interest</div><div class="kpi-val">${Utils.currency(totalPenal)}</div><div class="kpi-sub">on the unpaid balance, at the configured penal rate (part payments counted on their own dates)</div></div>
         <div class="kpi c-purple"><div class="kpi-lbl">Avg Days Overdue</div><div class="kpi-val">${avgDays}</div><div class="kpi-sub">days</div></div>
         <div class="kpi c-gold"><div class="kpi-lbl">Total Payable</div><div class="kpi-val">${Utils.currency(totalOverdue + totalPenal)}</div><div class="kpi-sub">Principal + Interest</div></div>
       `;
@@ -409,7 +410,7 @@ const DemandsPage = {
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><div class="empty-icon">✅</div><h3>No overdue accounts match filter</h3></div>'
         : `<table>
-            <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
+            <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Unpaid Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
             <tbody>
               ${list.map(d => `<tr>
                 <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${d.consumer_name||d.name||'—'}</a></td>
@@ -419,7 +420,7 @@ const DemandsPage = {
                 <td style="font-weight:600;color:var(--red)">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
                 <td style="font-weight:700;color:var(--red)">${d.days_overdue||d.daysOverdue||0}</td>
                 <td style="color:var(--accent)">${Utils.currency(d.penal_interest_inr||d.penalInterestInr||0)}</td>
-                <td style="font-weight:700">${Utils.currency((d.amount_due_inr||0) + (d.penal_interest_inr||0))}</td>
+                <td style="font-weight:700">${Utils.currency(parseFloat(d.amount_due_inr||0) + parseFloat(d.penal_interest_inr||0))}</td>
               </tr>`).join('')}
             </tbody>
             <tfoot>

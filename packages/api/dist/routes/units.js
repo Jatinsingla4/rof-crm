@@ -15,6 +15,7 @@ const charge_stock_js_1 = require("../utils/charge-stock.js");
 const input_js_1 = require("../utils/input.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const person_name_js_1 = require("../utils/person-name.js");
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
 const FACING_CODES = { e: 'East', w: 'West', n: 'North', s: 'South', ne: 'North-East', se: 'South-East', nw: 'North-West', sw: 'South-West' };
@@ -529,7 +530,7 @@ router.get('/tower-detail', async (req, res, next) => {
         t.tower_name,
         p.name as project_name,
         c.registration_no,
-        TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')) as consumer_name,
+        ${(0, person_name_js_1.personNameSql)('c')} as consumer_name,
         COALESCE(br.booking_date, a.allotment_date) as booking_date,
         a.allotment_date,
         COALESCE(b.firm_name, b.name, 'Direct') as broker_name,

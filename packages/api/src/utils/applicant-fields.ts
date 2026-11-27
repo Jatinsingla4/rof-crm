@@ -89,6 +89,16 @@ export const checkIdentity = async (c: any, project: string | null, selfId: stri
     if (o) throw conflict(`This mobile number already belongs to applicant "${o.name}" in this project.`);
   }
 };
+// QA-022 (V1.1): a registration number or a form number belongs to ONE applicant. Editing an applicant, editing a booking and editing a document could each write
+// consumers.registration_no or form_no with no check, so two applicants could end up with the same number. Case and spaces do not make a number different.
+// Only a number that actually changes is checked (an old record that already shares one can still be saved unchanged).
+export const checkNumbers = async (c: any, selfId: string, registration: string | null, form: string | null) => {
+  const taken = async (col: 'registration_no' | 'form_no', v: string) =>
+    (await c.query(`SELECT 1 FROM consumers WHERE lower(btrim(${col})) = lower(btrim($1)) AND id <> $2 LIMIT 1`, [v, selfId])).rows.length > 0
+    || (await c.query(`SELECT 1 FROM booking_records WHERE lower(btrim(${col})) = lower(btrim($1)) AND consumer_id <> $2 LIMIT 1`, [v, selfId])).rows.length > 0;
+  if (registration && await taken('registration_no', registration)) throw conflict(`The registration number ${registration} already belongs to another applicant.`);
+  if (form && await taken('form_no', form)) throw conflict(`The form number ${form} already belongs to another applicant.`);
+};
 // Names for the NOT NULL name column
 export const personName = (name: any, first: any, last: any, type: any): string | null => {
   const n = has(name) ? text(name, 'Name', 255, false) : null;

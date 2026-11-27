@@ -5,12 +5,17 @@
 
 import { Pool } from 'pg';
 
-// Bank account numbers are kept to their last four digits in the log
-const MASKED_KEYS = ['account_number', 'bank_account_no'];
-const maskSecrets = (o?: object) => {
-  if (!o) return o;
+// Bank account numbers and identity numbers (PAN, Aadhaar, passport) are kept to their last four characters in the log (QA-027). Applied to every entry, at any depth, so the generic
+// autoAudit (which logs the whole response) cannot store one in clear. Masking a value that is already masked changes nothing.
+const MASKED_KEYS = ['account_number', 'bank_account_no', 'pan_no', 'aadhaar_no', 'passport_no'];
+export const maskSecrets = (o?: any, depth = 0): any => {
+  if (!o || typeof o !== 'object' || depth > 4) return o;
+  if (Array.isArray(o)) return o.map((x) => maskSecrets(x, depth + 1));
   const c: Record<string, any> = { ...o };
-  for (const k of MASKED_KEYS) if (typeof c[k] === 'string') c[k] = 'XXXX' + c[k].slice(-4);
+  for (const k of Object.keys(c)) {
+    if (MASKED_KEYS.includes(k) && typeof c[k] === 'string' && c[k]) c[k] = 'XXXX' + c[k].slice(-4);
+    else if (c[k] && typeof c[k] === 'object') c[k] = maskSecrets(c[k], depth + 1);
+  }
   return c;
 };
 
@@ -49,8 +54,8 @@ export const logAudit = async (
         action,
         resourceType,
         resourceId,
-        previousValues ? JSON.stringify(previousValues) : null,
-        newValues ? JSON.stringify(newValues) : null
+        previousValues ? JSON.stringify(maskSecrets(previousValues)) : null,
+        newValues ? JSON.stringify(maskSecrets(newValues)) : null
       ]
     );
   } catch (error) {

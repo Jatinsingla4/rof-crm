@@ -25,7 +25,14 @@ const penal_rate_js_1 = require("../utils/penal-rate.js");
 const receipt_allocation_shadow_js_1 = require("../utils/receipt-allocation-shadow.js");
 const invoice_exposure_js_1 = require("../utils/invoice-exposure.js");
 const business_date_js_1 = require("../utils/business-date.js");
+const applicant_js_1 = require("../utils/applicant.js");
+const financial_measures_js_1 = require("../utils/financial-measures.js");
+const allocation_ledger_js_1 = require("../utils/allocation-ledger.js");
+const booking_state_js_1 = require("../utils/booking-state.js");
+const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const person_name_js_1 = require("../utils/person-name.js");
 const router = (0, express_1.Router)();
 /**
  * Calculate Penal Interest (Late Payment Penalty)
@@ -105,47 +112,52 @@ router.post('/payment-plans', input_js_1.financeOnly, async (req, res, next) => 
         fail(error, res, next);
     }
 });
-// GET /api/payments/overdue - List overdue payments with HRERA interest (paid and cancelled demands are not overdue)
+// GET /api/payments/overdue[?projectId=] - raised instalments past their due date that are not fully paid, with the interest the one engine works out for each.
+// QA-026/038: this list used to charge interest on the WHOLE instalment (amount x rate x days since the due date) and to show the whole instalment as the principal, ignoring part
+// payments (5,14,000 with 5,00,000 received showed interest on 5,14,000, not on the 14,000 left, from the day it was paid). It now reads the same ledger and engine as the reports and the applicant file.
 router.get('/overdue', async (req, res, next) => {
     try {
-        const result = await index_js_1.db.query(`SELECT
-        d.id, d.payment_plan_id, d.consumer_id, d.amount_due_inr, d.due_date,
-        EXTRACT(DAY FROM NOW() - d.due_date)::INT as days_overdue,
-        c.name as consumer_name, c.mobile
-       FROM demands d
-       JOIN consumers c ON d.consumer_id = c.id
-       WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled')
-       ORDER BY days_overdue DESC`);
-        // Calculate penal interest for each
-        const penalRate = await getPenalInterestRate();
-        const data = result.rows.map((row) => ({
-            ...row,
-            penalInterestInr: row.days_overdue > 0 ? calculatePenalInterest(row.amount_due_inr, row.days_overdue, penalRate) : 0,
-        }));
+        const projectId = optId(req.query.projectId, 'projectId');
+        const plans = await (0, report_ledger_js_1.loadLedger)({ projectId: projectId || undefined });
+        const ictx = await (0, report_ledger_js_1.loadInterestCtx)(plans);
+        const data = [];
+        for (const p of plans) {
+            const live = (0, report_ledger_js_1.liveInterestByInstalment)(p, ictx);
+            for (const { d, days } of (0, report_ledger_js_1.overdueOf)(p)) {
+                const interest = live.get(d.index) || 0;
+                data.push({ id: d.id, payment_plan_id: p.plan_id, consumer_id: p.consumer_id, consumer_name: p.consumer_name, mobile: p.mobile, unit_no: p.unit_number, project_name: p.project_name,
+                    due_date: d.due_date, days_overdue: days,
+                    instalment_total_inr: d.total, amount_paid_inr: d.paid, amount_due_inr: d.balance, // principal = what is still unpaid on the instalment, with its GST
+                    penal_interest_inr: interest, penalInterestInr: interest });
+            }
+        }
+        data.sort((a, b) => b.days_overdue - a.days_overdue);
         res.json({ success: true, data });
     }
     catch (error) {
         fail(error, res, next);
     }
 });
-// GET /api/payments/dashboard - Payment dashboard KPIs (live receipts only, unpaid demands only, one project when projectId is given)
+// GET /api/payments/dashboard - Payment dashboard KPIs, one project when projectId is given.
+// QA-013/043: these are the canonical measures (utils/financial-measures.ts, the same figures as GET /reports/financial-measures), not a calculation of its own. It used to add up plan totals
+// BEFORE GST, subtract cleared money INCLUDING GST, keep cancelled bookings in, and count unraised instalments as overdue. totalReceivables is the agreement value with GST,
+// totalCollected the valid collections (cleared, net of approved returns), outstanding the contract balance; billedOutstanding and overdueAmount are the raised-demand figures.
 router.get('/dashboard', async (req, res, next) => {
     try {
         const projectId = (0, input_js_1.has)(req.query.projectId) ? (0, input_js_1.uuid)(req.query.projectId, 'projectId') : null;
-        const result = await index_js_1.db.query(`SELECT
-         COALESCE((SELECT SUM(total_amount_inr) FROM payment_plans WHERE $1::uuid IS NULL OR project_id = $1), 0) AS total_receivables,
-         COALESCE((SELECT SUM(r.amount_received_inr - ${(0, money_basis_js_1.returnedSql)('r')}) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
-                    WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
-         (SELECT COUNT(*) FROM demands d JOIN payment_plans p ON p.id = d.payment_plan_id
-           WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled') AND ($1::uuid IS NULL OR p.project_id = $1)) AS overdue_count`, [projectId]);
-        const totalReceivables = Number(result.rows[0].total_receivables), totalCollected = Number(result.rows[0].total_collected), overdueCount = Number(result.rows[0].overdue_count);
+        const plans = await (0, report_ledger_js_1.loadLedger)({ projectId: projectId || undefined });
+        const m = (0, financial_measures_js_1.financialMeasures)(plans);
+        const totalReceivables = m.agreement_value_incl_gst, totalCollected = m.valid_collections;
+        const overdueCount = plans.reduce((n, p) => n + (0, report_ledger_js_1.overdueOf)(p).length, 0);
         res.json({
             success: true,
             data: { kpis: {
                     totalReceivables, totalCollected,
                     collectionPercentage: totalReceivables > 0 ? Math.round((totalCollected / totalReceivables) * 100) : 0,
-                    outstanding: totalReceivables - totalCollected,
+                    outstanding: m.contract_balance,
+                    billedOutstanding: m.billed_outstanding,
                     overdueCount,
+                    overdueAmount: m.overdue,
                 } },
         });
     }
@@ -202,17 +214,18 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
         if (!(0, input_js_1.has)(baseRaw))
             throw (0, input_js_1.bad)('baseAmount is required');
         let base = (0, input_js_1.pos)(baseRaw, 'baseAmount');
-        const supply = (0, input_js_1.oneOf)(b.supplyType, 'supplyType', ['intrastate', 'interstate']) || 'intrastate';
+        const givenSupply = (0, input_js_1.oneOf)(b.supplyType, 'supplyType', ['intrastate', 'interstate']);
+        let supply = givenSupply || 'intrastate';
         const type = (0, input_js_1.oneOf)(b.invoiceType, 'invoiceType', INVOICE_TYPES) || 'invoice', invoiceDate = (0, input_js_1.day)(b.invoiceDate, 'invoiceDate') || today();
         const projectArg = optId(b.projectId, 'projectId'), unitArg = optId(b.unitId, 'unitId'), receiptId = optId(b.receiptId, 'receiptId');
-        const desc = (0, input_js_1.text)(b.installmentName ?? b.description, 'description', 100, false), hsn = (0, input_js_1.text)(b.hsnCode, 'hsnCode', 20, false) || '9972';
-        if ((0, input_js_1.has)(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && /^[0-9A-Z]{15}$/.test(b.buyerGstin.trim().toUpperCase())))
-            throw (0, input_js_1.bad)('buyerGstin must be 15 letters and digits');
+        const desc = (0, input_js_1.text)(b.installmentName ?? b.description, 'description', 100, false), hsnArg = (0, input_js_1.text)(b.hsnCode, 'hsnCode', 20, false);
+        if ((0, input_js_1.has)(b.buyerGstin) && !(typeof b.buyerGstin === 'string' && (0, applicant_js_1.gstinOk)(b.buyerGstin.trim().toUpperCase())))
+            throw (0, input_js_1.bad)('buyerGstin is not a valid GSTIN (15 characters: state code, PAN, entity, Z, check character)'); // QA-049: format and check character, not only length
         const gstin = (0, input_js_1.has)(b.buyerGstin) ? b.buyerGstin.trim().toUpperCase() : null;
         if (invoiceDate > (0, business_date_js_1.businessTomorrow)())
             throw (0, input_js_1.bad)('The invoice date cannot be in the future');
         const rate = (v, label) => (0, input_js_1.num)(v, label, 28, 2);
-        let cgstRate, sgstRate, igstRate;
+        let cgstRate, sgstRate, igstRate, gTotal = null;
         if ((0, input_js_1.has)(b.cgstRate) || (0, input_js_1.has)(b.sgstRate) || (0, input_js_1.has)(b.igstRate)) {
             cgstRate = (0, input_js_1.has)(b.cgstRate) ? rate(b.cgstRate, 'cgstRate') : 0;
             sgstRate = (0, input_js_1.has)(b.sgstRate) ? rate(b.sgstRate, 'sgstRate') : 0;
@@ -222,6 +235,7 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
         }
         else if ((0, input_js_1.has)(b.gstRate)) {
             const g = rate(b.gstRate, 'gstRate');
+            gTotal = g;
             [cgstRate, sgstRate, igstRate] = supply === 'interstate' ? [0, 0, g] : [(0, input_js_1.r2)(g / 2), (0, input_js_1.r2)(g / 2), 0];
         }
         else if (!receiptId) {
@@ -244,14 +258,46 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
             if (!(await c.query(`SELECT 1 FROM projects WHERE id = $1`, [projectId])).rows.length)
                 throw (0, input_js_1.bad)('Project not found', 404);
             // QA-003: an invoice needs the seller's GSTIN and a financial year that holds its date. Neither is invented here: finance configures them (effective-dated) in Set Master.
-            if (!(await c.query(`SELECT 1 FROM project_gstin WHERE project_id = $1 AND is_active IS NOT FALSE LIMIT 1`, [projectId])).rows.length)
+            const seller = (await c.query(`SELECT gstin FROM project_gstin WHERE project_id = $1 AND is_active IS NOT FALSE LIMIT 1`, [projectId])).rows[0];
+            if (!seller)
                 throw (0, input_js_1.bad)('This project has no GSTIN configured. Add it in Set Master, GST Configuration, before making an invoice.', 409);
+            // QA-049: place of supply. With a buyer GSTIN the buyer's state is known: the same state code as the project's GSTIN is an intra-state supply (CGST + SGST), a different one is inter-state (IGST).
+            // A supply type sent by the screen that contradicts that is refused; none sent takes the derived one. Without a buyer GSTIN (an unregistered buyer) the state is not known here, so nothing is derived.
+            let placeOfSupply = null;
+            if (gstin) {
+                const buyerState = gstin.slice(0, 2), sellerState = String(seller.gstin || '').slice(0, 2);
+                placeOfSupply = buyerState;
+                if (/^\d{2}$/.test(sellerState)) {
+                    const derived = buyerState === sellerState ? 'intrastate' : 'interstate';
+                    if (givenSupply && givenSupply !== derived)
+                        throw (0, input_js_1.bad)(`Place of supply: the buyer GSTIN is in state ${buyerState} and the project GSTIN in state ${sellerState}, so this is an ${derived} supply, not ${givenSupply}.`, 400);
+                    supply = derived;
+                    if (gTotal !== null) {
+                        [cgstRate, sgstRate, igstRate] = supply === 'interstate' ? [0, 0, gTotal] : [(0, input_js_1.r2)(gTotal / 2), (0, input_js_1.r2)(gTotal / 2), 0];
+                        cgst = (0, input_js_1.r2)(base * cgstRate / 100);
+                        sgst = (0, input_js_1.r2)(base * sgstRate / 100);
+                        igst = (0, input_js_1.r2)(base * igstRate / 100);
+                    }
+                }
+            }
+            // QA-049: HSN/SAC comes from the project's configuration (Set Master, GST Configuration, HSN/SAC assignment). A code sent by the screen must be one assigned to this project.
+            // A project with nothing assigned keeps the old default 9972 until finance configures it (that default is listed in the configuration checklist, it is not a statutory master).
+            const assigned = (await c.query(`SELECT a.charge_type, h.code FROM hsn_sac_code_assign a JOIN hsn_sac_codes h ON h.id = a.hsn_sac_id WHERE a.project_id = $1 AND h.is_active IS NOT FALSE`, [projectId])).rows;
+            let hsn = hsnArg || '9972';
+            if (assigned.length) {
+                if (hsnArg && !assigned.some((x) => x.code === hsnArg))
+                    throw (0, input_js_1.bad)(`HSN/SAC ${hsnArg} is not assigned to this project. Assigned: ${[...new Set(assigned.map((x) => x.code))].join(', ')}.`, 400);
+                if (!hsnArg)
+                    hsn = (assigned.find((x) => x.charge_type === 'BASIC') || assigned[0]).code;
+            }
             if (!(await c.query(`SELECT 1 FROM financial_years WHERE from_date <= $1::date AND to_date >= $1::date AND is_active IS NOT FALSE LIMIT 1`, [invoiceDate])).rows.length)
                 throw (0, input_js_1.bad)(`No financial year is configured for ${invoiceDate}. Add it in Set Master before making an invoice for that date.`, 409);
             if (receiptId) {
-                const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
+                const rc = (await c.query(`SELECT consumer_id, status, amount_received_inr, payment_plan_id FROM receipts WHERE id = $1 FOR UPDATE`, [receiptId])).rows[0];
                 if (!rc || rc.consumer_id !== consumerId)
                     throw (0, input_js_1.bad)('That receipt does not belong to this applicant', 400);
+                if (await (0, booking_state_js_1.planIsCancelled)(c, rc.payment_plan_id))
+                    throw (0, input_js_1.bad)(INVOICE_CANCELLED_MSG, 409); // QA-041/044: the booking behind this receipt is cancelled
                 if (['cancelled', 'bounced'].includes(rc.status))
                     throw (0, input_js_1.bad)(`That receipt is ${rc.status}`, 409);
                 // Owner default: GST is invoiced on money that has actually cleared. A cheque or transfer still waiting for the bank is not yet taxed, so a later bounce needs no reversal.
@@ -287,6 +333,9 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
                     throw (0, input_js_1.bad)('An invoice was already generated for this receipt', 409);
             }
             else {
+                // QA-041/044: no new direct tax invoice for an applicant whose bookings are all cancelled
+                if ((await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND status = 'cancelled' AND NOT EXISTS (SELECT 1 FROM booking_records b2 WHERE b2.consumer_id = $1 AND b2.status <> 'cancelled') LIMIT 1`, [consumerId])).rows.length)
+                    throw (0, input_js_1.bad)(INVOICE_CANCELLED_MSG, 409);
                 // QA-004: an invoice not tied to a receipt cannot tax more than the applicant's live booking is worth, counting what is already invoiced (a 30 crore invoice was once accepted)
                 const bk = Number((await c.query(`SELECT COALESCE(MAX(total_price_inr), 0) AS v FROM booking_records WHERE consumer_id = $1 AND status <> 'cancelled'`, [consumerId])).rows[0].v);
                 if (bk > 0) {
@@ -297,8 +346,8 @@ router.post('/gst-invoices', input_js_1.financeOnly, async (req, res, next) => {
             }
             const invoiceNo = await (0, penal_interest_js_1.nextNumber)(c, 'gst_invoices', 'invoice_no', 'INV', 5);
             return (await c.query(`INSERT INTO gst_invoices (invoice_no, invoice_date, invoice_type, project_id, consumer_id, unit_id, receipt_id, installment_name, base_amount_inr, taxable_amount_inr,
-           cgst_rate, sgst_rate, igst_rate, cgst_amount_inr, sgst_amount_inr, igst_amount_inr, total_amount_inr, supply_type, hsn_sac_code, status, created_by_user_id, buyer_gstin)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'generated',$19,$20) RETURNING id`, [invoiceNo, invoiceDate, type, projectId, consumerId, unitArg || al?.unit_id || null, receiptId, desc || 'Direct Payment', base, cgstRate, sgstRate, igstRate, cgst, sgst, igst, (0, input_js_1.r2)(base + cgst + sgst + igst), supply, hsn, req.userId, gstin])).rows[0].id;
+           cgst_rate, sgst_rate, igst_rate, cgst_amount_inr, sgst_amount_inr, igst_amount_inr, total_amount_inr, supply_type, hsn_sac_code, status, created_by_user_id, buyer_gstin, place_of_supply)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'generated',$19,$20,$21) RETURNING id`, [invoiceNo, invoiceDate, type, projectId, consumerId, unitArg || al?.unit_id || null, receiptId, desc || 'Direct Payment', base, cgstRate, sgstRate, igstRate, cgst, sgst, igst, (0, input_js_1.r2)(base + cgst + sgst + igst), supply, hsn, req.userId, gstin, placeOfSupply])).rows[0].id;
         });
         const out = (await index_js_1.db.query(`SELECT ${INVOICE_COLS} FROM gst_invoices gi WHERE gi.id = $1`, [row])).rows[0];
         await (0, auditLogger_js_1.auditChange)(index_js_1.db, req, res, 'create', 'gst_invoice', row, undefined, { invoice_no: out.invoice_no, consumer_id: consumerId, total_amount_inr: out.total_amount_inr });
@@ -316,10 +365,14 @@ const cancelInvoice = (reverse) => async (req, res, next) => {
             throw (0, input_js_1.bad)('invoiceNumber is required');
         const invoiceNumber = (0, input_js_1.text)(b.invoiceNumber, 'invoiceNumber', 50, true), reason = (0, input_js_1.text)(b.reason, 'reason', 500, false) || (reverse ? 'Invoice reversed' : 'Invoice cancelled');
         const noteDate = (0, input_js_1.day)(reverse ? b.reversalDate : undefined, 'reversalDate');
+        if (noteDate && noteDate > (0, business_date_js_1.businessTomorrow)())
+            throw (0, input_js_1.bad)('reversalDate cannot be in the future'); // QA-002: the credit note of a reversal is dated like an invoice
         const out = await (0, input_js_1.inTx)(async (c) => {
-            const inv = (await c.query(`SELECT * FROM gst_invoices WHERE invoice_no = $1 FOR UPDATE`, [invoiceNumber])).rows[0];
+            const inv = (await c.query(`SELECT *, ($2::date < invoice_date) AS before_invoice FROM gst_invoices WHERE invoice_no = $1 FOR UPDATE`, [invoiceNumber, noteDate])).rows[0];
             if (!inv)
                 throw (0, input_js_1.bad)('Invoice not found', 404);
+            if (inv.before_invoice)
+                throw (0, input_js_1.bad)('reversalDate cannot be before the date of the invoice', 400);
             if (inv.status === 'cancelled')
                 throw (0, input_js_1.bad)('This invoice is already cancelled', 409);
             (0, financial_ops_js_1.notOwn)(req, inv.created_by_user_id); // strict maker-checker: whoever raised the invoice cannot cancel or reverse it
@@ -401,6 +454,45 @@ router.get('/gst-invoices/exceptions', input_js_1.financeOnly, async (_req, res,
 });
 router.get('/gst-invoices/:id/html', printDownload_js_1.requirePrint, invoicePage);
 router.get('/gst-invoices/:id/pdf', printDownload_js_1.requirePrintAndDownload, invoicePage);
+// GET /api/payments/gst-invoices-summary?from=YYYY-MM-DD&to=YYYY-MM-DD[&projectId=] - the totals of the GST Report tab, worked out here from the same queries as the GSTR-3B export,
+// so the screen, the export and any check against the database cannot differ. The tab used to add up the first 500 invoices in the browser and ignore credit and debit notes (QA-031).
+router.get('/gst-invoices-summary', input_js_1.financeOnly, async (req, res, next) => {
+    try {
+        const from = (0, input_js_1.day)(req.query.from, 'from'), to = (0, input_js_1.day)(req.query.to, 'to');
+        if (from && to && from > to)
+            throw (0, input_js_1.bad)('from must not be after to');
+        const params = [];
+        let where = '';
+        if (from)
+            where += ` AND gi.invoice_date >= $${params.push(from)}`;
+        if (to)
+            where += ` AND gi.invoice_date <= $${params.push(to)}`;
+        if ((0, input_js_1.has)(req.query.projectId))
+            where += ` AND gi.project_id = $${params.push((0, input_js_1.uuid)(req.query.projectId, 'projectId'))}`;
+        const live = `gi.status <> 'cancelled'`;
+        const t = (await index_js_1.db.query(`SELECT COUNT(*) FILTER (WHERE ${live})::int AS live, COUNT(*) FILTER (WHERE gi.status = 'cancelled')::int AS cancelled,
+              COALESCE(SUM(gi.base_amount_inr) FILTER (WHERE ${live}), 0) AS taxable, COALESCE(SUM(gi.cgst_amount_inr) FILTER (WHERE ${live}), 0) AS cgst,
+              COALESCE(SUM(gi.sgst_amount_inr) FILTER (WHERE ${live}), 0) AS sgst, COALESCE(SUM(gi.igst_amount_inr) FILTER (WHERE ${live}), 0) AS igst
+         FROM gst_invoices gi WHERE TRUE${where}`, params)).rows[0];
+        // notes are dated by their own note date, as in GSTR-1 / GSTR-3B (not by the invoice month)
+        const np = [];
+        let nw = '';
+        if (from)
+            nw += ` AND n.note_date >= $${np.push(from)}`;
+        if (to)
+            nw += ` AND n.note_date <= $${np.push(to)}`;
+        if ((0, input_js_1.has)(req.query.projectId))
+            nw += ` AND gi.project_id = $${np.push((0, input_js_1.uuid)(req.query.projectId, 'projectId'))}`;
+        const n = (await index_js_1.db.query(`SELECT COUNT(*)::int AS notes, COALESCE(SUM(CASE WHEN n.note_type='credit' THEN -n.adjustment_amount ELSE n.adjustment_amount END),0) AS taxable,
+              COALESCE(SUM(CASE WHEN n.note_type='credit' THEN -n.gst_amount ELSE n.gst_amount END),0) AS tax
+         FROM credit_debit_notes n JOIN gst_invoices gi ON gi.id = n.invoice_id WHERE n.status = 'issued'${nw}`, np)).rows[0];
+        res.json({ success: true, data: { invoices_live: t.live, invoices_cancelled: t.cancelled, taxable: Number(t.taxable), cgst: Number(t.cgst), sgst: Number(t.sgst), igst: Number(t.igst),
+                notes_issued: n.notes, notes_taxable_net: Number(n.taxable), notes_tax_net: Number(n.tax) } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
 // GET /api/payments/gst-invoices-export?type=gstr1|gstr3b&month=YYYY-MM[&projectId=] - CSV for the filing (cancelled invoices left out, credit and debit notes netted)
 router.get('/gst-invoices-export', printDownload_js_1.requireDownload, async (req, res, next) => {
     try {
@@ -465,6 +557,36 @@ router.post('/receipts/quote', async (req, res, next) => {
 router.get('/receipt-allocation-shadow', input_js_1.financeOnly, async (_req, res, next) => {
     try {
         res.json({ success: true, ...(await (0, receipt_allocation_shadow_js_1.allocationShadow)(index_js_1.db)) });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/payments/allocation-ledger/:consumerId: where every rupee of every receipt of an applicant went, plan by plan (applied, returned, unapplied with its reason, credit allocations, receipts that are not money),
+// with the checks that show the books agree. Derived from the facts, read only, finance only (QA-008, 014, 033, 037, 039). See utils/allocation-ledger.ts.
+router.get('/allocation-ledger/:consumerId', input_js_1.financeOnly, async (req, res, next) => {
+    try {
+        const consumerId = (0, input_js_1.uuid)(req.params.consumerId, 'consumerId');
+        if (!(await index_js_1.db.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length)
+            throw (0, input_js_1.bad)('Applicant not found', 404);
+        const plans = (await index_js_1.db.query(`SELECT id, unit_id, total_amount_inr FROM payment_plans WHERE consumer_id = $1 ORDER BY created_at`, [consumerId])).rows;
+        const out = [];
+        for (const p of plans) {
+            const input = await (0, allocation_ledger_js_1.loadLedgerInput)(index_js_1.db, p.id);
+            const ds = (await index_js_1.db.query(`SELECT ${money_basis_js_1.DEMAND_COLS} FROM demands WHERE payment_plan_id = $1`, [p.id])).rows;
+            const paid = (0, money_basis_js_1.paidByDemand)(await (0, money_basis_js_1.loadEligible)(index_js_1.db, p.id), await (0, money_basis_js_1.loadAllocations)(index_js_1.db, p.id), ds);
+            out.push({ payment_plan_id: p.id, unit_id: p.unit_id, plan_total: Number(p.total_amount_inr), booking_cancelled: await (0, booking_state_js_1.planIsCancelled)(index_js_1.db, p.id), ...(0, allocation_ledger_js_1.buildAllocationLedger)({ ...input, paidByDemandCheck: paid }) });
+        }
+        res.json({ success: true, data: { consumer_id: consumerId, plans: out } });
+    }
+    catch (error) {
+        fail(error, res, next);
+    }
+});
+// GET /api/payments/allocation-reconciliation[?projectId=]: the ledger of every plan with a receipt, checked. Read only, finance only. Run before the allocation flag is considered.
+router.get('/allocation-reconciliation', input_js_1.financeOnly, async (req, res, next) => {
+    try {
+        res.json({ success: true, data: await (0, allocation_ledger_js_1.ledgerReconciliation)(index_js_1.db, optId(req.query.projectId, 'projectId')) });
     }
     catch (error) {
         fail(error, res, next);
@@ -907,7 +1029,7 @@ function buildPaymentReceiptCopy(r, settings, copyType, allInstallments) {
     const consumerName = [primaryName, ...coNames].join(' ').trim() || '—';
     const addrParts = [r.present_address, r.present_city, r.present_state].filter(Boolean);
     const address = addrParts.join(', ') + (r.present_pin ? ` - ${r.present_pin}` : '');
-    const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
+    const isNri = (0, gst_exempt_js_1.isGstExempt)(r.nationality);
     const totalAmount = parseFloat(r.amount_received_inr || 0);
     const amountWords = pmtNumberToWords(totalAmount);
     const floorOrdinal = r.floor != null ? pmtOrdinal(parseInt(r.floor)) : '—';
@@ -1937,12 +2059,12 @@ router.get('/receipt-form/:consumerId', printDownload_js_1.requirePrint, async (
         c.id AS consumer_id,
         c.registration_no,
         c.salutation,
-        c.first_name || ' ' || COALESCE(c.last_name,'') AS consumer_name,
+        ${(0, person_name_js_1.personNameSql)('c')} AS consumer_name,
         c.finance_bank,
         c.loan_amount,
         u.unit_number,
         u.floor,
-        COALESCE(NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price, not the price of a unit the customer was shifted to
+        COALESCE(${(0, money_basis_js_1.bookedBasicSql)('br')}, NULLIF(ROUND(br.basic_rate_inr_sqft * br.carpet_area_sqft), 0), u.base_price_inr) AS base_price_inr,   -- the booked price (from the plan), not the price of a unit the customer was shifted to
         u.total_price_inr,
         t.tower_name,
         p.name AS project_name,
@@ -2042,7 +2164,7 @@ async function buildReceiptDetailHtml(rows) {
     const dthStyle = `border:1px solid #2d4d7a;padding:5px 6px;text-align:center;font-size:11px;font-weight:bold;white-space:nowrap;`;
     const dtdStyle = `border:1px solid #dee2e6;padding:4px 6px;font-size:11px;`;
     const buildDetailRows = async (r) => {
-        const isNri = ['nri', 'oci', 'pio'].includes((r.nationality || '').toLowerCase());
+        const isNri = (0, gst_exempt_js_1.isGstExempt)(r.nationality);
         const drows = [];
         let sno = 1;
         const basicAmt = parseFloat(String(r.amount_received_inr || 0));
@@ -2256,7 +2378,7 @@ router.get('/receipt-detail/:consumerId', printDownload_js_1.requirePrint, async
             THEN 'Booking Amount'
           ELSE 'General Payment'
         END                                                    AS installment_name,
-        c.first_name || ' ' || COALESCE(c.last_name, '')      AS consumer_name,
+        ${(0, person_name_js_1.personNameSql)('c')} AS consumer_name,
         c.registration_no,
         c.nationality,
         p.id    AS project_id,

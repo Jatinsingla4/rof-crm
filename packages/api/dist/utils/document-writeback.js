@@ -32,6 +32,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.writebackField = writebackField;
 const crypto_1 = require("crypto");
 const document_recalc_js_1 = require("./document-recalc.js");
+const applicant_fields_js_1 = require("./applicant-fields.js");
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 /**
  * Parses display date strings to ISO 8601 (YYYY-MM-DD).
@@ -137,6 +138,12 @@ const WRITEBACK_MAP = {
     registrationNo: async (v, ctx, client) => {
         if (!ctx.consumerId)
             return { written: false, error: 'no consumer_id' };
+        try {
+            await (0, applicant_fields_js_1.checkNumbers)(client, ctx.consumerId, v.trim(), null);
+        }
+        catch (e) {
+            return { written: false, error: e.message };
+        } // QA-022: not written when another applicant has it
         await client.query(`UPDATE consumers SET registration_no = $1, updated_at = NOW() WHERE id = $2`, [v.trim(), ctx.consumerId]);
         return { written: true, table: 'consumers', column: 'registration_no' };
     },
@@ -380,7 +387,9 @@ const WRITEBACK_MAP = {
         const parts = v.trim().split(/\s+/);
         const firstName = parts[0] || '';
         const lastName = parts.length > 1 ? parts.slice(1).join(' ') : '';
-        await client.query(`UPDATE consumers SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3`, [firstName, lastName, ctx.consumerId]);
+        const typ = (await client.query(`SELECT applicant_type FROM consumers WHERE id = $1`, [ctx.consumerId])).rows[0]?.applicant_type;
+        await client.query(`UPDATE consumers SET first_name = $1, last_name = $2, name = COALESCE(NULLIF($4, ''), name), updated_at = NOW() WHERE id = $3`, [firstName, lastName, ctx.consumerId, (0, applicant_fields_js_1.personName)(undefined, firstName, lastName, typ) || ''] // QA-022: `name` follows the parts (it used to go stale)
+        );
         return { written: true, table: 'consumers', column: 'first_name+last_name' };
     },
     narrativeConsumerName: async (v, ctx, c) => WRITEBACK_MAP.consumerName(v, ctx, c),
@@ -401,7 +410,9 @@ const WRITEBACK_MAP = {
         const parts = v.trim().split(/\s+/);
         const firstName = parts[0] || '';
         const lastName = parts.length > 1 ? parts.slice(1).join(' ') : '';
-        await client.query(`UPDATE consumers SET first_name = $1, last_name = $2, updated_at = NOW() WHERE id = $3`, [firstName, lastName, ctx.consumerId]);
+        const typ = (await client.query(`SELECT applicant_type FROM consumers WHERE id = $1`, [ctx.consumerId])).rows[0]?.applicant_type;
+        await client.query(`UPDATE consumers SET first_name = $1, last_name = $2, name = COALESCE(NULLIF($4, ''), name), updated_at = NOW() WHERE id = $3`, [firstName, lastName, ctx.consumerId, (0, applicant_fields_js_1.personName)(undefined, firstName, lastName, typ) || ''] // QA-022: `name` follows the parts (it used to go stale)
+        );
         return { written: true, table: 'consumers', column: 'first_name+last_name' };
     },
     allottee_address: async (v, ctx, c) => WRITEBACK_MAP.consumerAddress(v, ctx, c),

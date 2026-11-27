@@ -10,7 +10,7 @@ import { failWith } from '../utils/input.js';
 import { pick, pageOf } from '../utils/report-input.js';
 import { eligibleSum, eligibleAmountSql } from '../utils/money-basis.js';
 import { cancelledPlanSql } from '../utils/booking-state.js';
-import { loadLedger, LedgerPlan, LedgerDemand, LedgerFilter, dueOf, sum, r2, pct, contains, principalOf, split, daysBetween } from '../utils/report-ledger.js';
+import { loadLedger, LedgerPlan, LedgerDemand, LedgerFilter, dueOf, sum, r2, pct, contains, principalOf, split, daysBetween, customerTotals } from '../utils/report-ledger.js';
 import { scheduleGap } from '../utils/financial-measures.js';
 
 const router = Router();
@@ -31,11 +31,11 @@ const pickDemands = (p: LedgerPlan, upTo: string | null, criteria: string): Ledg
 export const totalsOf = (p: LedgerPlan, ds: LedgerDemand[]) => {
   const demanded = sum(ds, (d) => d.total), paid = sum(ds, (d) => d.paid);
   const o = ds.reduce((a, d) => { const s = split(d); return { amount: a.amount + s.amount, cgst: a.cgst + s.cgst, sgst: a.sgst + s.sgst }; }, { amount: 0, cgst: 0, sgst: 0 });
-  const raisedPaid = sum(p.demands.filter((d) => d.raised), (d) => d.paid);
+  const ct = customerTotals(p);   // the credit is defined once, in the ledger (credit = advance on unraised instalments + surplus)
   return {
     demanded, paid, amount: sum(ds, (d) => d.base + d.addon), cgst: sum(ds, (d) => d.cgst), sgst: sum(ds, (d) => d.sgst),
     outstanding: r2(demanded - paid), os_amount: r2(o.amount), os_cgst: r2(o.cgst), os_sgst: r2(o.sgst),
-    credit: r2(Math.max(0, p.received - raisedPaid)),
+    credit: ct.credit, advanceOnUnraised: ct.advanceOnUnraised, surplusCredit: ct.surplusCredit,
     undue: sum(p.demands.filter((d) => !d.raised), (d) => d.total),
     last_due: ds.reduce((m: string | null, d) => (d.due_date && (!m || d.due_date > m) ? d.due_date : m), null),
   };
@@ -75,21 +75,26 @@ router.get('/customer-balance', h(async (req, res) => {
   }).filter((r) => balanceType === 'all' || (balanceType === 'outstanding' ? r.balance > 0 : r.balance < 0));
   // This report is one row per LIVE booking, so cleared money of a cancelled booking or of a receipt with no plan is not in any row. It is shown as its own figure,
   // so the report can be tied to the dashboard's cleared collections instead of silently being lower (QA-013). Only when no row filter narrows the people.
-  let receivedNotInRows: number | null = null, receivedCancelled: number | null = null, receivedNoPlan: number | null = null;
+  let receivedNotInRows: number | null = null, receivedCancelled: number | null = null, receivedNoPlan: number | null = null, refundedCancelled: number | null = null;
   if (!x.name && !x.registrationNo && !x.towerId && !x.bhkType && !x.brokerId && !x.planName && !x.bookingFromDate && !x.bookingToDate && !x.companyId && !x.consumerId) {
     const clearedAll = Number((await db.query(
       `SELECT ${eligibleSum('r')} AS n FROM receipts r JOIN consumers c ON c.id = r.consumer_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0);
     receivedNotInRows = r2(clearedAll - sum(plans, (p) => p.received));
-    // QA-013: the two reasons are different money. Cleared money of a cancelled booking is settled by refund; cleared money with no plan is credit with no booking.
+    // QA-013/043: the two reasons are different money. Cleared money of a cancelled booking is NOT settled by itself: only refunds that were processed (payment_refunds) have settled any of it, and
+    // those are shown beside it. Cleared money with no plan is credit with no booking.
     const sp = (await db.query(
       `SELECT COALESCE(SUM(${eligibleAmountSql('r')}) FILTER (WHERE pp.id IS NOT NULL AND ${cancelledPlanSql('pp')}), 0) AS cancelled,
               COALESCE(SUM(${eligibleAmountSql('r')}) FILTER (WHERE r.payment_plan_id IS NULL), 0) AS noplan
          FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0];
-    receivedCancelled = r2(Number(sp.cancelled)); receivedNoPlan = r2(Number(sp.noplan));  }
+    receivedCancelled = r2(Number(sp.cancelled)); receivedNoPlan = r2(Number(sp.noplan));
+    refundedCancelled = r2(Number((await db.query(
+      `SELECT COALESCE(SUM(pr.refund_amount_inr), 0) AS n FROM payment_refunds pr JOIN payment_plans pp ON pp.id = pr.payment_plan_id JOIN consumers c ON c.id = pr.consumer_id
+        WHERE pr.status = 'processed' AND ${cancelledPlanSql('pp')} AND ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0));
+  }
   res.json({
     success: true, data: rows.slice(offset, offset + size), total: rows.length, page, pageSize: size,
     summary: { totalConsumers: rows.length, totalUnitCost: sum(rows, (r) => r.unit_cost), totalReceived: sum(rows, (r) => r.total_received), totalBalance: sum(rows, (r) => r.balance),
-      receivedNotInRows, receivedCancelled, receivedNoPlan, receivedOther: receivedNotInRows === null ? null : r2(receivedNotInRows - (receivedCancelled || 0) - (receivedNoPlan || 0)) },
+      receivedNotInRows, receivedCancelled, refundedCancelled, receivedNoPlan, receivedOther: receivedNotInRows === null ? null : r2(receivedNotInRows - (receivedCancelled || 0) - (receivedNoPlan || 0)) },
   });
 }));
 

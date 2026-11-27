@@ -29,7 +29,7 @@ router.post('/', async (req: AuthRequest, res: Response, next: NextFunction) => 
       if (!(await c.query(`SELECT 1 FROM consumers WHERE id = $1`, [consumerId])).rows.length) throw bad('Applicant not found', 404);
       await lock(c, 'loan:' + consumerId);
       // a loan many times the price of the applicant's unit is a typing mistake (GST and add-ons ride on top, so 20% room)
-      const price = (await c.query(`SELECT GREATEST(COALESCE(u.total_price_inr, 0), COALESCE(u.base_price_inr, 0)) AS p FROM allocations a JOIN units u ON u.id = a.unit_id WHERE a.consumer_id = $1 AND a.status NOT IN ('cancelled', 'transferred') ORDER BY a.created_at DESC LIMIT 1`, [consumerId])).rows[0];
+      const price = (await c.query(`SELECT COALESCE(NULLIF((SELECT pp.total_amount_inr FROM payment_plans pp WHERE pp.consumer_id = a.consumer_id AND pp.unit_id = a.unit_id ORDER BY pp.created_at DESC LIMIT 1), 0), GREATEST(COALESCE(u.total_price_inr, 0), COALESCE(u.base_price_inr, 0))) AS p FROM allocations a JOIN units u ON u.id = a.unit_id WHERE a.consumer_id = $1 AND a.status NOT IN ('cancelled', 'transferred') ORDER BY a.created_at DESC LIMIT 1`, [consumerId])).rows[0];
       if (loanAmount && price && Number(price.p) > 0 && loanAmount > Number(price.p) * 1.2) throw bad(`The loan is far more than the price of the unit (about Rs ${Number(price.p).toLocaleString('en-IN')}). Please check it.`);
       if ((await c.query(
         `SELECT 1 FROM loan_details WHERE consumer_id = $1 AND bank_name = $2 AND loan_amount IS NOT DISTINCT FROM $3 AND sanction_letter_date IS NOT DISTINCT FROM $4::date`, [consumerId, bankName, loanAmount, sanction]

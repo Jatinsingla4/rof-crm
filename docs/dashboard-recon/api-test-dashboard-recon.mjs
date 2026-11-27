@@ -47,7 +47,7 @@ const mk = (P, T, tag, o = {}) => {
   return { c, u, al, pp };
 };
 const dem = (f, idx, status, amount, due, o = {}) => psql(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, amount_due_inr, status, delivery_status, due_date, cgst_amount, sgst_amount) VALUES ('${f.pp}', ${idx}, '${f.c}', ${amount}, '${status}', '${o.delivery || 'pending'}', ${due ? `'${due}'` : 'NULL'}, ${o.tax || 0}, ${o.tax || 0}) RETURNING id`);
-const rec = (f, amount, method, status, date = TODAY, ref = null) => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, payment_method, status, received_date, transaction_ref) VALUES ('${f.c}','${f.pp}',${amount},'${method}','${status}','${date}', ${ref ? `'${ref}'` : 'NULL'}) RETURNING id`);
+const rec = (f, amount, method, status, date = TODAY, ref = null) => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, payment_method, status, approval_status, received_date, transaction_ref) VALUES ('${f.c}','${f.pp}',${amount},'${method}','${status}',(CASE WHEN '${status}'='cleared' THEN 'approved' ELSE 'pending' END),'${date}', ${ref ? `'${ref}'` : 'NULL'}) RETURNING id`);
 
 // ================= DASHBOARD =================
 const C1 = mk(P1, T1, 'c1', { booking: 'complete', bdate: TODAY }), C4 = mk(P1, T1, 'c4', { booking: 'active', bdate: ist(-3) });

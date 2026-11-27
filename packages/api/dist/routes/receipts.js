@@ -23,6 +23,7 @@ const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const financial_ops_js_1 = require("./financial-ops.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
+const cash_limit_js_1 = require("../utils/cash-limit.js");
 const router = (0, express_1.Router)();
 // What the receipt form sends -> what the database keeps
 exports.RECEIPT_MODES = {
@@ -150,6 +151,13 @@ router.post('/receipts', (0, processPermission_js_1.requireProcess)('receipt', '
                     idx = 1; // nothing raised yet: the first receipt belongs to instalment 1
                 else
                     warnings.push('Every instalment raised so far is already covered by the money recorded, so this receipt is not matched to an instalment. Once it clears it stays as customer credit until it is allocated.');
+            }
+            if (method === 'cash') { // QA-018: the configured cash control (off until ROF sets a limit)
+                const cl = await (0, cash_limit_js_1.cashLimitCheck)(c, { consumerId, amount, date });
+                if (cl?.block)
+                    throw (0, input_js_1.bad)(cl.block, 422);
+                if (cl?.warn)
+                    warnings.push(cl.warn);
             }
             // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
             let receiptNumber;
@@ -380,7 +388,7 @@ router.patch('/receipts/:id', async (req, res, next) => {
         const chequeDate = (0, input_js_1.day)(b.chequeDate, 'Cheque date');
         const received = pastDay(b.receivedDate, 'Receipt date');
         const out = await (0, input_js_1.inTx)(async (c) => {
-            const cur = (await c.query(`SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
+            const cur = (await c.query(`SELECT id, receipt_number, consumer_id, payment_plan_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
            FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Receipt not found', 404);
@@ -388,6 +396,8 @@ router.patch('/receipts/:id', async (req, res, next) => {
                 throw (0, input_js_1.bad)('Cannot edit an approved receipt', 403);
             if (cur.status === 'cancelled' || cur.status === 'bounced')
                 throw (0, input_js_1.bad)(`Cannot edit a ${cur.status} receipt`, 403);
+            if (await (0, booking_state_js_1.planIsCancelled)(c, cur.payment_plan_id))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409); // QA-012/044: a receipt of a cancelled booking is settled by a checker (cancel or bounce) or by a refund, not edited
             const editParts = cur.approval_status === 'pending'; // the charge parts are locked once approved (kept as before)
             const p = parts(b, parseFloat(cur.amount_received_inr));
             if (ref && ref !== cur.transaction_ref)
@@ -474,7 +484,7 @@ const move = async (req, res, next, o) => {
             const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
             if (pre && o.to === 'cleared')
                 await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
-            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by, approval_status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Receipt not found', 404);
             // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
@@ -482,13 +492,13 @@ const move = async (req, res, next, o) => {
                 (0, financial_ops_js_1.notOwn)(req, cur.received_by_user_id);
             if (!INSTRUMENTS.includes(cur.payment_method))
                 throw (0, input_js_1.bad)(`This payment mode cannot be ${o.verb}`);
-            if ((o.to === 'cleared' || o.to === 'deposited') && await (0, booking_state_js_1.planIsCancelled)(c, cur.payment_plan_id))
-                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409);
+            if (await (0, booking_state_js_1.planIsCancelled)(c, cur.payment_plan_id))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409); // QA-012/044: deposit, clear, hold and release-hold alike. The checker cancels or bounces such a receipt instead.
             if (!o.from.includes(cur.status))
                 throw (0, input_js_1.bad)(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
             // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
-            if (o.to === 'cleared' && !cur.authorized_by)
-                throw (0, input_js_1.bad)('Cannot clear: the receipt has not been authorized by a checker yet', 409);
+            if (o.to === 'cleared' && (!cur.authorized_by || cur.approval_status !== 'approved'))
+                throw (0, input_js_1.bad)('Cannot clear: the receipt has not been authorized by a checker yet', 409); // QA-010/036/042: approval_status too, not only authorized_by
             const to = typeof o.to === 'function' ? o.to(cur) : o.to;
             const r = await c.query(`UPDATE receipts SET status = '${to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}
          RETURNING id, receipt_number, status, amount_received_inr, deposit_date, clearing_date, clearing_bank_id, hold_remark`, [...set.values, id]);

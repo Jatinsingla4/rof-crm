@@ -350,19 +350,40 @@ router.get('/', guard(async (req, res) => {
     const result = await index_js_1.db.query(listSql, params);
     res.json({ success: true, data: result.rows, pagination: { page, pageSize, total: await (0, input_js_1.countOf)(index_js_1.db, listSql, params) } });
 }));
+// GET /api/users/audit-directory - every login that can appear in the Audit Log, active or not, super admins included (QA-024, V1.1). The pick list used by the log's user filter came
+// from /directory (active logins only, never a super admin), so a person who had left, or a super admin, could not be chosen and their rows showed as "System".
+router.get('/audit-directory', guard(async (_req, res) => {
+    const r = await index_js_1.db.query(`SELECT id, name, email, role, is_active FROM users ORDER BY is_active DESC, lower(name)`);
+    res.json({ success: true, data: r.rows });
+}));
+// GET /api/users/audit-resource-types - the kinds of record the log holds, from the log itself (the screen used to offer a fixed list of eight)
+router.get('/audit-resource-types', guard(async (_req, res) => {
+    const r = await index_js_1.db.query(`SELECT DISTINCT resource_type FROM audit_logs WHERE resource_type IS NOT NULL ORDER BY resource_type`);
+    res.json({ success: true, data: r.rows.map((x) => x.resource_type) });
+}));
 // GET /api/users/audit-logs - who did what
+// Filters: userId (a login's id, or the word "system" for entries with no user), user (part of a name or an e-mail), action, resourceType, resourceId, fromDate, toDate.
 router.get('/audit-logs', guard(async (req, res) => {
-    const { userId, action, resourceType, fromDate, toDate } = req.query;
+    const { userId, user, action, resourceType, resourceId, fromDate, toDate } = req.query;
     const pageSize = (0, security_js_1.intParam)(req.query.pageSize, 50, 1, 500);
     const page = (0, security_js_1.intParam)(req.query.page, 1, 1, 100000);
     const where = [];
     const params = [];
     const add = (sql, v) => { params.push(v); where.push(sql.replace('?', `$${params.length}`)); };
-    if (userId) {
+    if (userId === 'system')
+        where.push('a.user_id IS NULL');
+    else if (userId) {
         if (!(0, security_js_1.isUuid)(userId))
             return fail(400, 'Invalid userId');
         add('a.user_id = ?', userId);
     }
+    if (user) {
+        const t = String(user).trim().slice(0, 100);
+        if (t)
+            add(`(u.name ILIKE ? OR u.email ILIKE ?)`.replace('?', '$' + (params.length + 1)).replace('?', '$' + (params.length + 1)), '%' + t.replace(/[\\%_]/g, '\\$&') + '%');
+    }
+    if (resourceId)
+        add('a.resource_id::text = ?', String(resourceId).slice(0, 100));
     if (action)
         add('lower(a.action) = lower(?)', String(action));
     if (resourceType)
@@ -375,7 +396,7 @@ router.get('/audit-logs', guard(async (req, res) => {
         add(op === '>=' ? `a."timestamp" >= ?::date` : `a."timestamp" < (?::date + 1)`, v);
     }
     params.push(pageSize, (page - 1) * pageSize);
-    const listSql = `SELECT a.id, a.user_id, u.name AS user_name, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
+    const listSql = `SELECT a.id, a.user_id, u.name AS user_name, u.email AS user_email, (u.id IS NULL AND a.user_id IS NOT NULL) AS user_removed, a.action, a.resource_type, a.resource_id, a.previous_values, a.new_values, a."timestamp"
      FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id
      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
      ORDER BY a."timestamp" DESC LIMIT $${params.length - 1} OFFSET $${params.length}`;

@@ -11,6 +11,16 @@ let pass = 0, fail = 0;
 const t = (n, ok, x = '') => { ok ? pass++ : fail++; console.log((ok ? 'PASS ' : 'FAIL ') + n + (ok ? '' : ' -> ' + x)); };
 // file -> [clusters that touch the receipts table, mentions of amount_received_inr]
 const ALLOWED = {
+ // reviewed (QA-008/014/033/037/039, V1.1): the allocation ledger reads EVERY receipt of a plan on purpose, to list the ones that are not money (pending, bounced, cancelled, legacy advance copies) beside the ones that are. Its money rule is the same as MONEY_RULES.md: cleared, not an advance copy, less approved returns; read only, writes nothing.
+ "utils/allocation-ledger.ts": [
+  2,
+  1
+ ],
+ // reviewed (QA-018, V1.1): the cash control counts cash receipts RECORDED (not cancelled, not bounced, no ADV copies), cleared or not, because a limit must see a receipt when it is made. It is a control, not a money measure: it reads no balance and changes no figure.
+ "utils/cash-limit.ts": [
+  1,
+  1
+ ],
  "routes/addon-charges.ts": [
   2,
   1
@@ -19,8 +29,9 @@ const ALLOWED = {
   2,
   2
  ],
+ // reviewed (QA-009, V1.1): the paid-commission reconciliation no longer reads receipts itself, it uses commissionBackedSql (money-basis.ts: cleared, no ADV copies, approved returns taken off): 8 -> 7
  "routes/booking.ts": [
-  8,
+  7,
   9
  ],
  "routes/brokers.ts": [
@@ -63,9 +74,10 @@ const ALLOWED = {
   2,
   0
  ],
+ // reviewed (QA-013/043, V1.1): GET /payments/dashboard no longer sums receipts itself, it takes the canonical measures from the ledger (cleared, no ADV copies, approved returns off): 19/28 -> 18/27
  "routes/payments.ts": [
-  19,
-  28
+  18,
+  27
  ],
  "routes/projects.ts": [
   1,
@@ -123,8 +135,9 @@ const ALLOWED = {
   9,
   3
  ],
+ // reviewed (QA-009, V1.1): commissionBackedSql is new here and reads receipts only through eligibleSum (the central cleared, non-ADV, net-of-returns definition): 1 -> 2
  "utils/money-basis.ts": [
-  1,
+  2,
   7
  ],
  "utils/invoice-exposure.ts": [

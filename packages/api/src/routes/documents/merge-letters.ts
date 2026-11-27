@@ -10,6 +10,7 @@ import { penalRateFrom } from '../../utils/penal-rate.js';
 import { GenCtx } from './merge-demand.js';
 import { SQL_TODAY, businessDayStart } from '../../utils/business-date.js';
 import { returnedSql } from '../../utils/money-basis.js';
+import { isGstExempt } from '../../utils/gst-exempt.js';
 // Check list
 export async function checkListData(ctx: GenCtx): Promise<void> {
   const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -94,7 +95,7 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
           // which folds addon charges into the Basic row. Sourcing
           // independently here avoids double-counting addon amounts that
           // are listed as their own rows below.
-          const isNriCL = ['nri', 'oci', 'pio'].includes((planCL.nationality || '').toLowerCase());
+          const isNriCL = isGstExempt(planCL.nationality);
           const gstPctCL = isNriCL ? 0 : 0.5;
           const bspRateCL = parseFloat(planCL.booking_basic_rate_inr_sqft || 0);
           const bspCarpetCL = parseFloat(planCL.booking_carpet_area_sqft || 0);
@@ -205,7 +206,7 @@ export async function checkListData(ctx: GenCtx): Promise<void> {
 
           // Admin-approved interest amounts (respects waivers) take precedence, same as Demand Letter
           const piResCL = await db.query<{ net_interest_inr: number }>(
-            `SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0))), 0) AS net_interest_inr
+            `SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0))), 0) AS net_interest_inr   -- gross: the waiver is shown and taken off once, below (it used to be inside this figure and taken off again)
              FROM penal_interests WHERE consumer_id = $1`,
             [consumerId]
           );

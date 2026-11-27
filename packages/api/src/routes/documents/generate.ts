@@ -14,6 +14,7 @@ import { checkListData, allotmentLetterData, buyerBuilderAgreementData, conveyan
 import { getDemandLetterShell, getCheckListShell } from './shells.js';
 import { businessDayStart, businessYear } from '../../utils/business-date.js';
 import { requirePrint } from '../../middleware/printDownload.js';
+import { reraLooksReal } from '../../utils/statutory-readiness.js';
 
 const router = Router();
 
@@ -217,7 +218,7 @@ router.post('/generate', requirePrint, async (req: AuthRequest, res: Response, n
           mobile: d.mobile || '—',
           email: d.email || '—',
           customerId: d.registration_no || d.id?.slice(0, 8).toUpperCase() || '—',
-          reraNo: d.project_rera || '75 OF 2019 Dated 09.12.19',
+          reraNo: reraLooksReal(d.project_rera) ? d.project_rera : '—',   // QA-029: the project's own number, never a number typed into the code
           projectName: d.project_name || '—',
           projectSector: d.project_sector || '—',
           unitNumber: d.unit_number || '—',

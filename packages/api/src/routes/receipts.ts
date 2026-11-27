@@ -20,6 +20,7 @@ import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { notOwn } from './financial-ops.js';
 import { requirePrint } from '../middleware/printDownload.js';
+import { cashLimitCheck } from '../utils/cash-limit.js';
 
 const router = Router();
 
@@ -137,6 +138,11 @@ router.post('/receipts', requireProcess('receipt', 'maker'), async (req: AuthReq
         else warnings.push('Every instalment raised so far is already covered by the money recorded, so this receipt is not matched to an instalment. Once it clears it stays as customer credit until it is allocated.');
       }
 
+      if (method === 'cash') {   // QA-018: the configured cash control (off until ROF sets a limit)
+        const cl = await cashLimitCheck(c, { consumerId, amount, date });
+        if (cl?.block) throw bad(cl.block, 422);
+        if (cl?.warn) warnings.push(cl.warn);
+      }
       // A project set to Manual numbering needs the number typed on the receipt; otherwise the next one is made
       let receiptNumber: string;
       if ((await projectSettings(c, consumerRow.project_id)).receipt_number_mode === 'Manual') {
@@ -322,12 +328,13 @@ router.patch('/receipts/:id', async (req: AuthRequest, res: Response, next: Next
 
     const out = await inTx(async (c) => {
       const cur = (await c.query(
-        `SELECT id, receipt_number, consumer_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
+        `SELECT id, receipt_number, consumer_id, payment_plan_id, approval_status, status, transaction_ref, cheque_no, received_date, amount_received_inr, payment_method, plc_amount, edc_amount, idc_amount, interest_amount, other_charge_amount
            FROM receipts WHERE id = $1 FOR UPDATE`, [id]
       )).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
       if (cur.approval_status === 'approved') throw bad('Cannot edit an approved receipt', 403);
       if (cur.status === 'cancelled' || cur.status === 'bounced') throw bad(`Cannot edit a ${cur.status} receipt`, 403);
+      if (await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044: a receipt of a cancelled booking is settled by a checker (cancel or bounce) or by a refund, not edited
       const editParts = cur.approval_status === 'pending';   // the charge parts are locked once approved (kept as before)
       const p = parts(b, parseFloat(cur.amount_received_inr));
       if (ref && ref !== cur.transaction_ref) await reference(c, 'transaction_ref', ref, id, 'Reference');
@@ -412,15 +419,15 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
       // Clearing changes what is money: the same consumer lock as recording a receipt, a return or an allocation, taken before the receipt row
       const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
       if (pre && o.to === 'cleared') await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
-      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by, approval_status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
       // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
       if (o.checker) notOwn(req, cur.received_by_user_id);
       if (!INSTRUMENTS.includes(cur.payment_method)) throw bad(`This payment mode cannot be ${o.verb}`);
-      if ((o.to === 'cleared' || o.to === 'deposited') && await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);
+      if (await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);   // QA-012/044: deposit, clear, hold and release-hold alike. The checker cancels or bounces such a receipt instead.
       if (!o.from.includes(cur.status)) throw bad(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
       // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
-      if (o.to === 'cleared' && !cur.authorized_by) throw bad('Cannot clear: the receipt has not been authorized by a checker yet', 409);
+      if (o.to === 'cleared' && (!cur.authorized_by || cur.approval_status !== 'approved')) throw bad('Cannot clear: the receipt has not been authorized by a checker yet', 409);   // QA-010/036/042: approval_status too, not only authorized_by
       const to = typeof o.to === 'function' ? o.to(cur) : o.to;
       const r = await c.query(
         `UPDATE receipts SET status = '${to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}

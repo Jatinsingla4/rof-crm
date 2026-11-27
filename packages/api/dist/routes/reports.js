@@ -18,6 +18,7 @@ const reports_applicant_js_1 = __importDefault(require("./reports-applicant.js")
 const report_ledger_js_1 = require("../utils/report-ledger.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 const router = (0, express_1.Router)();
 // Every filter is checked once here (400 for a bad id, date, number or a list / object where one value is expected)
 router.use((req, res, next) => {
@@ -585,7 +586,7 @@ router.get('/tower-floor-sales', async (req, res, next) => {
         const SOLD = `u.status NOT IN ('available','locked','held','temp_surrender')`;
         const brJoin = `
       LEFT JOIN LATERAL (
-        SELECT b.consumer_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
+        SELECT b.consumer_id, b.unit_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
                b.company_inaugural_disc, b.approved_rebate_amount, b.plc_amount, b.other_charge_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status IN ('complete','pending_payment','active')
@@ -1040,7 +1041,8 @@ router.get('/all-applicants', async (req, res, next) => {
       ORDER BY p.name ASC, c.registration_no ASC
     `;
         const result = await pool_1.db.query(query, whereParams);
-        res.json({ success: true, data: result.rows });
+        const full = await (0, people_mask_js_1.peopleFullRoles)(pool_1.db); // QA-027: unchanged until ROF sets people_id_full_roles
+        res.json({ success: true, data: result.rows.map((r) => ({ ...(0, people_mask_js_1.maskPeople)(r, req.userRole, full), applicants: Array.isArray(r.applicants) ? r.applicants.map((a) => (0, people_mask_js_1.maskPeople)(a, req.userRole, full)) : r.applicants })) });
     }
     catch (err) {
         next(err);
@@ -1278,7 +1280,7 @@ router.get('/stock-report', async (req, res, next) => {
       JOIN companies c ON c.id = pr.company_id
       JOIN units u ON u.project_id = pr.id
       LEFT JOIN LATERAL (
-        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
+        SELECT b.consumer_id, b.unit_id, b.plc_amount, b.other_charge_amount, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status != 'cancelled'
         ORDER BY b.created_at DESC

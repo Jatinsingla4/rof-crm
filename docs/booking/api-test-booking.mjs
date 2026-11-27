@@ -59,7 +59,11 @@ const brk = (id) => psql(`select status from booking_records where id='${id}'`);
   const html = await (await fetch(B + `/consumers/${xc}/applicant-file?token=${lt.j.token || lt.j.data?.token}`)).text();
   const txt = html.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   t('shift price: the file still shows the booked carpet area 640 (not the new unit 800)', /Carpet Area \(Sq\. Ft\.\) 640\.000/.test(txt), (txt.match(/Carpet Area \(Sq\. Ft\.\) \S+/) || [''])[0]);
-  t('shift price: the Agreement Value is still 25,60,000 (the demands are on that price)', /Agreement Value Rs\. 25,60,000\.00/.test(txt), (txt.match(/Agreement Value Rs\. \S+/) || [''])[0]);
+  // QA-001/032 (V1.1): the file shows the price the booking is BILLED on (its plan total, which a unit shift does not touch), the same figure the demands are cut from.
+  // This replaces the old assertion of 25,60,000 (rate x the booking's 640 sq ft): in this fixture the plan and the demands are both 40,00,000, so the old file disagreed with its own schedule.
+  const planAgreed = Number(psql(`select total_amount_inr from payment_plans where consumer_id='${xc}' order by created_at desc limit 1`)), demandSum = Number(psql(`select coalesce(sum(amount_due_inr),0) from demands d join payment_plans p on p.id=d.payment_plan_id where p.consumer_id='${xc}' and d.status<>'cancelled'`));
+  const shownAgreed = Number(((txt.match(/Agreement Value Rs\. ([0-9,]+)/) || [])[1] || '').replace(/,/g, ''));
+  t('shift price: the Agreement Value is the plan total and equals what the demands add up to (a shift does not change it)', planAgreed > 0 && shownAgreed === planAgreed && demandSum === planAgreed, `shown ${shownAgreed} plan ${planAgreed} demands ${demandSum}`);
 }
 
 // ---------- roles ----------
@@ -483,7 +487,7 @@ let done1;
     r = await A('GET', '/booking/agreement-shadow'); const sh = (r.j?.data || []).find((x) => x.booking_id === bk2.j.data.id);
     t('shadow report: lists the booking; quote, schedule and snapshot all say 90,000 (difference 0)', r.s === 200 && sh && sh.quote_value_inr === 90000 && sh.plan_total_inr === 90000 && sh.snapshot_value_inr === 90000 && sh.difference_inr === 0, r.s + JSON.stringify(sh));
     r = await A('GET', '/booking/reconciliation');
-    t('reconciliation: five read-only checks, each with a count; nothing here has a paid demand with a balance', r.s === 200 && Object.keys(r.j.counts).length === 5 && Object.values(r.j.counts).every((n) => Number.isInteger(n)) && r.j.data.demands_paid_with_balance_over_1.filter((x) => x.registration_no).every((x) => x.balance > 1), r.s + JSON.stringify(r.j?.counts));
+    t('reconciliation: the five money checks and the lifecycle checks, each with a count; nothing here has a paid demand with a balance', r.s === 200 && ['demands_paid_with_balance_over_1', 'invoices_charging_more_than_the_receipt_behind_them', 'live_bookings_with_no_rate_or_area', 'consumers_with_several_live_bookings', 'commissions_paid_with_no_cleared_receipt', 'live_bookings_whose_unit_is_available', 'live_demands_on_a_cancelled_booking'].every((k) => Number.isInteger(r.j.counts[k])) && Object.values(r.j.counts).every((n) => Number.isInteger(n)) && r.j.data.demands_paid_with_balance_over_1.filter((x) => x.registration_no).every((x) => x.balance > 1), r.s + JSON.stringify(r.j?.counts));
     t('reconciliation: only finance may read it', (await RO('GET', '/booking/reconciliation')).s >= 401);
     t('shadow report: only finance may read it', (await RO('GET', '/booking/agreement-shadow')).s === 403 || (await RO('GET', '/booking/agreement-shadow')).s === 401);
   } finally { psql(`update global_settings set value='off' where key='agreement_snapshot_v1'`); }

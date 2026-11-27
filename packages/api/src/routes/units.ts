@@ -14,6 +14,7 @@ import { lockCharges, requireStock } from '../utils/charge-stock.js';
 import { bad, uuid, has, num, text, day, body as bodyOf, inTx as inTxOnce, countOf } from '../utils/input.js';
 import { businessDayStart, businessToday } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
+import { personNameSql } from '../utils/person-name.js';
 
 // Facing is one of the eight directions; short codes (N, SE ...) are accepted and stored in full
 const FACINGS = ['East', 'West', 'North', 'South', 'North-East', 'South-East', 'North-West', 'South-West'];
@@ -522,7 +523,7 @@ router.get('/tower-detail', async (req: AuthRequest, res: Response, next: NextFu
         t.tower_name,
         p.name as project_name,
         c.registration_no,
-        TRIM(c.first_name || ' ' || COALESCE(c.last_name, '')) as consumer_name,
+        ${personNameSql('c')} as consumer_name,
         COALESCE(br.booking_date, a.allotment_date) as booking_date,
         a.allotment_date,
         COALESCE(b.firm_name, b.name, 'Direct') as broker_name,

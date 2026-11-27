@@ -46,6 +46,7 @@ const shells_js_1 = require("./shells.js");
 const penal_rate_js_1 = require("../../utils/penal-rate.js");
 const business_date_js_1 = require("../../utils/business-date.js");
 const money_basis_js_1 = require("../../utils/money-basis.js");
+const gst_exempt_js_1 = require("../../utils/gst-exempt.js");
 // Check list
 async function checkListData(ctx) {
     const { req, consumerId, allocationId, template, d, includeAllDemands, dueDate } = ctx;
@@ -123,7 +124,7 @@ async function checkListData(ctx) {
     // which folds addon charges into the Basic row. Sourcing
     // independently here avoids double-counting addon amounts that
     // are listed as their own rows below.
-    const isNriCL = ['nri', 'oci', 'pio'].includes((planCL.nationality || '').toLowerCase());
+    const isNriCL = (0, gst_exempt_js_1.isGstExempt)(planCL.nationality);
     const gstPctCL = isNriCL ? 0 : 0.5;
     const bspRateCL = parseFloat(planCL.booking_basic_rate_inr_sqft || 0);
     const bspCarpetCL = parseFloat(planCL.booking_carpet_area_sqft || 0);
@@ -208,7 +209,7 @@ async function checkListData(ctx) {
     });
     const totalInterestCalcCL = irRowsCL.reduce((sum, ir) => sum + ir.interest_amount, 0);
     // Admin-approved interest amounts (respects waivers) take precedence, same as Demand Letter
-    const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0))), 0) AS net_interest_inr
+    const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0))), 0) AS net_interest_inr   -- gross: the waiver is shown and taken off once, below (it used to be inside this figure and taken off again)
              FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
     const totalInterestFromDBCL = Number(piResCL.rows[0]?.net_interest_inr || 0);
     const dueIntCL = totalInterestFromDBCL > 0 ? totalInterestFromDBCL : totalInterestCalcCL;

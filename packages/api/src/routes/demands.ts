@@ -13,6 +13,7 @@ import { pgErrorHandler } from '../middleware/pg-errors.js';
 import { bad, failWith, uuid, has, text, day, body, inTx } from '../utils/input.js';
 import { likeOf } from '../utils/applicant.js';
 import { SQL_TODAY, businessToday, sqlDayEnd, sqlDayStart } from '../utils/business-date.js';
+import { isGstExempt } from '../utils/gst-exempt.js';
 
 const router = Router();
 
@@ -89,7 +90,7 @@ router.post('/demands/generate', async (req: AuthRequest, res: Response, next: N
         const plc = Number(plan.plc_amount || 0), other = Number(plan.other_charge_amount || 0), balcony = Number(plan.balcony_charge_amount || 0);
         const basic = total - plc - other - balcony;
         const bookingDate = plan.booking_date ? new Date(plan.booking_date).toISOString().slice(0, 10) : businessToday();
-        const isNri = String(plan.nationality).toLowerCase() === 'nri';
+        const isNri = isGstExempt(plan.nationality);   // NRI, OCI and PIO alike, the same as the booking
 
         for (const t of templates.rows) {
           const exists = await c.query(`SELECT 1 FROM demands WHERE payment_plan_id = $1 AND installment_index = $2`, [plan.payment_plan_id, t.installment_index]);

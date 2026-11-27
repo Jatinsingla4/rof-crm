@@ -16,6 +16,8 @@ const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const rebate_js_1 = require("../utils/rebate.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
+const booking_state_js_1 = require("../utils/booking-state.js");
 const input_js_1 = require("../utils/input.js");
 const holds_js_1 = require("../utils/holds.js");
 const broker_js_1 = require("../utils/broker.js");
@@ -36,6 +38,9 @@ const receipt_number_js_1 = require("../utils/receipt-number.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const unitStatusAccess_js_1 = require("../middleware/unitStatusAccess.js");
+const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const cash_limit_js_1 = require("../utils/cash-limit.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 const router = (0, express_1.Router)();
 // ---------- input rules for Booking ----------
 // Payment modes the booking and payment forms offer; the receipt keeps the true mode where the receipt list knows it
@@ -312,11 +317,10 @@ router.post('/quote', async (req, res, next) => {
         const plc = money(b.plc_amount, 'PLC amount', 1e9), other = money(b.other_charge_amount, 'Other charge amount', 1e9), disc = money(b.company_inaugural_disc, 'Discount');
         const bookingDate = bookingDay(b.booking_date, 'booking_date') || (0, business_date_js_1.businessToday)();
         let isNri = false;
-        const NRI = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'];
         if ((0, input_js_1.has)(b.consumer_id))
-            isNri = NRI.includes((await index_js_1.db.query(`SELECT nationality FROM consumers WHERE id = $1`, [(0, input_js_1.uuid)(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
+            isNri = (0, gst_exempt_js_1.isGstExempt)((await index_js_1.db.query(`SELECT nationality FROM consumers WHERE id = $1`, [(0, input_js_1.uuid)(b.consumer_id, 'consumer_id')])).rows[0]?.nationality);
         else if ((0, input_js_1.has)(b.nationality))
-            isNri = NRI.includes(String(b.nationality));
+            isNri = (0, gst_exempt_js_1.isGstExempt)(String(b.nationality));
         const q = await (0, price_quote_js_1.priceQuote)(index_js_1.db, { projectId: unit.project_id, projectName: unit.project_name, bookingDate, isNri, rate, carpetArea: carpet, balconyArea: Number(unit.balcony_area_sqft) || 0, plc, other, discount: disc });
         if (disc > q.basic_inr)
             throw field('company_inaugural_disc', 'The discount is more than the basic price');
@@ -342,7 +346,7 @@ router.post('/:id/payment-quote', async (req, res, next) => {
         if (!br)
             throw (0, input_js_1.bad)('Booking not found', 404);
         const date = bookingDay(b.booking_date, 'booking_date') || (br.booking_date ? new Date(br.booking_date).toISOString().split('T')[0] : (0, business_date_js_1.businessToday)());
-        const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(br.nationality);
+        const isNri = (0, gst_exempt_js_1.isGstExempt)(br.nationality);
         const rate = isNri ? { cgstPct: 0, sgstPct: 0 } : await (0, gst_resolver_js_1.resolveRate)(index_js_1.db, br.project_id, br.project_name, 'BASIC', date);
         const s = (0, gst_backward_derive_js_1.computeInclusiveGstSplit)(amount, rate.cgstPct * 100, rate.sgstPct * 100);
         res.json({ success: true, data: { amount_inr: amount, taxable_inr: s.baseAmount, cgst_inr: s.cgstAmount, sgst_inr: s.sgstAmount, cgst_pct: rate.cgstPct * 100, sgst_pct: rate.sgstPct * 100, exempt: isNri } });
@@ -369,8 +373,29 @@ router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) =>
             consumers_with_several_live_bookings: await q(`SELECT consumer_id, COUNT(*)::int AS bookings, (SELECT COUNT(*)::int FROM demands d WHERE d.consumer_id = br.consumer_id) AS demands
         FROM booking_records br WHERE br.status IN ('pending_payment','active','complete') GROUP BY consumer_id HAVING COUNT(*) > 1`),
             commissions_paid_with_no_cleared_receipt: await q(`SELECT bc.id, bc.broker_id, bc.consumer_id, bc.commission_amount_inr::float8 AS commission, bc.tds_amount::float8 AS tds
-        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.consumer_id = bc.consumer_id AND r.status = 'cleared')`),
+        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT ${(0, money_basis_js_1.commissionBackedSql)('bc')}`), // QA-009: the same test the payout gate uses, not just "some receipt cleared"
         };
+        // QA-012/017/019/044/045: lifecycle states that disagree. Listed only; each row is a case for a person to look at.
+        const LIVE_ALLOC = `('booked','allotted','agreement_signed')`;
+        Object.assign(sets, {
+            live_bookings_whose_unit_is_available: await q(`SELECT br.id, br.registration_no, br.status, br.consumer_id, br.unit_id, u.unit_number FROM booking_records br JOIN units u ON u.id = br.unit_id
+        WHERE br.status IN ('active','complete') AND u.status = 'available'`),
+            complete_bookings_with_no_live_allocation: await q(`SELECT br.id, br.registration_no, br.consumer_id, br.unit_id FROM booking_records br
+        WHERE br.status = 'complete' AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.consumer_id = br.consumer_id AND a.unit_id = br.unit_id AND a.status IN ${LIVE_ALLOC})`),
+            live_allocations_whose_unit_is_available: await q(`SELECT a.id, a.consumer_id, a.unit_id, a.status, u.unit_number FROM allocations a JOIN units u ON u.id = a.unit_id WHERE a.status IN ${LIVE_ALLOC} AND u.status = 'available'`),
+            applicants_linked_to_a_unit_they_do_not_hold: await q(`SELECT c.id AS consumer_id, c.allocated_unit_id AS unit_id FROM consumers c WHERE c.allocated_unit_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.consumer_id = c.id AND a.unit_id = c.allocated_unit_id AND a.status IN ${LIVE_ALLOC})`),
+            units_linked_to_several_applicants: await q(`SELECT allocated_unit_id AS unit_id, COUNT(*)::int AS applicants FROM consumers WHERE allocated_unit_id IS NOT NULL GROUP BY allocated_unit_id HAVING COUNT(*) > 1`),
+            units_reserved_with_no_live_booking_or_allocation: await q(`SELECT u.id AS unit_id, u.unit_number, u.status FROM units u WHERE u.status IN ('booked','allotted','locked')
+        AND NOT EXISTS (SELECT 1 FROM booking_records br WHERE br.unit_id = u.id AND br.status IN ('pending_payment','active','complete'))
+        AND NOT EXISTS (SELECT 1 FROM allocations a WHERE a.unit_id = u.id AND a.status IN ${LIVE_ALLOC})`),
+            live_demands_on_a_cancelled_booking: await q(`SELECT d.id, d.payment_plan_id, d.consumer_id, d.installment_index, d.status FROM demands d JOIN payment_plans pp ON pp.id = d.payment_plan_id
+        WHERE ${(0, booking_state_js_1.cancelledPlanSql)('pp')} AND d.status NOT IN ('cancelled','paid')`),
+            cancelled_stage_with_a_live_booking: await q(`SELECT c.id AS consumer_id, c.lead_stage, br.id AS booking_id, br.status FROM consumers c JOIN booking_records br ON br.consumer_id = c.id
+        WHERE c.lead_stage = 'cancelled' AND br.status IN ('pending_payment','active','complete')`),
+            complete_booking_stage_before_allotment: await q(`SELECT c.id AS consumer_id, c.lead_stage, br.id AS booking_id FROM consumers c JOIN booking_records br ON br.consumer_id = c.id
+        WHERE br.status = 'complete' AND c.lead_stage IN ('enquiry','interested','application_filed','draw_entered')`), // informational: the stage is moved by allotment, not by confirming a booking (a business decision)
+        });
         res.json({ success: true, counts: Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.length])), data: sets });
     }
     catch (err) {
@@ -609,7 +634,7 @@ router.post('/', unitStatusAccess_js_1.applyUnitStatusFilter, async (req, res, n
             // never trust client-submitted cgst_pct/sgst_pct/cgst_amount/sgst_amount.
             const bookingDateForGstCreate = booking_date || (0, business_date_js_1.businessToday)();
             const projectNameForGstCreate = (await client.query('SELECT name FROM projects WHERE id = $1', [project_id])).rows[0]?.name || project_id;
-            const isNriForGstCreate = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.nationality);
+            const isNriForGstCreate = (0, gst_exempt_js_1.isGstExempt)(consumerRow.nationality);
             const gstRateForBptCreate = isNriForGstCreate
                 ? { cgstPct: 0, sgstPct: 0 }
                 : await (0, gst_resolver_js_1.resolveRate)(client, project_id, projectNameForGstCreate, 'BASIC', bookingDateForGstCreate);
@@ -746,6 +771,7 @@ router.patch('/:id/edit', async (req, res, next) => {
     try {
         const { id } = req.params;
         const b = (0, input_js_1.body)(req);
+        (0, people_mask_js_1.dropMaskedIds)(b); // QA-027
         // ---- booking fields (a blank number is ignored, a blank link or note clears it) ----
         const bk = {};
         const numeric = [['basic_rate_inr_sqft', 1e6, 4], ['carpet_area_sqft', 1e6, 3], ['broker_commission', 1e10, 2], ['company_inaugural_disc', 1e10, 2], ['company_rebate_rs', 1e10, 2], ['company_rebate_sqft', 1e10, 2], ['company_rebate_pct', 100, 3], ['broker_rebate_rs', 1e10, 2], ['broker_rebate_sqft', 1e10, 2], ['broker_rebate_pct', 100, 3]];
@@ -833,7 +859,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                     throw conflict('The broker commission for this booking is already processed, so the broker or the commission can no longer be changed here.');
                 if (cm) {
                     const kind = bk.broker_commission_type ?? cur.broker_commission_type, val = bk.broker_commission ?? cur.broker_commission;
-                    const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                    const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                     const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
                     if (kind === 'flat' && basic > 0 && Number(val) > basic)
                         throw (0, input_js_1.bad)('The broker commission is more than the basic price of the unit');
@@ -841,7 +867,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                 }
             }
             if (bkChanged.includes('basic_rate_inr_sqft') || bkChanged.includes('company_inaugural_disc')) {
-                const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                 const basic = priceEstimate(bk.basic_rate_inr_sqft ?? cur.basic_rate_inr_sqft, 0, u, 0, 0, 0);
                 if ((bk.company_inaugural_disc ?? cur.company_inaugural_disc) > basic && basic > 0)
                     throw (0, input_js_1.bad)('The inaugural discount is more than the basic price of the unit');
@@ -856,14 +882,14 @@ router.patch('/:id/edit', async (req, res, next) => {
                 const touched = REB.some(k => bkChanged.includes(k)) || (cur.company_rebate_status === 'approved' && ['basic_rate_inr_sqft', 'carpet_area_sqft', 'company_inaugural_disc'].some(k => bkChanged.includes(k)));
                 const resubmit = b.resubmit_rebate === true && ['legacy', 'rejected'].includes(cur.company_rebate_status);
                 if (touched || resubmit) {
-                    const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
+                    const u = (await (0, rebate_js_1.bookedBasisOf)(c, cur, (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {})).unit; // the booked area, not the unit's current one
                     const basic = (0, rebate_js_1.basicPriceOf)(eff('basic_rate_inr_sqft'), u);
                     const rb = (0, rebate_js_1.checkRebate)(eff('company_rebate_rs'), eff('company_rebate_sqft'), eff('company_rebate_pct'), basic, u, eff('company_inaugural_disc'));
                     const was = cur.company_rebate_status;
                     const next = rb.method === 'none' ? 'none' : 'pending';
                     Object.assign(extra, { company_rebate_status: next, approved_rebate_amount: 0, rebate_requested_by: next === 'pending' ? req.userId : null, rebate_requested_at: next === 'pending' ? new Date() : null, rebate_decided_by: null, rebate_decided_at: null, rebate_decision_reason: null });
                     if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete')
-                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: 0 }, req.userId || null);
+                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, prior_rebate_amount: cur.approved_rebate_amount, approved_rebate_amount: 0 }, req.userId || null);
                     rebateEvent = { was, next, method: rb.method, entered: rb.value, calculated_amount: rb.amount };
                 }
             }
@@ -879,6 +905,7 @@ router.patch('/:id/edit', async (req, res, next) => {
             const consChanged = changed(cons, consCur);
             if (cons.mobile !== undefined || cons.pan_no)
                 await (0, applicant_fields_js_1.lock)(c, `consumer:${consCur.project_id || ''}:${cons.mobile ?? consCur.mobile}`);
+            await (0, applicant_fields_js_1.checkNumbers)(c, consCur.id, cons.registration_no && cons.registration_no !== consCur.registration_no ? cons.registration_no : null, cons.form_no && cons.form_no !== consCur.form_no && cons.form_no !== bk.form_no ? cons.form_no : null); // QA-022: the booking's own form number is checked above
             if (cons.mobile !== undefined || cons.pan_no)
                 await (0, applicant_fields_js_1.checkIdentity)(c, consCur.project_id, consCur.id, cons.mobile && cons.mobile !== consCur.mobile ? cons.mobile : null, cons.pan_no && String(cons.pan_no).toUpperCase() !== String(consCur.pan_no || '').toUpperCase() ? cons.pan_no : null);
             const bkRow = (bkChanged.length || Object.keys(extra).length) ? (await setCols(c, 'booking_records', id, { ...Object.fromEntries(bkChanged.map(k => [k, bk[k]])), ...extra }, '*')).rows[0] : cur;
@@ -1014,8 +1041,7 @@ router.patch('/:id', async (req, res, next) => {
             const projectRowForGst = await client.query('SELECT name FROM projects WHERE id = $1', [booking.project_id]);
             const projectNameForGst = projectRowForGst.rows[0]?.name || booking.project_id;
             const consumerRowForGst = await client.query('SELECT nationality FROM consumers WHERE id = $1', [booking.consumer_id]);
-            const isNriForGst = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
-                .includes(consumerRowForGst.rows[0]?.nationality);
+            const isNriForGst = (0, gst_exempt_js_1.isGstExempt)(consumerRowForGst.rows[0]?.nationality);
             const gstRateForBpt = isNriForGst
                 ? { cgstPct: 0, sgstPct: 0 }
                 : await (0, gst_resolver_js_1.resolveRate)(client, booking.project_id, projectNameForGst, 'BASIC', bookingDateForGst);
@@ -1120,8 +1146,7 @@ router.patch('/:id', async (req, res, next) => {
                         const projectRes = await client.query('SELECT name FROM projects WHERE id = $1', [booking.project_id]);
                         const projectName = projectRes.rows[0]?.name || booking.project_id;
                         const consumerRes = await client.query('SELECT nationality FROM consumers WHERE id = $1', [booking.consumer_id]);
-                        const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO']
-                            .includes(consumerRes.rows[0]?.nationality);
+                        const isNri = (0, gst_exempt_js_1.isGstExempt)(consumerRes.rows[0]?.nationality);
                         // A plan made of percentages is split on the running share, so the instalments add up to the whole price and the whole GST
                         // (rounding each instalment alone drifted by a rupee or more, and the screens then disagreed by that much).
                         const runShares = [];
@@ -1188,6 +1213,11 @@ router.patch('/:id', async (req, res, next) => {
                         const bookingDateStr = booking.booking_date
                             ? safeLocalDate(booking.booking_date)
                             : safeLocalDate((0, business_date_js_1.businessDayStart)());
+                        if (payMethod === 'cash') {
+                            const cl = await (0, cash_limit_js_1.cashLimitCheck)(client, { consumerId: booking.consumer_id, amount: bookingAmt, date: String(bookingDateStr).slice(0, 10) });
+                            if (cl?.block)
+                                throw (0, input_js_1.bad)(cl.block, 422);
+                        } // QA-018 (off until ROF sets a limit; a warning has no place on this step)
                         const receiptNum = await (0, receipt_number_js_1.nextReceiptNumber)(client, '', booking.project_id);
                         const stepGReceiptRes = await client.query(`INSERT INTO receipts
                  (consumer_id, payment_plan_id, installment_index, amount_received_inr,
@@ -1587,7 +1617,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     // areas, not the combined value. Net Basic Price is always true-carpet
     // only; Balcony Charge is shown as its own separate line (see Other
     // Charges table below), not folded into basePrice.
-    const basePrice = (storedRate > 0 && carpetArea > 0)
+    let basePrice = (storedRate > 0 && carpetArea > 0)
         ? Math.round(storedRate * carpetArea)
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
@@ -1596,13 +1626,19 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const balconyCgstAmount = b.balcony_cgst_amount != null ? parseFloat(b.balcony_cgst_amount) : 0;
     const balconySgstAmount = b.balcony_sgst_amount != null ? parseFloat(b.balcony_sgst_amount) : 0;
     const balconyChargeTotal = balconyChargeAmount + balconyCgstAmount + balconySgstAmount;
-    const isGstExempt = ['nri', 'oci', 'pio'].includes((consumer.nationality || '').toLowerCase());
-    const cgstPct = isGstExempt ? 0 : parseFloat(b.cgst_pct || 0);
-    const sgstPct = isGstExempt ? 0 : parseFloat(b.sgst_pct || 0);
+    const gstExemptApplicant = (0, gst_exempt_js_1.isGstExempt)(consumer.nationality);
+    const cgstPct = gstExemptApplicant ? 0 : parseFloat(b.cgst_pct || 0);
+    const sgstPct = gstExemptApplicant ? 0 : parseFloat(b.sgst_pct || 0);
     const interest = parseFloat(b.interest_amount || 0);
     const bookingAmt = parseFloat(b.booking_amount || 0);
     const inauguralDisc = parseFloat(b.company_inaugural_disc || 0);
-    const netBasicPrice = basePrice - inauguralDisc; // the price after the inaugural discount, the same net price the plan, the demands and the Surrender page use (GST stays on the full price, as the demands bill it)
+    // QA-001/005/030/032: a booking with a plan is shown at the price the plan was cut from (plan total = basic + plc + other + balcony - discount - rebate),
+    // so this page, the schedule on page 2 and every report agree even when the unit master was edited or the unit was re-measured after booking.
+    const planTotalInr = parseFloat(b.plan_total_inr || 0);
+    const rebateAmount = parseFloat(b.approved_rebate_amount || 0);
+    if (planTotalInr > 0)
+        basePrice = Math.round(planTotalInr - plcAmount - otherCharge - balconyChargeAmount + inauguralDisc + rebateAmount);
+    const netBasicPrice = basePrice - inauguralDisc - (planTotalInr > 0 ? rebateAmount : 0); // the price after the inaugural discount, the same net price the plan, the demands and the Surrender page use (GST stays on the full price, as the demands bill it)
     const addonTotal = addonCharges.reduce((sum, c) => sum + parseFloat(c.total_amount || 0), 0);
     const agreementValue = netBasicPrice + plcAmount + otherCharge + balconyChargeAmount;
     const totalConsideration = agreementValue + addonTotal;
@@ -1612,11 +1648,11 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const demandCgstSum = activeDemands.reduce((s, d) => s + Number(d.cgst_amount || 0), 0);
     const demandSgstSum = activeDemands.reduce((s, d) => s + Number(d.sgst_amount || 0), 0);
     // QA-001: BASIC and PLC each at their own mapped rate (the schedule's rule); the booking rate only when no mapping resolved
-    const bCg = isGstExempt ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = isGstExempt ? 0 : (headRates ? headRates.basicSgst : sgstPct);
-    const pCg = isGstExempt ? 0 : (headRates ? headRates.plcCgst : cgstPct), pSg = isGstExempt ? 0 : (headRates ? headRates.plcSgst : sgstPct);
+    const bCg = gstExemptApplicant ? 0 : (headRates ? headRates.basicCgst : cgstPct), bSg = gstExemptApplicant ? 0 : (headRates ? headRates.basicSgst : sgstPct);
+    const pCg = gstExemptApplicant ? 0 : (headRates ? headRates.plcCgst : cgstPct), pSg = gstExemptApplicant ? 0 : (headRates ? headRates.plcSgst : sgstPct);
     const rateTxt = (b, p) => (b === p || !(plcAmount > 0)) ? `${b}%` : `Basic ${b}% / PLC ${p}%`;
-    const holisticCgst = isGstExempt ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
-    const holisticSgst = isGstExempt ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
+    const holisticCgst = gstExemptApplicant ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bCg, pCg) + Math.round(otherCharge * otherChargeCgstPct / 100) + balconyCgstAmount;
+    const holisticSgst = gstExemptApplicant ? 0 : (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bSg, pSg) + Math.round(otherCharge * otherChargeSgstPct / 100) + balconySgstAmount;
     // The GST that the schedule actually bills is the figure shown. A difference from the booking rate is never called rounding unless it is within 1 rupee per instalment
     // (it used to be absorbed up to 1,000 rupees under the name "Rounding", which hid a real rate difference).
     const roundingTol = Math.max(1, activeDemands.length);
@@ -1770,7 +1806,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const basicPlusPlcSgst = (0, agreement_reconcile_js_1.headGst)(basePrice, plcAmount, bSg, pSg);
     const otherChargeCgstAmt = Math.round(otherCharge * otherChargeCgstPct / 100);
     const otherChargeSgstAmt = Math.round(otherCharge * otherChargeSgstPct / 100);
-    const taxBreakupBlock = isGstExempt ? '' : `
+    const taxBreakupBlock = gstExemptApplicant ? '' : `
     <tr><td colspan="2" style="${baseFont}font-weight:700;padding:4px 8px 1px;">Tax Breakup:</td></tr>
     ${taxSubHeaderRow(`Basic Price + PLC (Rs. ${fmtIndianNumber(basicPlusPLC)})`)}
     ${taxSubRow(`CGST @ ${rateTxt(bCg, pCg)}`, `<span data-field-key="taxBreakupBasicPlcCgst" data-field-label="Basic+PLC CGST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(basicPlusPlcCgst)}</span>`)}
@@ -1808,7 +1844,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
       ${taxBreakupBlock}
       ${pRow('CGST (Rs.)', `<span data-field-key="cgstAmount" data-field-label="CGST Amount" data-value-type="currency" data-section="pricing" data-cgst-pct="${cgstPct}">${fmtIndianCurrency(cgst)}</span>`)}
       ${pRow('SGST (Rs.)', `<span data-field-key="sgstAmount" data-field-label="SGST Amount" data-value-type="currency" data-section="pricing" data-sgst-pct="${sgstPct}">${fmtIndianCurrency(sgst)}</span>`)}
-      ${isGstExempt ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
+      ${gstExemptApplicant ? `<tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;color:#666;">(GST Exempt — NRI/OCI/PIO)</td></tr>` : ''}
       ${pRow('', fmtIndianCurrency(totalTax))}
       ${pRow('Total Consideration With Tax', `<span data-field-key="totalAmountWithGst" data-field-label="Total with GST" data-value-type="currency" data-section="pricing">${fmtIndianCurrency(totalWithTax)}</span>`, true)}
       <tr><td colspan="2" style="${baseFont}padding:2px 8px;font-style:italic;">In words: (${amtWords(totalWithTax)})</td></tr>
@@ -3469,12 +3505,13 @@ const rebateDecision = (approve) => async (req, res, next) => {
             if (cur.rebate_requested_by && cur.rebate_requested_by === req.userId)
                 throw (0, input_js_1.bad)('You entered this rebate yourself, so someone else has to decide it.', 403);
             const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
-            const rb = (0, rebate_js_1.checkRebate)(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, (0, rebate_js_1.basicPriceOf)(cur.basic_rate_inr_sqft, u), u, cur.company_inaugural_disc);
+            const bb = await (0, rebate_js_1.bookedBasisOf)(c, cur, u); // QA-001/005: measured on the booked price, not on today's unit master
+            const rb = (0, rebate_js_1.checkRebate)(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, bb.basic, bb.unit, cur.company_inaugural_disc);
             if (rb.method === 'none')
                 throw conflict('There is no rebate on this booking.');
             const amount = approve ? rb.amount : 0;
             if (approve)
-                await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: amount }, req.userId || null);
+                await (0, rebate_js_1.repriceBooking)(c, { ...cur, prior_rebate_amount: cur.approved_rebate_amount, approved_rebate_amount: amount }, req.userId || null);
             const row = (await c.query(`UPDATE booking_records SET company_rebate_status = $2, approved_rebate_amount = $3, rebate_decided_by = $4, rebate_decided_at = NOW(), rebate_decision_reason = $5 WHERE id = $1 RETURNING *`, [id, approve ? 'approved' : 'rejected', amount, req.userId, reason])).rows[0];
             return { row, rb, requestedBy: cur.rebate_requested_by };
         });

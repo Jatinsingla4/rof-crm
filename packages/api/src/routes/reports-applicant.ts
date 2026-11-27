@@ -168,7 +168,7 @@ router.get('/applicant-payment-file', h(async (req, res) => {
     return Object.assign(o, {
       dues_amount: t?.amount ?? 0, dues_cgst: t?.cgst ?? 0, dues_sgst: t?.sgst ?? 0, dues_total: t?.demanded ?? 0,
       received_amount: p?.received ?? 0, interest_received: p?.received_interest ?? 0,
-      outstanding_amount: t?.outstanding ?? 0, outstanding_net: t?.os_amount ?? 0, outstanding_cgst: t?.os_cgst ?? 0, outstanding_sgst: t?.os_sgst ?? 0, credit_amount: t?.credit ?? 0,
+      outstanding_amount: t?.outstanding ?? 0, outstanding_net: t?.os_amount ?? 0, outstanding_cgst: t?.os_cgst ?? 0, outstanding_sgst: t?.os_sgst ?? 0, credit_amount: t?.credit ?? 0, credit_advance_on_unraised: t?.advanceOnUnraised ?? 0, credit_surplus: t?.surplusCredit ?? 0,
       received_cgst: p?.received_cgst ?? 0, received_sgst: p?.received_sgst ?? 0,
       received_pct: p ? pct(principalOf(p.received, p.received_cgst, p.received_sgst, p.received_interest), p.unit_cost) : 0,
       interest_charged: it?.charged ?? 0, interest_waived: it?.waived ?? 0, interest_outstanding: it?.outstanding ?? 0,
@@ -193,7 +193,7 @@ router.get('/summary-report', h(async (req, res) => {
              ${baseCostSql('b', 'u')}
              - COALESCE(b.dealer_adjustment_amount, 0) - COALESCE(b.company_inaugural_disc, 0) - COALESCE(b.approved_rebate_amount, 0) ELSE 0 END), 0) AS sold_value
       FROM projects pr JOIN companies comp ON comp.id = pr.company_id JOIN units u ON u.project_id = pr.id
-      LEFT JOIN LATERAL (SELECT bb.basic_rate_inr_sqft, bb.balcony_charge_amount, bb.dealer_adjustment_amount, bb.company_inaugural_disc, bb.approved_rebate_amount FROM booking_records bb
+      LEFT JOIN LATERAL (SELECT bb.consumer_id, bb.unit_id, bb.plc_amount, bb.other_charge_amount, bb.basic_rate_inr_sqft, bb.balcony_charge_amount, bb.dealer_adjustment_amount, bb.company_inaugural_disc, bb.approved_rebate_amount FROM booking_records bb
                           WHERE bb.unit_id = u.id AND bb.status != 'cancelled' ORDER BY bb.created_at DESC LIMIT 1) b ON TRUE
      WHERE ($1::uuid IS NULL OR comp.id = $1::uuid)
      GROUP BY comp.id, comp.name, pr.id, pr.name ORDER BY comp.name, pr.name`, [cid])).rows;

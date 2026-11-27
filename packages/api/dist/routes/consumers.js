@@ -26,6 +26,8 @@ const penal_rate_js_1 = require("../utils/penal-rate.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const printDownload_js_1 = require("../middleware/printDownload.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const gst_exempt_js_1 = require("../utils/gst-exempt.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 // ---------- photo uploads: kept in the database; the image type is read from the file itself ----------
 const MAGIC = [['image/jpeg', [0xff, 0xd8, 0xff]], ['image/png', [0x89, 0x50, 0x4e, 0x47]], ['image/gif', [0x47, 0x49, 0x46, 0x38]]];
 const sniff = (b) => MAGIC.find(([, sig]) => sig.every((x, i) => b[i] === x))?.[0] ?? null;
@@ -323,6 +325,7 @@ router.get('/:id', async (req, res, next) => {
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
               COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
+              (SELECT ${(0, money_basis_js_1.bookedBasicSql)('bb')} FROM booking_records bb WHERE bb.consumer_id = c.id AND COALESCE(bb.status,'') <> 'cancelled' ORDER BY bb.created_at DESC LIMIT 1) AS booked_basic_inr,
               p.name as project_name,
               (EXISTS (SELECT 1 FROM booking_records bx WHERE bx.consumer_id = c.id) AND NOT EXISTS (SELECT 1 FROM booking_records by2 WHERE by2.consumer_id = c.id AND by2.status <> 'cancelled')) AS booking_cancelled
        FROM consumers c
@@ -342,7 +345,7 @@ router.get('/:id', async (req, res, next) => {
         res.json({
             success: true,
             data: {
-                ...result.rows[0],
+                ...(0, people_mask_js_1.maskPeople)(result.rows[0], req.userRole, await (0, people_mask_js_1.peopleFullRoles)(index_js_1.db)), // QA-027: unchanged until ROF sets people_id_full_roles
                 kycDocuments: kycResult.rows,
                 paymentSummary: paymentResult.rows[0],
             },
@@ -358,6 +361,7 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
     try {
         const id = req.params.id;
         const b = (0, input_js_1.body)(req);
+        (0, people_mask_js_1.dropMaskedIds)(b); // QA-027: a masked number shown to this role is never written back
         const errs = {};
         const f = (0, applicant_fields_js_1.cleanFields)(b, undefined, errs);
         const upd = {};
@@ -432,12 +436,13 @@ router.patch('/:id', (0, processPermission_js_1.requireProcess)('edit_applicant'
             }
             if (upd.mobile !== undefined || upd.pan_no)
                 await (0, applicant_fields_js_1.checkIdentity)(c, cur.project_id, id, upd.mobile && upd.mobile !== cur.mobile ? upd.mobile : null, upd.pan_no && String(upd.pan_no).toUpperCase() !== String(cur.pan_no || '').toUpperCase() ? upd.pan_no : null);
+            await (0, applicant_fields_js_1.checkNumbers)(c, id, upd.registration_no && upd.registration_no !== cur.registration_no ? upd.registration_no : null, upd.form_no && upd.form_no !== cur.form_no ? upd.form_no : null); // QA-022
             if (upd.dob !== undefined && cur.applicant_type === 'company')
                 delete upd.dob;
             if (upd.lead_stage && upd.lead_stage !== cur.lead_stage) {
                 if (STAGE_NEEDS_UNIT.includes(upd.lead_stage) && !cur.allocated_unit_id)
                     throw (0, applicant_fields_js_1.conflict)(`An applicant can be moved to "${upd.lead_stage}" only after a unit is allotted.`);
-                if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('active','complete') LIMIT 1`, [id])).rows.length) {
+                if (STAGE_NEEDS_PROCESS.includes(upd.lead_stage) && (await c.query(`SELECT 1 FROM booking_records WHERE consumer_id = $1 AND COALESCE(status,'') IN ('pending_payment','active','complete') LIMIT 1`, [id])).rows.length) { // QA-019: a booking waiting for payment is live too
                     throw (0, applicant_fields_js_1.conflict)(`This applicant has a live booking. Use the ${upd.lead_stage === 'cancelled' ? 'Surrender / Cancellation' : 'Transfer'} process instead of changing the stage here.`);
                 }
             }
@@ -635,7 +640,8 @@ router.get('/:id/multi-applicants', async (req, res, next) => {
        FROM co_applicants
        WHERE consumer_id = $1 AND applicant_number > 2
        ORDER BY applicant_number`, [req.params.id]);
-        res.json({ success: true, data: result.rows });
+        const full = await (0, people_mask_js_1.peopleFullRoles)(index_js_1.db); // QA-027
+        res.json({ success: true, data: result.rows.map((r) => (0, people_mask_js_1.maskPeople)(r, req.userRole, full)) });
     }
     catch (error) {
         next(error);
@@ -701,6 +707,8 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
           -- the deal was priced on the booking's own area: a unit shift must not change it
           COALESCE(NULLIF(br.carpet_area_sqft, 0), u.carpet_area_sqft) AS carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
           u.base_price_inr, u.total_price_inr, u.facing,
+          -- QA-001/005/030/032: the price the booking was sold at is its plan total, not rate x the current unit area
+          (SELECT pp.total_amount_inr FROM payment_plans pp WHERE pp.consumer_id = br.consumer_id AND pp.unit_id = br.unit_id ORDER BY pp.created_at DESC LIMIT 1) AS plan_total_inr,
           t.tower_name,
           p.name AS project_name, p.location AS project_location,
           p.rera_number,
@@ -883,7 +891,7 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
         // the fallback backward-derive above computes a rate regardless of
         // nationality, so zero it out here for NRI (mirrors the existing
         // isNri gate used elsewhere for demand-linked amounts).
-        if (['nri', 'oci', 'pio'].includes((row.nationality || '').toLowerCase())) {
+        if ((0, gst_exempt_js_1.isGstExempt)(row.nationality)) {
             receiptsRes.rows.forEach((rr) => {
                 rr.cgst_amount = 0;
                 rr.sgst_amount = 0;

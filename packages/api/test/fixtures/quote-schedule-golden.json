@@ -1628,7 +1628,7 @@
       ]
     }
   },
-  "OCI consumer (save and file zero GST, manual path taxes)": {
+  "OCI consumer (every path zero GST: the manual generator used to tax it, now NRI, OCI and PIO are one rule)": {
     "input": {
       "templates": [
         {
@@ -1665,7 +1665,7 @@
       "other": 0,
       "balconyCharge": 60000,
       "isNri": true,
-      "manualNri": false,
+      "manualNri": true,
       "rates": {
         "BASIC": {
           "cgstPct": 0.5,
@@ -1739,43 +1739,43 @@
       "manual": [
         {
           "amountDue": 273000,
-          "cgst": 1365,
-          "sgst": 1365
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 1092000,
-          "cgst": 5460,
-          "sgst": 5460
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 682500,
-          "cgst": 3413,
-          "sgst": 3413
+          "cgst": 0,
+          "sgst": 0
         },
         {
           "amountDue": 0,

@@ -15,6 +15,7 @@ import applicantRoutes from './reports-applicant.js';
 import { baseCostSql } from '../utils/report-ledger.js';
 import { sqlDay } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
+import { maskPeople, peopleFullRoles } from '../utils/people-mask.js';
 
 const router = Router();
 
@@ -642,7 +643,7 @@ router.get('/tower-floor-sales', async (req: AuthRequest, res: Response, next: N
 
     const brJoin = `
       LEFT JOIN LATERAL (
-        SELECT b.consumer_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
+        SELECT b.consumer_id, b.unit_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
                b.company_inaugural_disc, b.approved_rebate_amount, b.plc_amount, b.other_charge_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status IN ('complete','pending_payment','active')
@@ -1097,7 +1098,8 @@ router.get('/all-applicants', async (req: AuthRequest, res: Response, next: Next
     `;
 
     const result = await db.query(query, whereParams);
-    res.json({ success: true, data: result.rows });
+    const full = await peopleFullRoles(db);   // QA-027: unchanged until ROF sets people_id_full_roles
+    res.json({ success: true, data: result.rows.map((r: any) => ({ ...maskPeople(r, req.userRole, full), applicants: Array.isArray(r.applicants) ? r.applicants.map((a: any) => maskPeople(a, req.userRole, full)) : r.applicants })) });
   } catch (err) { next(err); }
 });
 
@@ -1325,7 +1327,7 @@ router.get('/stock-report', async (req: AuthRequest, res: Response, next: NextFu
       JOIN companies c ON c.id = pr.company_id
       JOIN units u ON u.project_id = pr.id
       LEFT JOIN LATERAL (
-        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
+        SELECT b.consumer_id, b.unit_id, b.plc_amount, b.other_charge_amount, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status != 'cancelled'
         ORDER BY b.created_at DESC

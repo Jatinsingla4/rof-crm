@@ -95,7 +95,7 @@ const m1 = await mk2('M-1'), m2 = await mk2('M-2');
 const buyer = psql(`INSERT INTO consumers (name, mobile) VALUES ('Two Units ${U}', '9${String(Date.now() + 77).slice(-9)}') RETURNING id`);
 const plan = (unit) => { const al = psql(`INSERT INTO allocations (consumer_id, unit_id, project_id, status) VALUES ('${buyer}','${unit}','${PA}','allotted') RETURNING id`); return psql(`INSERT INTO payment_plans (allocation_id, consumer_id, unit_id, project_id, total_amount_inr) VALUES ('${al}','${buyer}','${unit}','${PA}',5200000) RETURNING id`); };
 const pp1 = plan(m1), pp2 = plan(m2);
-const rcp = (pp, amt, st = 'cleared') => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) VALUES ('${buyer}',${pp ? `'${pp}'` : 'NULL'},${pp ? 1 : 'NULL'},${amt},'cash','${st}', CURRENT_DATE) RETURNING id`);
+const rcp = (pp, amt, st = 'cleared') => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, approval_status, received_date) VALUES ('${buyer}',${pp ? `'${pp}'` : 'NULL'},${pp ? 1 : 'NULL'},${amt},'cash','${st}', (CASE WHEN '${st}'='cleared' THEN 'approved' ELSE 'pending' END), CURRENT_DATE) RETURNING id`);
 rcp(pp1, 1000); rcp(pp2, 200); rcp(pp1, 50000, 'bounced'); rcp(pp1, 70000, 'cancelled');
 const recv = async () => Number((await A('GET', `/units/tower/${PA}`)).j.towers[0].received_amount);
 t('tower summary: a customer with two units - receipts are counted per unit, bounced and cancelled are left out (1000 + 200)', await recv() === 1200, await recv());
@@ -103,7 +103,7 @@ rcp(null, 5000); t('tower summary: a receipt with no plan is NOT counted when th
 r = await A('GET', `/units/tower/${PA}`); t('tower summary: both units are counted once', Number(r.j.towers[0].total_units) === 2 && r.j.totals.total_units === 2, JSON.stringify(r.j.totals));
 const solo = psql(`INSERT INTO consumers (name, mobile) VALUES ('One Unit ${U}', '9${String(Date.now() + 99).slice(-9)}') RETURNING id`);
 const m3 = await mk2('M-3'); const al3 = psql(`INSERT INTO allocations (consumer_id, unit_id, project_id, status) VALUES ('${solo}','${m3}','${PA}','allotted') RETURNING id`);
-psql(`INSERT INTO receipts (consumer_id, amount_received_inr, payment_method, status, received_date) VALUES ('${solo}',7000,'cash','cleared', CURRENT_DATE) RETURNING id`);
+psql(`INSERT INTO receipts (consumer_id, amount_received_inr, payment_method, status, approval_status, received_date) VALUES ('${solo}',7000,'cash','cleared','approved', CURRENT_DATE) RETURNING id`);
 t('tower summary: a plan-less receipt of a one-unit customer is counted', await recv() === 8200, await recv());
 
 // ---------- bulk import ----------

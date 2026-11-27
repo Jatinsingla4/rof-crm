@@ -329,6 +329,7 @@ const TRANSFER_DETAIL_QUERY = `
     u.bhk_type,
     u.super_area_sqft,
     u.base_price_inr,
+    (SELECT bkr.basic_rate_inr_sqft FROM booking_records bkr WHERE bkr.unit_id = u.id AND bkr.status <> 'cancelled' ORDER BY bkr.created_at DESC LIMIT 1) AS booked_rate_sqft,
     p.id as project_id,
     p.name as project_name,
     p.location as project_location,
@@ -496,7 +497,7 @@ router.get('/:id/letter', requirePrint, async (req: AuthRequest, res: Response, 
     <td class="lbl">Sale Amount:</td>
     <td>${t.transfer_amount_inr ? fmtIndianMoneyDecimal(Number(t.transfer_amount_inr)) : ''}</td>
     <td class="lbl">Rate Per Sq.Ft.:</td>
-    <td>${t.base_price_inr ? fmtIndianMoneyDecimal(Number(t.base_price_inr)) + '/-' : ''}</td>
+    <td>${Number(t.booked_rate_sqft) > 0 ? fmtIndianMoneyDecimal(Number(t.booked_rate_sqft)) + '/-' : ''}</td>   <!-- the booking's rate per sq. ft. (it used to print the unit's whole basic price under this label) -->
   </tr>
   <tr>
     <td class="lbl">Booking Date:</td>

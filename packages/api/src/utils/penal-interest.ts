@@ -13,10 +13,12 @@ export const persistInterest = async (c: any, consumerId: string, planId: string
   const ids: Record<number, string> = {};
   for (const row of rows) {
     const amount = Math.round(row.interest_amount);
+    // QA-007: a part-paid instalment has several interest rows; its waiver is shared out across them once, never applied in full to each row
+    const left = waived.get(row.installment_index) || 0, take = Math.min(amount, left); waived.set(row.installment_index, left - take);
     const r = await c.query(
       `INSERT INTO penal_interests (payment_plan_id, installment_index, consumer_id, principal_inr, days_overdue, rate_percent, amount_inr, interest_waived_inr, calculated_at, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW(),'calculated') RETURNING id`,
-      [planId, row.installment_index, consumerId, Math.round(row.delay_amount), row.delay_days, row.roi, amount, Math.min(amount, waived.get(row.installment_index) || 0)]
+      [planId, row.installment_index, consumerId, Math.round(row.delay_amount), row.delay_days, row.roi, amount, take]
     );
     ids[row.installment_index] = r.rows[0].id;
   }

@@ -4,18 +4,9 @@ exports.likeOf = exports.INCOME_CATS = exports.LEAD_STAGES = exports.titleCase =
 // Input rules for applicants (consumers, co-applicants, additional applicants). Each helper returns a clean value (null when blank) or throws a 400 with a message for the user.
 const input_js_1 = require("./input.js");
 const business_date_js_1 = require("./business-date.js");
-const gstinOk = (g) => {
-    const A = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    if (!/^(0[1-9]|[1-2][0-9]|3[0-8]|97|99)[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(g))
-        return false;
-    let sum = 0;
-    for (let i = 0; i < 14; i++) {
-        const p = A.indexOf(g[i]) * (i % 2 ? 2 : 1);
-        sum += Math.floor(p / 36) + (p % 36);
-    }
-    return A[(36 - (sum % 36)) % 36] === g[14];
-};
-exports.gstinOk = gstinOk;
+var gstin_js_1 = require("./gstin.js");
+Object.defineProperty(exports, "gstinOk", { enumerable: true, get: function () { return gstin_js_1.gstinOk; } });
+const gstin_js_2 = require("./gstin.js");
 // 10-digit Indian mobile (+91 / 91 / spaces / dashes are dropped) or an international number written with +
 const mobileNo = (v, label = 'Mobile number', required = false) => {
     if (!(0, input_js_1.has)(v)) {
@@ -73,7 +64,7 @@ const gstinNo = (v, label = 'GSTIN') => {
     if (t === null)
         return null;
     const g = t.toUpperCase().replace(/\s/g, '');
-    if (!(0, exports.gstinOk)(g))
+    if (!(0, gstin_js_2.gstinOk)(g))
         throw (0, input_js_1.bad)(`${label} is not a valid GSTIN`);
     return g;
 };

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { saveSchedule, manualSchedule, fileSchedule } from '../src/utils/quote.ts';
 import { resolveGstForComponents, splitGstAcrossInstalments } from '../src/utils/gst-resolver.ts';
+import { isGstExempt } from '../src/utils/gst-exempt.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const BOOKING = fs.readFileSync(path.resolve(here, '../src/routes/booking.ts'), 'utf8');
@@ -46,10 +47,10 @@ async function legacy(s) {
     templates, { project_id: 'p', plc_amount: s.plc, other_charge_amount: s.other }, db, 'p', '2026-01-01', s.isNri, s.basicCost, s.balconyCharge, s.totalAmount, splitGstAcrossInstalments, resolveGstForComponents, saveRows);
   // manual generator
   const manualRows = [];
-  await new AsyncFn('plan', 'templates', 'c', 'projectName', 'businessToday', 'resolveGstForComponents', 'manualRows',
+  await new AsyncFn('plan', 'templates', 'c', 'projectName', 'businessToday', 'resolveGstForComponents', 'isGstExempt', 'manualRows',
     js(`${MANUAL_SRC}\n manualRows.push({ amountDue: Math.round(total * pct), cgst: cgstAmount, sgst: sgstAmount }); }`).replace(/^/, ''))(
     { total_amount_inr: s.totalAmount, plc_amount: s.plc, other_charge_amount: s.other, balcony_charge_amount: s.balconyCharge, booking_date: '2026-01-01', nationality: s.manualNri ? 'NRI' : 'Indian', project_id: 'p', payment_plan_id: 'pp' },
-    templates, db, 'p', () => '2026-01-01', resolveGstForComponents, manualRows);
+    templates, db, 'p', () => '2026-01-01', resolveGstForComponents, isGstExempt, manualRows);
   // applicant file page 2 rows
   const demandAmountMap = {};
   for (const [k, v] of Object.entries(s.demandRows || {})) demandAmountMap[k] = { amt: v.amt, cgst: v.cgst, sgst: v.sgst, addon: v.addon || 0, addonCgst: v.addonCgst || 0, addonSgst: v.addonSgst || 0 };
@@ -70,7 +71,7 @@ const SCENARIOS = {
   'plan adds to 95%, so no running-share split': await withDemands({ ...base, templates: PLAN9.map((t, i) => (i === 1 ? { percentage: 15 } : t)) }),
   'flat amount instalment present': { ...base, templates: [{ percentage: 0, flat_amount_inr: 100000 }, ...PLAN9.slice(1)] },
   'PLC and other charge present': await withDemands({ ...base, plc: 250000, other: 120000, totalAmount: 5830000 }),
-  'OCI consumer (save and file zero GST, manual path taxes)': { ...base, isNri: true, manualNri: false },
+  'OCI consumer (every path zero GST: the manual generator used to tax it, now NRI, OCI and PIO are one rule)': { ...base, isNri: true, manualNri: true },
   'NRI consumer (all paths zero GST)': { ...base, isNri: true, manualNri: true },
 };
 const current = {};

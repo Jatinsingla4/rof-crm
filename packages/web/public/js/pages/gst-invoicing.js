@@ -774,7 +774,7 @@ const GSTPage = {
     el.innerHTML = '<div class="page-loading"><div class="spinner"></div> Loading…</div>';
 
     try {
-      const params = { page: 1, pageSize: 300 };
+      const params = { page: 1, pageSize: 1000 };   // the server's largest page; a longer list shows a notice below instead of silently dropping rows
       const projId = document.getElementById('pi-proj')?.value;
       const from   = document.getElementById('pi-from')?.value;
       const to     = document.getElementById('pi-to')?.value;
@@ -787,12 +787,14 @@ const GSTPage = {
       const list = (res.data || res || []).filter(r => !r.invoice_number && !['cancelled', 'bounced'].includes(r.status));
 
       const totalAmt = list.reduce((s,r) => s + parseFloat(r.amount_received_inr||0), 0);
-      const estGst   = Math.round(totalAmt * 0.05);
+      // the GST these receipts already carry, as stored on each receipt (QA-031): never a flat 5% estimate, which is wrong for 1% affordable housing and for GST-inclusive amounts
+      const estGst   = list.reduce((s,r) => s + parseFloat(r.cgst_amount||0) + parseFloat(r.sgst_amount||0), 0);
+      const capped   = (res.data || res || []).length >= 1000;
 
       if (kpiEl) kpiEl.innerHTML = `
         <div class="kpi c-warn"><div class="kpi-lbl">Pending Receipts</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">No invoice raised</div></div>
         <div class="kpi c-red"><div class="kpi-lbl">Taxable Amount</div><div class="kpi-val">${Utils.currency(totalAmt)}</div><div class="kpi-sub">Pending</div></div>
-        <div class="kpi c-accent"><div class="kpi-lbl">Est. GST Liability (5%)</div><div class="kpi-val">${Utils.currency(estGst)}</div><div class="kpi-sub">CGST+SGST</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">GST in these receipts</div><div class="kpi-val">${Utils.currency(estGst)}</div><div class="kpi-sub">CGST+SGST as stored on the receipts${capped ? " (first 1000 receipts only, narrow the dates)" : ""}</div></div>
       `;
 
       el.innerHTML = list.length === 0
@@ -835,26 +837,27 @@ const GSTPage = {
     try {
       const month   = document.getElementById('gst-rpt-month')?.value;
       const projId  = document.getElementById('gst-rpt-project')?.value;
-      const params  = { pageSize: 500 };
+      const params  = { pageSize: 1000 };
       if (month) { const [y, m] = month.split('-').map(Number); params.from = `${month}-01`; params.to = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`; }
       if (projId) params.projectId = projId;
 
       const res  = await Api.get('/payments/gst-invoices', { params });
       const list = res.data || res || [];
+      // QA-031: the totals come from the server (the same figures as the GSTR-3B export, every invoice of the period, credit and debit notes netted), not from adding up the rows on screen
+      const sp = {}; if (params.from) sp.from = params.from; if (params.to) sp.to = params.to; if (projId) sp.projectId = projId;
+      const sm = (await Api.get('/payments/gst-invoices-summary', { params: sp })).data;
 
       const live = list.filter(i => i.status !== 'cancelled'); // a cancelled invoice is not reported
-      const totalBase = live.reduce((s,i) => s + parseFloat(i.base_amount||i.amount||0), 0);
-      const totalGst  = live.reduce((s,i) => s + parseFloat(i.gst_amount||0), 0);
-      const cgst      = live.reduce((s,i) => s + parseFloat(i.cgst_amount||i.cgstAmount||0), 0) || totalGst/2;
-      const sgst      = live.reduce((s,i) => s + parseFloat(i.sgst_amount||i.sgstAmount||0), 0) || totalGst/2;
-      const igst      = live.reduce((s,i) => s + parseFloat(i.igst_amount||i.igstAmount||0), 0);
+      const totalBase = sm.taxable, cgst = sm.cgst, sgst = sm.sgst, igst = sm.igst, totalGst = cgst + sgst + igst;
+      const shownAll  = list.length >= sm.invoices_live + sm.invoices_cancelled;
 
       if (kpiEl) kpiEl.innerHTML = `
-        <div class="kpi c-accent"><div class="kpi-lbl">Invoices (live)</div><div class="kpi-val">${live.length}</div><div class="kpi-sub">${list.length - live.length} cancelled, selected period</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Invoices (live)</div><div class="kpi-val">${sm.invoices_live}</div><div class="kpi-sub">${sm.invoices_cancelled} cancelled, selected period</div></div>
         <div class="kpi c-teal"><div class="kpi-lbl">Taxable Value</div><div class="kpi-val">${Utils.currency(totalBase)}</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">CGST</div><div class="kpi-val">${Utils.currency(cgst)}</div></div>
         <div class="kpi c-green"><div class="kpi-lbl">SGST</div><div class="kpi-val">${Utils.currency(sgst)}</div></div>
         <div class="kpi c-purple"><div class="kpi-lbl">IGST</div><div class="kpi-val">${Utils.currency(igst)}</div></div>
+        <div class="kpi c-warn"><div class="kpi-lbl">Credit / debit notes (net)</div><div class="kpi-val">${Utils.currency(sm.notes_tax_net)}</div><div class="kpi-sub">tax, ${sm.notes_issued} issued note(s), taxable ${Utils.currency(sm.notes_taxable_net)}; not in the rows below</div></div>
       `;
 
       const totalTax = totalGst;
@@ -893,7 +896,7 @@ const GSTPage = {
                 <td><strong>${Utils.currency(sgst)}</strong></td>
                 <td><strong>${Utils.currency(igst)}</strong></td>
                 <td><strong>${Utils.currency(totalBase+totalTax)}</strong></td>
-                <td colspan="2">${list.length} invoices</td>
+                <td colspan="2">${list.length} listed${shownAll ? '' : ' of ' + (sm.invoices_live + sm.invoices_cancelled) + ' (totals above cover all)'}</td>
               </tr>
             </tfoot>
           </table>`;

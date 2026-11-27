@@ -12,6 +12,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
  *  - POST /credit-allocation-reversals/:id/approve | /reject (checker)
  * Same lock order as every money path: the consumer lock first (also taken when a receipt is recorded), then the rows, then the status recompute.
  */
+const booking_state_js_1 = require("../utils/booking-state.js");
 const express_1 = require("express");
 const index_js_1 = require("../index.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
@@ -104,6 +105,8 @@ router.post('/credit-allocations', (0, processPermission_js_1.requireProcess)('c
                     throw (0, input_js_1.bad)('This idempotency key was already used for a different request', 409);
                 return { row: dup, replay: true };
             }
+            if (await (0, booking_state_js_1.planIsCancelled)(c, d0.payment_plan_id))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409); // QA-012/044
             await checkDemand(c, demandId, d0.payment_plan_id, amount);
             const sum = await (0, money_basis_js_1.creditSummary)(c, d0.payment_plan_id);
             if (amount > sum.credit + 0.005)
@@ -139,6 +142,8 @@ const decide = (verb) => async (req, res, next) => {
                 await (0, auditLogger_js_1.auditChange)(c, req, res, 'update', 'credit_allocation', id, { status: 'pending' }, { status: 'rejected', reason });
                 return up.rows[0];
             }
+            if (await (0, booking_state_js_1.planIsCancelled)(c, a.payment_plan_id))
+                throw (0, input_js_1.bad)(booking_state_js_1.CANCELLED_MSG, 409); // QA-012/044: approving would move money on a cancelled booking; rejecting it stays possible
             await checkDemand(c, a.demand_id, a.payment_plan_id, Number(a.amount));
             const sum = await (0, money_basis_js_1.creditSummary)(c, a.payment_plan_id);
             if (Number(a.amount) > sum.credit + 0.005)

@@ -72,6 +72,8 @@ router.post('/', applyUnitStatusFilter, async (req: AuthRequest, res: Response, 
         if (alloc.rowCount === 0) throw bad('No matching booked allocation found for this consumer and unit', 409);
       } else {
         if ((await c.query(`SELECT 1 FROM allocations WHERE unit_id = $1 AND status NOT IN ('cancelled', 'transferred') LIMIT 1`, [unitId])).rows.length) throw bad('This unit already has an active allocation', 409);
+        // QA-017/019: a booking waiting for its payment leaves the unit 'available'; allotting it to someone else would be overwritten when that booking is confirmed
+        if ((await c.query(`SELECT 1 FROM booking_records WHERE unit_id = $1 AND status IN ('pending_payment','active','complete') AND consumer_id <> $2 LIMIT 1`, [unitId, consumerId])).rows.length) throw bad('This unit has a live booking by another applicant, so it cannot be allotted to this one', 409);
         alloc = await c.query(
           `INSERT INTO allocations (consumer_id, unit_id, project_id, created_by_user_id, allotment_date, remarks) VALUES ($1, $2, $3, $4, COALESCE($5::date, ${SQL_TODAY}), $6)
            RETURNING id, allocated_date, allotment_date, remarks`, [consumerId, unitId, projectId, req.userId, date, remarks]

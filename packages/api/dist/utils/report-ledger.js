@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.split = exports.principalOf = exports.contains = exports.monthLabel = exports.MON = exports.pct = exports.bucketOf = exports.BUCKETS_B = exports.BUCKETS_A = exports.overdueOf = exports.daysBetween = exports.customerTotals = exports.sum = exports.dueOf = exports.baseCostSql = exports.RAISED = exports.LIVE = exports.r2 = void 0;
+exports.split = exports.principalOf = exports.contains = exports.monthLabel = exports.MON = exports.pct = exports.bucketOf = exports.BUCKETS_B = exports.BUCKETS_A = exports.overdueOf = exports.daysBetween = exports.customerTotals = exports.sum = exports.dueOf = exports.baseCostSql = exports.isRaised = exports.RAISED = exports.LIVE = exports.r2 = void 0;
 exports.loadLedger = loadLedger;
 exports.loadInterestCtx = loadInterestCtx;
+exports.liveInterestByInstalment = liveInterestByInstalment;
 exports.interestOf = interestOf;
 // One source of truth for what an applicant owes and has paid, for every dues / ageing / balance report.
 // Rules (documented in docs/reports/README.md):
@@ -23,10 +24,21 @@ exports.r2 = r2;
 const num = (v) => (v === null || v === undefined || v === '' ? 0 : Number(v));
 exports.LIVE = `('complete','pending_payment','active')`;
 exports.RAISED = new Set(['demanded', 'raised', 'paid']);
-// Basic price of a booking, the same rule Booking uses when it confirms the payment: rate x carpet area (plus the balcony charge it stored);
-// a booking with no rate (made through the API or imported) is priced at the unit's base price. b = booking alias, u = unit alias.
-// Owner decision (TA-06): money is in whole rupees (plan, demands, receipts), so the price is rounded to the rupee here exactly as Booking rounds it when it makes the plan.
+// QA-008/014/033: ONE rule for "this instalment has been raised", the same as the status rules (money-basis deriveDemandStatus): raised_at is set, or its due date has been reached.
+// Payment status must not decide it. A paid status used to count as raised, so an instalment fully covered by an advance (a booking amount on an unraised instalment) jumped into the
+// raised demands, while the same instalment part covered did not: the credit then changed with the amount paid. 'demanded' / 'raised' are raised by definition.
+const isRaised = (status, raisedFlag, dueDate, today) => status === 'demanded' || status === 'raised' || ((status === 'paid' || status === 'partial') && (raisedFlag || (!!dueDate && dueDate <= today)));
+exports.isRaised = isRaised;
+// Basic price of a booking (with the balcony charge it stored), one definition for every report and the Applicant File. b = booking alias, u = unit alias.
+// QA-001/005/030/032: the price a booking was SOLD at is what its payment plan was cut from, so it is read back from payment_plans.total_amount_inr
+//   (plan total = basic + plc + other + balcony - inaugural discount - approved rebate, the same sum Booking confirms with), never recomputed from the CURRENT unit master.
+//   A unit edited, re-measured or shifted after booking therefore cannot move a historical booking's price.
+// Only a booking with no plan yet falls back to the old rule: rate x unit carpet (plus the stored balcony charge), else the unit's base price.
+// Owner decision (TA-06): money is in whole rupees, so the price is rounded to the rupee exactly as Booking rounds it when it makes the plan.
+const PLAN_TOTAL = (b) => `(SELECT pp.total_amount_inr FROM payment_plans pp WHERE pp.consumer_id = ${b}.consumer_id AND pp.unit_id = ${b}.unit_id ORDER BY pp.created_at DESC LIMIT 1)`;
 const baseCostSql = (b, u) => `ROUND((CASE
+    WHEN COALESCE(${PLAN_TOTAL(b)}, 0) > 0 THEN
+      ${PLAN_TOTAL(b)} - COALESCE(${b}.plc_amount,0) - COALESCE(${b}.other_charge_amount,0) + COALESCE(${b}.company_inaugural_disc,0) + COALESCE(${b}.approved_rebate_amount,0)
     WHEN COALESCE(${b}.basic_rate_inr_sqft,0) > 0 AND COALESCE(${u}.carpet_area_sqft,0) > 0 THEN
       CASE WHEN ${b}.balcony_charge_amount IS NOT NULL
         THEN ${b}.basic_rate_inr_sqft * ${u}.carpet_area_sqft + COALESCE(${b}.balcony_charge_amount,0)
@@ -138,7 +150,7 @@ async function loadLedger(f = {}) {
                 const base = num(d.amount_due_inr), cgst = (0, exports.r2)(num(d.cgst_amount) + num(d.addon_cgst_amount)), sgst = (0, exports.r2)(num(d.sgst_amount) + num(d.addon_sgst_amount));
                 const addon = num(d.addon_charge_amount);
                 const total = (0, exports.r2)(base + cgst + sgst + addon), paid = (0, exports.r2)(Math.min(total, (wf.get(String(d.id)) || 0) + (alByDemand.get(String(d.id)) || 0)));
-                return { id: d.id, index: d.installment_index, type: d.demand_type, status: d.status, raised: exports.RAISED.has(d.status) || (d.status === 'partial' && !!d.raised_flag), due_date: d.due_date,
+                return { id: d.id, index: d.installment_index, type: d.demand_type, status: d.status, raised: (0, exports.isRaised)(d.status, !!d.raised_flag, d.due_date, p.today), due_date: d.due_date,
                     base, cgst, sgst, addon, total, paid, balance: (0, exports.r2)(Math.max(0, total - paid)) };
             }),
             received: (0, exports.r2)(cash.reduce((s, r) => s + num(r.amount_received_inr), 0)),
@@ -168,6 +180,12 @@ const customerTotals = (p, upTo) => {
         demanded, base: (0, exports.sum)(due, (d) => d.base + d.addon), cgst: (0, exports.sum)(due, (d) => d.cgst), sgst: (0, exports.sum)(due, (d) => d.sgst), gst: (0, exports.sum)(due, (d) => d.cgst + d.sgst),
         paid, outstanding: (0, exports.r2)(Math.max(0, demanded - paid)), undue, paidAll,
         credit: (0, exports.r2)(Math.max(0, p.received - (0, exports.sum)(p.demands.filter((d) => d.raised), (d) => d.paid))),
+        // The credit is made of two different things, shown apart so no screen adds one to the other (QA-008/014/037, the Zf Tester Rs 777):
+        //  advanceOnUnraised: money that already paid instalments which have not been raised yet (a booking amount on the first instalment). It is settled, not spare cash.
+        //  surplusCredit: money that has settled no instalment: the excess of a receipt over the instalment it names, or money naming none. Only this part is free credit a checker can allocate or refund.
+        // credit = advanceOnUnraised + surplusCredit, always.
+        advanceOnUnraised: (0, exports.r2)(Math.min((0, exports.sum)(p.demands.filter((d) => !d.raised), (d) => d.paid), Math.max(0, p.received - (0, exports.sum)(p.demands.filter((d) => d.raised), (d) => d.paid)))),
+        surplusCredit: (0, exports.r2)(Math.max(0, Math.max(0, p.received - (0, exports.sum)(p.demands.filter((d) => d.raised), (d) => d.paid)) - (0, exports.sum)(p.demands.filter((d) => !d.raised), (d) => d.paid))),
     };
 };
 exports.customerTotals = customerTotals;
@@ -202,12 +220,17 @@ async function loadInterestCtx(plans) {
     }
     return { penalRate: (0, penal_rate_js_1.penalRateFrom)({ penal_interest_rate_percent: rate.rows[0]?.value }), settings, stored };
 }
-function interestOf(p, ctx) {
+// Interest of each instalment worked out live by the one engine (buildInterestRows): chronological intervals of the outstanding basic amount, part payments on their own dates.
+function liveInterestByInstalment(p, ctx) {
     const st = ctx.settings.get(p.consumer_id) || { grace: 0, start: null };
     const rows = (0, payment_waterfall_js_1.buildInterestRows)(p.raw.receipts, p.raw.demands.filter((d) => d.raised_flag).map((d) => ({ ...d, raised: true, installment_name: d.demand_type || String(d.installment_index), due_date: d.due_date })), ctx.penalRate, { asOfDate: new Date(p.today), gracePeriodDays: st.grace, interestStartDate: st.start });
     const computed = new Map();
     for (const r of rows)
-        computed.set(r.installment_index, (computed.get(r.installment_index) || 0) + r.interest_amount);
+        computed.set(r.installment_index, (0, exports.r2)((computed.get(r.installment_index) || 0) + r.interest_amount));
+    return computed;
+}
+function interestOf(p, ctx) {
+    const computed = liveInterestByInstalment(p, ctx);
     const stored = new Map();
     for (const s of ctx.stored.get(p.plan_id || '') || []) {
         const e = stored.get(s.idx) || { amount: 0, waived: 0 };

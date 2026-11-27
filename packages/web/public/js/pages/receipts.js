@@ -1253,7 +1253,7 @@ const ReceiptsPage = {
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><div class="empty-icon">✅</div><h3>No overdue payments</h3></div>'
         : `<table>
-            <thead><tr><th>Consumer</th><th>Unit</th><th>Project</th><th>Overdue Amount</th><th>Days Overdue</th><th>Penal Interest (11.10% p.a.)</th><th>Total Payable</th></tr></thead>
+            <thead><tr><th>Consumer</th><th>Unit</th><th>Project</th><th>Overdue Amount</th><th>Days Overdue</th><th>Penal Interest</th><th>Total Payable</th></tr></thead>
             <tbody>
               ${list.map(r => `<tr>
                 <td class="td-bold"><a href="/api/consumers/${r.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);text-decoration:underline;cursor:pointer" title="View Applicant File">${r.consumer_name||r.consumerName||r.name||'—'}</a></td>

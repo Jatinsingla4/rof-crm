@@ -399,9 +399,12 @@ export const raiseNote = async (req: AuthRequest, b: any) => {
   if (!has(b.note_type)) throw bad('note_type is required');
   const type = oneOf(b.note_type, 'note_type', ['credit', 'debit'] as const)!, amount = pos(b.adjustment_amount, 'adjustment_amount'), reason = text(b.reason, 'reason', 500, true)!;
   const givenRate = has(b.gst_rate) ? num(b.gst_rate, 'gst_rate', 28, 2) : null, noteDate = day(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
+  // QA-002 / QA-049: a note is dated like an invoice, never in the future (a 2099 note used to enter GSTR-1) and never before the invoice it adjusts
+  if (noteDate && noteDate > businessTomorrow()) throw bad('note_date cannot be in the future');
   return inTx(async (c) => {
-    const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
+    const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate, ($2::date < invoice_date) AS before_invoice FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo, noteDate])).rows[0];
     if (!inv) throw bad('Invoice not found', 404);
+    if (inv.before_invoice) throw bad('note_date cannot be before the date of the invoice it adjusts');
     if (inv.status === 'cancelled') throw bad('That invoice is cancelled', 409);
     if (consumerId && consumerId !== inv.consumer_id) throw bad('That invoice belongs to another applicant');
     if (type === 'credit') {

@@ -194,7 +194,7 @@ for (const m of METHODS) {
   s = state(b);
   t('approval is refused when a demand is already paid -> 409, nothing changes', r.s === 409 && /already paid or closed/.test(r.j?.error || '') && s.status === 'pending' && Number(s.plan) === 3000000, r.s + ' ' + JSON.stringify([r.j, s]));
   psql(`update demands set status='pending' where consumer_id='${b.cons}' and installment_index=2`);
-  psql(`update receipts set amount_received_inr=400000, status='cleared' where demand_id=(select id from demands where consumer_id='${b.cons}' and installment_index=1)`);
+  psql(`update receipts set amount_received_inr=400000, status='cleared', approval_status='approved' where demand_id=(select id from demands where consumer_id='${b.cons}' and installment_index=1)`);
   r = await C('POST', `/booking/${b.id}/rebate/approve`, {});
   t('approval is refused when more money is received on a demand than its new amount (4,00,000 on a 2,91,000 demand)', r.s === 409 && /more money received/.test(r.j?.error || '') && state(b).status === 'pending', r.s + ' ' + JSON.stringify(r.j));
   psql(`update receipts set amount_received_inr=10000, status='pending' where demand_id=(select id from demands where consumer_id='${b.cons}' and installment_index=1)`);
@@ -331,7 +331,7 @@ const frozen = async (label, b, expectText, setup, undo) => {
   b = await book({ company_rebate_rs: 90000 });
   await frozen('demand already paid', b, /already paid or closed/, () => psql(`update demands set status='paid' where consumer_id='${b.cons}' and installment_index=2`));
   b = await book({ company_rebate_rs: 90000 });
-  await frozen('money received above the new amount', b, /more money received/, () => psql(`update receipts set amount_received_inr=400000, status='cleared' where demand_id=(select id from demands where consumer_id='${b.cons}' and installment_index=1)`));
+  await frozen('money received above the new amount', b, /more money received/, () => psql(`update receipts set amount_received_inr=400000, status='cleared', approval_status='approved' where demand_id=(select id from demands where consumer_id='${b.cons}' and installment_index=1)`));
   // withdrawal of an approved rebate refused: nothing changes
   const w = await book({ company_rebate_rs: 90000 }); await C('POST', `/booking/${w.id}/rebate/approve`, {});
   psql(`update demands set sent_at=now(), delivery_status='sent' where consumer_id='${w.cons}' and installment_index=1`);

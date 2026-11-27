@@ -297,7 +297,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await page.locator('#gst-gen-consumer').selectOption(b.c);
   await expect(page.locator(`#gst-gen-receipt option[value="${S.receipt}"]`)).toBeAttached({ timeout: 15000 });
   await page.locator('button', { hasText: /generate invoice/i }).first().click(); await expect(toast(/taxable amount/i)).toBeVisible();
-  sql(`update receipts set status = 'cleared', clearing_date = '${today}' where id = '${S.receipt}'`);   // an invoice is made only on a cleared receipt
+  sql(`update receipts set status = 'cleared', approval_status = 'approved', clearing_date = '${today}' where id = '${S.receipt}'`);   // an invoice is made only on a cleared receipt
   await page.locator('#gst-gen-receipt').selectOption(S.receipt);
   // the receipt of 5,000 already holds its 5% GST, so the taxable part is 4,761.90 and the invoice comes back to the 5,000 that was paid
   await expect(page.locator('#gst-gen-amount')).toHaveValue('4761.9');
@@ -322,7 +322,7 @@ test('GST Invoicing: setup, invoice generation (receipt picked), manual, advance
   await page.locator('#gst-man-consumer').selectOption(b.c);
   await page.locator('button', { hasText: /generate manual invoice/i }).click(); await expect(toast(/taxable amount/i)).toBeVisible();   // no amount yet
   await page.locator('#gst-man-rate').selectOption('5');   // QA-003: no rate is preselected any more
-  await page.locator('#gst-man-amount').fill('1000'); await page.locator('#gst-man-gstin').fill('06AAAAA0000A1Z5'); await page.locator('#gst-man-desc').fill('Manual');
+  await page.locator('#gst-man-amount').fill('1000'); await page.locator('#gst-man-gstin').fill('06AAAAA0000A1Z6');   // a buyer GSTIN with a valid check character (QA-049); same state as the project's, so an intra-state supply await page.locator('#gst-man-desc').fill('Manual');
   await page.locator('button', { hasText: /generate manual invoice/i }).click();
   await expect(page.locator('#gst-man-result')).toContainText(/INV\/\d{4}\/\d{5}/);
   await page.locator('#gst-man-gstin').fill('bad'); await page.locator('button', { hasText: /generate manual invoice/i }).click();
@@ -405,7 +405,7 @@ test('GST Invoicing: pending invoices (generate from the list), report with mont
   const rc = (await must('receipt', api('POST', '/payments/receipts', { consumerId: b.c, amountReceivedInr: 3000, paymentMode: 'neft', referenceNumber: `PR${U}R2`, paymentDate: today, installmentIndex: 1 }))).id;
   // an invoice is made only on money that has cleared: a second, still pending receipt shows a disabled "Awaiting clearance" instead of "Gen Invoice"
   const rcPending = (await must('receipt', api('POST', '/payments/receipts', { consumerId: b.c, amountReceivedInr: 1234, paymentMode: 'neft', referenceNumber: `PR${U}R3`, paymentDate: today, installmentIndex: 1 }))).id;
-  sql(`update receipts set status = 'cleared', clearing_date = '${today}' where id = '${rc}'`);
+  sql(`update receipts set status = 'cleared', approval_status = 'approved', clearing_date = '${today}' where id = '${rc}'`);
   await go('/gst-invoicing');
   await tab('pending-invoice');
   await expect(page.locator('#pending-kpis')).toContainText(/pending receipts/i);

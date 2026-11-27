@@ -11,6 +11,7 @@ import { flagPaidCommission } from '../utils/broker.js';
 import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
+import { maskPeople, peopleFullRoles } from '../utils/people-mask.js';
 
 const router = Router();
 
@@ -208,9 +209,13 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
     // ── derive financials ─────────────────────────────────────────────────────
     const carpetArea      = parseFloat(row.carpet_area_sqft   || 0);
     const basicRate       = parseFloat(row.basic_rate_inr_sqft || 0);
-    const grossBasicPrice = basicRate > 0 && carpetArea > 0
-      ? Math.round(basicRate * carpetArea)
-      : parseFloat(row.booking_amount || 0);
+    // QA-001/005: the price the booking was sold at is its plan total (basic + plc + other + balcony - discount - rebate), not rate x an area that may hold carpet + balcony
+    const planTotal = parseFloat(row.total_amount_inr || 0);
+    const grossBasicPrice = planTotal > 0
+      ? Math.round(planTotal - parseFloat(row.plc_amount || 0) - parseFloat(row.other_charge_amount || 0) - parseFloat(row.balcony_charge_amount || 0) + parseFloat(row.company_inaugural_disc || 0) + parseFloat(row.approved_rebate_amount || 0))
+      : basicRate > 0 && carpetArea > 0
+        ? Math.round(basicRate * carpetArea)
+        : parseFloat(row.booking_amount || 0);
     const inauguralDiscount = parseFloat(row.company_inaugural_disc || 0);
     const approvedRebate  = parseFloat(row.approved_rebate_amount || 0);   // an approved company rebate comes off the basic price too (QA-007)
     const netBasicPrice   = grossBasicPrice - inauguralDiscount - approvedRebate;   // the same net price the payment plan and the demand letter use
@@ -231,10 +236,11 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
     const totalInterestPaid = receiptsRes.rows.reduce((s: number, r: any) => s + parseFloat(r.interest_amount || 0), 0);
     const balance         = totalReceivables - totalReceived - totalInterestPaid;
 
+    const full = await peopleFullRoles(db);   // QA-027
     return res.json({
       success: true,
       data: {
-        consumer: {
+        consumer: maskPeople({
           id:              row.id,
           first_name:      row.first_name,
           last_name:       row.last_name,
@@ -250,8 +256,8 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
           aadhaar_no:      row.aadhaar_no,
           registration_no: row.registration_no,
           lead_stage:      row.lead_stage,
-        },
-        coApplicant:       coAppRes.rows[0] || null,
+        }, req.userRole, full),
+        coApplicant:       coAppRes.rows[0] ? maskPeople(coAppRes.rows[0], req.userRole, full) : null,
         booking: {
           id:                row.booking_id,
           booking_date:      row.booking_date,
@@ -395,6 +401,8 @@ export const performSurrender = async (c: any, req: AuthRequest, res: Response, 
     await c.query(`UPDATE consumers SET lead_stage = 'cancelled', allocated_unit_id = NULL WHERE id = $1 AND allocated_unit_id IS NOT DISTINCT FROM $2`, [consumerId, alloc.unit_id]);
     await c.query(`UPDATE consumers SET lead_stage = 'cancelled' WHERE id = $1`, [consumerId]);
     if (booking) await c.query(`UPDATE booking_records SET status = 'cancelled' WHERE id = $1`, [booking.id]);
+    await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) SELECT id, status, $2::public.unit_status, $3, $4 FROM units WHERE id = $1 AND status IS DISTINCT FROM $2::public.unit_status`,
+      [alloc.unit_id, isCancel ? 'available' : 'temp_surrender', req.userId || null, isCancel ? 'Allocation cancelled' : 'Unit surrendered']);   // QA-017: the history had no row for this change
     await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, isCancel ? 'available' : 'temp_surrender']);
     // the parking slots of this unit go back to the pool (a restore does not take them back: someone else may hold them by then)
     await c.query(`UPDATE parking_slots SET status = 'available', allotted_to_consumer_id = NULL, allotted_unit_id = NULL, allotted_at = NULL WHERE allotted_to_consumer_id = $1 AND (allotted_unit_id = $2 OR allotted_unit_id IS NULL)`, [consumerId, alloc.unit_id]);
@@ -511,6 +519,8 @@ router.post('/restore', async (req: AuthRequest, res: Response, next: NextFuncti
       await c.query(`UPDATE allocations SET status = $2, updated_at = now() WHERE id = $1`, [alloc.id, pre.allocation_status || 'allotted']);
       await c.query(`UPDATE consumers SET lead_stage = $2, allocated_unit_id = $3 WHERE id = $1`, [s.consumer_id, pre.lead_stage && pre.lead_stage !== 'cancelled' ? pre.lead_stage : 'allotted', alloc.unit_id]);
       if (s.booking_record_id) await c.query(`UPDATE booking_records SET status = $2 WHERE id = $1`, [s.booking_record_id, pre.booking_status || 'complete']);
+      await c.query(`INSERT INTO unit_status_history (unit_id, previous_status, new_status, changed_by_user_id, reason) SELECT id, status, $2::public.unit_status, $3, 'Surrender / cancellation restored' FROM units WHERE id = $1 AND status IS DISTINCT FROM $2::public.unit_status`,
+        [alloc.unit_id, s.pre_surrender_unit_status || 'locked', req.userId || null]);
       await c.query(`UPDATE units SET status = $2 WHERE id = $1`, [alloc.unit_id, s.pre_surrender_unit_status || 'locked']);
       const snap: any[] = Array.isArray(s.cancelled_demand_snapshot) ? s.cancelled_demand_snapshot : [];
       for (const e of snap) await c.query(`UPDATE demands SET status = $2, updated_at = NOW() WHERE id = $1 AND status = 'cancelled'`, [e.demand_id, e.previous_status]);

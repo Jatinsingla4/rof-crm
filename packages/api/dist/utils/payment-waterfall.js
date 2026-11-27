@@ -52,6 +52,7 @@ exports.checkAndAutoRaiseInstallment1 = checkAndAutoRaiseInstallment1;
 const gst_resolver_js_1 = require("./gst-resolver.js");
 const gst_backward_derive_js_1 = require("./gst-backward-derive.js");
 const business_date_js_1 = require("./business-date.js");
+const gst_exempt_js_1 = require("./gst-exempt.js");
 function buildInterestRows(receipts, demands, penalRate, options) {
     const sortedDemands = [...demands].sort((a, b) => a.installment_index - b.installment_index);
     const startDate = options?.interestStartDate ?? null;
@@ -317,7 +318,7 @@ async function recomputeBookingPaymentTaxes(client, consumerId, unitId, projectI
     const projectRow = await client.query('SELECT name FROM projects WHERE id = $1', [projectId]);
     const projectName = projectRow.rows[0]?.name || projectId;
     const consumerRow = await client.query('SELECT nationality FROM consumers WHERE id = $1', [consumerId]);
-    const isNri = ['nri', 'NRI', 'oci', 'OCI', 'pio', 'PIO'].includes(consumerRow.rows[0]?.nationality);
+    const isNri = (0, gst_exempt_js_1.isGstExempt)(consumerRow.rows[0]?.nationality);
     const gstRate = isNri
         ? { cgstPct: 0, sgstPct: 0 }
         : await (0, gst_resolver_js_1.resolveRate)(client, projectId, projectName, 'BASIC', bookingDateForGst);
