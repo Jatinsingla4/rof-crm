@@ -14,6 +14,7 @@ const broker_js_1 = require("../utils/broker.js");
 const applicant_js_1 = require("../utils/applicant.js");
 const business_date_js_1 = require("../utils/business-date.js");
 const money_basis_js_1 = require("../utils/money-basis.js");
+const people_mask_js_1 = require("../utils/people-mask.js");
 const router = (0, express_1.Router)();
 const fail = (err, res, next) => (0, input_js_1.failWith)(err, res, next, 'This record already exists');
 const query = (v, label, max = 100) => {
@@ -207,10 +208,11 @@ router.get('/detail/:consumerId', async (req, res, next) => {
         const totalReceived = receiptsRes.rows.reduce((s, r) => s + parseFloat(r.amount_received_inr || 0), 0);
         const totalInterestPaid = receiptsRes.rows.reduce((s, r) => s + parseFloat(r.interest_amount || 0), 0);
         const balance = totalReceivables - totalReceived - totalInterestPaid;
+        const full = await (0, people_mask_js_1.peopleFullRoles)(index_js_1.db); // QA-027
         return res.json({
             success: true,
             data: {
-                consumer: {
+                consumer: (0, people_mask_js_1.maskPeople)({
                     id: row.id,
                     first_name: row.first_name,
                     last_name: row.last_name,
@@ -226,8 +228,8 @@ router.get('/detail/:consumerId', async (req, res, next) => {
                     aadhaar_no: row.aadhaar_no,
                     registration_no: row.registration_no,
                     lead_stage: row.lead_stage,
-                },
-                coApplicant: coAppRes.rows[0] || null,
+                }, req.userRole, full),
+                coApplicant: coAppRes.rows[0] ? (0, people_mask_js_1.maskPeople)(coAppRes.rows[0], req.userRole, full) : null,
                 booking: {
                     id: row.booking_id,
                     booking_date: row.booking_date,

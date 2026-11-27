@@ -11,6 +11,7 @@ import { flagPaidCommission } from '../utils/broker.js';
 import { likeOf } from '../utils/applicant.js';
 import { businessToday, businessTomorrow } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
+import { maskPeople, peopleFullRoles } from '../utils/people-mask.js';
 
 const router = Router();
 
@@ -235,10 +236,11 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
     const totalInterestPaid = receiptsRes.rows.reduce((s: number, r: any) => s + parseFloat(r.interest_amount || 0), 0);
     const balance         = totalReceivables - totalReceived - totalInterestPaid;
 
+    const full = await peopleFullRoles(db);   // QA-027
     return res.json({
       success: true,
       data: {
-        consumer: {
+        consumer: maskPeople({
           id:              row.id,
           first_name:      row.first_name,
           last_name:       row.last_name,
@@ -254,8 +256,8 @@ router.get('/detail/:consumerId', async (req: AuthRequest, res: Response, next: 
           aadhaar_no:      row.aadhaar_no,
           registration_no: row.registration_no,
           lead_stage:      row.lead_stage,
-        },
-        coApplicant:       coAppRes.rows[0] || null,
+        }, req.userRole, full),
+        coApplicant:       coAppRes.rows[0] ? maskPeople(coAppRes.rows[0], req.userRole, full) : null,
         booking: {
           id:                row.booking_id,
           booking_date:      row.booking_date,

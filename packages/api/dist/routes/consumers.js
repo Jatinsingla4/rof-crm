@@ -640,7 +640,8 @@ router.get('/:id/multi-applicants', async (req, res, next) => {
        FROM co_applicants
        WHERE consumer_id = $1 AND applicant_number > 2
        ORDER BY applicant_number`, [req.params.id]);
-        res.json({ success: true, data: result.rows });
+        const full = await (0, people_mask_js_1.peopleFullRoles)(index_js_1.db); // QA-027
+        res.json({ success: true, data: result.rows.map((r) => (0, people_mask_js_1.maskPeople)(r, req.userRole, full)) });
     }
     catch (error) {
         next(error);

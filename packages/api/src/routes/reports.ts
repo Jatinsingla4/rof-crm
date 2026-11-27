@@ -15,6 +15,7 @@ import applicantRoutes from './reports-applicant.js';
 import { baseCostSql } from '../utils/report-ledger.js';
 import { sqlDay } from '../utils/business-date.js';
 import { returnedSql } from '../utils/money-basis.js';
+import { maskPeople, peopleFullRoles } from '../utils/people-mask.js';
 
 const router = Router();
 
@@ -1097,7 +1098,8 @@ router.get('/all-applicants', async (req: AuthRequest, res: Response, next: Next
     `;
 
     const result = await db.query(query, whereParams);
-    res.json({ success: true, data: result.rows });
+    const full = await peopleFullRoles(db);   // QA-027: unchanged until ROF sets people_id_full_roles
+    res.json({ success: true, data: result.rows.map((r: any) => ({ ...maskPeople(r, req.userRole, full), applicants: Array.isArray(r.applicants) ? r.applicants.map((a: any) => maskPeople(a, req.userRole, full)) : r.applicants })) });
   } catch (err) { next(err); }
 });
 

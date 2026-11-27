@@ -81,6 +81,12 @@ try {
   t('and a super admin still sees them in full', r.j.data?.pan_no === 'ABCDE1234F' && r.j.data?.aadhaar_no === '234123412341');
   r = await E.A('PATCH', `/consumers/${a.c}`, { pan_no: 'XXXX234F', remarks: 'masked value sent back' });
   t('a masked number sent back in an edit is ignored, the real PAN is kept', psql(`select pan_no from consumers where id='${a.c}'`) === 'ABCDE1234F', r.s + JSON.stringify(r.j).slice(0, 160));
+  // the mask follows the number out of the detail endpoint: the all-applicants report
+  r = await E.SE('GET', `/reports/all-applicants?projectId=${P.proj}`);
+  const rep = [].concat(r.j?.data?.rows || r.j?.data || []).find((x) => x.id === a.c);
+  t('the all-applicants report masks the primary applicant for that role (403 if the role has no access to the report)', r.s === 403 || (r.s === 200 && (!rep || rep.pan_no === 'XXXX234F')), r.s + JSON.stringify(rep?.pan_no));
+  r = await E.A('GET', `/reports/all-applicants?projectId=${P.proj}`);
+  t('and shows it in full to a super admin', r.s === 200 && [].concat(r.j.data?.rows || r.j.data || []).find((x) => x.id === a.c)?.pan_no === 'ABCDE1234F', r.s + JSON.stringify([].concat(r.j.data?.rows || r.j.data || []).find((x) => x.id === a.c)?.pan_no));
 } finally { restore(); }
 
 console.log(`\nRESULT: ${tally()}`);

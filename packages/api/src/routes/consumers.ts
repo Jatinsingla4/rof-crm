@@ -540,7 +540,8 @@ router.get('/:id/multi-applicants', async (req: AuthRequest, res: Response, next
        ORDER BY applicant_number`,
       [req.params.id]
     );
-    res.json({ success: true, data: result.rows });
+    const full = await peopleFullRoles(db);   // QA-027
+    res.json({ success: true, data: result.rows.map((r: any) => maskPeople(r, req.userRole, full)) });
   } catch (error) { next(error); }
 });
 
