@@ -258,7 +258,7 @@ t('set-up: demand amounts follow the plan (20/30/50 of the total)', psql(`select
     // an advance of one and a half installments: the first is full, the half runs into the second (waterfall), the balance falls by the whole advance
     const ppid = psql(`select id from payment_plans where consumer_id='${b.c.id}' order by created_at desc limit 1`);
     const d0 = Number(psql(`select amount_due_inr + cgst_amount + sgst_amount from demands where id='${b.d[0]}'`)), adv = Math.round(d0 * 1.5);
-    psql(`insert into receipts (consumer_id, payment_plan_id, amount_received_inr, payment_method, status, received_date) values ('${b.c.id}','${ppid}',${adv},'cash','cleared',current_date) returning id`);
+    psql(`insert into receipts (consumer_id, payment_plan_id, amount_received_inr, payment_method, status, approval_status, received_date) values ('${b.c.id}','${ppid}',${adv},'cash','cleared','approved',current_date) returning id`);
     r = await A('GET', `/payments/demand-status?project_id=${P1}&name=${encodeURIComponent(b.c.name)}`); const me3 = r.j.data.find(x => x.consumer_id === b.c.id);
     t('status page: an advance of 1.5 installments (a cleared receipt with no instalment) is customer credit: paid stays 0, the balance is unchanged, the credit is the advance', Number(me3.paid_amount) === 0 && Math.abs(Number(me3.balance_amount) - tot) < 1 && Math.abs(Number(me3.unadjusted_credit) - adv) < 1, JSON.stringify(me3));
     const dl = await A('GET', `/payments/demands?consumerId=${b.c.id}`); const paidOf = (i) => Number(dl.j.data?.find(x => x.installment_index === i)?.total_paid);

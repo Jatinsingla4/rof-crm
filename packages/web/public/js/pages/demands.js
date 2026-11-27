@@ -401,7 +401,7 @@ const DemandsPage = {
       if (kpiEl) kpiEl.innerHTML = `
         <div class="kpi c-red"><div class="kpi-lbl">Overdue Cases</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">Min ${minDays} day(s)</div></div>
         <div class="kpi c-warn"><div class="kpi-lbl">Overdue Principal</div><div class="kpi-val">${Utils.currency(totalOverdue)}</div><div class="kpi-sub">Total outstanding</div></div>
-        <div class="kpi c-accent"><div class="kpi-lbl">Penal Interest</div><div class="kpi-val">${Utils.currency(totalPenal)}</div><div class="kpi-sub">@11.10% p.a. (HRERA Rule 15)</div></div>
+        <div class="kpi c-accent"><div class="kpi-lbl">Penal Interest</div><div class="kpi-val">${Utils.currency(totalPenal)}</div><div class="kpi-sub">on the unpaid balance, at the configured penal rate (part payments counted on their own dates)</div></div>
         <div class="kpi c-purple"><div class="kpi-lbl">Avg Days Overdue</div><div class="kpi-val">${avgDays}</div><div class="kpi-sub">days</div></div>
         <div class="kpi c-gold"><div class="kpi-lbl">Total Payable</div><div class="kpi-val">${Utils.currency(totalOverdue + totalPenal)}</div><div class="kpi-sub">Principal + Interest</div></div>
       `;
@@ -409,7 +409,7 @@ const DemandsPage = {
       el.innerHTML = list.length === 0
         ? '<div class="empty-state"><div class="empty-icon">✅</div><h3>No overdue accounts match filter</h3></div>'
         : `<table>
-            <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
+            <thead><tr><th>Consumer</th><th>Mobile</th><th>Unit</th><th>Project</th><th>Unpaid Principal (₹)</th><th>Days Overdue</th><th>Penal Interest (₹)</th><th>Total Payable (₹)</th></tr></thead>
             <tbody>
               ${list.map(d => `<tr>
                 <td class="td-bold"><a href="/api/consumers/${d.consumer_id}/applicant-file?token=1" target="_blank" onclick="event.stopPropagation()" style="color:var(--teal);text-decoration:none;font-weight:600;cursor:pointer" title="View Applicant File">${d.consumer_name||d.name||'—'}</a></td>
@@ -419,7 +419,7 @@ const DemandsPage = {
                 <td style="font-weight:600;color:var(--red)">${Utils.currency(d.amount_due_inr||d.amount||0)}</td>
                 <td style="font-weight:700;color:var(--red)">${d.days_overdue||d.daysOverdue||0}</td>
                 <td style="color:var(--accent)">${Utils.currency(d.penal_interest_inr||d.penalInterestInr||0)}</td>
-                <td style="font-weight:700">${Utils.currency((d.amount_due_inr||0) + (d.penal_interest_inr||0))}</td>
+                <td style="font-weight:700">${Utils.currency(parseFloat(d.amount_due_inr||0) + parseFloat(d.penal_interest_inr||0))}</td>
               </tr>`).join('')}
             </tbody>
             <tfoot>

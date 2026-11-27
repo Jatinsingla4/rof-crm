@@ -17,6 +17,11 @@ export const returnedSql = (a = 'r', asOf?: string) =>
 // SQL expression: the amount of one receipt that counts as money (0 when it is not eligible)
 export const eligibleAmountSql = (a = 'r', asOf?: string) =>
   `CASE WHEN ${eligibleReceipt(a)} THEN ${a}.amount_received_inr - ${returnedSql(a, asOf)} ELSE 0 END`;
+// SQL predicate (QA-009): the booking behind commission row `bc` has cleared money (eligible money, returns taken off) of at least its booking amount.
+// One definition for the payout gate, the commission list (cleared_basis_ok) and the reconciliation list, so they cannot disagree.
+export const commissionBackedSql = (bc = 'bc') =>
+  `(COALESCE((SELECT ${eligibleSum('r')} FROM receipts r WHERE r.consumer_id = ${bc}.consumer_id), 0) + 0.005
+    >= GREATEST(COALESCE((SELECT bkx.booking_amount FROM booking_records bkx WHERE bkx.id = ${bc}.booking_id), 0), 0.01))`;
 // SQL expression: sum of eligible money of the receipts in scope
 export const eligibleSum = (a = 'r') => `COALESCE(SUM(${eligibleAmountSql(a)}), 0)`;
 

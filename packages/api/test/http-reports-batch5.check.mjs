@@ -11,7 +11,7 @@ const admin = await login('super_admin@test.local');
 const liveC = (await db.query(`SELECT co.id consumer_id, pp.id plan_id, pp.unit_id, pp.project_id FROM payment_plans pp JOIN consumers co ON co.id = pp.consumer_id WHERE co.name <> 'Cancelled Cust' LIMIT 1`)).rows[0];
 const cancC = (await db.query(`SELECT co.id consumer_id, pp.id plan_id FROM payment_plans pp JOIN consumers co ON co.id = pp.consumer_id WHERE co.name = 'Cancelled Cust'`)).rows[0];
 const uid = (await db.query(`SELECT id FROM users WHERE email = 'accounts_finance@test.local'`)).rows[0].id;
-const rcpt = (c, plan, amt, method) => db.query(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, received_date, status, payment_method, received_by_user_id, authorized_by) VALUES ($1, $2, $3, current_date, 'cleared', $4, $5, $5)`, [c, plan, amt, method, uid]);
+const rcpt = (c, plan, amt, method) => db.query(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, received_date, status, payment_method, received_by_user_id, authorized_by, approval_status) VALUES ($1, $2, $3, current_date, 'cleared', $4, $5, $5, 'approved')`, [c, plan, amt, method, uid]);
 
 // QA-017 / QA-024: read-only exception lists
 await db.query(`UPDATE booking_records SET basic_rate_inr_sqft = NULL, status = 'active', registration_no = 'REG-FX-1' WHERE consumer_id = $1`, [liveC.consumer_id]);
@@ -25,7 +25,7 @@ ok('the cancelled booking is not listed as a live exception', !(d.zero_rate || [
 
 // QA-013: cancelled-booking money and no-plan money are separate figures
 await rcpt(cancC.consumer_id, cancC.plan_id, 3000, 'cheque');
-await db.query(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, received_date, status, payment_method, received_by_user_id, authorized_by) VALUES ($1, NULL, 700, current_date, 'cleared', 'cash', $2, $2)`, [liveC.consumer_id, uid]);
+await db.query(`INSERT INTO receipts (consumer_id, payment_plan_id, amount_received_inr, received_date, status, payment_method, received_by_user_id, authorized_by, approval_status) VALUES ($1, NULL, 700, current_date, 'cleared', 'cash', $2, $2, 'approved')`, [liveC.consumer_id, uid]);
 r = await get(admin, '/reports/customer-balance');
 const sm = r.j.summary || {};
 ok('customer balance: cleared money of a cancelled booking is its own figure', r.s === 200 && Number(sm.receivedCancelled) >= 3000, JSON.stringify({ c: sm.receivedCancelled, n: sm.receivedNoPlan, o: sm.receivedOther }));

@@ -10,7 +10,7 @@ import { failWith } from '../utils/input.js';
 import { pick, pageOf } from '../utils/report-input.js';
 import { eligibleSum, eligibleAmountSql } from '../utils/money-basis.js';
 import { cancelledPlanSql } from '../utils/booking-state.js';
-import { loadLedger, LedgerPlan, LedgerDemand, LedgerFilter, dueOf, sum, r2, pct, contains, principalOf, split, daysBetween } from '../utils/report-ledger.js';
+import { loadLedger, LedgerPlan, LedgerDemand, LedgerFilter, dueOf, sum, r2, pct, contains, principalOf, split, daysBetween, customerTotals } from '../utils/report-ledger.js';
 import { scheduleGap } from '../utils/financial-measures.js';
 
 const router = Router();
@@ -31,11 +31,11 @@ const pickDemands = (p: LedgerPlan, upTo: string | null, criteria: string): Ledg
 export const totalsOf = (p: LedgerPlan, ds: LedgerDemand[]) => {
   const demanded = sum(ds, (d) => d.total), paid = sum(ds, (d) => d.paid);
   const o = ds.reduce((a, d) => { const s = split(d); return { amount: a.amount + s.amount, cgst: a.cgst + s.cgst, sgst: a.sgst + s.sgst }; }, { amount: 0, cgst: 0, sgst: 0 });
-  const raisedPaid = sum(p.demands.filter((d) => d.raised), (d) => d.paid);
+  const ct = customerTotals(p);   // the credit is defined once, in the ledger (credit = advance on unraised instalments + surplus)
   return {
     demanded, paid, amount: sum(ds, (d) => d.base + d.addon), cgst: sum(ds, (d) => d.cgst), sgst: sum(ds, (d) => d.sgst),
     outstanding: r2(demanded - paid), os_amount: r2(o.amount), os_cgst: r2(o.cgst), os_sgst: r2(o.sgst),
-    credit: r2(Math.max(0, p.received - raisedPaid)),
+    credit: ct.credit, advanceOnUnraised: ct.advanceOnUnraised, surplusCredit: ct.surplusCredit,
     undue: sum(p.demands.filter((d) => !d.raised), (d) => d.total),
     last_due: ds.reduce((m: string | null, d) => (d.due_date && (!m || d.due_date > m) ? d.due_date : m), null),
   };

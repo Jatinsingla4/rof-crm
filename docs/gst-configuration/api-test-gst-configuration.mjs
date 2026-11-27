@@ -246,7 +246,7 @@ const lm4 = (await A('POST', G('/gst-charge-mapping'), { projectId: P4, slabId: 
 made.tax.push(lm4.gst_tax_id);
 const rc = seed(P4, 'rcp', d(Y + 31, 1, 1));
 r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 6, sgstPct: 6 }); t('locked: a booking outside the slab and no receipt -> still editable', r.s === 200, JSON.stringify(r.j));
-psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) VALUES ('${rc.cons}','${rc.pp}',1,1000,'cash','cleared','${d(Y + 32, 5, 5)}') RETURNING id`);
+psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, approval_status, received_date) VALUES ('${rc.cons}','${rc.pp}',1,1000,'cash','cleared','approved','${d(Y + 32, 5, 5)}') RETURNING id`);
 r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: a receipt dated inside the slab locks it', r.s === 409 && /1 receipt/.test(r.j.error), JSON.stringify(r.j));
 psql(`UPDATE receipts SET status='cancelled' WHERE payment_plan_id='${rc.pp}'`);
 r = await A('PATCH', G('/gst-tax-setup/' + lm4.gst_tax_id), { cgstPct: 2.5, sgstPct: 2.5 }); t('locked: once the receipt is cancelled it is free again', r.s === 200, JSON.stringify(r.j));

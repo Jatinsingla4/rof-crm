@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEMAND_COLS = exports.demandTotal = exports.eligibleSum = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
+exports.DEMAND_COLS = exports.demandTotal = exports.eligibleSum = exports.commissionBackedSql = exports.eligibleAmountSql = exports.returnedSql = exports.eligibleReceipt = void 0;
 exports.deriveDemandStatus = deriveDemandStatus;
 exports.allocateEligible = allocateEligible;
 exports.loadEligible = loadEligible;
@@ -27,6 +27,11 @@ exports.returnedSql = returnedSql;
 // SQL expression: the amount of one receipt that counts as money (0 when it is not eligible)
 const eligibleAmountSql = (a = 'r', asOf) => `CASE WHEN ${(0, exports.eligibleReceipt)(a)} THEN ${a}.amount_received_inr - ${(0, exports.returnedSql)(a, asOf)} ELSE 0 END`;
 exports.eligibleAmountSql = eligibleAmountSql;
+// SQL predicate (QA-009): the booking behind commission row `bc` has cleared money (eligible money, returns taken off) of at least its booking amount.
+// One definition for the payout gate, the commission list (cleared_basis_ok) and the reconciliation list, so they cannot disagree.
+const commissionBackedSql = (bc = 'bc') => `(COALESCE((SELECT ${(0, exports.eligibleSum)('r')} FROM receipts r WHERE r.consumer_id = ${bc}.consumer_id), 0) + 0.005
+    >= GREATEST(COALESCE((SELECT bkx.booking_amount FROM booking_records bkx WHERE bkx.id = ${bc}.booking_id), 0), 0.01))`;
+exports.commissionBackedSql = commissionBackedSql;
 // SQL expression: sum of eligible money of the receipts in scope
 const eligibleSum = (a = 'r') => `COALESCE(SUM(${(0, exports.eligibleAmountSql)(a)}), 0)`;
 exports.eligibleSum = eligibleSum;

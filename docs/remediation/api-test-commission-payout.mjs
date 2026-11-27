@@ -41,6 +41,26 @@ try {
     t('flag off: the reconciliation lists a paid commission with no cleared receipt behind it', ((await E.A('GET', '/booking/reconciliation')).j?.data?.commissions_paid_with_no_cleared_receipt || []).some((x) => x.id === c));
   }
 
+  // ---- QA-009 (V1.1): the reconciliation list uses the same test as the payout gate ----
+  {
+    const b = await brokerBooking(bid); const c = commOf(b);
+    await receipt(E, b, 5000);   // 5,000 cleared against a 10,000 booking amount: some money cleared, not enough
+    const r = await pay(c);
+    t('flag off: a commission can still be paid on part of the booking amount (old rule)', r.s === 200, r.s + JSON.stringify(r.j));
+    const list = (await E.A('GET', '/booking/reconciliation')).j?.data?.commissions_paid_with_no_cleared_receipt || [];
+    t('the reconciliation lists it although SOME money cleared (cleared 5,000 < booking amount 10,000)', list.some((x) => x.id === c));
+    const lc = (await E.A('GET', `/brokers/commission?brokerId=${bid}&status=paid`)).j;
+    const row = (lc?.data || []).find((x) => x.id === c);
+    t('the commission list says the same (cleared_basis_ok false)', !!row && row.cleared_basis_ok === false, JSON.stringify(row || {}).slice(0, 160));
+  }
+  {
+    const b = await brokerBooking(bid); const c = commOf(b);
+    await receipt(E, b, 400000);   // plenty cleared
+    await pay(c);
+    const list = (await E.A('GET', '/booking/reconciliation')).j?.data?.commissions_paid_with_no_cleared_receipt || [];
+    t('a commission paid on enough cleared money is NOT in the reconciliation list', !list.some((x) => x.id === c));
+  }
+
   // ---- flag ON: paid only on cleared money ----
   setFlag('on');
   {

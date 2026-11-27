@@ -170,7 +170,7 @@ const mkF = (tag) => {
   for (const [i, a] of [[1, 400000], [2, 300000], [3, 300000]]) psql(`INSERT INTO demands (payment_plan_id, installment_index, consumer_id, amount_due_inr, status) VALUES ('${pp}',${i},'${cons}',${a},'raised') RETURNING id`);
   return { cons, pp };
 };
-const pay = (f, idx, status = 'cleared', withIdx = true) => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, received_date) VALUES ('${f.cons}','${f.pp}',${withIdx ? idx : 'NULL'},1000,'cash','${status}', CURRENT_DATE) RETURNING id`);
+const pay = (f, idx, status = 'cleared', withIdx = true) => psql(`INSERT INTO receipts (consumer_id, payment_plan_id, installment_index, amount_received_inr, payment_method, status, approval_status, received_date) VALUES ('${f.cons}','${f.pp}',${withIdx ? idx : 'NULL'},1000,'cash','${status}', (CASE WHEN '${status}'='cleared' THEN 'approved' ELSE 'pending' END), CURRENT_DATE) RETURNING id`);
 const fd = (f) => [1, 2, 3].map(i => psql(`SELECT addon_charge_amount FROM demands WHERE payment_plan_id='${f.pp}' AND installment_index=${i}`)).join('/');
 const fch = (f, o) => ({ consumerId: f.cons, projectId: P3, chargeMasterId: MF, amount: 100000, ...o });
 

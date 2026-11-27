@@ -276,7 +276,7 @@ async function demandLetterData(ctx) {
     // Build map: installment_index → net interest
     const piMap = new Map();
     piRes.rows.forEach(r => {
-        piMap.set(r.installment_index, Number(r.net_interest_inr));
+        piMap.set(r.installment_index, (piMap.get(r.installment_index) || 0) + Number(r.net_interest_inr)); // a part-paid instalment has several rows: add them, do not keep the last
     });
     // Sum total interest from DB
     const totalInterestFromDB = piRes.rows.reduce((sum, r) => sum + Number(r.net_interest_inr), 0);

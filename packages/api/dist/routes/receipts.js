@@ -474,7 +474,7 @@ const move = async (req, res, next, o) => {
             const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
             if (pre && o.to === 'cleared')
                 await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
-            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+            const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by, approval_status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
             if (!cur)
                 throw (0, input_js_1.bad)('Receipt not found', 404);
             // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
@@ -487,8 +487,8 @@ const move = async (req, res, next, o) => {
             if (!o.from.includes(cur.status))
                 throw (0, input_js_1.bad)(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
             // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
-            if (o.to === 'cleared' && !cur.authorized_by)
-                throw (0, input_js_1.bad)('Cannot clear: the receipt has not been authorized by a checker yet', 409);
+            if (o.to === 'cleared' && (!cur.authorized_by || cur.approval_status !== 'approved'))
+                throw (0, input_js_1.bad)('Cannot clear: the receipt has not been authorized by a checker yet', 409); // QA-010/036/042: approval_status too, not only authorized_by
             const to = typeof o.to === 'function' ? o.to(cur) : o.to;
             const r = await c.query(`UPDATE receipts SET status = '${to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}
          RETURNING id, receipt_number, status, amount_received_inr, deposit_date, clearing_date, clearing_bank_id, hold_remark`, [...set.values, id]);

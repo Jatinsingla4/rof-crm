@@ -173,6 +173,8 @@ router.patch('/commission/:id', requireProcess('broker_payment_entry', 'maker'),
       const brk = (await c.query(`SELECT status, pan FROM brokers WHERE id = $1`, [cm.broker_id])).rows[0];
       if (!brk || !['active', 'inactive'].includes(brk.status)) throw bad(`The broker is ${brk?.status || 'missing'}, so commission cannot be paid`, 409);
       const bk = (await c.query(`SELECT status, consumer_id, booking_amount FROM booking_records WHERE id = $1`, [cm.booking_id])).rows[0];
+      // QA-009: the same consumer lock a clearing, a return or an allocation takes, so the cleared money checked below cannot change before the payment is written
+      if (bk?.consumer_id) await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${bk.consumer_id}`]);
       if (!bk || !['active', 'complete'].includes(bk.status)) throw bad('The booking has not received its booking amount (or is cancelled), so commission cannot be paid yet', 409);
       // Flag commission_requires_cleared_v1 (off until finance turns it on): the booking amount must have CLEARED (BR-03), not only been written down.
       // With the flag off a payout needs only the booking to be active/complete, as before; the reconciliation lists paid commissions with no cleared receipt.

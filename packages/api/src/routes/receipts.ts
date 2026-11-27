@@ -412,7 +412,7 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
       // Clearing changes what is money: the same consumer lock as recording a receipt, a return or an allocation, taken before the receipt row
       const pre = (await c.query(`SELECT consumer_id FROM receipts WHERE id = $1`, [id])).rows[0];
       if (pre && o.to === 'cleared') await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`receipt-consumer:${pre.consumer_id}`]);
-      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
+      const cur = (await c.query(`SELECT id, payment_method, status, received_by_user_id, payment_plan_id, authorized_by, approval_status FROM receipts WHERE id = $1 FOR UPDATE`, [id])).rows[0];
       if (!cur) throw bad('Receipt not found', 404);
       // Owner decision (Q16): the person who recorded a receipt does not also clear it. Clearing is what counts the money.
       if (o.checker) notOwn(req, cur.received_by_user_id);
@@ -420,7 +420,7 @@ const move = async (req: AuthRequest, res: Response, next: NextFunction, o: {
       if ((o.to === 'cleared' || o.to === 'deposited') && await planIsCancelled(c, cur.payment_plan_id)) throw bad(CANCELLED_MSG, 409);
       if (!o.from.includes(cur.status)) throw bad(`Cannot ${o.action}: receipt is '${cur.status}', must be ${o.from.map((s) => `'${s}'`).join(' or ')}`);
       // Owner decision (D-RECEIPTCTRL): nothing is cleared before a checker has authorised it, whatever status it was moved through (a held receipt keeps that history)
-      if (o.to === 'cleared' && !cur.authorized_by) throw bad('Cannot clear: the receipt has not been authorized by a checker yet', 409);
+      if (o.to === 'cleared' && (!cur.authorized_by || cur.approval_status !== 'approved')) throw bad('Cannot clear: the receipt has not been authorized by a checker yet', 409);   // QA-010/036/042: approval_status too, not only authorized_by
       const to = typeof o.to === 'function' ? o.to(cur) : o.to;
       const r = await c.query(
         `UPDATE receipts SET status = '${to}', ${set.sql}, updated_at = NOW() WHERE id = $${set.values.length + 1}

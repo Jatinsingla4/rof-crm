@@ -454,10 +454,15 @@ const raiseNote = async (req, b) => {
         throw (0, input_js_1.bad)('note_type is required');
     const type = (0, input_js_1.oneOf)(b.note_type, 'note_type', ['credit', 'debit']), amount = (0, input_js_1.pos)(b.adjustment_amount, 'adjustment_amount'), reason = (0, input_js_1.text)(b.reason, 'reason', 500, true);
     const givenRate = (0, input_js_1.has)(b.gst_rate) ? (0, input_js_1.num)(b.gst_rate, 'gst_rate', 28, 2) : null, noteDate = (0, input_js_1.day)(b.note_date, 'note_date'), consumerId = optId(b.consumer_id, 'consumer_id');
+    // QA-002 / QA-049: a note is dated like an invoice, never in the future (a 2099 note used to enter GSTR-1) and never before the invoice it adjusts
+    if (noteDate && noteDate > (0, business_date_js_1.businessTomorrow)())
+        throw (0, input_js_1.bad)('note_date cannot be in the future');
     return (0, input_js_1.inTx)(async (c) => {
-        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo])).rows[0];
+        const inv = (await c.query(`SELECT id, invoice_no, consumer_id, status, taxable_amount_inr, project_id, (cgst_rate + sgst_rate + igst_rate) AS own_rate, ($2::date < invoice_date) AS before_invoice FROM gst_invoices WHERE ${invoiceId ? 'id' : 'invoice_no'} = $1 FOR UPDATE`, [invoiceId || invoiceNo, noteDate])).rows[0];
         if (!inv)
             throw (0, input_js_1.bad)('Invoice not found', 404);
+        if (inv.before_invoice)
+            throw (0, input_js_1.bad)('note_date cannot be before the date of the invoice it adjusts');
         if (inv.status === 'cancelled')
             throw (0, input_js_1.bad)('That invoice is cancelled', 409);
         if (consumerId && consumerId !== inv.consumer_id)

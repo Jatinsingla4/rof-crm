@@ -29,6 +29,17 @@ export const basicPriceOf = (rate: any, unit: { carpet_area_sqft?: any; base_pri
   return r > 0 && c > 0 ? Math.round(r * c) : Number(unit.base_price_inr) || 0;
 };
 
+// The basis a rebate is measured on: the price the booking was SOLD at (its stored plan total), not rate x the unit's current area.
+// Returns the basic price and a unit-like { carpet_area_sqft } for the per sq. ft. method (booked area = booked basic / rate). A booking with no plan yet is
+// measured on the unit as before, because the plan will be cut from it when the booking is confirmed.
+export const bookedBasisOf = async (c: any, b: any, unit: { carpet_area_sqft?: any; base_price_inr?: any }) => {
+  const rate = Number(b.basic_rate_inr_sqft) || 0;
+  const total = Number((await c.query(`SELECT total_amount_inr FROM payment_plans WHERE consumer_id = $1 AND unit_id = $2 ORDER BY created_at DESC LIMIT 1`, [b.consumer_id, b.unit_id])).rows[0]?.total_amount_inr) || 0;
+  if (!(total > 0 && rate > 0)) return { basic: basicPriceOf(rate, unit), unit };
+  const basic = Math.round(total + (Number(b.approved_rebate_amount) || 0) - (Number(b.plc_amount) || 0) - (Number(b.other_charge_amount) || 0) - (Number(b.balcony_charge_amount) || 0) + (Number(b.company_inaugural_disc) || 0));
+  return { basic, unit: { ...unit, carpet_area_sqft: basic / rate } };
+};
+
 // The rupee rebate for the chosen method, refused when it is more than the basic price (or, with the inaugural discount, would take the price below zero).
 export const checkRebate = (rs: any, sqft: any, pct: any, basic: number, unit: { carpet_area_sqft?: any }, inaugural: any = 0): { method: RebateMethod; value: number; amount: number } => {
   const { method, value } = rebateMethodOf(rs, sqft, pct);
@@ -62,7 +73,7 @@ export const planTotal = (b: { basic_rate_inr_sqft?: any; plc_amount?: any; othe
  */
 export const repriceBooking = async (c: any, b: any, userId: string | null = null): Promise<void> => {
   const plan = (await c.query(
-    `SELECT pp.id FROM payment_plans pp WHERE pp.consumer_id = $1 AND pp.unit_id = $2
+    `SELECT pp.id, pp.total_amount_inr FROM payment_plans pp WHERE pp.consumer_id = $1 AND pp.unit_id = $2
         AND pp.allocation_id IN (SELECT id FROM allocations WHERE consumer_id = $1 AND unit_id = $2 AND status NOT IN ('cancelled','transferred'))
       ORDER BY pp.created_at DESC LIMIT 1 FOR UPDATE`, [b.consumer_id, b.unit_id])).rows[0];
   if (!plan) return;                                     // no plan yet: the plan will be made from the approved amount when the booking is confirmed
@@ -75,8 +86,19 @@ export const repriceBooking = async (c: any, b: any, userId: string | null = nul
     `SELECT 1 FROM consumer_addon_charges cac JOIN addon_charge_master acm ON acm.id = cac.charge_master_id
       WHERE cac.consumer_id = $1 AND cac.project_id = $2 AND cac.status <> 'cancelled' AND acm.rate_type = 'percent' AND acm.percent_basis = 'after_discount' LIMIT 1`, [b.consumer_id, b.project_id])).rows[0];
   if (pct) throw bad('This booking has an add-on charge worked out "after discount". Change that charge first, then approve or withdraw the rebate.', 409);
-  const unit = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [b.unit_id])).rows[0];
-  const total = Math.round(planTotal(b, unit));
+  // QA-001/005: the plan was cut from the price the booking was sold at. Only the rebate changes here, so the new total is the stored plan total with the
+  // old approved rebate put back and the new one taken off. The CURRENT unit area and price are not read (re-measuring or re-pricing the unit after booking
+  // used to re-cut the whole plan at today's master price). prior_rebate_amount is the rebate the stored plan total already has out; the callers pass it.
+  const stored = Number(plan.total_amount_inr) || 0;
+  let total: number;
+  if (stored > 0) {
+    if (b.prior_rebate_amount === undefined) throw bad('Internal error: the previous rebate amount was not passed to repriceBooking', 500);
+    total = Math.round(stored + (Number(b.prior_rebate_amount) || 0) - (Number(b.approved_rebate_amount) || 0));
+    if (total <= 0) throw bad('The rebate would take the price of this booking to zero or below', 409);
+  } else {                                               // a plan with no stored total (old data): the earlier rule, from the booking and the unit
+    const unit = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [b.unit_id])).rows[0];
+    total = Math.round(planTotal(b, unit));
+  }
   const tmpl = (await c.query(`SELECT installment_index, percentage, flat_amount_inr FROM plan_schedule_templates WHERE project_id = $1 AND plan_name = $2 ORDER BY installment_index`, [b.project_id, b.selected_plan_name])).rows;
   // The same split as the booking confirmation: a plan of percentages is cut on the running share, so the instalments add up to the plan total exactly
   const runShares: number[] = []; { let run = 0; for (const tt of tmpl) runShares.push(Math.round((run += parseFloat(tt.percentage || 0) / 100) * 1e6) / 1e6); }

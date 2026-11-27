@@ -208,7 +208,7 @@ async function checkListData(ctx) {
     });
     const totalInterestCalcCL = irRowsCL.reduce((sum, ir) => sum + ir.interest_amount, 0);
     // Admin-approved interest amounts (respects waivers) take precedence, same as Demand Letter
-    const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0) - COALESCE(interest_waived_inr,0))), 0) AS net_interest_inr
+    const piResCL = await index_js_1.db.query(`SELECT COALESCE(SUM(GREATEST(0, COALESCE(amount_inr,0))), 0) AS net_interest_inr   -- gross: the waiver is shown and taken off once, below (it used to be inside this figure and taken off again)
              FROM penal_interests WHERE consumer_id = $1`, [consumerId]);
     const totalInterestFromDBCL = Number(piResCL.rows[0]?.net_interest_inr || 0);
     const dueIntCL = totalInterestFromDBCL > 0 ? totalInterestFromDBCL : totalInterestCalcCL;

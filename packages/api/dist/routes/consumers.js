@@ -323,6 +323,9 @@ router.get('/:id', async (req, res, next) => {
               c.mailing_address_type, c.communication_mode,
               u.unit_number, u.bhk_type, u.carpet_area_sqft, u.balcony_area_sqft, u.base_price_inr,
               COALESCE((SELECT br.basic_rate_inr_sqft FROM booking_records br WHERE br.consumer_id = c.id AND COALESCE(br.status,'') <> 'cancelled' ORDER BY br.created_at DESC LIMIT 1), u.basic_price) AS basic_price,
+              (SELECT ROUND(pp.total_amount_inr - COALESCE(bb.plc_amount,0) - COALESCE(bb.other_charge_amount,0) - COALESCE(bb.balcony_charge_amount,0) + COALESCE(bb.company_inaugural_disc,0) + COALESCE(bb.approved_rebate_amount,0))
+                 FROM booking_records bb JOIN payment_plans pp ON pp.consumer_id = bb.consumer_id AND pp.unit_id = bb.unit_id AND COALESCE(pp.total_amount_inr,0) > 0
+                WHERE bb.consumer_id = c.id AND COALESCE(bb.status,'') <> 'cancelled' ORDER BY bb.created_at DESC, pp.created_at DESC LIMIT 1) AS booked_basic_inr,
               p.name as project_name,
               (EXISTS (SELECT 1 FROM booking_records bx WHERE bx.consumer_id = c.id) AND NOT EXISTS (SELECT 1 FROM booking_records by2 WHERE by2.consumer_id = c.id AND by2.status <> 'cancelled')) AS booking_cancelled
        FROM consumers c
@@ -701,6 +704,8 @@ router.get('/:id/applicant-file', printDownload_js_1.requirePrint, async (req, r
           -- the deal was priced on the booking's own area: a unit shift must not change it
           COALESCE(NULLIF(br.carpet_area_sqft, 0), u.carpet_area_sqft) AS carpet_area_sqft, u.super_area_sqft, u.balcony_area_sqft,
           u.base_price_inr, u.total_price_inr, u.facing,
+          -- QA-001/005/030/032: the price the booking was sold at is its plan total, not rate x the current unit area
+          (SELECT pp.total_amount_inr FROM payment_plans pp WHERE pp.consumer_id = br.consumer_id AND pp.unit_id = br.unit_id ORDER BY pp.created_at DESC LIMIT 1) AS plan_total_inr,
           t.tower_name,
           p.name AS project_name, p.location AS project_location,
           p.rera_number,

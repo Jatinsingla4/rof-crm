@@ -585,7 +585,7 @@ router.get('/tower-floor-sales', async (req, res, next) => {
         const SOLD = `u.status NOT IN ('available','locked','held','temp_surrender')`;
         const brJoin = `
       LEFT JOIN LATERAL (
-        SELECT b.consumer_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
+        SELECT b.consumer_id, b.unit_id, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount,
                b.company_inaugural_disc, b.approved_rebate_amount, b.plc_amount, b.other_charge_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status IN ('complete','pending_payment','active')
@@ -1278,7 +1278,7 @@ router.get('/stock-report', async (req, res, next) => {
       JOIN companies c ON c.id = pr.company_id
       JOIN units u ON u.project_id = pr.id
       LEFT JOIN LATERAL (
-        SELECT b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
+        SELECT b.consumer_id, b.unit_id, b.plc_amount, b.other_charge_amount, b.basic_rate_inr_sqft, b.balcony_charge_amount, b.dealer_adjustment_amount, b.company_inaugural_disc, b.approved_rebate_amount
         FROM booking_records b
         WHERE b.unit_id = u.id AND b.status != 'cancelled'
         ORDER BY b.created_at DESC

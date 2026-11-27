@@ -16,6 +16,7 @@ const rbac_js_1 = require("../middleware/rbac.js");
 const auditLogger_js_1 = require("../middleware/auditLogger.js");
 const processPermission_js_1 = require("../middleware/processPermission.js");
 const rebate_js_1 = require("../utils/rebate.js");
+const money_basis_js_1 = require("../utils/money-basis.js");
 const input_js_1 = require("../utils/input.js");
 const holds_js_1 = require("../utils/holds.js");
 const broker_js_1 = require("../utils/broker.js");
@@ -369,7 +370,7 @@ router.get('/reconciliation', input_js_1.financeOnly, async (_req, res, next) =>
             consumers_with_several_live_bookings: await q(`SELECT consumer_id, COUNT(*)::int AS bookings, (SELECT COUNT(*)::int FROM demands d WHERE d.consumer_id = br.consumer_id) AS demands
         FROM booking_records br WHERE br.status IN ('pending_payment','active','complete') GROUP BY consumer_id HAVING COUNT(*) > 1`),
             commissions_paid_with_no_cleared_receipt: await q(`SELECT bc.id, bc.broker_id, bc.consumer_id, bc.commission_amount_inr::float8 AS commission, bc.tds_amount::float8 AS tds
-        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT EXISTS (SELECT 1 FROM receipts r WHERE r.consumer_id = bc.consumer_id AND r.status = 'cleared')`),
+        FROM broker_commissions bc WHERE bc.status = 'paid' AND NOT ${(0, money_basis_js_1.commissionBackedSql)('bc')}`), // QA-009: the same test the payout gate uses, not just "some receipt cleared"
         };
         res.json({ success: true, counts: Object.fromEntries(Object.entries(sets).map(([k, v]) => [k, v.length])), data: sets });
     }
@@ -863,7 +864,7 @@ router.patch('/:id/edit', async (req, res, next) => {
                     const next = rb.method === 'none' ? 'none' : 'pending';
                     Object.assign(extra, { company_rebate_status: next, approved_rebate_amount: 0, rebate_requested_by: next === 'pending' ? req.userId : null, rebate_requested_at: next === 'pending' ? new Date() : null, rebate_decided_by: null, rebate_decided_at: null, rebate_decision_reason: null });
                     if (was === 'approved' && Number(cur.approved_rebate_amount) !== 0 && cur.status === 'complete')
-                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: 0 }, req.userId || null);
+                        await (0, rebate_js_1.repriceBooking)(c, { ...cur, prior_rebate_amount: cur.approved_rebate_amount, approved_rebate_amount: 0 }, req.userId || null);
                     rebateEvent = { was, next, method: rb.method, entered: rb.value, calculated_amount: rb.amount };
                 }
             }
@@ -1587,7 +1588,7 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     // areas, not the combined value. Net Basic Price is always true-carpet
     // only; Balcony Charge is shown as its own separate line (see Other
     // Charges table below), not folded into basePrice.
-    const basePrice = (storedRate > 0 && carpetArea > 0)
+    let basePrice = (storedRate > 0 && carpetArea > 0)
         ? Math.round(storedRate * carpetArea)
         : unitBasePrice;
     const plcAmount = parseFloat(b.plc_amount || 0);
@@ -1602,7 +1603,13 @@ function buildApplicantPage1(b, consumer, coApplicants, settings, allocation, pa
     const interest = parseFloat(b.interest_amount || 0);
     const bookingAmt = parseFloat(b.booking_amount || 0);
     const inauguralDisc = parseFloat(b.company_inaugural_disc || 0);
-    const netBasicPrice = basePrice - inauguralDisc; // the price after the inaugural discount, the same net price the plan, the demands and the Surrender page use (GST stays on the full price, as the demands bill it)
+    // QA-001/005/030/032: a booking with a plan is shown at the price the plan was cut from (plan total = basic + plc + other + balcony - discount - rebate),
+    // so this page, the schedule on page 2 and every report agree even when the unit master was edited or the unit was re-measured after booking.
+    const planTotalInr = parseFloat(b.plan_total_inr || 0);
+    const rebateAmount = parseFloat(b.approved_rebate_amount || 0);
+    if (planTotalInr > 0)
+        basePrice = Math.round(planTotalInr - plcAmount - otherCharge - balconyChargeAmount + inauguralDisc + rebateAmount);
+    const netBasicPrice = basePrice - inauguralDisc - (planTotalInr > 0 ? rebateAmount : 0); // the price after the inaugural discount, the same net price the plan, the demands and the Surrender page use (GST stays on the full price, as the demands bill it)
     const addonTotal = addonCharges.reduce((sum, c) => sum + parseFloat(c.total_amount || 0), 0);
     const agreementValue = netBasicPrice + plcAmount + otherCharge + balconyChargeAmount;
     const totalConsideration = agreementValue + addonTotal;
@@ -3469,12 +3476,13 @@ const rebateDecision = (approve) => async (req, res, next) => {
             if (cur.rebate_requested_by && cur.rebate_requested_by === req.userId)
                 throw (0, input_js_1.bad)('You entered this rebate yourself, so someone else has to decide it.', 403);
             const u = (await c.query(`SELECT carpet_area_sqft, base_price_inr FROM units WHERE id = $1`, [cur.unit_id])).rows[0] || {};
-            const rb = (0, rebate_js_1.checkRebate)(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, (0, rebate_js_1.basicPriceOf)(cur.basic_rate_inr_sqft, u), u, cur.company_inaugural_disc);
+            const bb = await (0, rebate_js_1.bookedBasisOf)(c, cur, u); // QA-001/005: measured on the booked price, not on today's unit master
+            const rb = (0, rebate_js_1.checkRebate)(cur.company_rebate_rs, cur.company_rebate_sqft, cur.company_rebate_pct, bb.basic, bb.unit, cur.company_inaugural_disc);
             if (rb.method === 'none')
                 throw conflict('There is no rebate on this booking.');
             const amount = approve ? rb.amount : 0;
             if (approve)
-                await (0, rebate_js_1.repriceBooking)(c, { ...cur, approved_rebate_amount: amount }, req.userId || null);
+                await (0, rebate_js_1.repriceBooking)(c, { ...cur, prior_rebate_amount: cur.approved_rebate_amount, approved_rebate_amount: amount }, req.userId || null);
             const row = (await c.query(`UPDATE booking_records SET company_rebate_status = $2, approved_rebate_amount = $3, rebate_decided_by = $4, rebate_decided_at = NOW(), rebate_decision_reason = $5 WHERE id = $1 RETURNING *`, [id, approve ? 'approved' : 'rejected', amount, req.userId, reason])).rows[0];
             return { row, rb, requestedBy: cur.rebate_requested_by };
         });

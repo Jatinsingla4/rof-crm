@@ -19,8 +19,9 @@ const ALLOWED = {
   2,
   2
  ],
+ // reviewed (QA-009, V1.1): the paid-commission reconciliation no longer reads receipts itself, it uses commissionBackedSql (money-basis.ts: cleared, no ADV copies, approved returns taken off): 8 -> 7
  "routes/booking.ts": [
-  8,
+  7,
   9
  ],
  "routes/brokers.ts": [
@@ -123,8 +124,9 @@ const ALLOWED = {
   9,
   3
  ],
+ // reviewed (QA-009, V1.1): commissionBackedSql is new here and reads receipts only through eligibleSum (the central cleared, non-ADV, net-of-returns definition): 1 -> 2
  "utils/money-basis.ts": [
-  1,
+  2,
   7
  ],
  "utils/invoice-exposure.ts": [

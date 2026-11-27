@@ -37,11 +37,11 @@ const pickDemands = (p, upTo, criteria) => criteria === 'pending' ? p.demands.fi
 const totalsOf = (p, ds) => {
     const demanded = (0, report_ledger_js_1.sum)(ds, (d) => d.total), paid = (0, report_ledger_js_1.sum)(ds, (d) => d.paid);
     const o = ds.reduce((a, d) => { const s = (0, report_ledger_js_1.split)(d); return { amount: a.amount + s.amount, cgst: a.cgst + s.cgst, sgst: a.sgst + s.sgst }; }, { amount: 0, cgst: 0, sgst: 0 });
-    const raisedPaid = (0, report_ledger_js_1.sum)(p.demands.filter((d) => d.raised), (d) => d.paid);
+    const ct = (0, report_ledger_js_1.customerTotals)(p); // the credit is defined once, in the ledger (credit = advance on unraised instalments + surplus)
     return {
         demanded, paid, amount: (0, report_ledger_js_1.sum)(ds, (d) => d.base + d.addon), cgst: (0, report_ledger_js_1.sum)(ds, (d) => d.cgst), sgst: (0, report_ledger_js_1.sum)(ds, (d) => d.sgst),
         outstanding: (0, report_ledger_js_1.r2)(demanded - paid), os_amount: (0, report_ledger_js_1.r2)(o.amount), os_cgst: (0, report_ledger_js_1.r2)(o.cgst), os_sgst: (0, report_ledger_js_1.r2)(o.sgst),
-        credit: (0, report_ledger_js_1.r2)(Math.max(0, p.received - raisedPaid)),
+        credit: ct.credit, advanceOnUnraised: ct.advanceOnUnraised, surplusCredit: ct.surplusCredit,
         undue: (0, report_ledger_js_1.sum)(p.demands.filter((d) => !d.raised), (d) => d.total),
         last_due: ds.reduce((m, d) => (d.due_date && (!m || d.due_date > m) ? d.due_date : m), null),
     };
