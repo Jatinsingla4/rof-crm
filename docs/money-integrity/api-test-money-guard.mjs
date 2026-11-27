@@ -64,9 +64,10 @@ const ALLOWED = {
   2,
   0
  ],
+ // reviewed (QA-013/043, V1.1): GET /payments/dashboard no longer sums receipts itself, it takes the canonical measures from the ledger (cleared, no ADV copies, approved returns off): 19/28 -> 18/27
  "routes/payments.ts": [
-  19,
-  28
+  18,
+  27
  ],
  "routes/projects.ts": [
   1,

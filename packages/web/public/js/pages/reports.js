@@ -1315,7 +1315,7 @@ const ReportsPage = {
         { label: 'TOTAL CONSUMERS',  value: parseInt(summ.totalConsumers || 0).toLocaleString('en-IN'), color: 'var(--accent)' },
         { label: 'TOTAL UNIT COST',  value: fmtA(summ.totalUnitCost),  color: 'var(--accent)' },
         { label: 'CLEARED RECEIVED (live bookings in these rows)', value: fmtA(summ.totalReceived),  color: '#198754' },
-        ...[['CLEARED ON CANCELLED BOOKINGS (settled by refund)', summ.receivedCancelled], ['CLEARED WITH NO PLAN (credit, no booking)', summ.receivedNoPlan], ['CLEARED, OTHER (not in these rows)', summ.receivedOther]]
+        ...[['CLEARED ON CANCELLED BOOKINGS (net of bank returns)', summ.receivedCancelled], ['REFUNDED ON CANCELLED BOOKINGS (processed refunds only)', summ.refundedCancelled], ['CLEARED WITH NO PLAN (credit, no booking)', summ.receivedNoPlan], ['CLEARED, OTHER (not in these rows)', summ.receivedOther]]
           .filter(([, v]) => v != null && Math.abs(v) >= 0.01).map(([label, v]) => ({ label, value: fmtA(v), color: '#b8860b' })),
         { label: 'BILLED BALANCE (demanded - cleared)',    value: fmtA(summ.totalBalance),   color: parseFloat(summ.totalBalance||0) > 0 ? '#dc3545' : '#198754' },
       ]);

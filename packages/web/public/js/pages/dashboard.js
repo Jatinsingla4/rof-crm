@@ -439,7 +439,7 @@ Pages.dashboard = async function() {
             <td class="txt-right" style="color:var(--teal);font-weight:600">${Utils.currency(r.amount_received_inr)}</td>
             <td><span class="chip chip-blue">${Utils.esc(r.payment_method || '—')}</span></td>
             <td style="font-size:10.5px">${Utils.date(r.received_date)}</td>
-            <td>${r.booking_cancelled ? '<span style="font-size:11px;color:var(--text-muted)" title="This booking is cancelled. The money is settled by refund, not approval.">Booking cancelled</span>' : (window.Permissions && !Permissions.canCheck('receipt') ? '<span style="font-size:11px;color:var(--text-muted)" title="You do not have checker access for receipts.">No checker access</span>' : `<button class="btn btn-teal btn-sm" data-action="approve-receipt" onclick="DashboardPage.approveReceipt('${r.id}', this)">Approve</button>`)}</td>
+            <td>${r.booking_cancelled ? '<span style="font-size:11px;color:var(--text-muted)" title="This booking is cancelled, so this receipt cannot be approved. A checker can cancel it; money that already cleared is returned through the refund process.">Booking cancelled</span>' : (window.Permissions && !Permissions.canCheck('receipt') ? '<span style="font-size:11px;color:var(--text-muted)" title="You do not have checker access for receipts.">No checker access</span>' : `<button class="btn btn-teal btn-sm" data-action="approve-receipt" onclick="DashboardPage.approveReceipt('${r.id}', this)">Approve</button>`)}</td>
           </tr>`).join('')}
         </tbody>
       </table></div>`;

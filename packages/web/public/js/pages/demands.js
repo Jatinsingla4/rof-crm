@@ -128,7 +128,7 @@ Pages.demands = async function(params = {}) {
     <!-- PENAL INTEREST TAB -->
     <div data-panel-group="dem" data-panel="penal" style="display:none">
       <div class="sp" style="margin-bottom:12px">
-        <div class="sp-hdr"><div class="sp-title">HRERA Rule 15 — Penal Interest (11.10% p.a.)</div></div>
+        <div class="sp-hdr"><div class="sp-title">HRERA Rule 15 — Penal Interest</div></div>
         <div class="sp-body">
           <div class="sp-grid">
             <div class="fg"><label class="fl">Project</label>
@@ -201,14 +201,15 @@ const DemandsPage = {
       const r1    = list.filter(d => d.demand_type === 'reminder_1');
       const r2    = list.filter(d => d.demand_type === 'reminder_2');
       const term  = list.filter(d => d.demand_type === 'termination');
-      const osAmt = list.reduce((s,d) => s + parseFloat(d.amount_due_inr||d.amount||0), 0);
+      // the unpaid balance of these demands with their GST and add-ons (the API's balance = demand total less what was paid), not the sum of the instalment amounts
+      const osAmt = list.reduce((s,d) => s + (d.balance != null ? Math.max(0, parseFloat(d.balance)) : parseFloat(d.amount_due_inr||d.amount||0)), 0);
 
       document.getElementById('demand-kpis').innerHTML = `
         <div class="kpi c-accent"><div class="kpi-lbl">Total Demands</div><div class="kpi-val">${list.length}</div><div class="kpi-sub">All stages</div></div>
         <div class="kpi c-blue"><div class="kpi-lbl">Main Demand</div><div class="kpi-val">${main.length}</div><div class="kpi-sub">${main.filter(d=>d.sent_at).length} sent · ${main.filter(d=>!d.sent_at).length} unsent</div></div>
         <div class="kpi c-warn"><div class="kpi-lbl">Reminders</div><div class="kpi-val">${r1.length + r2.length}</div><div class="kpi-sub">R1: ${r1.length} · R2: ${r2.length}</div></div>
         <div class="kpi c-red"><div class="kpi-lbl">Termination</div><div class="kpi-val">${term.length}</div><div class="kpi-sub">${term.filter(d=>d.sent_at).length} sent</div></div>
-        <div class="kpi c-gold"><div class="kpi-lbl">O/S Amount</div><div class="kpi-val">${Utils.currency(osAmt)}</div><div class="kpi-sub">Total outstanding</div></div>
+        <div class="kpi c-gold"><div class="kpi-lbl">Unpaid Balance</div><div class="kpi-val">${Utils.currency(osAmt)}</div><div class="kpi-sub">These demands, with GST, less money paid</div></div>
       `;
 
       this.renderTable(list);

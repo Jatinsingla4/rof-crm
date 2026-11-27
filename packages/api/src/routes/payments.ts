@@ -26,6 +26,7 @@ import { allocationShadow } from '../utils/receipt-allocation-shadow.js';
 import { invoicesOverReceipt } from '../utils/invoice-exposure.js';
 import { SQL_TODAY, businessDayStart, businessToday, businessTomorrow, sqlDay } from '../utils/business-date.js';
 import { gstinOk } from '../utils/applicant.js';
+import { financialMeasures } from '../utils/financial-measures.js';
 import { planIsCancelled } from '../utils/booking-state.js';
 const INVOICE_CANCELLED_MSG = 'This booking is cancelled, so no new tax invoice can be raised on it. Reverse what was invoiced with a credit note.';
 import { requireDownload, requirePrint, requirePrintAndDownload } from '../middleware/printDownload.js';
@@ -144,27 +145,26 @@ router.get('/overdue', async (req: AuthRequest, res: Response, next: NextFunctio
   } catch (error) { fail(error, res, next); }
 });
 
-// GET /api/payments/dashboard - Payment dashboard KPIs (live receipts only, unpaid demands only, one project when projectId is given)
+// GET /api/payments/dashboard - Payment dashboard KPIs, one project when projectId is given.
+// QA-013/043: these are the canonical measures (utils/financial-measures.ts, the same figures as GET /reports/financial-measures), not a calculation of its own. It used to add up plan totals
+// BEFORE GST, subtract cleared money INCLUDING GST, keep cancelled bookings in, and count unraised instalments as overdue. totalReceivables is the agreement value with GST,
+// totalCollected the valid collections (cleared, net of approved returns), outstanding the contract balance; billedOutstanding and overdueAmount are the raised-demand figures.
 router.get('/dashboard', async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const projectId = has(req.query.projectId) ? uuid(req.query.projectId, 'projectId') : null;
-    const result = await db.query(
-      `SELECT
-         COALESCE((SELECT SUM(total_amount_inr) FROM payment_plans WHERE $1::uuid IS NULL OR project_id = $1), 0) AS total_receivables,
-         COALESCE((SELECT SUM(r.amount_received_inr - ${returnedSql('r')}) FROM receipts r JOIN payment_plans p ON p.id = r.payment_plan_id
-                    WHERE r.status = 'cleared' AND r.is_advance IS NOT TRUE AND ($1::uuid IS NULL OR p.project_id = $1)), 0) AS total_collected,
-         (SELECT COUNT(*) FROM demands d JOIN payment_plans p ON p.id = d.payment_plan_id
-           WHERE d.due_date < NOW() AND d.status NOT IN ('paid', 'cancelled') AND ($1::uuid IS NULL OR p.project_id = $1)) AS overdue_count`,
-      [projectId]
-    );
-    const totalReceivables = Number(result.rows[0].total_receivables), totalCollected = Number(result.rows[0].total_collected), overdueCount = Number(result.rows[0].overdue_count);
+    const plans = await loadLedger({ projectId: projectId || undefined });
+    const m = financialMeasures(plans);
+    const totalReceivables = m.agreement_value_incl_gst, totalCollected = m.valid_collections;
+    const overdueCount = plans.reduce((n, p) => n + overdueOf(p).length, 0);
     res.json({
       success: true,
       data: { kpis: {
         totalReceivables, totalCollected,
         collectionPercentage: totalReceivables > 0 ? Math.round((totalCollected / totalReceivables) * 100) : 0,
-        outstanding: totalReceivables - totalCollected,
+        outstanding: m.contract_balance,
+        billedOutstanding: m.billed_outstanding,
         overdueCount,
+        overdueAmount: m.overdue,
       } },
     });
   } catch (error) { fail(error, res, next); }

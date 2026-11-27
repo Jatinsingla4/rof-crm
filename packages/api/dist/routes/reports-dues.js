@@ -82,21 +82,24 @@ router.get('/customer-balance', (0, exports.h)(async (req, res) => {
     }).filter((r) => balanceType === 'all' || (balanceType === 'outstanding' ? r.balance > 0 : r.balance < 0));
     // This report is one row per LIVE booking, so cleared money of a cancelled booking or of a receipt with no plan is not in any row. It is shown as its own figure,
     // so the report can be tied to the dashboard's cleared collections instead of silently being lower (QA-013). Only when no row filter narrows the people.
-    let receivedNotInRows = null, receivedCancelled = null, receivedNoPlan = null;
+    let receivedNotInRows = null, receivedCancelled = null, receivedNoPlan = null, refundedCancelled = null;
     if (!x.name && !x.registrationNo && !x.towerId && !x.bhkType && !x.brokerId && !x.planName && !x.bookingFromDate && !x.bookingToDate && !x.companyId && !x.consumerId) {
         const clearedAll = Number((await pool_js_1.db.query(`SELECT ${(0, money_basis_js_1.eligibleSum)('r')} AS n FROM receipts r JOIN consumers c ON c.id = r.consumer_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0);
         receivedNotInRows = (0, report_ledger_js_1.r2)(clearedAll - (0, report_ledger_js_1.sum)(plans, (p) => p.received));
-        // QA-013: the two reasons are different money. Cleared money of a cancelled booking is settled by refund; cleared money with no plan is credit with no booking.
+        // QA-013/043: the two reasons are different money. Cleared money of a cancelled booking is NOT settled by itself: only refunds that were processed (payment_refunds) have settled any of it, and
+        // those are shown beside it. Cleared money with no plan is credit with no booking.
         const sp = (await pool_js_1.db.query(`SELECT COALESCE(SUM(${(0, money_basis_js_1.eligibleAmountSql)('r')}) FILTER (WHERE pp.id IS NOT NULL AND ${(0, booking_state_js_1.cancelledPlanSql)('pp')}), 0) AS cancelled,
               COALESCE(SUM(${(0, money_basis_js_1.eligibleAmountSql)('r')}) FILTER (WHERE r.payment_plan_id IS NULL), 0) AS noplan
          FROM receipts r JOIN consumers c ON c.id = r.consumer_id LEFT JOIN payment_plans pp ON pp.id = r.payment_plan_id WHERE ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0];
         receivedCancelled = (0, report_ledger_js_1.r2)(Number(sp.cancelled));
         receivedNoPlan = (0, report_ledger_js_1.r2)(Number(sp.noplan));
+        refundedCancelled = (0, report_ledger_js_1.r2)(Number((await pool_js_1.db.query(`SELECT COALESCE(SUM(pr.refund_amount_inr), 0) AS n FROM payment_refunds pr JOIN payment_plans pp ON pp.id = pr.payment_plan_id JOIN consumers c ON c.id = pr.consumer_id
+        WHERE pr.status = 'processed' AND ${(0, booking_state_js_1.cancelledPlanSql)('pp')} AND ($1::uuid IS NULL OR c.project_id = $1::uuid)`, [x.projectId || null])).rows[0]?.n || 0));
     }
     res.json({
         success: true, data: rows.slice(offset, offset + size), total: rows.length, page, pageSize: size,
         summary: { totalConsumers: rows.length, totalUnitCost: (0, report_ledger_js_1.sum)(rows, (r) => r.unit_cost), totalReceived: (0, report_ledger_js_1.sum)(rows, (r) => r.total_received), totalBalance: (0, report_ledger_js_1.sum)(rows, (r) => r.balance),
-            receivedNotInRows, receivedCancelled, receivedNoPlan, receivedOther: receivedNotInRows === null ? null : (0, report_ledger_js_1.r2)(receivedNotInRows - (receivedCancelled || 0) - (receivedNoPlan || 0)) },
+            receivedNotInRows, receivedCancelled, refundedCancelled, receivedNoPlan, receivedOther: receivedNotInRows === null ? null : (0, report_ledger_js_1.r2)(receivedNotInRows - (receivedCancelled || 0) - (receivedNoPlan || 0)) },
     });
 }));
 // ---------------------------------------------------------------------------------------------------------------------

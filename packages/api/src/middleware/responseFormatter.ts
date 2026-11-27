@@ -76,11 +76,8 @@ const formatConsumer = (consumer: any): any => {
 const formatAllocation = (allocation: any): any => {
   const formatted: any = { ...allocation };
 
-  // Add forfeiture and refund calculations if cancelled
-  if (allocation.status === 'cancelled' && allocation.total_paid) {
-    formatted.forfeiture_amount = 25000; // Base forfeiture
-    formatted.refund_amount = Math.max(0, allocation.total_paid - formatted.forfeiture_amount);
-  }
+  // QA-043: no forfeiture or refund figure is made up here any more (a fixed 25,000 forfeiture and total_paid less it as "refund_amount", with no refund behind it).
+  // What was refunded is in payment_refunds; what a cancellation charges is worked out by the surrender / cancellation process.
 
   // Add payment_pct if total_amount exists
   if (allocation.total_amount && allocation.total_paid !== undefined) {
